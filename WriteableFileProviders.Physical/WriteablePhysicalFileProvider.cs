@@ -11,6 +11,10 @@ namespace WriteableFileProviders.Physical
 {
     public class WriteablePhysicalFileProvider: WriteableFileProvider
     {
+        public static WriteableFileProvider FromJson(JObject obj)
+        {
+            return WriteableFileProvider.FromJson(obj, typeof(WriteablePhysicalFileProvider).Assembly);
+        }
         
         private PhysicalFileProvider _provider = null;
 

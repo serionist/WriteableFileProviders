@@ -15,6 +15,7 @@ namespace WriteableFileProviders.Tests
         public static void Init(TestContext _context)
         {
             context = _context;
+
         }
 
         protected override IWriteableFileProvider GetProvider()

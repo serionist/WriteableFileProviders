@@ -31,12 +31,13 @@ namespace WriteableFileProviders
             if (!ReadOnly && !disposeEventCalled)
             {
                 disposeEventCalled = true;
-                await Provider.OnLocalFileStreamClosingAsync(this);
+                await Provider.OnLocalFileStreamDisposingAsync(this);
             }
+            Stream.Dispose();
         }
         protected override void Dispose(bool disposing)
         {
-
+            
             DisposeAsync().Wait();
             Stream.Dispose();
         }

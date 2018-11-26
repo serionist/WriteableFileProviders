@@ -20,7 +20,7 @@ namespace WriteableFileProviders.Tests
 
         protected override IWriteableFileProvider GetProvider()
         {
-            var dir = Path.GetFullPath((string)context.Properties["PhysicalFileProvider.RootPath"]);
+            var dir = Path.GetFullPath((string)context.Properties["PhysicalFileProvider_RootPath"]);
             Directory.CreateDirectory(dir);
             return new WriteablePhysicalFileProvider(dir);
         }

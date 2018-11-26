@@ -2,7 +2,8 @@
 <RunSettings>
  
   <TestRunParameters>
-    <Parameter name="PhysicalFileProvider.RootPath" value="TestDirectory\PyhsicalProvider" />
+    <Parameter name="PhysicalFileProvider_RootPath" value="TestDirectory\PyhsicalProvider" />
+    
     </TestRunParameters>
 
 </RunSettings>

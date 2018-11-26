@@ -3,7 +3,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 15
 VisualStudioVersion = 15.0.27703.2047
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VirtDB.FileProviders", "VirtDB.FileProviders\VirtDB.FileProviders.csproj", "{48EC3E52-CC71-4C35-BC91-329FEFE9DE95}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WriteableFileProviders.Common", "VirtDB.FileProviders\WriteableFileProviders.Common.csproj", "{48EC3E52-CC71-4C35-BC91-329FEFE9DE95}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

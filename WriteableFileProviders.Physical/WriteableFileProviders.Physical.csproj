@@ -2,6 +2,11 @@
 
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
+    <Authors>Soma Osvay</Authors>
+    <Company>Soma Osvay</Company>
+    <Description>PhysicalFileProvider implementation if IWriteableFileProvider</Description>
+    <PackageProjectUrl>https://serionist.visualstudio.com/WriteableFileProviders</PackageProjectUrl>
+    <RepositoryUrl>https://serionist.visualstudio.com/_git/WriteableFileProviders</RepositoryUrl>
   </PropertyGroup>
 
   <ItemGroup>

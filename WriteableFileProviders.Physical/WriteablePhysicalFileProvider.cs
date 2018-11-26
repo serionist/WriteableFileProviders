@@ -9,13 +9,8 @@ using Newtonsoft.Json.Linq;
 
 namespace WriteableFileProviders.Physical
 {
-    public class WriteablePhysicalFileProvider: WriteableFileProvider
+    public class WriteablePhysicalFileProvider: WriteableFileProvider<PhysicalFileProviderOptions>
     {
-        public static WriteableFileProvider FromJson(JObject obj)
-        {
-            return WriteableFileProvider.FromJson(obj, typeof(WriteablePhysicalFileProvider).Assembly);
-        }
-        
         private PhysicalFileProvider _provider = null;
 
         public string RootPath
@@ -24,7 +19,7 @@ namespace WriteableFileProviders.Physical
             set => _provider = new PhysicalFileProvider(value);
         }
 
-        public WriteablePhysicalFileProvider(string rootPath)
+        public WriteablePhysicalFileProvider(string rootPath): base(new PhysicalFileProviderOptions(){ RootPath = rootPath})
         {
             RootPath = rootPath;
             Directory.CreateDirectory(RootPath);

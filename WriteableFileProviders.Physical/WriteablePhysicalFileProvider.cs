@@ -11,23 +11,21 @@ namespace WriteableFileProviders.Physical
 {
     public class WriteablePhysicalFileProvider: WriteableFileProvider<PhysicalFileProviderOptions>
     {
-        private PhysicalFileProvider _provider = null;
+        private readonly PhysicalFileProvider _provider;
+       
 
-        public string RootPath
+        public WriteablePhysicalFileProvider(string rootPath): this(new PhysicalFileProviderOptions(){ RootPath = rootPath})
         {
-            get => _provider?.Root;
-            set => _provider = new PhysicalFileProvider(value);
+           
         }
 
-        public WriteablePhysicalFileProvider(string rootPath): base(new PhysicalFileProviderOptions(){ RootPath = rootPath})
+        public WriteablePhysicalFileProvider(PhysicalFileProviderOptions options) : base(options)
         {
-            RootPath = rootPath;
-            Directory.CreateDirectory(RootPath);
+            if (string.IsNullOrEmpty(options.RootPath))
+                throw new ArgumentException("RootPath cannot be empty", nameof(options.RootPath));
+            _provider =  new PhysicalFileProvider(options.RootPath);
         }
-        public WriteablePhysicalFileProvider():this(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location))
-        {
             
-        }
 
         public override async Task OnLocalFileStreamDisposingAsync(LocalFileStream stream)
         {
@@ -96,7 +94,7 @@ namespace WriteableFileProviders.Physical
             string fullPath;
             try
             {
-                fullPath = Path.GetFullPath(Path.Combine(RootPath, getPath(path)));
+                fullPath = Path.GetFullPath(Path.Combine(_provider.Root, getPath(path)));
             }
             catch
             {

@@ -87,5 +87,6 @@ namespace WriteableFileProviders
         /// <param name="stream"></param>
         /// <returns></returns>
         Task OnLocalFileStreamDisposingAsync(LocalFileStream stream);
+        JObject ToJson();
     }
 }

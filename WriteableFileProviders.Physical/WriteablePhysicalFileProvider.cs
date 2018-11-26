@@ -8,106 +8,48 @@ using Newtonsoft.Json.Linq;
 
 namespace WriteableFileProviders.Physical
 {
-    public class WriteablePhysicalFileProvider: PhysicalFileProvider, IWriteableFileProvider
+    public class WriteablePhysicalFileProvider: WriteableFileProvider
     {
-        public WriteablePhysicalFileProvider(string RootDirectory) : base(RootDirectory)
-        {
-        }
+        public bool RootPath { get; set; }
 
-        public WriteablePhysicalFileProvider(string RootDirectory, ExclusionFilters filters) : base(RootDirectory, filters)
-        {
-        }
-
-
-
-        private string GetFullPath(string path)
-        {
-            string fullPath;
-            try
-            {
-                fullPath = Path.GetFullPath(Path.Combine(this.Root, path));
-            }
-            catch
-            {
-                return (string)null;
-            }
-            return fullPath;
-        }
-
-        public async Task<IFileInfo> GetFileInfoAsync(string subpath)
-        {
-            return GetFileInfo(subpath);
-        }
-
-        public async Task<IDirectoryContents> GetDirectoryContentsAsync(string subpath)
-        {
-            return GetDirectoryContents(subpath);
-        }
-
-        public async Task<IChangeToken> WatchAsync(string filter)
-        {
-            return Watch(filter);
-        }
-
-
-        public async Task<Stream> ReadFileAsync(string subpath)
-        {
-            return ReadFile(subpath);
-        }
-
-        public Stream ReadFile(string subpath)
-        {
-            return new FileStream(this.GetFullPath(subpath), FileMode.Open, FileAccess.Read);
-        }
-
-        public async Task UpdateFileAsync(string subpath, Stream contents)
-        {
-            UpdateFile(subpath, contents);
-        }
-
-        public void UpdateFile(string subpath, Stream contents)
-        {
-            contents.Position = 0;
-            using (var fs = new FileStream(this.GetFullPath(subpath), FileMode.OpenOrCreate, FileAccess.ReadWrite))
-                contents.CopyTo(fs);
-        }
-
-        public bool Delete(string subpath)
-        {
-            var p = this.GetFullPath(subpath);
-            var ret = false;
-            if (Directory.Exists(p))
-            {
-                ret = true;
-                Directory.Delete(p);
-            }
-            else if (File.Exists(p))
-            {
-                ret = true;
-                File.Delete(p);
-            }
-            return ret;
-        }
-
-        public async Task<bool> DeleteAsync(string subpath)
-        {
-            return Delete(subpath);
-        }
-
-        public Task<LocalFileStream> CreateLocalFileStreamAsync(string subpath)
+        public override Task OnLocalFileStreamDisposingAsync(LocalFileStream stream)
         {
             throw new NotImplementedException();
         }
 
-        public LocalFileStream CreateLocalFileStream(string subpath)
+        protected override Task<IFileInfo> getFileInfo(string normalizedPath, string name)
         {
             throw new NotImplementedException();
         }
 
-        public Task OnLocalFileStreamDisposingAsync(LocalFileStream stream)
+        protected override Task<IDirectoryContents> getDirectoryContents(string normalizedPath, string name)
         {
             throw new NotImplementedException();
         }
-        
+
+        protected override Task<IChangeToken> watchAsync(string normalizedPath)
+        {
+            throw new NotImplementedException();
+        }
+
+        protected override Task<Stream> readFileAsync(string normalizedPath)
+        {
+            throw new NotImplementedException();
+        }
+
+        protected override Task writeFileAsync(string normalizedPath, Stream contents)
+        {
+            throw new NotImplementedException();
+        }
+
+        protected override Task<bool> deleteAsync(string normalizedPath)
+        {
+            throw new NotImplementedException();
+        }
+
+        protected override Task<LocalFileStream> createLocalFileStreamAsync(string normalizedPath)
+        {
+            throw new NotImplementedException();
+        }
     }
 }

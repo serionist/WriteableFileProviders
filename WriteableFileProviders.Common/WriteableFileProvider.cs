@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -28,7 +29,7 @@ namespace WriteableFileProviders
         public async Task<IFileInfo> GetFileInfoAsync(string subpath)
         {
             var normalizedPath = normalizePath(subpath);
-            return await getFileInfo(normalizedPath.path, normalizedPath.name);
+            return await getFileInfo(normalizedPath);
         }
         public IFileInfo GetFileInfo(string subpath)
         {
@@ -37,7 +38,7 @@ namespace WriteableFileProviders
         public async Task<IDirectoryContents> GetDirectoryContentsAsync(string subpath)
         {
             var normalizedPath = normalizePath(subpath);
-            return await getDirectoryContents(normalizedPath.path, normalizedPath.name);
+            return await getDirectoryContents(normalizedPath);
         }
 
         public IDirectoryContents GetDirectoryContents(string subpath)
@@ -51,14 +52,13 @@ namespace WriteableFileProviders
         }
         public async Task<IChangeToken> WatchAsync(string filter)
         {
-            var normalizedPath = normalizePath(filter);
-            return await watchAsync(normalizedPath.path);
+            return await watchAsync(filter);
         }
 
         public async Task<Stream> ReadFileAsync(string subpath)
         {
             var normalizedPath = normalizePath(subpath);
-            return await readFileAsync(normalizedPath.path);
+            return await readFileAsync(normalizedPath);
         }
 
         public Stream ReadFile(string subpath)
@@ -69,7 +69,7 @@ namespace WriteableFileProviders
         public async Task UpdateFileAsync(string subpath, Stream contents)
         {
             var normalizedPath = normalizePath(subpath);
-            await writeFileAsync(normalizedPath.path, contents);
+            await writeFileAsync(contents, normalizedPath);
         }
         public void UpdateFile(string subpath, Stream contents)
         {
@@ -97,25 +97,22 @@ namespace WriteableFileProviders
 
         public abstract Task OnLocalFileStreamDisposingAsync(LocalFileStream stream);
 
-        protected abstract Task<IFileInfo> getFileInfo(string normalizedPath, string name);
+        protected abstract Task<IFileInfo> getFileInfo(params string[] pathSegments);
 
-        protected abstract Task<IDirectoryContents> getDirectoryContents(string normalizedPath, string name);
+        protected abstract Task<IDirectoryContents> getDirectoryContents(params string[] pathSegments);
 
-        protected abstract Task<IChangeToken> watchAsync(string normalizedPath);
+        protected abstract Task<IChangeToken> watchAsync(string filter);
 
-        protected abstract Task<Stream> readFileAsync(string normalizedPath);
-        protected abstract Task writeFileAsync(string normalizedPath, Stream contents);
-        protected abstract Task<bool> deleteAsync(string normalizedPath);
-        protected abstract Task<LocalFileStream> createLocalFileStreamAsync(string normalizedPath);
-        protected (string path, string name) normalizePath(string p)
+        protected abstract Task<Stream> readFileAsync(params string[] pathSegments);
+        protected abstract Task writeFileAsync(Stream contents, params string[] pathSegments);
+        protected abstract Task<bool> deleteAsync(params string[] pathSegments);
+        protected abstract Task<LocalFileStream> createLocalFileStreamAsync(params string[] pathSegments);
+        protected string[] normalizePath(string p)
         {
-            if (string.IsNullOrEmpty(p)) return (p, p);
+            if (string.IsNullOrEmpty(p)) return new string[0];
             var ret = p.Replace("\\", "/");
             if (ret.StartsWith("/")) ret = ret.Substring(1);
-            var name = ret;
-            if (name.EndsWith("/")) name = name.Substring(0, name.Length - 1);
-            if (name.Contains("/")) name = name.Substring(name.LastIndexOf("/") + 1);
-            return (ret, name);
+            return ret.Split(new []{'/'}, StringSplitOptions.RemoveEmptyEntries);
 
         }
 

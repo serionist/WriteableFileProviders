@@ -4,34 +4,25 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Primitives;
 using Microsoft.WindowsAzure.Storage;
+using Microsoft.WindowsAzure.Storage.Blob;
 using Microsoft.WindowsAzure.Storage.File;
 
 namespace WriteableFileProviders.AzureBlob
 {
-    public class WriteableAzureBlobFileContainer:WriteableFileProvider
+    public class WriteableAzureBlobFileProvider:WriteableFileProvider<AzureFileProviderOptions>
     {
-        private string _conString;
-        private string _containerName;
-
-
-        public string ConnectionString
+        private CloudBlobContainer Container { get;  }
+        public WriteableAzureBlobFileProvider(AzureFileProviderOptions options) : base(options)
         {
-            get { return _conString; }
-            set { _conString = value; }
+            if (string.IsNullOrEmpty(Options.ConnectionString))
+                throw new ArgumentException("ConnectionString is required", nameof(Options.ConnectionString));
+            if (string.IsNullOrEmpty(Options.ContainerName))
+                throw new ArgumentException("ContainerName is required", nameof(Options.ContainerName));
+            var storageAcc = CloudStorageAccount.Parse(Options.ConnectionString);
+            Container = storageAcc.CreateCloudBlobClient().GetContainerReference(Options.ContainerName);
         }
 
-        public string ContainerName
-        {
-            get { return _containerName; }
-            set { _containerName = value; }
-        }
-
-        public void asd()
-        {
-            new CloudStorageAccount()
-            var storageAcc = CloudStorageAccount.Parse("");
-            storageAcc
-        }
+       
 
         public override Task OnLocalFileStreamDisposingAsync(LocalFileStream stream)
         {
@@ -72,5 +63,7 @@ namespace WriteableFileProviders.AzureBlob
         {
             throw new NotImplementedException();
         }
+
+        
     }
 }

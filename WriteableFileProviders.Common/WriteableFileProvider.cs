@@ -13,28 +13,7 @@ namespace WriteableFileProviders
 {
     public abstract class WriteableFileProvider:IWriteableFileProvider
     {
-        public static WriteableFileProvider FromJson(JObject obj, params Assembly[] searchInAssemblies)
-        {
-            var typeString = obj["Type"]?.Value<string>();
-            if (string.IsNullOrEmpty(typeString))
-                throw new ArgumentException("FileProvider cannot be parsed. 'Type' is not provided");
-            var providerType =  searchInAssemblies.SelectMany(e=>e.GetTypes())
-                .FirstOrDefault(e =>
-                    e.IsSubclassOf(typeof(WriteableFileProvider)) && !e.IsAbstract &&
-                    e.Name.Equals(typeString, StringComparison.InvariantCultureIgnoreCase));
-            if (providerType == null)
-                throw new ArgumentException($"FileProvider cannot be parsed. Type: '{typeString}' is not recognized");
-            return (WriteableFileProvider)obj.ToObject(providerType);
-        }
-
-      
-
-        public JObject ToJson()
-        {
-            var ret = JObject.FromObject(this);
-            ret["Type"] = this.GetType().Name;
-            return ret;
-        }
+     
         public async Task<IFileInfo> GetFileInfoAsync(string subpath)
         {
             var normalizedPath = normalizePath(subpath);

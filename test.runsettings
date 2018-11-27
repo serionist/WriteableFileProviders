@@ -3,7 +3,9 @@
  
   <TestRunParameters>
     <Parameter name="PhysicalFileProvider_RootPath" value="TestDirectory\PyhsicalProvider" />
-    
-    </TestRunParameters>
+    <Parameter name="AzureBlobFileProvider_ConnectionString" value="DefaultEndpointsProtocol=https;AccountName=dataunfolderazurestore;AccountKey=REDACTED_AZURE_ACCOUNT_KEY;EndpointSuffix=core.windows.net" />
+    <Parameter name="AzureBlobFileProvider_ContainerName" value="testcontainer" />
+    AzureBlobFileProvider
+  </TestRunParameters>
 
 </RunSettings>

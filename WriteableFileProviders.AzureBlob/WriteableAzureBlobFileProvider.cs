@@ -1,5 +1,7 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Primitives;
@@ -11,6 +13,7 @@ namespace WriteableFileProviders.AzureBlob
 {
     public class WriteableAzureBlobFileProvider:WriteableFileProvider<AzureFileProviderOptions>
     {
+        private readonly DateTime DefaultDateTime = new DateTime(1970, 1, 1, 0, 0, 0);
         private CloudBlobContainer Container { get;  }
         public WriteableAzureBlobFileProvider(AzureFileProviderOptions options) : base(options)
         {
@@ -24,46 +27,129 @@ namespace WriteableFileProviders.AzureBlob
 
        
 
-        public override Task OnLocalFileStreamDisposingAsync(LocalFileStream stream)
+    
+        protected override async Task<IFileInfo> getFileInfo(params string[] pathSegments)
         {
-            throw new NotImplementedException();
+            await Container.CreateIfNotExistsAsync();
+            var file = Container.GetBlockBlobReference(getPath(pathSegments));
+            var exists = await file.ExistsAsync();
+            if (exists)
+                await file.FetchAttributesAsync();
+            return new FileInfo(this,  exists, file.Properties.Length,
+                getPath(pathSegments), pathSegments.Last(), file.Properties.LastModified ?? DefaultDateTime, false);
+            
+
+
         }
 
-        protected override Task<IFileInfo> getFileInfo(string normalizedPath, string name)
+        protected override async Task<IDirectoryContents> getDirectoryContents(params string[] pathSegments)
         {
-            throw new NotImplementedException();
+            var e = await EnumerateFiles(pathSegments, false);
+            var ret = new List<IFileInfo>();
+            var metadataJobs = new List<Task>();
+            foreach (var file in e.files)
+            {
+                var t = new Task(async() =>
+                {
+                    await file.FetchAttributesAsync();
+                });
+                metadataJobs.Add(t);
+                t.Start();
+            }
+            Task.WaitAll(metadataJobs.ToArray());
+
+            foreach (var file in e.files)
+                ret.Add(new FileInfo(this, true, file.Properties.Length, file.Name, getFileName(file.Name), file.Properties.LastModified ?? DefaultDateTime, false));
+            foreach (var dir in e.directories)
+                ret.Add(new FileInfo(this, true, -1, dir.Prefix, getFileName(dir.Prefix), DefaultDateTime, true));
+          return new DirectoryContents(ret.Any(), ret.ToArray());
         }
 
-        protected override Task<IDirectoryContents> getDirectoryContents(string normalizedPath, string name)
+        protected override Task<IChangeToken> watchAsync(string filter)
         {
-            throw new NotImplementedException();
+            throw new NotImplementedException("Watch is not supported in WriteableAzureBlobFileProvider");
         }
 
-        protected override Task<IChangeToken> watchAsync(string normalizedPath)
+        protected override async Task<Stream> readFileAsync(params string[] pathSegments)
         {
-            throw new NotImplementedException();
+            var file = Container.GetBlockBlobReference(getPath(pathSegments));
+            return await file.OpenReadAsync();
         }
 
-        protected override Task<Stream> readFileAsync(string normalizedPath)
+        protected override async Task writeFileAsync(Stream contents, params string[] pathSegments)
         {
-            throw new NotImplementedException();
+            var file = Container.GetBlockBlobReference(getPath(pathSegments));
+            await file.UploadFromStreamAsync(contents);
+
         }
 
-        protected override Task writeFileAsync(string normalizedPath, Stream contents)
+        protected override async Task<bool> deleteAsync(params string[] pathSegments)
         {
-            throw new NotImplementedException();
+            var file = Container.GetBlockBlobReference(getPath(pathSegments));
+            if (await file.DeleteIfExistsAsync())
+                return true;
+            var ret = false;
+            foreach (var f in (await EnumerateFiles(pathSegments, true)).files)
+                ret = await f.DeleteIfExistsAsync();
+            return ret;
         }
 
-        protected override Task<bool> deleteAsync(string normalizedPath)
+        private async Task<(CloudBlockBlob[] files, CloudBlobDirectory[] directories)> EnumerateFiles(string[] pathSegments, bool deep)
         {
-            throw new NotImplementedException();
+            var ret = new List<CloudBlockBlob>();
+            var retDirs = new List<CloudBlobDirectory>();
+            var contToken = new BlobContinuationToken();
+            while (contToken != null)
+            {
+                var req = await Container.ListBlobsSegmentedAsync($"{getPath(pathSegments)}/", deep, BlobListingDetails.None, null,
+                    contToken, new BlobRequestOptions(), new OperationContext());
+                contToken = req.ContinuationToken;
+                ret.AddRange(req.Results.OfType<CloudBlockBlob>());
+                retDirs.AddRange(req.Results.OfType<CloudBlobDirectory>());
+            }
+            return (ret.ToArray(), retDirs.ToArray());
+
+        }
+       
+
+        protected override async Task<LocalFileStream> createLocalFileStreamAsync(params string[] pathSegments)
+        {
+            var tempFileName = Path.GetTempFileName();
+            var tempStream = new FileStream(tempFileName, FileMode.Open, FileAccess.ReadWrite, FileShare.None, 4096, FileOptions.DeleteOnClose);
+            try
+            {
+                using (var fs = await readFileAsync(pathSegments))
+                    fs.CopyTo(tempStream);
+                tempStream.Position = 0;
+                return new LocalFileStream(tempStream, this, false, pathSegments);
+            }
+            catch
+            {
+                tempStream.Dispose();
+                throw;
+            }
+
         }
 
-        protected override Task<LocalFileStream> createLocalFileStreamAsync(string normalizedPath)
+        public override async Task OnLocalFileStreamDisposingAsync(LocalFileStream stream)
         {
-            throw new NotImplementedException();
+            stream.Position = 0;
+            await writeFileAsync(stream, stream.TargetFilePathSegments);
         }
 
-        
+
+        private string getPath(string[] pathSegments)
+        {
+            return string.Join("/", pathSegments);
+        }
+
+        private string getFileName(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return path;
+            if (!path.Contains("/")) return path;
+            var ret = path;
+            if (ret.EndsWith("/")) ret = ret.Substring(0, ret.Length - 1);
+            return ret.Substring(ret.LastIndexOf("/") + 1);
+        }
     }
 }

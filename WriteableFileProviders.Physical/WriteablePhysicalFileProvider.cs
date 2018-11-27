@@ -1,9 +1,9 @@
 ﻿using System;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using Microsoft.Extensions.FileProviders;
-using Microsoft.Extensions.FileProviders.Physical;
 using Microsoft.Extensions.Primitives;
 using Newtonsoft.Json.Linq;
 
@@ -32,38 +32,38 @@ namespace WriteableFileProviders.Physical
             return;
         }
 
-        protected override async Task<IFileInfo> getFileInfo(string normalizedPath, string name)
+        protected override async Task<IFileInfo> getFileInfo(params string[] pathSegments)
         {
-            return _provider.GetFileInfo(getPath(normalizedPath));
+            return _provider.GetFileInfo(getPath(pathSegments));
         }
 
-        protected override async Task<IDirectoryContents> getDirectoryContents(string normalizedPath, string name)
+        protected override async Task<IDirectoryContents> getDirectoryContents(params string[] pathSegments)
         {
-            return _provider.GetDirectoryContents(getPath(normalizedPath));
+            return _provider.GetDirectoryContents(getPath(pathSegments));
         }
 
-        protected override async Task<IChangeToken> watchAsync(string normalizedPath)
+        protected override async Task<IChangeToken> watchAsync(string filter)
         {
-            return base.Watch(getPath(normalizedPath));
+            return base.Watch(filter);
         }
 
-        protected override async Task<Stream> readFileAsync(string normalizedPath)
+        protected override async Task<Stream> readFileAsync(params string[] pathSegments)
         {
-            Directory.CreateDirectory(getFullPath(normalizedPath));
-            return GetFileInfo(getPath(normalizedPath)).CreateReadStream();
+            Directory.CreateDirectory(getFullPath(pathSegments));
+            return GetFileInfo(getPath(pathSegments)).CreateReadStream();
         }
 
-        protected override async Task writeFileAsync(string normalizedPath, Stream contents)
+        protected override async Task writeFileAsync(Stream contents, params string[] pathSegments)
         {
-            string p = getFullPath(normalizedPath);
+            string p = getFullPath(pathSegments);
             Directory.CreateDirectory(Path.GetDirectoryName(p));
             using (var fs = new FileStream(p, FileMode.OpenOrCreate, FileAccess.ReadWrite))
                 contents.CopyTo(fs);
         }
 
-        protected override async Task<bool> deleteAsync(string normalizedPath)
+        protected override async Task<bool> deleteAsync(params string[] pathSegments)
         {
-            var p = getFullPath(normalizedPath);
+            var p = getFullPath(pathSegments);
             var ret = false;
             if (File.Exists(p))
             {
@@ -78,18 +78,18 @@ namespace WriteableFileProviders.Physical
             return ret;
         }
 
-        protected override async Task<LocalFileStream> createLocalFileStreamAsync(string normalizedPath)
+        protected override async Task<LocalFileStream> createLocalFileStreamAsync(params string[] pathSegments)
         {
-            var p = getFullPath(normalizedPath);
+            var p = getFullPath(pathSegments);
             Directory.CreateDirectory(Path.GetDirectoryName(p));
-            return new LocalFileStream(new FileStream(p, FileMode.OpenOrCreate, FileAccess.ReadWrite), this, false, normalizedPath );
+            return new LocalFileStream(new FileStream(p, FileMode.OpenOrCreate, FileAccess.ReadWrite), this, false, pathSegments );
         }
 
-        private static string getPath(string p)
+        private static string getPath(string[] p)
         {
-            return p.Replace('/', Path.DirectorySeparatorChar);
+            return string.Join(Path.DirectorySeparatorChar.ToString(), p);
         }
-        private string getFullPath(string path)
+        private string getFullPath(string[] path)
         {
             string fullPath;
             try

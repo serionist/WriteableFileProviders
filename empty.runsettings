@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RunSettings>
+ 
+  <TestRunParameters>
+    <Parameter name="PhysicalFileProvider_RootPath" value="" />
+    <Parameter name="AzureBlobFileProvider_ConnectionString" value="" />
+    <Parameter name="AzureBlobFileProvider_ContainerName" value="" />
+  </TestRunParameters>
+
+</RunSettings>

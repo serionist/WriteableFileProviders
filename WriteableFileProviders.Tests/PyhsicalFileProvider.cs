@@ -17,10 +17,10 @@ namespace WriteableFileProviders.Tests
             context = _context;
 
         }
-
+        public PyhsicalFileProvider() : base(context) { }
         protected override IWriteableFileProvider GetProvider()
         {
-            var dir = Path.GetFullPath((string)context.Properties["PhysicalFileProvider_RootPath"]);
+            var dir = Path.GetFullPath(Settings.PhysicalFileProvider_RootPath);
             Directory.CreateDirectory(dir);
             return new WriteablePhysicalFileProvider(dir);
         }

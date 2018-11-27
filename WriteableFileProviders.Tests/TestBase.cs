@@ -2,15 +2,21 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Newtonsoft.Json;
 
 namespace WriteableFileProviders.Tests
 {
     public abstract class TestBase
     {
-      
-      
+        public TestSettings Settings { get; }
+        protected TestBase(TestContext context)
+        {
+            Settings = JsonConvert.DeserializeObject<TestSettings>(
+                File.ReadAllText(Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "testsettings.json")));
+        }
         protected abstract IWriteableFileProvider GetProvider();
 
         protected string GetFileName()

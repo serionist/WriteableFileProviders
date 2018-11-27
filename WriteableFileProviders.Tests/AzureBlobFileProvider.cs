@@ -14,14 +14,14 @@ namespace WriteableFileProviders.Tests
         public static void Init(TestContext _context)
         {
             context = _context;
-
         }
+        public AzureBlobFileProvider() : base(context) { }
         protected override IWriteableFileProvider GetProvider()
         {
             return new WriteableAzureBlobFileProvider(new AzureFileProviderOptions()
             {
-                ConnectionString = (string)context.Properties["AzureBlobFileProvider_ConnectionString"],
-                ContainerName = (string)context.Properties["AzureBlobFileProvider_ContainerName"],
+                ConnectionString = Settings.AzureBlobFileProvider_ConnectionString,
+                ContainerName = Settings.AzureBlobFileProvider_ContainerName,
             });
         }
     }

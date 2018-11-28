@@ -15,12 +15,12 @@ namespace WriteableFileProviders
             if (string.IsNullOrEmpty(typeString))
                 throw new ArgumentException("FileProvider cannot be parsed. 'Type' is not provided");
             var providerType = searchInAssemblies.SelectMany(e => e.GetTypes())
-                .FirstOrDefault(e => e.IsSubclassOf(typeof(WriteableFileProvider<>)) && !e.IsAbstract && e.IsClass &&
+                .FirstOrDefault(e => e.GetInterfaces().Contains(typeof(IWriteableFileProvider)) && !e.IsAbstract && e.IsClass &&
                                      e.Name.Equals(typeString, StringComparison.InvariantCultureIgnoreCase));
             if (providerType == null)
                 throw new ArgumentException($"FileProvider cannot be parsed. Type: '{typeString}' is not recognized");
             Type baseType = providerType;
-            while (baseType != null && (baseType.IsGenericType || baseType.GetGenericTypeDefinition() != typeof(WriteableFileProvider<>)))
+            while (baseType != null && (!baseType.IsGenericType || baseType.GetGenericTypeDefinition() != typeof(WriteableFileProvider<>)))
                 baseType = baseType?.BaseType;
             var optionsType = baseType?.GetGenericArguments()?.FirstOrDefault();
             if (optionsType == null)

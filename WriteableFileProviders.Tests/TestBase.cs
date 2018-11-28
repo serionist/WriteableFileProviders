@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace WriteableFileProviders.Tests
 {
@@ -23,6 +24,14 @@ namespace WriteableFileProviders.Tests
         protected string GetFileName()
         {
             return Guid.NewGuid().ToString();
+        }
+        
+        [TestMethod]
+        public void TestJsonSerialization()
+        {
+            var json = WriteableFileProviderSerializer.ToJson(GetProvider());
+            var p = WriteableFileProviderSerializer.FromJson(json, GetProvider().GetType().Assembly);
+            Assert.IsTrue(json.GetType() == p.GetType());
         }
         [TestMethod]
         public async Task NotExistingEntry()

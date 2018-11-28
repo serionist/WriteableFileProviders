@@ -111,33 +111,7 @@ namespace WriteableFileProviders.AzureBlob
 
         }
        
-
-        protected override async Task<LocalFileStream> createLocalFileStreamAsync(params string[] pathSegments)
-        {
-            var tempFileName = Path.GetTempFileName();
-            var tempStream = new FileStream(tempFileName, FileMode.Open, FileAccess.ReadWrite, FileShare.None, 4096, FileOptions.DeleteOnClose);
-            try
-            {
-                using (var fs = await readFileAsync(pathSegments))
-                    fs.CopyTo(tempStream);
-                tempStream.Position = 0;
-                return new LocalFileStream(tempStream, this, false, pathSegments);
-            }
-            catch
-            {
-                tempStream.Dispose();
-                throw;
-            }
-
-        }
-
-        public override async Task OnLocalFileStreamDisposingAsync(LocalFileStream stream)
-        {
-            stream.Position = 0;
-            await writeFileAsync(stream, stream.TargetFilePathSegments);
-        }
-
-
+        
         private string getPath(string[] pathSegments)
         {
             return string.Join("/", pathSegments);

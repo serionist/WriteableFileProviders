@@ -1,0 +1,188 @@
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
+using Amazon;
+using Amazon.Runtime;
+using Amazon.S3;
+using Amazon.S3.Model;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Primitives;
+
+namespace WriteableFileProviders.AmazonS3
+{
+    public class WriteableAmazonS3FileProvider : WriteableFileProvider<AmazonS3FileProviderOptions>
+    {
+        private readonly DateTime DefaultDateTime = new DateTime(1970, 1, 1, 0, 0, 0);
+        AmazonS3Client Client { get; }
+        public WriteableAmazonS3FileProvider(AmazonS3FileProviderOptions options) : base(options)
+        {
+            AWSCredentials credentials = Options.IsAnonymus
+                ? (AWSCredentials) new AnonymousAWSCredentials()
+                : new BasicAWSCredentials(Options.AccessKey, options.SecretKey);
+            Client = new AmazonS3Client(credentials, RegionEndpoint.GetBySystemName(Options.BucketRegion));
+        }
+
+       
+
+        protected override async Task<IFileInfo> getFileInfo(params string[] pathSegments)
+        {
+            try
+            {
+               var file = await Client.GetObjectAsync(Options.BucketName, path(pathSegments));
+               return new FileInfo(this, true, file.ContentLength, path(pathSegments), fileName(path(pathSegments)), file.LastModified, false);
+
+            }
+            catch (AmazonS3Exception e)
+            {
+                //file not found
+                if (e.ErrorCode == "NoSuchKey")
+                {
+                    try
+                    {
+                        var dir = await Client.GetObjectAsync(Options.BucketName, dirPath(pathSegments));
+                        return new FileInfo(this, true, -1, dirPath(pathSegments), fileName(dirPath(pathSegments)), DefaultDateTime, true);
+
+                    }
+                    catch (AmazonS3Exception dirE)
+                    {
+                        //dir not found, return not found file
+                        if (e.ErrorCode == "NoSuchKey")
+                        {
+                            //try to enumerate
+                            var listResult = await Client.ListObjectsV2Async(new ListObjectsV2Request()
+                            {
+                                BucketName = Options.BucketName,
+                                RequestPayer = RequestPayer.Requester,
+                                Prefix = dirPath(pathSegments),
+                                MaxKeys = 1
+                            });
+                            if (listResult.S3Objects.Any()) //return durectoru
+                                return new FileInfo(this, true, -1, dirPath(pathSegments), fileName(dirPath(pathSegments)), DefaultDateTime, true);
+                            else
+                                return new FileInfo(this, false, -1, path(pathSegments), fileName(path(pathSegments)), DefaultDateTime, false);
+                        }
+                        throw dirE;
+                    }
+                }
+                throw;
+            }
+        }
+
+        protected override async Task<IDirectoryContents> getDirectoryContents(params string[] pathSegments)
+        {
+            var ret = await EnumerateObjects(pathSegments, false);
+
+            return new DirectoryContents(ret.Any(), ret.ToArray());
+        }
+
+        private async Task<List<IFileInfo>> EnumerateObjects(string[] pathSegments, bool deep)
+        {
+            var ret = new List<IFileInfo>();
+            var dirnames = new List<string>();
+            ListObjectsV2Response results;
+            var dirPath = this.dirPath(pathSegments);
+            string continuationToken = null;
+            do
+            {
+                results = await Client.ListObjectsV2Async(new ListObjectsV2Request()
+                {
+                    BucketName = Options.BucketName,
+                    Prefix = dirPath,
+                    ContinuationToken = continuationToken,
+                    RequestPayer = RequestPayer.Requester
+                });
+                continuationToken = results.NextContinuationToken;
+                
+                foreach (var r in results.S3Objects)
+                {
+                    var relativePath = r.Key.Substring(dirPath.Length);
+                    //lower level file/dir
+                    if (relativePath.Contains("/"))
+                    {
+                        var dirName = relativePath.Substring(0, relativePath.IndexOf("/"));
+                        if (!dirnames.Contains(dirName)) dirnames.Add(dirName);
+                        if (!deep) continue;
+                    }
+                    
+                    ret.Add(new FileInfo(this, true, r.Size, r.Key, fileName(r.Key), r.LastModified, false));
+                }
+            } while (!string.IsNullOrEmpty(results.NextContinuationToken));
+            foreach (var d in dirnames)
+                if (!ret.Exists(e=>e.PhysicalPath == d && e.IsDirectory))
+                    ret.Add(new FileInfo(this, true, -1, dirPath + d, d, DefaultDateTime, true));
+            
+            return ret;
+        }
+
+        protected override async Task<IChangeToken> watchAsync(string filter)
+        {
+            throw new NotImplementedException();
+        }
+
+        protected override async Task<Stream> readFileAsync(params string[] pathSegments)
+        {
+            var file = await Client.GetObjectAsync(Options.BucketName, path(pathSegments));
+            return file.ResponseStream;
+        }
+
+        protected override async Task writeFileAsync(Stream contents, params string[] pathSegments)
+        {
+            await Client.PutObjectAsync(new PutObjectRequest()
+            {
+                InputStream = contents,
+                BucketName = Options.BucketName,
+                AutoCloseStream = false,
+                AutoResetStreamPosition = true,
+                Key = path(pathSegments),
+                RequestPayer = RequestPayer.Requester,
+                StorageClass = Options.StorageClassForNewFiles 
+            });
+        }
+
+        protected override async Task<bool> deleteAsync(params string[] pathSegments)
+        {
+            var info = await getFileInfo(pathSegments);
+            if (!info.Exists)
+                return false;
+            if (!info.IsDirectory)
+            {
+                await Client.DeleteObjectAsync(Options.BucketName, path(pathSegments));
+                return true;
+            }
+
+
+            var listedObjects = await EnumerateObjects(pathSegments, true);
+            var ret = await Client.DeleteObjectsAsync(new DeleteObjectsRequest()
+            {
+                BucketName = Options.BucketName,
+                RequestPayer = RequestPayer.Requester,
+                Objects = listedObjects.Select(e => new KeyVersion() {Key = e.PhysicalPath}).ToList()
+            });
+            return !ret.DeleteErrors.Any() && ret.DeletedObjects.Any();
+        }
+        
+        private string path(string[] pathSegments)
+        {
+            return string.Join("/", pathSegments);
+        }
+
+        private string dirPath(string[] pathSegments)
+        {
+            return $"{path(pathSegments)}/";
+        }
+
+        private string fileName(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return path;
+            var ret = path;
+            if (ret.EndsWith("/")) ret = ret.Substring(0, ret.Length - 1);
+            if (ret.Contains("/"))
+                ret = ret.Substring(ret.LastIndexOf("/") + 1);
+            return ret;
+        }
+
+     
+    }
+}

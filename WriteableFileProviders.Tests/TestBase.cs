@@ -109,7 +109,7 @@ namespace WriteableFileProviders.Tests
             await Provider.UpdateFileAsync(subfile2, new MemoryStream(new[] { (byte)6 }));
             await Provider.UpdateFileAsync(file1, new MemoryStream(new[] { (byte)6 }));
             await Provider.UpdateFileAsync(file2, new MemoryStream(new[] { (byte)6 }));
-
+           
             var entries = (await Provider.GetDirectoryContentsAsync(baseDir)).ToList();
             if (!entries.Exists(e => e.Name == "subdir1" && e.IsDirectory))
                 Assert.Fail("Subdir1 not found");

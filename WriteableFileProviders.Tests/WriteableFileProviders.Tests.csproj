@@ -23,6 +23,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\WriteableFileProviders.AmazonS3\WriteableFileProviders.AmazonS3.csproj" />
     <ProjectReference Include="..\WriteableFileProviders.AzureBlob\WriteableFileProviders.AzureBlob.csproj" />
     <ProjectReference Include="..\WriteableFileProviders.Physical\WriteableFileProviders.Physical.csproj" />
   </ItemGroup>

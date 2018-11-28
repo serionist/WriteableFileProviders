@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <Description>PhysicalFileProvider implementation if IWriteableFileProvider.
+WriteableFileProviders is a project aimed to provide writeable access to different file providers while also being usable as a standard ASP.NET Core IFileProvider.</Description>
+    <Authors>Soma Osvay</Authors>
+    <PackageProjectUrl>https://serionist.visualstudio.com/WriteableFileProviders</PackageProjectUrl>
+    <RepositoryUrl>https://serionist.visualstudio.com/_git/WriteableFileProviders</RepositoryUrl>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AWSSDK.S3" Version="3.3.29" />
+    <PackageReference Include="WriteableFileProviders.Common" Version="2018.11.28.1" />
+  </ItemGroup>
+
+</Project>

@@ -31,7 +31,7 @@ namespace WriteableFileProviders.Tests
         {
             var json = WriteableFileProviderSerializer.ToJson(GetProvider());
             var p = WriteableFileProviderSerializer.FromJson(json, GetProvider().GetType().Assembly);
-            Assert.IsTrue(json.GetType() == p.GetType());
+            Assert.IsTrue(GetProvider().GetType() == p.GetType());
         }
         [TestMethod]
         public async Task NotExistingEntry()

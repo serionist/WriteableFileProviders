@@ -42,20 +42,23 @@ namespace WriteableFileProviders
         /// <returns>An <see cref="T:Microsoft.Extensions.Primitives.IChangeToken" /> that is notified when a file matching <paramref name="filter" /> is added, modified or deleted.</returns>
         Task<IChangeToken> WatchAsync(string filter);
         /// <summary>
-        /// Reads the contents of a specified file
+        /// Reads the contents of a specified file. This is a read-only stream and can be a network stream.
+        /// Its recommended to write the contents to a temporary file to start using advanced stream operations
         /// </summary>
         /// <param name="subPath"></param>
         /// <returns></returns>
         Task<Stream> ReadFileAsync(string subpath);
         /// <summary>
-        /// Reads the contents of a specified file. This a read-only stream
+        /// Reads the contents of a specified file. This a read-only stream and can be a network stream
+        ///  Its recommended to write the contents to a temporary file to start using advanced stream operations
         /// </summary>
         /// <param name="subPath"></param>
         /// <returns></returns>
         Stream ReadFile(string subpath);
         Task<Stream> ReadFileAsync(params string[] pathSegments);
         /// <summary>
-        /// Reads the contents of a specified file. This a read-only stream
+        /// Reads the contents of a specified file. This a read-only stream and can be a network stream
+        ///  Its recommended to write the contents to a temporary file to start using advanced stream operations
         /// </summary>
         /// <param name="subPath"></param>
         /// <returns></returns>
@@ -118,31 +121,35 @@ namespace WriteableFileProviders
         /// <summary>
         /// Return file contents as a local stream that can be written to. This will ensure the file is placed on the local filesystem (at least temporarily). Caller should dispose stream when complete, only then will the file be committed.
         /// </summary>
+        /// <param name="readOnly">True to open a read only stream (no commit is done to the provider after file is closed)</param>
         /// <param name="subpath">The path to the file</param>
         /// <returns>The file stream</returns>
         /// <exception cref="System.IO.FileNotFoundException"></exception>
-        Task<LocalFileStream> CreateLocalFileStreamAsync(string subpath);
+        Task<LocalFileStream> CreateLocalFileStreamAsync(bool readOnly, string subpath);
         /// <summary>
         /// Return file contents as a local stream that can be written to. This will ensure the file is placed on the local filesystem (at least temporarily). Caller should dispose stream when complete, only then will the file be committed.
         /// </summary>
         /// <param name="subpath">The path to the file</param>
+        ///  /// <param name="readOnly">True to open a read only stream (no commit is done to the provider after file is closed)</param>
         /// <returns>The file stream</returns>
         /// <exception cref="System.IO.FileNotFoundException"></exception>
-        LocalFileStream CreateLocalFileStream(string subpath);
+        LocalFileStream CreateLocalFileStream(bool readOnly, string subpath);
         /// <summary>
         /// Return file contents as a local stream that can be written to. This will ensure the file is placed on the local filesystem (at least temporarily). Caller should dispose stream when complete, only then will the file be committed.
         /// </summary>
         /// <param name="subpath">The path to the file</param>
+        ///  /// <param name="readOnly">True to open a read only stream (no commit is done to the provider after file is closed)</param>
         /// <returns>The file stream</returns>
         /// <exception cref="System.IO.FileNotFoundException"></exception>
-        Task<LocalFileStream> CreateLocalFileStreamAsync(params string[] pathSegments);
+        Task<LocalFileStream> CreateLocalFileStreamAsync(bool readOnly, params string[] pathSegments);
         /// <summary>
         /// Return file contents as a local stream that can be written to. This will ensure the file is placed on the local filesystem (at least temporarily). Caller should dispose stream when complete, only then will the file be committed.
         /// </summary>
         /// <param name="subpath">The path to the file</param>
+        ///  /// <param name="readOnly">True to open a read only stream (no commit is done to the provider after file is closed)</param>
         /// <returns>The file stream</returns>
         /// <exception cref="System.IO.FileNotFoundException"></exception>
-        LocalFileStream CreateLocalFileStream(params string[] pathSegments);
+        LocalFileStream CreateLocalFileStream(bool readOnly, params string[] pathSegments);
         /// <summary>
         /// The callback called when a local file stream is closed. Used to commit the contents of a local stream
         /// </summary>

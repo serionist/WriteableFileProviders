@@ -123,21 +123,21 @@ namespace WriteableFileProviders
 
 
 
-        public LocalFileStream CreateLocalFileStream(string subpath)
+        public LocalFileStream CreateLocalFileStream(bool readOnly, string subpath)
         {
             var normalizedPath = normalizePath(subpath);
-            return CreateLocalFileStream(normalizedPath);
+            return CreateLocalFileStream(readOnly, normalizedPath);
         }
-        public async Task<LocalFileStream> CreateLocalFileStreamAsync(string subpath)
+        public async Task<LocalFileStream> CreateLocalFileStreamAsync(bool readOnly, string subpath)
         {
             var normalizedPath = normalizePath(subpath);
-            return await CreateLocalFileStreamAsync(normalizedPath);
+            return await CreateLocalFileStreamAsync(readOnly, normalizedPath);
         }
-        public LocalFileStream CreateLocalFileStream(params string[] pathSegments)
+        public LocalFileStream CreateLocalFileStream(bool readOnly, params string[] pathSegments)
         {
-            return RunTaskSerial(CreateLocalFileStreamAsync(pathSegments));
+            return RunTaskSerial(CreateLocalFileStreamAsync(readOnly, pathSegments));
         }
-        public virtual async Task<LocalFileStream> CreateLocalFileStreamAsync(params string[] pathSegments)
+        public virtual async Task<LocalFileStream> CreateLocalFileStreamAsync(bool readOnly, params string[] pathSegments)
         {
             var tempFileName = Path.GetTempFileName();
             var tempStream = new FileStream(tempFileName, FileMode.Open, FileAccess.ReadWrite, FileShare.None, 4096, FileOptions.DeleteOnClose);
@@ -146,7 +146,7 @@ namespace WriteableFileProviders
                 using (var fs = await ReadFileAsync(pathSegments))
                     fs.CopyTo(tempStream);
                 tempStream.Position = 0;
-                return new LocalFileStream(tempStream, this, false, pathSegments);
+                return new LocalFileStream(tempStream, this, readOnly, pathSegments);
             }
             catch
             {
@@ -159,6 +159,7 @@ namespace WriteableFileProviders
 
         public virtual async Task OnLocalFileStreamDisposingAsync(LocalFileStream stream)
         {
+            if (stream.ReadOnly) return;
             stream.Position = 0;
             await UpdateFileAsync(stream, stream.TargetFilePathSegments);
         }

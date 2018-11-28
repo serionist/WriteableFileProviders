@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Threading.Tasks;
 using Amazon;
 using Amazon.Runtime;
@@ -24,13 +25,30 @@ namespace WriteableFileProviders.AmazonS3
             Client = new AmazonS3Client(credentials, RegionEndpoint.GetBySystemName(Options.BucketRegion));
         }
 
-       
+        private async Task<string> getLatestVersion(string[] pathSegments)
+        {
+            var list = await Client.ListVersionsAsync(Options.BucketName, path(pathSegments));
+            return list.Versions
+                ?.Find(e => e.IsLatest)?.VersionId;
+        }
 
         public override async Task<IFileInfo> GetFileInfoAsync(params string[] pathSegments)
         {
             try
             {
-               var file = await Client.GetObjectAsync(Options.BucketName, path(pathSegments));
+                //try to enumerate to see if dir
+                var e  = await Client.ListObjectsV2Async(new ListObjectsV2Request()
+                {
+                    BucketName = Options.BucketName,
+                    RequestPayer = RequestPayer.Requester,
+                    ContinuationToken = null,
+                    Prefix = path(pathSegments),
+                    MaxKeys = 2
+                });
+                if (e.S3Objects.Count != 1) //path is directory, return not found
+                    return new FileInfo(this, false, -1, path(pathSegments), fileName(path(pathSegments)), DefaultDateTime, false);
+                var latestVersion = await getLatestVersion(pathSegments);
+                var file = await Client.GetObjectAsync(Options.BucketName, path(pathSegments), latestVersion);
                return new FileInfo(this, true, file.ContentLength, path(pathSegments), fileName(path(pathSegments)), file.LastModified, false);
 
             }
@@ -38,34 +56,9 @@ namespace WriteableFileProviders.AmazonS3
             {
                 //file not found
                 if (e.ErrorCode == "NoSuchKey")
-                {
-                    try
-                    {
-                        var dir = await Client.GetObjectAsync(Options.BucketName, dirPath(pathSegments));
-                        return new FileInfo(this, true, -1, dirPath(pathSegments), fileName(dirPath(pathSegments)), DefaultDateTime, true);
-
-                    }
-                    catch (AmazonS3Exception dirE)
-                    {
-                        //dir not found, return not found file
-                        if (e.ErrorCode == "NoSuchKey")
-                        {
-                            //try to enumerate
-                            var listResult = await Client.ListObjectsV2Async(new ListObjectsV2Request()
-                            {
-                                BucketName = Options.BucketName,
-                                RequestPayer = RequestPayer.Requester,
-                                Prefix = dirPath(pathSegments),
-                                MaxKeys = 1
-                            });
-                            if (listResult.S3Objects.Any()) //return durectoru
-                                return new FileInfo(this, true, -1, dirPath(pathSegments), fileName(dirPath(pathSegments)), DefaultDateTime, true);
-                            else
-                                return new FileInfo(this, false, -1, path(pathSegments), fileName(path(pathSegments)), DefaultDateTime, false);
-                        }
-                        throw dirE;
-                    }
-                }
+                    return new FileInfo(this, false, -1, path(pathSegments), fileName(path(pathSegments)), DefaultDateTime, false);
+                   
+                
                 throw;
             }
         }
@@ -121,15 +114,24 @@ namespace WriteableFileProviders.AmazonS3
             throw new NotImplementedException();
         }
 
+        public async Task<Stream> ReadFileAsync(string versionId, params string[] pathSegments)
+        {
+           
+            if (string.IsNullOrEmpty(versionId))
+                return (await Client.GetObjectAsync(Options.BucketName, path(pathSegments))).ResponseStream;
+            else
+                return (await Client.GetObjectAsync(Options.BucketName, path(pathSegments), versionId)).ResponseStream;
+        }
         public override async Task<Stream> ReadFileAsync(params string[] pathSegments)
         {
-            var file = await Client.GetObjectAsync(Options.BucketName, path(pathSegments));
-            return file.ResponseStream;
+           
+            return await ReadFileAsync(await getLatestVersion(pathSegments), pathSegments);
+            
         }
 
         public override async Task UpdateFileAsync(Stream contents, params string[] pathSegments)
         {
-            await Client.PutObjectAsync(new PutObjectRequest()
+            var a = await Client.PutObjectAsync(new PutObjectRequest()
             {
                 InputStream = contents,
                 BucketName = Options.BucketName,
@@ -137,23 +139,22 @@ namespace WriteableFileProviders.AmazonS3
                 AutoResetStreamPosition = true,
                 Key = path(pathSegments),
                 RequestPayer = RequestPayer.Requester,
-                StorageClass = Options.StorageClassForNewFiles 
+                StorageClass = Options.StorageClassForNewFiles,
+              
+                
             });
+            
         }
 
         public override async Task<bool> DeleteAsync(params string[] pathSegments)
         {
             var info = await GetFileInfoAsync(pathSegments);
-            if (!info.Exists)
-                return false;
-            if (!info.IsDirectory)
-            {
-                await Client.DeleteObjectAsync(Options.BucketName, path(pathSegments));
-                return true;
-            }
-
+            if (info.Exists)
+                return (await Client.DeleteObjectAsync(Options.BucketName, path(pathSegments))).HttpStatusCode ==
+                    HttpStatusCode.OK;
 
             var listedObjects = await EnumerateObjects(pathSegments, true);
+            if (!listedObjects.Any()) return true;
             var ret = await Client.DeleteObjectsAsync(new DeleteObjectsRequest()
             {
                 BucketName = Options.BucketName,

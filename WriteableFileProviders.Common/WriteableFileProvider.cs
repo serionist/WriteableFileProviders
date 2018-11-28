@@ -26,26 +26,41 @@ namespace WriteableFileProviders
             ret["Type"] = this.GetType().Name;
             return ret;
         }
+        public abstract Task<IFileInfo> GetFileInfoAsync(params string[] pathSegments);
         public async Task<IFileInfo> GetFileInfoAsync(string subpath)
         {
             var normalizedPath = normalizePath(subpath);
-            return await getFileInfo(normalizedPath);
+            return await GetFileInfoAsync(normalizedPath);
+        }
+        public IFileInfo GetFileInfo(params string[] pathSegments)
+        {
+            return RunTaskSerial(GetFileInfoAsync(pathSegments));
         }
         public IFileInfo GetFileInfo(string subpath)
         {
-            return RunTaskSerial(GetFileInfoAsync(subpath));
+            var normalizedPath = normalizePath(subpath);
+            return GetFileInfo(normalizedPath);
         }
+
+
+        public abstract Task<IDirectoryContents> GetDirectoryContentsAsync(params string[] pathSegments);
         public async Task<IDirectoryContents> GetDirectoryContentsAsync(string subpath)
         {
             var normalizedPath = normalizePath(subpath);
-            return await getDirectoryContents(normalizedPath);
+            return await GetDirectoryContentsAsync(normalizedPath);
         }
-
+        public IDirectoryContents GetDirectoryContents(params string[] pathSegments)
+        {
+            return RunTaskSerial(GetDirectoryContentsAsync(pathSegments));
+        }
         public IDirectoryContents GetDirectoryContents(string subpath)
         {
-            return RunTaskSerial(GetDirectoryContentsAsync(subpath));
+            var normalizedPath = normalizePath(subpath);
+            return GetDirectoryContents(normalizedPath);
         }
 
+
+        protected abstract Task<IChangeToken> watchAsync(string filter);
         public IChangeToken Watch(string filter)
         {
             return RunTaskSerial(WatchAsync(filter));
@@ -55,65 +70,80 @@ namespace WriteableFileProviders
             return await watchAsync(filter);
         }
 
+
+        public abstract Task<Stream> ReadFileAsync(params string[] pathSegments);
         public async Task<Stream> ReadFileAsync(string subpath)
         {
             var normalizedPath = normalizePath(subpath);
-            return await readFileAsync(normalizedPath);
+            return await ReadFileAsync(normalizedPath);
         }
-
         public Stream ReadFile(string subpath)
         {
-            return RunTaskSerial(ReadFileAsync(subpath));
+            var normalizedPath = normalizePath(subpath);
+            return ReadFile(normalizedPath);
+        }
+        public Stream ReadFile(params string[] pathSegments)
+        {
+            return RunTaskSerial(ReadFileAsync(pathSegments));
         }
 
+
+        public abstract Task UpdateFileAsync(Stream contents, params string[] pathSegments);
         public async Task UpdateFileAsync(string subpath, Stream contents)
         {
             var normalizedPath = normalizePath(subpath);
-            await writeFileAsync(contents, normalizedPath);
+            await UpdateFileAsync(contents, normalizedPath);
         }
         public void UpdateFile(string subpath, Stream contents)
         {
-            RunTaskSerial(UpdateFileAsync(subpath, contents));
+            var normalizedPath = normalizePath(subpath);
+            UpdateFile(contents, normalizedPath);
         }
-        public bool Delete(string subpath)
+        public void UpdateFile(Stream contents, params string[] pathSegments)
         {
-            return RunTaskSerial(DeleteAsync(subpath));
+            RunTaskSerial(UpdateFileAsync(contents, pathSegments));
         }
 
+
+        public abstract Task<bool> DeleteAsync(params string[] pathSegments);
+        public bool Delete(string subpath)
+        {
+            var normalizedPath = normalizePath(subpath);
+            return Delete(normalizedPath);
+        }
         public async Task<bool> DeleteAsync(string subpath)
         {
-            return await deleteAsync(subpath);
+            var normalizedPath = normalizePath(subpath);
+            return await DeleteAsync(normalizedPath);
         }
+        public bool Delete(params string[] pathSegments)
+        {
+            return RunTaskSerial(DeleteAsync(pathSegments));
+        }
+
+
 
         public LocalFileStream CreateLocalFileStream(string subpath)
         {
-            return RunTaskSerial(CreateLocalFileStreamAsync(subpath));
+            var normalizedPath = normalizePath(subpath);
+            return CreateLocalFileStream(normalizedPath);
         }
         public async Task<LocalFileStream> CreateLocalFileStreamAsync(string subpath)
         {
             var normalizedPath = normalizePath(subpath);
-            return await createLocalFileStreamAsync(subpath);
+            return await CreateLocalFileStreamAsync(normalizedPath);
         }
-
-    
-
-        protected abstract Task<IFileInfo> getFileInfo(params string[] pathSegments);
-
-        protected abstract Task<IDirectoryContents> getDirectoryContents(params string[] pathSegments);
-
-        protected abstract Task<IChangeToken> watchAsync(string filter);
-
-        protected abstract Task<Stream> readFileAsync(params string[] pathSegments);
-        protected abstract Task writeFileAsync(Stream contents, params string[] pathSegments);
-        protected abstract Task<bool> deleteAsync(params string[] pathSegments);
-
-        protected virtual async Task<LocalFileStream> createLocalFileStreamAsync(params string[] pathSegments)
+        public LocalFileStream CreateLocalFileStream(params string[] pathSegments)
+        {
+            return RunTaskSerial(CreateLocalFileStreamAsync(pathSegments));
+        }
+        public virtual async Task<LocalFileStream> CreateLocalFileStreamAsync(params string[] pathSegments)
         {
             var tempFileName = Path.GetTempFileName();
             var tempStream = new FileStream(tempFileName, FileMode.Open, FileAccess.ReadWrite, FileShare.None, 4096, FileOptions.DeleteOnClose);
             try
             {
-                using (var fs = await readFileAsync(pathSegments))
+                using (var fs = await ReadFileAsync(pathSegments))
                     fs.CopyTo(tempStream);
                 tempStream.Position = 0;
                 return new LocalFileStream(tempStream, this, false, pathSegments);
@@ -126,11 +156,14 @@ namespace WriteableFileProviders
 
         }
 
+
         public virtual async Task OnLocalFileStreamDisposingAsync(LocalFileStream stream)
         {
             stream.Position = 0;
-            await writeFileAsync(stream, stream.TargetFilePathSegments);
+            await UpdateFileAsync(stream, stream.TargetFilePathSegments);
         }
+
+
         protected string[] normalizePath(string p)
         {
             if (string.IsNullOrEmpty(p)) return new string[0];

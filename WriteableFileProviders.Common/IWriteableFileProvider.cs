@@ -15,12 +15,26 @@ namespace WriteableFileProviders
         /// <param name="subpath">Relative path that identifies the file.</param>
         /// <returns>The file information. Caller must check Exists property.</returns>
         Task<IFileInfo> GetFileInfoAsync(string subpath);
-        
+        /// <summary>Locate a file at the given path.</summary>
+        /// <param name="subpath">Relative path that identifies the file.</param>
+        /// <returns>The file information. Caller must check Exists property.</returns>
+        IFileInfo GetFileInfo(params string[] pathSegments);
+        /// <summary>Locate a file at the given path.</summary>
+        /// <param name="subpath">Relative path that identifies the file.</param>
+        /// <returns>The file information. Caller must check Exists property.</returns>
+        Task<IFileInfo> GetFileInfoAsync(params string[] pathSegments);
         /// <summary>Enumerate a directory at the given path, if any.</summary>
         /// <param name="subpath">Relative path that identifies the directory.</param>
         /// <returns>Returns the contents of the directory.</returns>
         Task<IDirectoryContents> GetDirectoryContentsAsync(string subpath);
-
+        /// <summary>Enumerate a directory at the given path, if any.</summary>
+        /// <param name="subpath">Relative path that identifies the directory.</param>
+        /// <returns>Returns the contents of the directory.</returns>
+        IDirectoryContents GetDirectoryContents(params string[] pathSegments);
+        /// <summary>Enumerate a directory at the given path, if any.</summary>
+        /// <param name="subpath">Relative path that identifies the directory.</param>
+        /// <returns>Returns the contents of the directory.</returns>
+        Task<IDirectoryContents> GetDirectoryContentsAsync(params string[] pathSegments);
         /// <summary>
         /// Creates a <see cref="T:Microsoft.Extensions.Primitives.IChangeToken" /> for the specified <paramref name="filter" />.
         /// </summary>
@@ -39,6 +53,13 @@ namespace WriteableFileProviders
         /// <param name="subPath"></param>
         /// <returns></returns>
         Stream ReadFile(string subpath);
+        Task<Stream> ReadFileAsync(params string[] pathSegments);
+        /// <summary>
+        /// Reads the contents of a specified file. This a read-only stream
+        /// </summary>
+        /// <param name="subPath"></param>
+        /// <returns></returns>
+        Stream ReadFile(params string[] pathSegments);
         /// <summary>
         /// Updates a file with the specified contents
         /// </summary>
@@ -52,7 +73,22 @@ namespace WriteableFileProviders
         /// <param name="subpath"></param>
         /// <param name="contents"></param>
         /// <returns></returns>
+        ///  /// <summary>
+        /// Updates a file with the specified contents
+        /// </summary>
+        /// <param name="subpath"></param>
+        /// <param name="contents"></param>
+        /// <returns></returns>
         void UpdateFile(string subpath, Stream contents);
+        void UpdateFile(Stream contents, params string[] pathSegments);
+        /// <summary>
+        /// Updates a file with the specified contents
+        /// </summary>
+        /// <param name="subpath"></param>
+        /// <param name="contents"></param>
+        /// <returns></returns>
+        Task UpdateFileAsync(Stream contents, params string[] pathSegments);
+       
         /// <summary>
         /// Deletes a file or directory. The delete is recursive for directories
         /// </summary>
@@ -66,6 +102,18 @@ namespace WriteableFileProviders
         /// <returns></returns>
         Task<bool> DeleteAsync(string subpath);
 
+        /// <summary>
+        /// Deletes a file or directory. The delete is recursive for directories
+        /// </summary>
+        /// <param name="subpath"></param>
+        /// <returns></returns>
+        bool Delete(params string[] pathSegments);
+        /// <summary>
+        /// Deletes a file or directory. The delete is recursive for directories
+        /// </summary>
+        /// <param name="subpath"></param>
+        /// <returns></returns>
+        Task<bool> DeleteAsync(params string[] pathSegments);
 
         /// <summary>
         /// Return file contents as a local stream that can be written to. This will ensure the file is placed on the local filesystem (at least temporarily). Caller should dispose stream when complete, only then will the file be committed.
@@ -81,6 +129,20 @@ namespace WriteableFileProviders
         /// <returns>The file stream</returns>
         /// <exception cref="System.IO.FileNotFoundException"></exception>
         LocalFileStream CreateLocalFileStream(string subpath);
+        /// <summary>
+        /// Return file contents as a local stream that can be written to. This will ensure the file is placed on the local filesystem (at least temporarily). Caller should dispose stream when complete, only then will the file be committed.
+        /// </summary>
+        /// <param name="subpath">The path to the file</param>
+        /// <returns>The file stream</returns>
+        /// <exception cref="System.IO.FileNotFoundException"></exception>
+        Task<LocalFileStream> CreateLocalFileStreamAsync(params string[] pathSegments);
+        /// <summary>
+        /// Return file contents as a local stream that can be written to. This will ensure the file is placed on the local filesystem (at least temporarily). Caller should dispose stream when complete, only then will the file be committed.
+        /// </summary>
+        /// <param name="subpath">The path to the file</param>
+        /// <returns>The file stream</returns>
+        /// <exception cref="System.IO.FileNotFoundException"></exception>
+        LocalFileStream CreateLocalFileStream(params string[] pathSegments);
         /// <summary>
         /// The callback called when a local file stream is closed. Used to commit the contents of a local stream
         /// </summary>

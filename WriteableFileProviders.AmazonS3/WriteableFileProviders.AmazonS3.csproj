@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
-    <Description>PhysicalFileProvider implementation if IWriteableFileProvider.
+    <Description>WriteableAmazonS3FileProvider implementation if IWriteableFileProvider.
 WriteableFileProviders is a project aimed to provide writeable access to different file providers while also being usable as a standard ASP.NET Core IFileProvider.</Description>
     <Authors>Soma Osvay</Authors>
     <PackageProjectUrl>https://serionist.visualstudio.com/WriteableFileProviders</PackageProjectUrl>

@@ -3,7 +3,7 @@
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
     <Authors>Soma Osvay</Authors>
-    <Description>PhysicalFileProvider implementation if IWriteableFileProvider.
+    <Description>WriteableAzureBlobFileProvider implementation if IWriteableFileProvider.
 WriteableFileProviders is a project aimed to provide writeable access to different file providers while also being usable as a standard ASP.NET Core IFileProvider.</Description>
     <PackageProjectUrl>https://serionist.visualstudio.com/WriteableFileProviders</PackageProjectUrl>
     <RepositoryUrl>https://serionist.visualstudio.com/_git/WriteableFileProviders</RepositoryUrl>

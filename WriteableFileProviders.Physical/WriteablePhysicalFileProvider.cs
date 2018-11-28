@@ -32,12 +32,12 @@ namespace WriteableFileProviders.Physical
             return;
         }
 
-        protected override async Task<IFileInfo> getFileInfo(params string[] pathSegments)
+        public override async Task<IFileInfo> GetFileInfoAsync(params string[] pathSegments)
         {
             return _provider.GetFileInfo(getPath(pathSegments));
         }
 
-        protected override async Task<IDirectoryContents> getDirectoryContents(params string[] pathSegments)
+        public override async Task<IDirectoryContents> GetDirectoryContentsAsync(params string[] pathSegments)
         {
             return _provider.GetDirectoryContents(getPath(pathSegments));
         }
@@ -47,13 +47,14 @@ namespace WriteableFileProviders.Physical
             return base.Watch(filter);
         }
 
-        protected override async Task<Stream> readFileAsync(params string[] pathSegments)
+        public override async Task<Stream> ReadFileAsync(params string[] pathSegments)
         {
-            Directory.CreateDirectory(getFullPath(pathSegments));
+            string p = getFullPath(pathSegments);
+            Directory.CreateDirectory(Path.GetDirectoryName(p));
             return GetFileInfo(getPath(pathSegments)).CreateReadStream();
         }
 
-        protected override async Task writeFileAsync(Stream contents, params string[] pathSegments)
+        public override async Task UpdateFileAsync(Stream contents, params string[] pathSegments)
         {
             string p = getFullPath(pathSegments);
             Directory.CreateDirectory(Path.GetDirectoryName(p));
@@ -61,7 +62,7 @@ namespace WriteableFileProviders.Physical
                 contents.CopyTo(fs);
         }
 
-        protected override async Task<bool> deleteAsync(params string[] pathSegments)
+        public override async Task<bool> DeleteAsync(params string[] pathSegments)
         {
             var p = getFullPath(pathSegments);
             var ret = false;
@@ -78,7 +79,7 @@ namespace WriteableFileProviders.Physical
             return ret;
         }
 
-        protected override async Task<LocalFileStream> createLocalFileStreamAsync(params string[] pathSegments)
+        public override async Task<LocalFileStream> CreateLocalFileStreamAsync(params string[] pathSegments)
         {
             var p = getFullPath(pathSegments);
             Directory.CreateDirectory(Path.GetDirectoryName(p));

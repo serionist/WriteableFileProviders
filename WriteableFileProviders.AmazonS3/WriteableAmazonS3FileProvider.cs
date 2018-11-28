@@ -26,7 +26,7 @@ namespace WriteableFileProviders.AmazonS3
 
        
 
-        protected override async Task<IFileInfo> getFileInfo(params string[] pathSegments)
+        public override async Task<IFileInfo> GetFileInfoAsync(params string[] pathSegments)
         {
             try
             {
@@ -70,14 +70,14 @@ namespace WriteableFileProviders.AmazonS3
             }
         }
 
-        protected override async Task<IDirectoryContents> getDirectoryContents(params string[] pathSegments)
+        public override async Task<IDirectoryContents> GetDirectoryContentsAsync(params string[] pathSegments)
         {
             var ret = await EnumerateObjects(pathSegments, false);
 
             return new DirectoryContents(ret.Any(), ret.ToArray());
         }
 
-        private async Task<List<IFileInfo>> EnumerateObjects(string[] pathSegments, bool deep)
+        public async Task<List<IFileInfo>> EnumerateObjects(string[] pathSegments, bool deep)
         {
             var ret = new List<IFileInfo>();
             var dirnames = new List<string>();
@@ -121,13 +121,13 @@ namespace WriteableFileProviders.AmazonS3
             throw new NotImplementedException();
         }
 
-        protected override async Task<Stream> readFileAsync(params string[] pathSegments)
+        public override async Task<Stream> ReadFileAsync(params string[] pathSegments)
         {
             var file = await Client.GetObjectAsync(Options.BucketName, path(pathSegments));
             return file.ResponseStream;
         }
 
-        protected override async Task writeFileAsync(Stream contents, params string[] pathSegments)
+        public override async Task UpdateFileAsync(Stream contents, params string[] pathSegments)
         {
             await Client.PutObjectAsync(new PutObjectRequest()
             {
@@ -141,9 +141,9 @@ namespace WriteableFileProviders.AmazonS3
             });
         }
 
-        protected override async Task<bool> deleteAsync(params string[] pathSegments)
+        public override async Task<bool> DeleteAsync(params string[] pathSegments)
         {
-            var info = await getFileInfo(pathSegments);
+            var info = await GetFileInfoAsync(pathSegments);
             if (!info.Exists)
                 return false;
             if (!info.IsDirectory)

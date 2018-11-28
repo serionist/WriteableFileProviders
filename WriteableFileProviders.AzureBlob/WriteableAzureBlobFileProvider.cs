@@ -25,10 +25,10 @@ namespace WriteableFileProviders.AzureBlob
             Container = storageAcc.CreateCloudBlobClient().GetContainerReference(Options.ContainerName);
         }
 
-       
 
-    
-        protected override async Task<IFileInfo> getFileInfo(params string[] pathSegments)
+
+
+        public override async Task<IFileInfo> GetFileInfoAsync(params string[] pathSegments)
         {
             await Container.CreateIfNotExistsAsync();
             var file = Container.GetBlockBlobReference(getPath(pathSegments));
@@ -42,7 +42,7 @@ namespace WriteableFileProviders.AzureBlob
 
         }
 
-        protected override async Task<IDirectoryContents> getDirectoryContents(params string[] pathSegments)
+        public override async Task<IDirectoryContents> GetDirectoryContentsAsync(params string[] pathSegments)
         {
             var e = await EnumerateFiles(pathSegments, false);
             var ret = new List<IFileInfo>();
@@ -70,20 +70,20 @@ namespace WriteableFileProviders.AzureBlob
             throw new NotImplementedException("Watch is not supported in WriteableAzureBlobFileProvider");
         }
 
-        protected override async Task<Stream> readFileAsync(params string[] pathSegments)
+        public override async Task<Stream> ReadFileAsync(params string[] pathSegments)
         {
             var file = Container.GetBlockBlobReference(getPath(pathSegments));
             return await file.OpenReadAsync();
         }
 
-        protected override async Task writeFileAsync(Stream contents, params string[] pathSegments)
+        public override async Task UpdateFileAsync(Stream contents, params string[] pathSegments)
         {
             var file = Container.GetBlockBlobReference(getPath(pathSegments));
             await file.UploadFromStreamAsync(contents);
 
         }
 
-        protected override async Task<bool> deleteAsync(params string[] pathSegments)
+        public override async Task<bool> DeleteAsync(params string[] pathSegments)
         {
             var file = Container.GetBlockBlobReference(getPath(pathSegments));
             if (await file.DeleteIfExistsAsync())

@@ -145,5 +145,68 @@ namespace WriteableFileProviders.Tests
             Assert.IsTrue(entry.CreateReadStream().ReadByte() == 5, "File content was not updated via cacheStream");
 
         }
+        [TestMethod]
+        public async Task CreateUpdateDelete1GBFile()
+        {
+            var p = GetProvider();
+            var name = $"largefiles/{GetFileName()}";
+            var entry = await p.GetFileInfoAsync(name);
+            if (entry.Exists)
+                Assert.Fail("Entry already exists");
+            var oneMBBuffer = new byte[1024 * 1024];
+            byte cur = 0;
+            for (int i = 0; i < oneMBBuffer.Length; i++)
+            {
+                oneMBBuffer[i] = cur;
+                if (cur == byte.MaxValue)
+                    cur = 0;
+                else cur++;
+            }
+            using (var tmpStrm = new FileStream(Path.GetTempFileName(), FileMode.OpenOrCreate, FileAccess.ReadWrite,
+                FileShare.None, 4096, FileOptions.DeleteOnClose))
+            {
+                for (var i = 0;i< 1024;i++)
+                    tmpStrm.Write(oneMBBuffer, 0, oneMBBuffer.Length);
+                tmpStrm.Flush(true);
+                tmpStrm.Position = 0;
+                await p.UpdateFileAsync(name, tmpStrm);
+            }
+            entry = await p.GetFileInfoAsync(name);
+            if (!entry.Exists)
+                Assert.Fail("Entry was not created");
+            if (entry.Length != oneMBBuffer.Length * 1024)
+                Assert.Fail("Entry is not 1GB in size");
+
+            using (var localStream = await p.CreateLocalFileStreamAsync(name))
+            {
+                localStream.Position = 1000;
+                localStream.Write(new []{(byte)255, (byte)255}, 0, 2);
+                localStream.Position = localStream.Length;
+                localStream.Write(new[] { (byte)255, (byte)255 }, 0, 2);
+            }
+
+            entry = await p.GetFileInfoAsync(name);
+            if (!entry.Exists)
+                Assert.Fail("Entry was deleted after localupdate");
+            if (entry.Length != oneMBBuffer.Length * 1024 + 2)
+                Assert.Fail("Entry is not 1GB + 2bytes in size");
+            using (var openStream = await p.ReadFileAsync(name))
+            {
+                openStream.Position = 1000;
+                var b = new byte[2];
+                openStream.Read(b, 0, 2);
+                if (b[0] != 255 || b[1] != 255)
+                    Assert.Fail("Bytes at index 1000 weren't changed by local stream");
+                openStream.Position = oneMBBuffer.Length * 1024;
+                openStream.Read(b, 0, 2);
+                if (b[0] != 255 || b[1] != 255)
+                    Assert.Fail("Bytes at end of stream weren't set by local stream");
+            }
+            await p.DeleteAsync(name);
+            entry = await p.GetFileInfoAsync(name);
+            if (entry.Exists)
+                Assert.Fail("Entry wasn't deleted");
+
+        }
     }
 }

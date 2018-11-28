@@ -95,7 +95,7 @@ namespace WriteableFileProviders
             return await createLocalFileStreamAsync(subpath);
         }
 
-        public abstract Task OnLocalFileStreamDisposingAsync(LocalFileStream stream);
+    
 
         protected abstract Task<IFileInfo> getFileInfo(params string[] pathSegments);
 
@@ -106,7 +106,31 @@ namespace WriteableFileProviders
         protected abstract Task<Stream> readFileAsync(params string[] pathSegments);
         protected abstract Task writeFileAsync(Stream contents, params string[] pathSegments);
         protected abstract Task<bool> deleteAsync(params string[] pathSegments);
-        protected abstract Task<LocalFileStream> createLocalFileStreamAsync(params string[] pathSegments);
+
+        protected virtual async Task<LocalFileStream> createLocalFileStreamAsync(params string[] pathSegments)
+        {
+            var tempFileName = Path.GetTempFileName();
+            var tempStream = new FileStream(tempFileName, FileMode.Open, FileAccess.ReadWrite, FileShare.None, 4096, FileOptions.DeleteOnClose);
+            try
+            {
+                using (var fs = await readFileAsync(pathSegments))
+                    fs.CopyTo(tempStream);
+                tempStream.Position = 0;
+                return new LocalFileStream(tempStream, this, false, pathSegments);
+            }
+            catch
+            {
+                tempStream.Dispose();
+                throw;
+            }
+
+        }
+
+        public virtual async Task OnLocalFileStreamDisposingAsync(LocalFileStream stream)
+        {
+            stream.Position = 0;
+            await writeFileAsync(stream, stream.TargetFilePathSegments);
+        }
         protected string[] normalizePath(string p)
         {
             if (string.IsNullOrEmpty(p)) return new string[0];

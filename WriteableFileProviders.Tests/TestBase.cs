@@ -179,7 +179,7 @@ namespace WriteableFileProviders.Tests
 
             using (var localStream = await p.CreateLocalFileStreamAsync(name))
             {
-                localStream.Position = 1000;
+                localStream.Position = oneMBBuffer.Length;
                 localStream.Write(new []{(byte)255, (byte)255}, 0, 2);
                 localStream.Position = localStream.Length;
                 localStream.Write(new[] { (byte)255, (byte)255 }, 0, 2);
@@ -192,15 +192,18 @@ namespace WriteableFileProviders.Tests
                 Assert.Fail("Entry is not 1GB + 2bytes in size");
             using (var openStream = await p.ReadFileAsync(name))
             {
-                openStream.Position = 1000;
-                var b = new byte[2];
-                openStream.Read(b, 0, 2);
-                if (b[0] != 255 || b[1] != 255)
-                    Assert.Fail("Bytes at index 1000 weren't changed by local stream");
-                openStream.Position = oneMBBuffer.Length * 1024;
-                openStream.Read(b, 0, 2);
-                if (b[0] != 255 || b[1] != 255)
-                    Assert.Fail("Bytes at end of stream weren't set by local stream");
+                var b = new byte[oneMBBuffer.Length];
+                for (var i = 0; i <= 1024; i++)
+                {
+                    var read = openStream.Read(b, 0, b.Length);
+                    if ( i == 1 && (b[0] != 255 || b[1] != 255))
+                        Assert.Fail($"Bytes at index {oneMBBuffer.Length} weren't changed by local stream");
+                    if(i == 1024)
+                        if (read != 2)
+                            Assert.Fail("Bytes at end of stream weren't added by local stream");
+                        else if (b[0] != 255 || b[1] != 255)
+                            Assert.Fail("Bytes at end of stream weren't set by local stream");
+                }
             }
             await p.DeleteAsync(name);
             entry = await p.GetFileInfoAsync(name);

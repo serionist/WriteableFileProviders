@@ -150,7 +150,7 @@ namespace WriteableFileProviders.Tests
             entry = await p.GetFileInfoAsync(name);
             if (!entry.Exists)
                 Assert.Fail("Entry was not created");
-            using (var cacheStream = await p.CreateLocalFileStreamAsync(name))
+            using (var cacheStream = await p.CreateLocalFileStreamAsync(false, name))
             {
                 cacheStream.Write(new[] { (byte)5 }, 0, 1);
                 await cacheStream.DisposeAsync();
@@ -179,7 +179,7 @@ namespace WriteableFileProviders.Tests
                 else cur++;
             }
             using (var tmpStrm = new FileStream(Path.GetTempFileName(), FileMode.OpenOrCreate, FileAccess.ReadWrite,
-                FileShare.None, 4096, FileOptions.DeleteOnClose))
+                System.IO.FileShare.None, 4096, FileOptions.DeleteOnClose))
             {
                 for (var i = 0;i< 100;i++)
                     tmpStrm.Write(oneMBBuffer, 0, oneMBBuffer.Length);
@@ -195,7 +195,7 @@ namespace WriteableFileProviders.Tests
 
             var mid1 = oneMBBuffer.Length;
             var mid2 = mid1 + 1;
-            using (var localStream = await p.CreateLocalFileStreamAsync(name))
+            using (var localStream = await p.CreateLocalFileStreamAsync(false, name))
             {
                 localStream.Position = mid1;
                 localStream.Write(new []{(byte)255, (byte)255}, 0, 2);

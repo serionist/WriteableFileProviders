@@ -79,11 +79,11 @@ namespace WriteableFileProviders.Physical
             return ret;
         }
 
-        public override async Task<LocalFileStream> CreateLocalFileStreamAsync(params string[] pathSegments)
+        public override async Task<LocalFileStream> CreateLocalFileStreamAsync(bool readOnly, params string[] pathSegments)
         {
             var p = getFullPath(pathSegments);
             Directory.CreateDirectory(Path.GetDirectoryName(p));
-            return new LocalFileStream(new FileStream(p, FileMode.OpenOrCreate, FileAccess.ReadWrite), this, false, pathSegments );
+            return new LocalFileStream(new FileStream(p, FileMode.OpenOrCreate, FileAccess.ReadWrite), this, readOnly, pathSegments );
         }
 
         private static string getPath(string[] p)

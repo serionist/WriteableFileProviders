@@ -23,7 +23,10 @@ namespace WriteableFileProviders.Physical
         {
             if (string.IsNullOrEmpty(options.RootPath))
                 throw new ArgumentException("RootPath cannot be empty", nameof(options.RootPath));
-            _provider =  new PhysicalFileProvider(options.RootPath);
+            var path = options.RootPath;
+            if (!Path.IsPathRooted(path))
+                path = Path.GetFullPath(path);
+            _provider =  new PhysicalFileProvider(path);
         }
             
 

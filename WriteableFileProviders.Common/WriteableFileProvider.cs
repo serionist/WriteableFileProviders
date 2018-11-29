@@ -220,8 +220,10 @@ namespace WriteableFileProviders
             var tempStream = new FileStream(tempFileName, FileMode.Open, FileAccess.ReadWrite, FileShare.None, 4096, FileOptions.DeleteOnClose);
             try
             {
-                using (var fs = await readFileAsync(absolutePathSegments))
-                    fs.CopyTo(tempStream);
+                var f = await getFileInfoAsync(absolutePathSegments);
+                if (f.Exists)
+                    using (var fs = await readFileAsync(absolutePathSegments))
+                        fs.CopyTo(tempStream);
                 tempStream.Position = 0;
                 return new LocalFileStream(tempStream, this, readOnly, absolutePathSegments);
             }

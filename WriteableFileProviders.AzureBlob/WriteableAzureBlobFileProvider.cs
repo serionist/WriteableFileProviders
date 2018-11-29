@@ -28,23 +28,23 @@ namespace WriteableFileProviders.AzureBlob
 
 
 
-        public override async Task<IFileInfo> GetFileInfoAsync(params string[] pathSegments)
+        protected override async Task<IFileInfo> getFileInfoAsync(params string[] absolutePathSegments)
         {
             await Container.CreateIfNotExistsAsync();
-            var file = Container.GetBlockBlobReference(getPath(pathSegments));
+            var file = Container.GetBlockBlobReference(getPath(absolutePathSegments));
             var exists = await file.ExistsAsync();
             if (exists)
                 await file.FetchAttributesAsync();
             return new FileInfo(this,  exists, file.Properties.Length,
-                getPath(pathSegments), pathSegments.Last(), file.Properties.LastModified ?? DefaultDateTime, false);
+                getPath(absolutePathSegments), absolutePathSegments.Last(), file.Properties.LastModified ?? DefaultDateTime, false, getRelativeSegments(absolutePathSegments));
             
 
 
         }
 
-        public override async Task<IDirectoryContents> GetDirectoryContentsAsync(params string[] pathSegments)
+        protected override async Task<IDirectoryContents> getDirectoryContentsAsync(params string[] absolutePathSegments)
         {
-            var e = await EnumerateFiles(pathSegments, false);
+            var e = await EnumerateFiles(absolutePathSegments, false);
             var ret = new List<IFileInfo>();
             var metadataJobs = new List<Task>();
             foreach (var file in e.files)
@@ -59,9 +59,9 @@ namespace WriteableFileProviders.AzureBlob
             Task.WaitAll(metadataJobs.ToArray());
 
             foreach (var file in e.files)
-                ret.Add(new FileInfo(this, true, file.Properties.Length, file.Name, getFileName(file.Name), file.Properties.LastModified ?? DefaultDateTime, false));
+                ret.Add(new FileInfo(this, true, file.Properties.Length, file.Name, getFileName(file.Name), file.Properties.LastModified ?? DefaultDateTime, false, getRelativeSegments(absolutePathSegments.Concat(new []{file.Name}).ToArray())));
             foreach (var dir in e.directories)
-                ret.Add(new FileInfo(this, true, -1, dir.Prefix, getFileName(dir.Prefix), DefaultDateTime, true));
+                ret.Add(new FileInfo(this, true, -1, dir.Prefix, getFileName(dir.Prefix), DefaultDateTime, true, getRelativeSegments(absolutePathSegments.Concat(new[] { getFileName(dir.Prefix) }).ToArray())));
           return new DirectoryContents(ret.Any(), ret.ToArray());
         }
 
@@ -70,38 +70,38 @@ namespace WriteableFileProviders.AzureBlob
             throw new NotImplementedException("Watch is not supported in WriteableAzureBlobFileProvider");
         }
 
-        public override async Task<Stream> ReadFileAsync(params string[] pathSegments)
+        protected override async Task<Stream> readFileAsync(params string[] absolutePathSegments)
         {
-            var file = Container.GetBlockBlobReference(getPath(pathSegments));
+            var file = Container.GetBlockBlobReference(getPath(absolutePathSegments));
             return await file.OpenReadAsync();
         }
 
-        public override async Task UpdateFileAsync(Stream contents, params string[] pathSegments)
+        protected override async Task updateFileAsync(Stream contents, params string[] absolutePathSegments)
         {
-            var file = Container.GetBlockBlobReference(getPath(pathSegments));
+            var file = Container.GetBlockBlobReference(getPath(absolutePathSegments));
             await file.UploadFromStreamAsync(contents);
 
         }
 
-        public override async Task<bool> DeleteAsync(params string[] pathSegments)
+        protected override async Task<bool> deleteAsync(params string[] absolutePathSegments)
         {
-            var file = Container.GetBlockBlobReference(getPath(pathSegments));
+            var file = Container.GetBlockBlobReference(getPath(absolutePathSegments));
             if (await file.DeleteIfExistsAsync())
                 return true;
             var ret = false;
-            foreach (var f in (await EnumerateFiles(pathSegments, true)).files)
+            foreach (var f in (await EnumerateFiles(absolutePathSegments, true)).files)
                 ret = await f.DeleteIfExistsAsync();
             return ret;
         }
 
-        private async Task<(CloudBlockBlob[] files, CloudBlobDirectory[] directories)> EnumerateFiles(string[] pathSegments, bool deep)
+        private async Task<(CloudBlockBlob[] files, CloudBlobDirectory[] directories)> EnumerateFiles(string[] absolutePathSegments, bool deep)
         {
             var ret = new List<CloudBlockBlob>();
             var retDirs = new List<CloudBlobDirectory>();
             var contToken = new BlobContinuationToken();
             while (contToken != null)
             {
-                var req = await Container.ListBlobsSegmentedAsync($"{getPath(pathSegments)}/", deep, BlobListingDetails.None, null,
+                var req = await Container.ListBlobsSegmentedAsync($"{getPath(absolutePathSegments)}/", deep, BlobListingDetails.None, null,
                     contToken, new BlobRequestOptions(), new OperationContext());
                 contToken = req.ContinuationToken;
                 ret.AddRange(req.Results.OfType<CloudBlockBlob>());
@@ -112,9 +112,9 @@ namespace WriteableFileProviders.AzureBlob
         }
        
         
-        private string getPath(string[] pathSegments)
+        private string getPath(string[] absolutePathSegments)
         {
-            return string.Join("/", pathSegments);
+            return string.Join("/", absolutePathSegments);
         }
 
         private string getFileName(string path)
@@ -124,6 +124,10 @@ namespace WriteableFileProviders.AzureBlob
             var ret = path;
             if (ret.EndsWith("/")) ret = ret.Substring(0, ret.Length - 1);
             return ret.Substring(ret.LastIndexOf("/") + 1);
+        }
+        private string[] getRelativeSegments(string[] segments)
+        {
+            return segments.Skip(Options.RootDirectorySegments.Length).ToArray();
         }
     }
 }

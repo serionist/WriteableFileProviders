@@ -23,7 +23,8 @@ namespace WriteableFileProviders.Tests
                 AccessKey = Settings.AmazonS3FileProvider_AccessKey,
                 SecretKey = Settings.AmazonS3FileProvider_SecretKey,
                 BucketName = Settings.AmazonS3FileProvider_BucketName,
-                BucketRegion = Settings.AmazonS3FileProvider_BucketRegion
+                BucketRegion = Settings.AmazonS3FileProvider_BucketRegion,
+                RootDirectoryPath = Settings.AmazonS3FileProvider_RootPath
             });
         }
     }

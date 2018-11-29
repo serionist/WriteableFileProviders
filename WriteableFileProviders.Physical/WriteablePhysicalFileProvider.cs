@@ -1,9 +1,11 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.FileProviders.Internal;
 using Microsoft.Extensions.Primitives;
 using Newtonsoft.Json.Linq;
 
@@ -12,21 +14,19 @@ namespace WriteableFileProviders.Physical
     public class WriteablePhysicalFileProvider: WriteableFileProvider<PhysicalFileProviderOptions>
     {
         private readonly PhysicalFileProvider _provider;
-       
 
-        public WriteablePhysicalFileProvider(string rootPath): this(new PhysicalFileProviderOptions(){ RootPath = rootPath})
+        private readonly DateTime DefaultDateTime = new DateTime(1970, 1, 1, 0, 0, 0);
+        public WriteablePhysicalFileProvider(string rootPath): this(new PhysicalFileProviderOptions(){ RootDirectoryPath = rootPath})
         {
            
         }
 
         public WriteablePhysicalFileProvider(PhysicalFileProviderOptions options) : base(options)
         {
-            if (string.IsNullOrEmpty(options.RootPath))
-                throw new ArgumentException("RootPath cannot be empty", nameof(options.RootPath));
-            var path = options.RootPath;
-            if (!Path.IsPathRooted(path))
-                path = Path.GetFullPath(path);
-            _provider =  new PhysicalFileProvider(path);
+            if (string.IsNullOrEmpty(options.RootDirectoryPath))
+                throw new ArgumentException("RootPath cannot be empty", nameof(options.RootDirectoryPath));
+            if (!Path.IsPathRooted(options.RootDirectoryPath))
+                options.RootDirectoryPath = Path.GetFullPath(options.RootDirectoryPath);
         }
             
 
@@ -35,39 +35,50 @@ namespace WriteableFileProviders.Physical
             return;
         }
 
-        public override async Task<IFileInfo> GetFileInfoAsync(params string[] pathSegments)
+        protected override async Task<IFileInfo> getFileInfoAsync(params string[] absolutePathSegments)
         {
-            return _provider.GetFileInfo(getPath(pathSegments));
+            var f = new System.IO.FileInfo(path(absolutePathSegments));
+            return new FileInfo(this, f.Exists, f.Exists? f.Length:-1, f.FullName, f.Name, f.Exists? f.LastWriteTimeUtc:DefaultDateTime, false, getRelativeSegments(absolutePathSegments));
         }
 
-        public override async Task<IDirectoryContents> GetDirectoryContentsAsync(params string[] pathSegments)
+        protected override async Task<IDirectoryContents> getDirectoryContentsAsync(params string[] absolutePathSegments)
         {
-            return _provider.GetDirectoryContents(getPath(pathSegments));
+            var dir = new DirectoryInfo(path(absolutePathSegments));
+            if (!dir.Exists)
+                return new NotFoundDirectoryContents();
+            var ret = new List<IFileInfo>();
+            foreach (var d in dir.GetDirectories())
+                ret.Add(new FileInfo(this, true, -1, d.FullName, d.Name, d.LastWriteTimeUtc, true, getRelativeSegments(absolutePathSegments.Concat(new[] { d.Name }).ToArray())));
+            foreach (var f in dir.GetFiles())
+                ret.Add(new FileInfo(this, true, f.Length, f.FullName, f.Name, f.LastWriteTimeUtc, false, getRelativeSegments(absolutePathSegments.Concat(new[] { f.Name }).ToArray())));
+            return new DirectoryContents(true, ret.ToArray());
+
         }
 
         protected override async Task<IChangeToken> watchAsync(string filter)
         {
-            return base.Watch(filter);
+            
+            throw new NotImplementedException();
         }
 
-        public override async Task<Stream> ReadFileAsync(params string[] pathSegments)
+        protected override async Task<Stream> readFileAsync(params string[] absolutePathSegments)
         {
-            string p = getFullPath(pathSegments);
+            string p = path(absolutePathSegments);
             Directory.CreateDirectory(Path.GetDirectoryName(p));
-            return GetFileInfo(getPath(pathSegments)).CreateReadStream();
+            return new FileStream(p, FileMode.OpenOrCreate, FileAccess.Read);
         }
 
-        public override async Task UpdateFileAsync(Stream contents, params string[] pathSegments)
+        protected override async Task updateFileAsync(Stream contents, params string[] absolutePathSegments)
         {
-            string p = getFullPath(pathSegments);
+            string p = path(absolutePathSegments);
             Directory.CreateDirectory(Path.GetDirectoryName(p));
             using (var fs = new FileStream(p, FileMode.OpenOrCreate, FileAccess.ReadWrite))
                 contents.CopyTo(fs);
         }
 
-        public override async Task<bool> DeleteAsync(params string[] pathSegments)
+        protected override async Task<bool> deleteAsync(params string[] absolutePathSegments)
         {
-            var p = getFullPath(pathSegments);
+            var p = path(absolutePathSegments);
             var ret = false;
             if (File.Exists(p))
             {
@@ -82,29 +93,31 @@ namespace WriteableFileProviders.Physical
             return ret;
         }
 
-        public override async Task<LocalFileStream> CreateLocalFileStreamAsync(bool readOnly, params string[] pathSegments)
+        protected override async Task<LocalFileStream> createLocalFileStreamAsync(bool readOnly, params string[] absolutePathSegments)
         {
-            var p = getFullPath(pathSegments);
+            var p = path(absolutePathSegments);
             Directory.CreateDirectory(Path.GetDirectoryName(p));
-            return new LocalFileStream(new FileStream(p, FileMode.OpenOrCreate, FileAccess.ReadWrite), this, readOnly, pathSegments );
+            return new LocalFileStream(new FileStream(p, FileMode.OpenOrCreate, FileAccess.ReadWrite), this, readOnly, absolutePathSegments );
         }
 
-        private static string getPath(string[] p)
+        private static string path(string[] p)
         {
             return string.Join(Path.DirectorySeparatorChar.ToString(), p);
         }
-        private string getFullPath(string[] path)
+
+        internal static string[] getPathSegments(string p)
         {
-            string fullPath;
-            try
-            {
-                fullPath = Path.GetFullPath(Path.Combine(_provider.Root, getPath(path)));
-            }
-            catch
-            {
-                return (string)null;
-            }
-            return fullPath;
+            var ret = new List<string>();
+            var val = p.Replace("/", @"\");
+            if (p.StartsWith(@"\\"))
+                ret.Add("\\");
+            ret.AddRange(val.Split(new[] { '\\' }, StringSplitOptions.RemoveEmptyEntries));
+            return ret.ToArray();
+        }
+
+        private string[] getRelativeSegments(string[] segments)
+        {
+            return segments.Skip(Options.RootDirectorySegments.Length).ToArray();
         }
     }
 }

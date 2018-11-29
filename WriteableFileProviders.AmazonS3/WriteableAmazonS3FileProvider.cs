@@ -25,14 +25,14 @@ namespace WriteableFileProviders.AmazonS3
             Client = new AmazonS3Client(credentials, RegionEndpoint.GetBySystemName(Options.BucketRegion));
         }
 
-        private async Task<string> getLatestVersion(string[] pathSegments)
+        private async Task<string> getLatestVersion(string[] absolutePathSegments)
         {
-            var list = await Client.ListVersionsAsync(Options.BucketName, path(pathSegments));
+            var list = await Client.ListVersionsAsync(Options.BucketName, path(absolutePathSegments));
             return list.Versions
                 ?.Find(e => e.IsLatest)?.VersionId;
         }
 
-        public override async Task<IFileInfo> GetFileInfoAsync(params string[] pathSegments)
+        protected override async Task<IFileInfo> getFileInfoAsync(params string[] absolutePathSegments)
         {
             try
             {
@@ -42,40 +42,40 @@ namespace WriteableFileProviders.AmazonS3
                     BucketName = Options.BucketName,
                     RequestPayer = RequestPayer.Requester,
                     ContinuationToken = null,
-                    Prefix = path(pathSegments),
+                    Prefix = path(absolutePathSegments),
                     MaxKeys = 2
                 });
                 if (e.S3Objects.Count != 1) //path is directory, return not found
-                    return new FileInfo(this, false, -1, path(pathSegments), fileName(path(pathSegments)), DefaultDateTime, false);
-                var latestVersion = await getLatestVersion(pathSegments);
-                var file = await Client.GetObjectAsync(Options.BucketName, path(pathSegments), latestVersion);
-               return new FileInfo(this, true, file.ContentLength, path(pathSegments), fileName(path(pathSegments)), file.LastModified, false);
+                    return new FileInfo(this, false, -1, path(absolutePathSegments), fileName(path(absolutePathSegments)), DefaultDateTime, false, getRelativeSegments(absolutePathSegments));
+                var latestVersion = await getLatestVersion(absolutePathSegments);
+                var file = await Client.GetObjectAsync(Options.BucketName, path(absolutePathSegments), latestVersion);
+               return new FileInfo(this, true, file.ContentLength, path(absolutePathSegments), fileName(path(absolutePathSegments)), file.LastModified, false, getRelativeSegments(absolutePathSegments));
 
             }
             catch (AmazonS3Exception e)
             {
                 //file not found
                 if (e.ErrorCode == "NoSuchKey")
-                    return new FileInfo(this, false, -1, path(pathSegments), fileName(path(pathSegments)), DefaultDateTime, false);
+                    return new FileInfo(this, false, -1, path(absolutePathSegments), fileName(path(absolutePathSegments)), DefaultDateTime, false, getRelativeSegments(absolutePathSegments));
                    
                 
                 throw;
             }
         }
 
-        public override async Task<IDirectoryContents> GetDirectoryContentsAsync(params string[] pathSegments)
+        protected override async Task<IDirectoryContents> getDirectoryContentsAsync(params string[] absolutePathSegments)
         {
-            var ret = await EnumerateObjects(pathSegments, false);
+            var ret = await EnumerateObjects(absolutePathSegments, false);
 
             return new DirectoryContents(ret.Any(), ret.ToArray());
         }
 
-        public async Task<List<IFileInfo>> EnumerateObjects(string[] pathSegments, bool deep)
+        public async Task<List<IFileInfo>> EnumerateObjects(string[] absolutePathSegments, bool deep)
         {
             var ret = new List<IFileInfo>();
             var dirnames = new List<string>();
             ListObjectsV2Response results;
-            var dirPath = this.dirPath(pathSegments);
+            var dirPath = this.dirPath(absolutePathSegments);
             string continuationToken = null;
             do
             {
@@ -99,12 +99,12 @@ namespace WriteableFileProviders.AmazonS3
                         if (!deep) continue;
                     }
                     
-                    ret.Add(new FileInfo(this, true, r.Size, r.Key, fileName(r.Key), r.LastModified, false));
+                    ret.Add(new FileInfo(this, true, r.Size, r.Key, fileName(r.Key), r.LastModified, false, getRelativeSegments(absolutePathSegments.Concat(new []{ fileName(r.Key)}).ToArray())));
                 }
             } while (!string.IsNullOrEmpty(results.NextContinuationToken));
             foreach (var d in dirnames)
                 if (!ret.Exists(e=>e.PhysicalPath == d && e.IsDirectory))
-                    ret.Add(new FileInfo(this, true, -1, dirPath + d, d, DefaultDateTime, true));
+                    ret.Add(new FileInfo(this, true, -1, dirPath + d, d, DefaultDateTime, true, getRelativeSegments(absolutePathSegments.Concat(new[] { d }).ToArray())));
             
             return ret;
         }
@@ -114,22 +114,22 @@ namespace WriteableFileProviders.AmazonS3
             throw new NotImplementedException();
         }
 
-        public async Task<Stream> ReadFileAsync(string versionId, params string[] pathSegments)
+        public async Task<Stream> ReadFileAsync(string versionId, params string[] absolutePathSegments)
         {
            
             if (string.IsNullOrEmpty(versionId))
-                return (await Client.GetObjectAsync(Options.BucketName, path(pathSegments))).ResponseStream;
+                return (await Client.GetObjectAsync(Options.BucketName, path(absolutePathSegments))).ResponseStream;
             else
-                return (await Client.GetObjectAsync(Options.BucketName, path(pathSegments), versionId)).ResponseStream;
+                return (await Client.GetObjectAsync(Options.BucketName, path(absolutePathSegments), versionId)).ResponseStream;
         }
-        public override async Task<Stream> ReadFileAsync(params string[] pathSegments)
+        protected override async Task<Stream> readFileAsync(params string[] absolutePathSegments)
         {
            
-            return await ReadFileAsync(await getLatestVersion(pathSegments), pathSegments);
+            return await ReadFileAsync(await getLatestVersion(absolutePathSegments), absolutePathSegments);
             
         }
 
-        public override async Task UpdateFileAsync(Stream contents, params string[] pathSegments)
+        protected override async Task updateFileAsync(Stream contents, params string[] absolutePathSegments)
         {
             var a = await Client.PutObjectAsync(new PutObjectRequest()
             {
@@ -137,7 +137,7 @@ namespace WriteableFileProviders.AmazonS3
                 BucketName = Options.BucketName,
                 AutoCloseStream = false,
                 AutoResetStreamPosition = true,
-                Key = path(pathSegments),
+                Key = path(absolutePathSegments),
                 RequestPayer = RequestPayer.Requester,
                 StorageClass = Options.StorageClassForNewFiles,
               
@@ -146,14 +146,14 @@ namespace WriteableFileProviders.AmazonS3
             
         }
 
-        public override async Task<bool> DeleteAsync(params string[] pathSegments)
+        protected override async Task<bool> deleteAsync(params string[] absolutePathSegments)
         {
-            var info = await GetFileInfoAsync(pathSegments);
+            var info = await getFileInfoAsync(absolutePathSegments);
             if (info.Exists)
-                return (await Client.DeleteObjectAsync(Options.BucketName, path(pathSegments))).HttpStatusCode ==
+                return (await Client.DeleteObjectAsync(Options.BucketName, path(absolutePathSegments))).HttpStatusCode ==
                     HttpStatusCode.OK;
 
-            var listedObjects = await EnumerateObjects(pathSegments, true);
+            var listedObjects = await EnumerateObjects(absolutePathSegments, true);
             if (!listedObjects.Any()) return true;
             var ret = await Client.DeleteObjectsAsync(new DeleteObjectsRequest()
             {
@@ -164,14 +164,14 @@ namespace WriteableFileProviders.AmazonS3
             return !ret.DeleteErrors.Any() && ret.DeletedObjects.Any();
         }
         
-        private string path(string[] pathSegments)
+        private string path(string[] absolutePathSegments)
         {
-            return string.Join("/", pathSegments);
+            return string.Join("/", absolutePathSegments);
         }
 
-        private string dirPath(string[] pathSegments)
+        private string dirPath(string[] absolutePathSegments)
         {
-            return $"{path(pathSegments)}/";
+            return $"{path(absolutePathSegments)}/";
         }
 
         private string fileName(string path)
@@ -183,7 +183,10 @@ namespace WriteableFileProviders.AmazonS3
                 ret = ret.Substring(ret.LastIndexOf("/") + 1);
             return ret;
         }
+        private string[] getRelativeSegments(string[] segments)
+        {
+            return segments.Skip(Options.RootDirectorySegments.Length).ToArray();
+        }
 
-     
     }
 }

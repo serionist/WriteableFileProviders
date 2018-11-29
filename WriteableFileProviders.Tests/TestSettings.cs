@@ -13,6 +13,7 @@ namespace WriteableFileProviders.Tests
         public string AmazonS3FileProvider_SecretKey { get; set; }
         public string AmazonS3FileProvider_BucketName { get; set; }
         public string AmazonS3FileProvider_BucketRegion { get; set; }
-      
+      public string AzureBlobFileProvider_RootPath { get; set; }
+        public string AmazonS3FileProvider_RootPath { get; set; }
     }
 }

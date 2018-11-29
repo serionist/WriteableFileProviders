@@ -22,6 +22,7 @@ namespace WriteableFileProviders.Tests
             {
                 ConnectionString = Settings.AzureBlobFileProvider_ConnectionString,
                 ContainerName = Settings.AzureBlobFileProvider_ContainerName,
+                RootDirectoryPath = Settings.AzureBlobFileProvider_RootPath
             });
         }
     }

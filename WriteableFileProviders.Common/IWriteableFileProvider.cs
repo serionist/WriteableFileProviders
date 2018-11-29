@@ -55,6 +55,12 @@ namespace WriteableFileProviders
         /// <param name="subPath"></param>
         /// <returns></returns>
         Stream ReadFile(string subpath);
+        /// <summary>
+        /// Reads the contents of a specified file. This a read-only stream and can be a network stream
+        ///  Its recommended to write the contents to a temporary file to start using advanced stream operations
+        /// </summary>
+        /// <param name="subPath"></param>
+        /// <returns></returns>
         Task<Stream> ReadFileAsync(params string[] pathSegments);
         /// <summary>
         /// Reads the contents of a specified file. This a read-only stream and can be a network stream
@@ -63,6 +69,18 @@ namespace WriteableFileProviders
         /// <param name="subPath"></param>
         /// <returns></returns>
         Stream ReadFile(params string[] pathSegments);
+        /// <summary>
+        /// Reads the contents of a specified file. This a read-only stream and can be a network stream
+        ///  Its recommended to write the contents to a temporary file to start using advanced stream operations
+        /// </summary>
+        /// <returns></returns>
+        Task<Stream> ReadFileAsync(IFileInfo file);
+        /// <summary>
+        /// Reads the contents of a specified file. This a read-only stream and can be a network stream
+        ///  Its recommended to write the contents to a temporary file to start using advanced stream operations
+        /// </summary>
+        /// <returns></returns>
+        Stream ReadFile(IFileInfo file);
         /// <summary>
         /// Updates a file with the specified contents
         /// </summary>
@@ -83,7 +101,14 @@ namespace WriteableFileProviders
         /// <param name="contents"></param>
         /// <returns></returns>
         void UpdateFile(string subpath, Stream contents);
+        /// <summary>
+        /// Updates a file with the specified contents
+        /// </summary>
+        /// <param name="subpath"></param>
+        /// <param name="contents"></param>
+        /// <returns></returns>
         void UpdateFile(Stream contents, params string[] pathSegments);
+        
         /// <summary>
         /// Updates a file with the specified contents
         /// </summary>
@@ -91,7 +116,20 @@ namespace WriteableFileProviders
         /// <param name="contents"></param>
         /// <returns></returns>
         Task UpdateFileAsync(Stream contents, params string[] pathSegments);
-       
+        /// <summary>
+        /// Updates a file with the specified contents
+        /// </summary>
+        /// <param name="subpath"></param>
+        /// <param name="contents"></param>
+        /// <returns></returns>
+        void UpdateFile(Stream contents, IFileInfo file);
+        /// <summary>
+        /// Updates a file with the specified contents
+        /// </summary>
+        /// <param name="subpath"></param>
+        /// <param name="contents"></param>
+        /// <returns></returns>
+        Task UpdateFileAsync(Stream contents, IFileInfo file);
         /// <summary>
         /// Deletes a file or directory. The delete is recursive for directories
         /// </summary>
@@ -117,7 +155,18 @@ namespace WriteableFileProviders
         /// <param name="subpath"></param>
         /// <returns></returns>
         Task<bool> DeleteAsync(params string[] pathSegments);
-
+        /// <summary>
+        /// Deletes a file or directory. The delete is recursive for directories
+        /// </summary>
+        /// <param name="subpath"></param>
+        /// <returns></returns>
+        bool Delete(IFileInfo fileOrDir);
+        /// <summary>
+        /// Deletes a file or directory. The delete is recursive for directories
+        /// </summary>
+        /// <param name="subpath"></param>
+        /// <returns></returns>
+        Task<bool> DeleteAsync(IFileInfo fileOrDir);
         /// <summary>
         /// Return file contents as a local stream that can be written to. This will ensure the file is placed on the local filesystem (at least temporarily). Caller should dispose stream when complete, only then will the file be committed.
         /// </summary>
@@ -150,6 +199,22 @@ namespace WriteableFileProviders
         /// <returns>The file stream</returns>
         /// <exception cref="System.IO.FileNotFoundException"></exception>
         LocalFileStream CreateLocalFileStream(bool readOnly, params string[] pathSegments);
+        /// <summary>
+        /// Return file contents as a local stream that can be written to. This will ensure the file is placed on the local filesystem (at least temporarily). Caller should dispose stream when complete, only then will the file be committed.
+        /// </summary>
+        /// <param name="subpath">The path to the file</param>
+        ///  /// <param name="readOnly">True to open a read only stream (no commit is done to the provider after file is closed)</param>
+        /// <returns>The file stream</returns>
+        /// <exception cref="System.IO.FileNotFoundException"></exception>
+        Task<LocalFileStream> CreateLocalFileStreamAsync(bool readOnly, IFileInfo file);
+        /// <summary>
+        /// Return file contents as a local stream that can be written to. This will ensure the file is placed on the local filesystem (at least temporarily). Caller should dispose stream when complete, only then will the file be committed.
+        /// </summary>
+        /// <param name="subpath">The path to the file</param>
+        ///  /// <param name="readOnly">True to open a read only stream (no commit is done to the provider after file is closed)</param>
+        /// <returns>The file stream</returns>
+        /// <exception cref="System.IO.FileNotFoundException"></exception>
+        LocalFileStream CreateLocalFileStream(bool readOnly, IFileInfo file);
         /// <summary>
         /// The callback called when a local file stream is closed. Used to commit the contents of a local stream
         /// </summary>

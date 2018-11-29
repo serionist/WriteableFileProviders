@@ -106,6 +106,16 @@ namespace WriteableFileProviders
             return RunTaskSerial(ReadFileAsync(pathSegments));
         }
 
+        public async Task<Stream> ReadFileAsync(IFileInfo file)
+        {
+            return await ReadFileAsync(fileSegments(file));
+        }
+
+        public Stream ReadFile(IFileInfo file)
+        {
+            return ReadFile(fileSegments(file));
+        }
+
 
         protected abstract Task updateFileAsync(Stream contents, params string[] absolutePathSegments);
 
@@ -113,6 +123,17 @@ namespace WriteableFileProviders
         {
             await updateFileAsync(contents, getAbsoluteSegments(pathSegments));
         }
+
+        public void UpdateFile(Stream contents, IFileInfo file)
+        {
+            UpdateFile(contents, fileSegments(file));
+        }
+
+        public async Task UpdateFileAsync(Stream contents, IFileInfo file)
+        {
+            await UpdateFileAsync(contents, fileSegments(file));
+        }
+
         public async Task UpdateFileAsync(string subpath, Stream contents)
         {
             var normalizedPath = normalizePath(subpath);
@@ -135,6 +156,17 @@ namespace WriteableFileProviders
         {
             return await deleteAsync(getAbsoluteSegments(pathSegments));
         }
+
+        public bool Delete(IFileInfo fileOrDir)
+        {
+            return Delete(fileSegments(fileOrDir));
+        }
+
+        public async Task<bool> DeleteAsync(IFileInfo fileOrDir)
+        {
+            return await DeleteAsync(fileSegments(fileOrDir));
+        }
+
         public bool Delete(string subpath)
         {
             var normalizedPath = normalizePath(subpath);
@@ -166,6 +198,17 @@ namespace WriteableFileProviders
         {
             return RunTaskSerial(CreateLocalFileStreamAsync(readOnly, pathSegments));
         }
+
+        public async Task<LocalFileStream> CreateLocalFileStreamAsync(bool readOnly, IFileInfo file)
+        {
+            return await CreateLocalFileStreamAsync(readOnly, fileSegments(file));
+        }
+
+        public LocalFileStream CreateLocalFileStream(bool readOnly, IFileInfo file)
+        {
+            return CreateLocalFileStream(readOnly, fileSegments(file));
+        }
+
         public virtual async Task<LocalFileStream> CreateLocalFileStreamAsync(bool readOnly, params string[] pathSegments)
         {
             return await createLocalFileStreamAsync(readOnly, getAbsoluteSegments(pathSegments));
@@ -208,6 +251,11 @@ namespace WriteableFileProviders
 
         }
 
+        protected string[] fileSegments(IFileInfo f)
+        {
+            if (f is FileInfo) return ((FileInfo) f).PathSegments;
+            return normalizePath(f.PhysicalPath);
+        }
         protected T RunTaskSerial<T>(Task<T> t)
         {
             try

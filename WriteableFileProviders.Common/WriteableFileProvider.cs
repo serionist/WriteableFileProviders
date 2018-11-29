@@ -12,7 +12,7 @@ using Newtonsoft.Json.Linq;
 
 namespace WriteableFileProviders
 {
-    public abstract class WriteableFileProvider<T>:IWriteableFileProvider where T: class, new()
+    public abstract class WriteableFileProvider<T>:IWriteableFileProvider where T: FileProviderOptions, new()
     {
         protected WriteableFileProvider(T options)
         {
@@ -26,7 +26,16 @@ namespace WriteableFileProviders
             ret["Type"] = this.GetType().Name;
             return ret;
         }
-        public abstract Task<IFileInfo> GetFileInfoAsync(params string[] pathSegments);
+
+        private string[] getAbsoluteSegments(string[] pathSegments)
+        {
+            return (Options.RootDirectorySegments ?? new string[0]).Concat(pathSegments ?? new string[0]).ToArray();
+        }
+        protected abstract Task<IFileInfo> getFileInfoAsync(params string[] absolutePathSegments);
+        public async Task<IFileInfo> GetFileInfoAsync(params string[] pathSegments)
+        {
+            return await getFileInfoAsync(getAbsoluteSegments(pathSegments));
+        }
         public async Task<IFileInfo> GetFileInfoAsync(string subpath)
         {
             var normalizedPath = normalizePath(subpath);
@@ -43,7 +52,12 @@ namespace WriteableFileProviders
         }
 
 
-        public abstract Task<IDirectoryContents> GetDirectoryContentsAsync(params string[] pathSegments);
+        protected abstract Task<IDirectoryContents> getDirectoryContentsAsync(params string[] absolutePathSegments);
+
+        public async Task<IDirectoryContents> GetDirectoryContentsAsync(params string[] pathSegments)
+        {
+            return await getDirectoryContentsAsync(getAbsoluteSegments(pathSegments));
+        }
         public async Task<IDirectoryContents> GetDirectoryContentsAsync(string subpath)
         {
             var normalizedPath = normalizePath(subpath);
@@ -71,7 +85,12 @@ namespace WriteableFileProviders
         }
 
 
-        public abstract Task<Stream> ReadFileAsync(params string[] pathSegments);
+        protected abstract Task<Stream> readFileAsync(params string[] absolutePathSegments);
+
+        public async Task<Stream> ReadFileAsync(params string[] pathSegments)
+        {
+            return await readFileAsync(getAbsoluteSegments(pathSegments));
+        }
         public async Task<Stream> ReadFileAsync(string subpath)
         {
             var normalizedPath = normalizePath(subpath);
@@ -88,7 +107,12 @@ namespace WriteableFileProviders
         }
 
 
-        public abstract Task UpdateFileAsync(Stream contents, params string[] pathSegments);
+        protected abstract Task updateFileAsync(Stream contents, params string[] absolutePathSegments);
+
+        public async Task UpdateFileAsync(Stream contents, params string[] pathSegments)
+        {
+            await updateFileAsync(contents, getAbsoluteSegments(pathSegments));
+        }
         public async Task UpdateFileAsync(string subpath, Stream contents)
         {
             var normalizedPath = normalizePath(subpath);
@@ -105,7 +129,12 @@ namespace WriteableFileProviders
         }
 
 
-        public abstract Task<bool> DeleteAsync(params string[] pathSegments);
+        protected abstract Task<bool> deleteAsync(params string[] absolutePathSegments);
+
+        public async Task<bool> DeleteAsync(params string[] pathSegments)
+        {
+            return await deleteAsync(getAbsoluteSegments(pathSegments));
+        }
         public bool Delete(string subpath)
         {
             var normalizedPath = normalizePath(subpath);
@@ -139,14 +168,19 @@ namespace WriteableFileProviders
         }
         public virtual async Task<LocalFileStream> CreateLocalFileStreamAsync(bool readOnly, params string[] pathSegments)
         {
+            return await createLocalFileStreamAsync(readOnly, getAbsoluteSegments(pathSegments));
+
+        }
+        protected virtual async Task<LocalFileStream> createLocalFileStreamAsync(bool readOnly, params string[] absolutePathSegments)
+        {
             var tempFileName = Path.GetTempFileName();
             var tempStream = new FileStream(tempFileName, FileMode.Open, FileAccess.ReadWrite, FileShare.None, 4096, FileOptions.DeleteOnClose);
             try
             {
-                using (var fs = await ReadFileAsync(pathSegments))
+                using (var fs = await readFileAsync(absolutePathSegments))
                     fs.CopyTo(tempStream);
                 tempStream.Position = 0;
-                return new LocalFileStream(tempStream, this, readOnly, pathSegments);
+                return new LocalFileStream(tempStream, this, readOnly, absolutePathSegments);
             }
             catch
             {
@@ -161,7 +195,7 @@ namespace WriteableFileProviders
         {
             if (stream.ReadOnly) return;
             stream.Position = 0;
-            await UpdateFileAsync(stream, stream.TargetFilePathSegments);
+            await updateFileAsync(stream, stream.TargetFilePathSegments);
         }
 
 

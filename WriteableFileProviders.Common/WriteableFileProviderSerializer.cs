@@ -19,7 +19,8 @@ namespace WriteableFileProviders
             {
                 var ret = Activator.CreateInstance(type);
                 foreach (var t in type.GetProperties().Where(e=>e.CanWrite))
-                    t.SetValue(ret, configSection.GetValue(t.PropertyType, t.Name));
+                    if (configSection.GetValue(t.PropertyType, t.Name) != null)
+                        t.SetValue(ret, configSection.GetValue(t.PropertyType, t.Name));
                 return ret;
             });
         }

@@ -229,7 +229,7 @@ namespace WriteableFileProviders
             }
             catch
             {
-                tempStream.Dispose();
+                tempStream?.Dispose();
                 throw;
             }
 
@@ -257,6 +257,10 @@ namespace WriteableFileProviders
         {
             if (f is FileInfo) return ((FileInfo) f).PathSegments;
             return normalizePath(f.PhysicalPath);
+        }
+        private string[] getRelativeSegments(string[] segments)
+        {
+            return segments.Skip(Options.RootDirectorySegments?.Length??0).ToArray();
         }
         protected T RunTaskSerial<T>(Task<T> t)
         {

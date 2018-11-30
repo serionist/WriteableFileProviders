@@ -183,10 +183,7 @@ namespace WriteableFileProviders.AmazonS3
                 ret = ret.Substring(ret.LastIndexOf("/") + 1);
             return ret;
         }
-        private string[] getRelativeSegments(string[] segments)
-        {
-            return segments.Skip(Options.RootDirectorySegments.Length).ToArray();
-        }
+    
 
     }
 }

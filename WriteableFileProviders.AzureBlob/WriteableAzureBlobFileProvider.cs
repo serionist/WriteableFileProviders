@@ -125,9 +125,6 @@ namespace WriteableFileProviders.AzureBlob
             if (ret.EndsWith("/")) ret = ret.Substring(0, ret.Length - 1);
             return ret.Substring(ret.LastIndexOf("/") + 1);
         }
-        private string[] getRelativeSegments(string[] segments)
-        {
-            return segments.Skip(Options.RootDirectorySegments.Length).ToArray();
-        }
+        
     }
 }

@@ -115,9 +115,6 @@ namespace WriteableFileProviders.Physical
             return ret.ToArray();
         }
 
-        private string[] getRelativeSegments(string[] segments)
-        {
-            return segments.Skip(Options.RootDirectorySegments.Length).ToArray();
-        }
+      
     }
 }

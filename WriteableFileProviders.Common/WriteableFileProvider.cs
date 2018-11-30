@@ -266,7 +266,7 @@ namespace WriteableFileProviders
             }
             catch (AggregateException e)
             {
-                throw e.InnerException;
+                throw e.InnerExceptions.FirstOrDefault() ?? e;
             }
         }
         protected void RunTaskSerial(Task t)
@@ -277,7 +277,7 @@ namespace WriteableFileProviders
             }
             catch (AggregateException e)
             {
-                throw e.InnerException;
+                throw e.InnerExceptions.FirstOrDefault() ?? e;
             }
         }
 

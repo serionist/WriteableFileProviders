@@ -48,7 +48,10 @@ namespace WriteableFileProviders.AmazonS3
                 if (e.S3Objects.Count != 1) //path is directory, return not found
                     return new FileInfo(this, false, -1, path(absolutePathSegments), fileName(path(absolutePathSegments)), DefaultDateTime, false, getRelativeSegments(absolutePathSegments));
                 var latestVersion = await getLatestVersion(absolutePathSegments);
-                var file = await Client.GetObjectAsync(Options.BucketName, path(absolutePathSegments), latestVersion);
+                GetObjectResponse file;
+                if (!string.IsNullOrEmpty(latestVersion))
+                    file = await Client.GetObjectAsync(Options.BucketName, path(absolutePathSegments), latestVersion);
+                else file = await Client.GetObjectAsync(Options.BucketName, path(absolutePathSegments));
                return new FileInfo(this, true, file.ContentLength, path(absolutePathSegments), fileName(path(absolutePathSegments)), file.LastModified, false, getRelativeSegments(absolutePathSegments));
 
             }

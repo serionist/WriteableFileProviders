@@ -27,7 +27,16 @@ namespace WriteableFileProviders.AmazonS3
 
         private async Task<string> getLatestVersion(string[] absolutePathSegments)
         {
-            var list = await Client.ListVersionsAsync(Options.BucketName, path(absolutePathSegments));
+            ListVersionsResponse list;
+            try
+            {
+                list = await Client.ListVersionsAsync(Options.BucketName, path(absolutePathSegments));
+
+            }
+            catch (Exception ex)
+            {
+                list = null;
+            }
             return list.Versions
                 ?.Find(e => e.IsLatest)?.VersionId;
         }

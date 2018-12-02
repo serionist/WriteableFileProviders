@@ -97,7 +97,8 @@ namespace WriteableFileProviders.Physical
         {
             var p = path(absolutePathSegments);
             Directory.CreateDirectory(Path.GetDirectoryName(p));
-            return new LocalFileStream(new FileStream(p, FileMode.OpenOrCreate, FileAccess.ReadWrite), this, readOnly, absolutePathSegments );
+            return new LocalFileStream(new FileStream(p, FileMode.OpenOrCreate, readOnly? FileAccess.Read: FileAccess.ReadWrite, readOnly? FileShare.ReadWrite: FileShare.None),
+                this, readOnly, absolutePathSegments);
         }
 
         private static string path(string[] p)

@@ -11,13 +11,13 @@ namespace WriteableFileProviders
     {
         private Stream Stream { get; }
         public IWriteableFileProvider Provider { get; }
-        public string TargetFilePath { get; }
+        public string[] TargetFilePathSegments { get; }
         public bool ReadOnly { get; }
-        public LocalFileStream(Stream str, IWriteableFileProvider provider, bool readOnly, string targetFilePath)
+        public LocalFileStream(Stream str, IWriteableFileProvider provider, bool readOnly, string[] targetFilePathSegments)
         {
             Provider = provider;
             ReadOnly = readOnly;
-            TargetFilePath = targetFilePath;
+            TargetFilePathSegments = targetFilePathSegments;
             Stream = str;
         }
 
@@ -31,12 +31,13 @@ namespace WriteableFileProviders
             if (!ReadOnly && !disposeEventCalled)
             {
                 disposeEventCalled = true;
-                await Provider.OnLocalFileStreamClosingAsync(this);
+                await Provider.OnLocalFileStreamDisposingAsync(this);
             }
+            Stream.Dispose();
         }
         protected override void Dispose(bool disposing)
         {
-
+            
             DisposeAsync().Wait();
             Stream.Dispose();
         }

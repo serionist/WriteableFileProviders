@@ -26,8 +26,8 @@ namespace WriteableFileProviders.Physical
             O = options;
             if (string.IsNullOrEmpty(options.RootDirectoryPath))
                 throw new ArgumentException("RootPath cannot be empty", nameof(options.RootDirectoryPath));
-            if (!Path.IsPathRooted(options.RootDirectoryPath))
-                options.RootDirectoryPath = Path.GetFullPath(options.RootDirectoryPath);
+            //if (!Path.IsPathRooted(options.RootDirectoryPath))
+            //    options.RootDirectoryPath = Path.GetFullPath(options.RootDirectoryPath);
         }
             
 
@@ -113,7 +113,7 @@ namespace WriteableFileProviders.Physical
             var val = p.Replace("/", @"\");
             if (p.StartsWith(@"\\"))
                 ret.Add("\\");
-            else if (p.StartsWith(@"\"))
+            else if (p.StartsWith(@"/"))
                 ret.Add(@"root:");
             ret.AddRange(val.Split(new[] { '\\' }, StringSplitOptions.RemoveEmptyEntries));
             return ret.ToArray();

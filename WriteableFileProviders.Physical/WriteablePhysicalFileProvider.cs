@@ -26,8 +26,8 @@ namespace WriteableFileProviders.Physical
             O = options;
             if (string.IsNullOrEmpty(options.RootDirectoryPath))
                 throw new ArgumentException("RootPath cannot be empty", nameof(options.RootDirectoryPath));
-            //if (!Path.IsPathRooted(options.RootDirectoryPath))
-            //    options.RootDirectoryPath = Path.GetFullPath(options.RootDirectoryPath);
+            if (!Path.IsPathRooted(options.RootDirectoryPath))
+                options.RootDirectoryPath = Path.GetFullPath(options.RootDirectoryPath);
         }
             
 

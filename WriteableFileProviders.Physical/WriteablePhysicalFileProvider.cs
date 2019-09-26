@@ -14,7 +14,7 @@ namespace WriteableFileProviders.Physical
     public class WriteablePhysicalFileProvider: WriteableFileProvider<PhysicalFileProviderOptions>
     {
         private readonly PhysicalFileProvider _provider;
-
+        private PhysicalFileProviderOptions O { get; }
         private readonly DateTime DefaultDateTime = new DateTime(1970, 1, 1, 0, 0, 0);
         public WriteablePhysicalFileProvider(string rootPath): this(new PhysicalFileProviderOptions(){ RootDirectoryPath = rootPath})
         {
@@ -23,6 +23,7 @@ namespace WriteableFileProviders.Physical
 
         public WriteablePhysicalFileProvider(PhysicalFileProviderOptions options) : base(options)
         {
+            O = options;
             if (string.IsNullOrEmpty(options.RootDirectoryPath))
                 throw new ArgumentException("RootPath cannot be empty", nameof(options.RootDirectoryPath));
             if (!Path.IsPathRooted(options.RootDirectoryPath))
@@ -101,9 +102,9 @@ namespace WriteableFileProviders.Physical
                 this, readOnly, absolutePathSegments);
         }
 
-        private static string path(string[] p)
+        private string path(string[] p)
         {
-            return string.Join(Path.DirectorySeparatorChar.ToString(), p);
+            return string.Join(Path.DirectorySeparatorChar.ToString(), p).Replace("root:", "");
         }
 
         internal static string[] getPathSegments(string p)
@@ -112,6 +113,8 @@ namespace WriteableFileProviders.Physical
             var val = p.Replace("/", @"\");
             if (p.StartsWith(@"\\"))
                 ret.Add("\\");
+            else if (p.StartsWith(@"\"))
+                ret.Add(@"root:");
             ret.AddRange(val.Split(new[] { '\\' }, StringSplitOptions.RemoveEmptyEntries));
             return ret.ToArray();
         }

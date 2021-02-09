@@ -24,11 +24,14 @@ namespace WriteableFileProviders.Minio
             
         }
 
+        
+
         protected override async Task<IFileInfo> getFileInfoAsync(params string[] absolutePathSegments)
         {
 
             try
             {
+                await ensureBucketAsync();
                 //try to enumerate to see if dir
                 var e = Client.ListObjectsAsync(Options.BucketName, path(absolutePathSegments));
                 var items = await e.ToArray();
@@ -57,6 +60,7 @@ namespace WriteableFileProviders.Minio
 
         protected override async Task<IDirectoryContents> getDirectoryContentsAsync(params string[] absolutePathSegments)
         {
+            await ensureBucketAsync();
             var c = Client.ListObjectsAsync(Options.BucketName, path(absolutePathSegments), true);
             var items = await c.ToArray();
             if (items.Length == 0 || (items.Length == 1 && !items[0].Key.EndsWith("/")))
@@ -90,6 +94,7 @@ namespace WriteableFileProviders.Minio
 
         protected override async Task<Stream> readFileAsync(params string[] absolutePathSegments)
         {
+            await ensureBucketAsync();
             Stream s = new MemoryStream();
 
             await Client.GetObjectAsync(Options.BucketName, path(absolutePathSegments), e => e.CopyTo(s));
@@ -99,6 +104,7 @@ namespace WriteableFileProviders.Minio
 
         protected override async Task updateFileAsync(Stream contents, params string[] absolutePathSegments)
         {
+            await ensureBucketAsync();
             var stream = contents;
             long length;
             try
@@ -124,6 +130,7 @@ namespace WriteableFileProviders.Minio
 
         protected override async Task<bool> deleteAsync(params string[] absolutePathSegments)
         {
+            await ensureBucketAsync();
             var info = await getFileInfoAsync(absolutePathSegments);
             if (info.Exists)
             {
@@ -160,6 +167,12 @@ namespace WriteableFileProviders.Minio
             if (ret.Contains("/"))
                 ret = ret.Substring(ret.LastIndexOf("/") + 1);
             return ret;
+        }
+
+        private async Task ensureBucketAsync()
+        {
+            if (!(await Client.BucketExistsAsync(Options.BucketName)))
+                await Client.MakeBucketAsync(Options.BucketName);
         }
     }
 }

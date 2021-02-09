@@ -3,11 +3,13 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using WriteableFileProviders.Minio;
 
 namespace WriteableFileProviders.Tests
 {
@@ -25,7 +27,22 @@ namespace WriteableFileProviders.Tests
         {
             return Guid.NewGuid().ToString();
         }
-        
+
+        //[TestMethod]
+        //public void Dummy()
+        //{
+        //    var c = new WriteableFileProviders.Minio.WriteableMinioFileProvider(new MinioFileProviderOptions("troll", "172.18.99.129:9000", "REDACTED_MINIO_ACCESS_KEY", "REDACTED_MINIO_SECRET_KEY", "bucketo1"));
+        //    c.UpdateFile(new MemoryStream(Encoding.UTF8.GetBytes("Hello")), "file");
+        //    var fi = c.GetFileInfo("file");
+        //    var di = c.GetDirectoryContents();
+        //    var di2 = c.GetDirectoryContents("a");
+        //    var di3 = c.GetDirectoryContents("file");
+        //    var d = c.ReadFile("file");
+        //    var mem = new MemoryStream();
+        //    d.CopyTo(mem);
+        //    var s = Encoding.UTF8.GetString(mem.ToArray());
+        //}
+
         [TestMethod]
         public void TestJsonSerialization()
         {

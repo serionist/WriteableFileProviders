@@ -285,6 +285,21 @@ namespace WriteableFileProviders
             }
         }
 
-     
+        protected abstract Task<string> getDownloadUrl(string[] absolutePathSegments, TimeSpan validity);
+
+        public string GetDownloadUrl(string[] pathSegments, TimeSpan validity) => GetDownloadUrlAsync(pathSegments, validity).Result;
+
+        public string GetDownloadUrl(string subpath, TimeSpan validity) => GetDownloadUrlAsync(subpath, validity).Result;
+
+        public string GetDownloadUrl(IFileInfo file, TimeSpan validity) => GetDownloadUrlAsync(file, validity).Result;
+
+        public Task<string> GetDownloadUrlAsync(string[] pathSegments, TimeSpan validity) 
+            => getDownloadUrl(getAbsoluteSegments(pathSegments), validity);
+
+        public Task<string> GetDownloadUrlAsync(string subpath, TimeSpan validity) 
+            => getDownloadUrl(normalizePath(subpath), validity);
+
+        public Task<string> GetDownloadUrlAsync(IFileInfo file, TimeSpan validity) 
+            => getDownloadUrl(fileSegments(file), validity);
     }
 }

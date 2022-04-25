@@ -222,5 +222,49 @@ namespace WriteableFileProviders
         /// <returns></returns>
         Task OnLocalFileStreamDisposingAsync(LocalFileStream stream);
         JObject ToJson();
+
+        /// <summary>
+        /// Generate a presigned URL that you can give to others so that they can retrieve an object.
+        /// </summary>
+        /// <param name="path"></param>
+        /// <param name="validity"></param>
+        /// <returns></returns>
+        string GetDownloadUrl(string[] pathSegments, TimeSpan validity);
+        /// <summary>
+        /// Generate a presigned URL that you can give to others so that they can retrieve an object.
+        /// </summary>
+        /// <param name="subpath"></param>
+        /// <param name="validity"></param>
+        /// <returns></returns>
+        string GetDownloadUrl(string subpath, TimeSpan validity);
+        /// <summary>
+        /// Generate a presigned URL that you can give to others so that they can retrieve an object.
+        /// </summary>
+        /// <param name="file"></param>
+        /// <param name="validity"></param>
+        /// <returns></returns>
+        string GetDownloadUrl(IFileInfo file, TimeSpan validity);
+
+        /// <summary>
+        /// Generate a presigned URL that you can give to others so that they can retrieve an object.
+        /// </summary>
+        /// <param name="path"></param>
+        /// <param name="validity"></param>
+        /// <returns></returns>
+        Task<string> GetDownloadUrlAsync(string[] pathSegments, TimeSpan validity);
+        /// <summary>
+        /// Generate a presigned URL that you can give to others so that they can retrieve an object.
+        /// </summary>
+        /// <param name="subpath"></param>
+        /// <param name="validity"></param>
+        /// <returns></returns>
+        Task<string> GetDownloadUrlAsync(string subpath, TimeSpan validity);
+        /// <summary>
+        /// Generate a presigned URL that you can give to others so that they can retrieve an object.
+        /// </summary>
+        /// <param name="file"></param>
+        /// <param name="validity"></param>
+        /// <returns></returns>
+        Task<string> GetDownloadUrlAsync(IFileInfo file, TimeSpan validity);
     }
 }

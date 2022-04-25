@@ -2,7 +2,9 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -187,6 +189,44 @@ namespace WriteableFileProviders.Tests
             Assert.IsTrue(entry.CreateReadStream().ReadByte() == 5, "File content was not updated via cacheStream");
 
         }
+
+        [TestMethod]
+        public async Task UploadFileAndGetDownloadUrl()
+        {
+            var p = GetProvider();
+            var name = $"files/{GetFileName()}";
+            var entry = await p.GetFileInfoAsync(name);
+            if (entry.Exists)
+                Assert.Fail("Entry already exists");
+
+            MD5 md5 = MD5.Create();
+
+            const int bufferSize = 10 * 1024;
+            byte[] buffer = new byte[bufferSize];
+            byte[] inputBytes = Encoding.ASCII.GetBytes(name);
+            buffer.Concat(inputBytes);
+
+            await using (var remoteFile = await p.CreateLocalFileStreamAsync(false, name))
+                await remoteFile.WriteAsync(inputBytes, 0, inputBytes.Length);
+
+            byte[] hash = md5.ComputeHash(inputBytes);
+
+            var fileUrlLink = await p.GetDownloadUrlAsync(name, TimeSpan.FromHours(1));
+
+            var client = new HttpClient();
+            var response = await client.GetAsync(fileUrlLink);
+            response.EnsureSuccessStatusCode();
+
+            byte[] hash2; 
+
+            using (var stream = await response.Content.ReadAsStreamAsync())
+                hash2 = md5.ComputeHash(stream);
+
+           Assert.IsTrue(hash2.SequenceEqual(hash));
+
+        }
+
+
         [TestMethod]
         public async Task CreateUpdateDelete100MBFile()
         {

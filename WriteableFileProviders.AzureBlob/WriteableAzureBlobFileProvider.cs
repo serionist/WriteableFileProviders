@@ -110,8 +110,24 @@ namespace WriteableFileProviders.AzureBlob
             return (ret.ToArray(), retDirs.ToArray());
 
         }
-       
-        
+
+        protected override Task<string> getDownloadUrl(string[] absolutePathSegments, TimeSpan validity)
+        {
+            var file = getPath(absolutePathSegments);
+            var blob = Container.GetAppendBlobReference(file);
+
+            string signature = blob.GetSharedAccessSignature(new SharedAccessBlobPolicy()
+            {
+                SharedAccessStartTime = DateTimeOffset.UtcNow,
+                SharedAccessExpiryTime = DateTimeOffset.UtcNow.Add(validity),
+                Permissions = SharedAccessBlobPermissions.Read
+            });
+
+            var urlString = blob.StorageUri.PrimaryUri.ToString() + signature;
+            return Task.FromResult(urlString);
+        }
+
+
         private string getPath(string[] absolutePathSegments)
         {
             return string.Join("/", absolutePathSegments);

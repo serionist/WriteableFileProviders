@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netstandard2.0</TargetFramework>
+    <TargetFramework>net6.0</TargetFramework>
     <Authors>Soma Osvay</Authors>
     <Description>WriteableAzureBlobFileProvider implementation if IWriteableFileProvider.
 WriteableFileProviders is a project aimed to provide writeable access to different file providers while also being usable as a standard ASP.NET Core IFileProvider.</Description>
@@ -10,8 +10,8 @@ WriteableFileProviders is a project aimed to provide writeable access to differe
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="WindowsAzure.Storage" Version="9.3.2" />
-    <PackageReference Include="WriteableFileProviders.Common" Version="2018.11.30.3" />
+    <PackageReference Include="WindowsAzure.Storage" Version="9.3.3" />
+    <PackageReference Include="WriteableFileProviders.Common" Version="2022.4.25.6" />
   </ItemGroup>
 
 </Project>

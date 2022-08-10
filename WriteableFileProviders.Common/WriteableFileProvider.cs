@@ -297,7 +297,7 @@ namespace WriteableFileProviders
             => getDownloadUrl(getAbsoluteSegments(pathSegments), validity);
 
         public Task<string> GetDownloadUrlAsync(string subpath, TimeSpan validity) 
-            => getDownloadUrl(normalizePath(subpath), validity);
+            => GetDownloadUrlAsync(normalizePath(subpath), validity);
 
         public Task<string> GetDownloadUrlAsync(IFileInfo file, TimeSpan validity) 
             => getDownloadUrl(fileSegments(file), validity);

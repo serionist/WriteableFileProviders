@@ -20,9 +20,10 @@ namespace WriteableFileProviders.Tests
         {
             return new WriteableAzureBlobFileProvider(new AzureFileProviderOptions()
             {
-                ConnectionString = Settings.AzureBlobFileProvider_ConnectionString,
+                AccountKey = Settings.AzureBlobFileProvider_AccountKey,
                 ContainerName = Settings.AzureBlobFileProvider_ContainerName,
-                RootDirectoryPath = Settings.AzureBlobFileProvider_RootPath
+                RootDirectoryPath = Settings.AzureBlobFileProvider_RootPath,
+                AccountName = Settings.AzureBlobFileProvider_AccountName
             });
         }
     }

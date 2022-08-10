@@ -195,7 +195,19 @@ namespace WriteableFileProviders.AmazonS3
                 ret = ret.Substring(ret.LastIndexOf("/") + 1);
             return ret;
         }
-    
 
+        protected override Task<string> getDownloadUrl(string[] absolutePathSegments, TimeSpan validity)
+        {
+            throw new NotSupportedException();
+            var request = new GetPreSignedUrlRequest()
+            {
+                BucketName = Options.BucketName,
+                Key = path(absolutePathSegments),
+                Expires = DateTime.UtcNow.Add(validity),
+                Verb = HttpVerb.GET
+            };
+            request.ResponseHeaderOverrides.ContentType = "application/octet-stream";
+            return Task.FromResult(Client.GetPreSignedURL(request));
+        }
     }
 }

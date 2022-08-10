@@ -211,18 +211,25 @@ namespace WriteableFileProviders.Tests
 
             byte[] hash = md5.ComputeHash(inputBytes);
 
-            var fileUrlLink = await p.GetDownloadUrlAsync(name, TimeSpan.FromHours(1));
+            try
+            {
+                var fileUrlLink = await p.GetDownloadUrlAsync(name, TimeSpan.FromHours(1));
 
-            var client = new HttpClient();
-            var response = await client.GetAsync(fileUrlLink);
-            response.EnsureSuccessStatusCode();
+                var client = new HttpClient();
+                var response = await client.GetAsync(fileUrlLink);
+                response.EnsureSuccessStatusCode();
 
-            byte[] hash2; 
+                byte[] hash2;
 
-            using (var stream = await response.Content.ReadAsStreamAsync())
-                hash2 = md5.ComputeHash(stream);
+                using (var stream = await response.Content.ReadAsStreamAsync())
+                    hash2 = md5.ComputeHash(stream);
 
-           Assert.IsTrue(hash2.SequenceEqual(hash));
+                Assert.IsTrue(hash2.SequenceEqual(hash));
+            }
+            catch(NotSupportedException)
+            {
+
+            }
 
         }
 

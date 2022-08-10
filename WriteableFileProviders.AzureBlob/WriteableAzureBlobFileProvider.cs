@@ -3,26 +3,35 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using Azure;
+using Azure.Identity;
+using Azure.Storage;
+using Azure.Storage.Blobs;
+using Azure.Storage.Blobs.Models;
+using Azure.Storage.Sas;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Primitives;
-using Microsoft.WindowsAzure.Storage;
-using Microsoft.WindowsAzure.Storage.Blob;
-using Microsoft.WindowsAzure.Storage.File;
 
 namespace WriteableFileProviders.AzureBlob
 {
     public class WriteableAzureBlobFileProvider:WriteableFileProvider<AzureFileProviderOptions>
     {
         private readonly DateTime DefaultDateTime = new DateTime(1970, 1, 1, 0, 0, 0);
-        private CloudBlobContainer Container { get;  }
+        private BlobServiceClient ServiceClient { get;}
+        private BlobContainerClient Container { get; }
+        private StorageSharedKeyCredential Credential { get; }
         public WriteableAzureBlobFileProvider(AzureFileProviderOptions options) : base(options)
         {
-            if (string.IsNullOrEmpty(Options.ConnectionString))
-                throw new ArgumentException("ConnectionString is required", nameof(Options.ConnectionString));
+            if (string.IsNullOrEmpty(Options.AccountName))
+                throw new ArgumentException("AccountName is required", nameof(Options.AccountName));
+            if (string.IsNullOrEmpty(Options.AccountKey))
+                throw new ArgumentException("AccountKey is required", nameof(Options.AccountKey));
             if (string.IsNullOrEmpty(Options.ContainerName))
                 throw new ArgumentException("ContainerName is required", nameof(Options.ContainerName));
-            var storageAcc = CloudStorageAccount.Parse(Options.ConnectionString);
-            Container = storageAcc.CreateCloudBlobClient().GetContainerReference(Options.ContainerName);
+            string blobEndpoint = string.Format("https://{0}.blob.core.windows.net", Options.AccountName);
+            Credential = new StorageSharedKeyCredential(Options.AccountName, Options.AccountKey);
+            ServiceClient = new BlobServiceClient(new Uri(blobEndpoint), Credential);
+            Container = ServiceClient.GetBlobContainerClient(Options.ContainerName);
         }
 
 
@@ -30,38 +39,33 @@ namespace WriteableFileProviders.AzureBlob
 
         protected override async Task<IFileInfo> getFileInfoAsync(params string[] absolutePathSegments)
         {
-            await Container.CreateIfNotExistsAsync();
-            var file = Container.GetBlockBlobReference(getPath(absolutePathSegments));
-            var exists = await file.ExistsAsync();
-            if (exists)
-                await file.FetchAttributesAsync();
-            return new FileInfo(this,  exists, file.Properties.Length,
-                getPath(absolutePathSegments), absolutePathSegments.Last(), file.Properties.LastModified ?? DefaultDateTime, false, getRelativeSegments(absolutePathSegments));
-            
-
-
+            try
+            {
+                var file = Container.GetBlobClient(getPath(absolutePathSegments));
+                var properties = await file.GetPropertiesAsync();
+                return new FileInfo(this, true, properties.Value.ContentLength, getPath(absolutePathSegments), absolutePathSegments.Last(), properties.Value.LastModified, false, getRelativeSegments(absolutePathSegments));
+            }
+            catch(RequestFailedException ex)
+            {
+                if (ex.ErrorCode == BlobErrorCode.BlobNotFound)
+                    return new FileInfo(this, false, 0, getPath(absolutePathSegments), absolutePathSegments.Last(), DefaultDateTime, false, getRelativeSegments(absolutePathSegments));
+                if (ex.ErrorCode == BlobErrorCode.ContainerNotFound)
+                {
+                    await Container.CreateIfNotExistsAsync();
+                    return await getFileInfoAsync(absolutePathSegments);
+                }
+                throw;
+            }
         }
 
         protected override async Task<IDirectoryContents> getDirectoryContentsAsync(params string[] absolutePathSegments)
         {
             var e = await EnumerateFiles(absolutePathSegments, false);
             var ret = new List<IFileInfo>();
-            var metadataJobs = new List<Task>();
             foreach (var file in e.files)
-            {
-                var t = new Task(async() =>
-                {
-                    await file.FetchAttributesAsync();
-                });
-                metadataJobs.Add(t);
-                t.Start();
-            }
-            Task.WaitAll(metadataJobs.ToArray());
-
-            foreach (var file in e.files)
-                ret.Add(new FileInfo(this, true, file.Properties.Length, file.Name, getFileName(file.Name), file.Properties.LastModified ?? DefaultDateTime, false, getRelativeSegments(absolutePathSegments.Concat(new []{file.Name}).ToArray())));
+                ret.Add(new FileInfo(this, true, file.Properties.ContentLength ?? 0, file.Name, getFileName(file.Name), file.Properties.LastModified ?? DefaultDateTime, false, getRelativeSegments(absolutePathSegments.Concat(new[] { file.Name }).ToArray())));
             foreach (var dir in e.directories)
-                ret.Add(new FileInfo(this, true, -1, dir.Prefix, getFileName(dir.Prefix), DefaultDateTime, true, getRelativeSegments(absolutePathSegments.Concat(new[] { getFileName(dir.Prefix) }).ToArray())));
+                ret.Add(new FileInfo(this, false, -1, dir, getFileName(dir), DefaultDateTime, true, getRelativeSegments(absolutePathSegments.Concat(new[] { dir }).ToArray())));
           return new DirectoryContents(ret.Any(), ret.ToArray());
         }
 
@@ -72,59 +76,118 @@ namespace WriteableFileProviders.AzureBlob
 
         protected override async Task<Stream> readFileAsync(params string[] absolutePathSegments)
         {
-            var file = Container.GetBlockBlobReference(getPath(absolutePathSegments));
-            return await file.OpenReadAsync();
+            try
+            {
+                var file = Container.GetBlobClient(getPath(absolutePathSegments));
+                var download = await file.DownloadAsync();
+                return new AzureFileStream(download.Value.Content, download.Value.ContentLength);
+            }
+            catch (RequestFailedException ex)
+            {
+                if (ex.ErrorCode == BlobErrorCode.ContainerNotFound)
+                {
+                    await Container.CreateIfNotExistsAsync();
+                    return await readFileAsync(absolutePathSegments);
+                }
+                throw;
+            }
         }
 
         protected override async Task updateFileAsync(Stream contents, params string[] absolutePathSegments)
         {
-            var file = Container.GetBlockBlobReference(getPath(absolutePathSegments));
-            await file.UploadFromStreamAsync(contents);
-
+            // await Container.CreateIfNotExistsAsync();
+            var file = Container.GetBlobClient(getPath(absolutePathSegments));
+            await file.UploadAsync(contents, true);
         }
 
         protected override async Task<bool> deleteAsync(params string[] absolutePathSegments)
         {
-            var file = Container.GetBlockBlobReference(getPath(absolutePathSegments));
-            if (await file.DeleteIfExistsAsync())
-                return true;
-            var ret = false;
-            foreach (var f in (await EnumerateFiles(absolutePathSegments, true)).files)
-                ret = await f.DeleteIfExistsAsync();
-            return ret;
-        }
-
-        private async Task<(CloudBlockBlob[] files, CloudBlobDirectory[] directories)> EnumerateFiles(string[] absolutePathSegments, bool deep)
-        {
-            var ret = new List<CloudBlockBlob>();
-            var retDirs = new List<CloudBlobDirectory>();
-            var contToken = new BlobContinuationToken();
-            while (contToken != null)
+            try
             {
-                var req = await Container.ListBlobsSegmentedAsync($"{getPath(absolutePathSegments)}/", deep, BlobListingDetails.None, null,
-                    contToken, new BlobRequestOptions(), new OperationContext());
-                contToken = req.ContinuationToken;
-                ret.AddRange(req.Results.OfType<CloudBlockBlob>());
-                retDirs.AddRange(req.Results.OfType<CloudBlobDirectory>());
+                var file = Container.GetBlobClient(getPath(absolutePathSegments));
+                if (await file.DeleteIfExistsAsync())
+                    return true;
+                var ret = false;
+                foreach (var f in (await EnumerateFiles(absolutePathSegments, true)).files)
+                    ret = await Container.GetBlobClient(f.Name).DeleteIfExistsAsync();
+                return ret;
             }
-            return (ret.ToArray(), retDirs.ToArray());
-
+            catch (RequestFailedException ex)
+            {
+                if (ex.ErrorCode == BlobErrorCode.ContainerNotFound)
+                {
+                    await Container.CreateIfNotExistsAsync();
+                    return await deleteAsync(absolutePathSegments);
+                }
+                throw;
+            }
+           
         }
 
-        protected override Task<string> getDownloadUrl(string[] absolutePathSegments, TimeSpan validity)
+        private async Task<(BlobItem[] files, string[] directories)> EnumerateFiles(string[] absolutePathSegments, bool deep)
         {
-            var file = getPath(absolutePathSegments);
-            var blob = Container.GetAppendBlobReference(file);
-
-            string signature = blob.GetSharedAccessSignature(new SharedAccessBlobPolicy()
+            try
             {
-                SharedAccessStartTime = DateTimeOffset.UtcNow,
-                SharedAccessExpiryTime = DateTimeOffset.UtcNow.Add(validity),
-                Permissions = SharedAccessBlobPermissions.Read
-            });
+                var files = new List<BlobItem>();
+                var dirPath = $"{getPath(absolutePathSegments)}/";
+                var items = Container.GetBlobsAsync(prefix: dirPath);
+                await foreach (var i in items)
+                    files.Add(i);
+                return (files.Where(f =>
+                {
+                    var relativePath = f.Name.Substring(dirPath.Length);
+                    return deep || !relativePath.Contains("/");
+                }).ToArray(), files.Select(e => e.Name).Select(e => e.Substring(0, e.LastIndexOf("/") + 1)).Where(e => e.EndsWith("/")).Where(d =>
+                {
+                    var relativePath = d.Substring(dirPath.Length);
+                    if (string.IsNullOrEmpty(relativePath))
+                        return false;
+                    relativePath = relativePath.Substring(0, relativePath.Length - 1);
+                    return deep || !relativePath.Contains("/");
+                }).Distinct().ToArray());
+            }
+            catch (RequestFailedException ex)
+            {
+                if (ex.ErrorCode == BlobErrorCode.ContainerNotFound)
+                {
+                    await Container.CreateIfNotExistsAsync();
+                    return await EnumerateFiles(absolutePathSegments, deep);
+                }
+                throw;
+            }
+            
 
-            var urlString = blob.StorageUri.PrimaryUri.ToString() + signature;
-            return Task.FromResult(urlString);
+
+        }
+        protected override async Task<string> getDownloadUrl(string[] absolutePathSegments, TimeSpan validity)
+        {
+            try
+            {
+                var file = Container.GetBlobClient(getPath(absolutePathSegments));
+                var builder = new BlobSasBuilder()
+                {
+                    BlobContainerName = Container.Name,
+                    BlobName = getPath(absolutePathSegments),
+                    StartsOn = DateTimeOffset.UtcNow,
+                    ExpiresOn = DateTimeOffset.UtcNow.Add(validity)
+                };
+                builder.SetPermissions(BlobAccountSasPermissions.Read);
+                return new BlobUriBuilder(file.Uri)
+                {
+                    Sas = builder.ToSasQueryParameters(Credential)
+                }.ToUri().ToString();
+            }
+            catch (RequestFailedException ex)
+            {
+                if (ex.ErrorCode == BlobErrorCode.ContainerNotFound)
+                {
+                    await Container.CreateIfNotExistsAsync();
+                    return await getDownloadUrl(absolutePathSegments, validity);
+                }
+                throw;
+            }
+
+            
         }
 
 

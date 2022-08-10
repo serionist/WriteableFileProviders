@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net6.0</TargetFramework>
@@ -10,8 +10,11 @@ WriteableFileProviders is a project aimed to provide writeable access to differe
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="WindowsAzure.Storage" Version="9.3.3" />
-    <PackageReference Include="WriteableFileProviders.Common" Version="2022.4.25.6" />
+    <PackageReference Include="Azure.Identity" Version="1.6.1" />
+    <PackageReference Include="Azure.Storage.Blobs" Version="9.3.3" />
+    <PackageReference Include="WriteableFileProviders.Common" Version="2022.8.10.2" />
+    
   </ItemGroup>
+
 
 </Project>

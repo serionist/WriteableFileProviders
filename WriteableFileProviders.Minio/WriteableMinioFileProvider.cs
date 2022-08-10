@@ -174,5 +174,10 @@ namespace WriteableFileProviders.Minio
             if (!(await Client.BucketExistsAsync(Options.BucketName)))
                 await Client.MakeBucketAsync(Options.BucketName);
         }
+
+        protected override Task<string> getDownloadUrl(string[] absolutePathSegments, TimeSpan validity)
+        {
+            throw new NotSupportedException();
+        }
     }
 }

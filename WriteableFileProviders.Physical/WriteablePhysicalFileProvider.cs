@@ -121,6 +121,9 @@ namespace WriteableFileProviders.Physical
             return ret.ToArray();
         }
 
-      
+        protected override Task<string> getDownloadUrl(string[] absolutePathSegments, TimeSpan validity)
+        {
+            throw new NotSupportedException();
+        }
     }
 }

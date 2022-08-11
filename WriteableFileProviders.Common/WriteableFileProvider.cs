@@ -117,36 +117,36 @@ namespace WriteableFileProviders
         }
 
 
-        protected abstract Task updateFileAsync(Stream contents, params string[] absolutePathSegments);
+        protected abstract Task updateFileAsync(Stream contents, UpdateFileMode mode, params string[] absolutePathSegments);
 
-        public async Task UpdateFileAsync(Stream contents, params string[] pathSegments)
+        public async Task UpdateFileAsync(Stream contents, UpdateFileMode mode, params string[] pathSegments)
         {
-            await updateFileAsync(contents, getAbsoluteSegments(pathSegments));
+            await updateFileAsync(contents, mode, getAbsoluteSegments(pathSegments));
         }
 
-        public void UpdateFile(Stream contents, IFileInfo file)
+        public void UpdateFile(Stream contents, UpdateFileMode mode, IFileInfo file)
         {
-            UpdateFile(contents, fileSegments(file));
+            UpdateFile(contents, mode, fileSegments(file));
         }
 
-        public async Task UpdateFileAsync(Stream contents, IFileInfo file)
+        public async Task UpdateFileAsync(Stream contents, UpdateFileMode mode, IFileInfo file)
         {
-            await UpdateFileAsync(contents, fileSegments(file));
+            await UpdateFileAsync(contents, mode, fileSegments(file));
         }
 
-        public async Task UpdateFileAsync(string subpath, Stream contents)
+        public async Task UpdateFileAsync(string subpath, UpdateFileMode mode, Stream contents)
         {
             var normalizedPath = normalizePath(subpath);
-            await UpdateFileAsync(contents, normalizedPath);
+            await UpdateFileAsync(contents, mode, normalizedPath);
         }
-        public void UpdateFile(string subpath, Stream contents)
+        public void UpdateFile(string subpath, UpdateFileMode mode, Stream contents)
         {
             var normalizedPath = normalizePath(subpath);
-            UpdateFile(contents, normalizedPath);
+            UpdateFile(contents, mode, normalizedPath);
         }
-        public void UpdateFile(Stream contents, params string[] pathSegments)
+        public void UpdateFile(Stream contents, UpdateFileMode mode, params string[] pathSegments)
         {
-            RunTaskSerial(UpdateFileAsync(contents, pathSegments));
+            RunTaskSerial(UpdateFileAsync(contents, mode, pathSegments));
         }
 
 

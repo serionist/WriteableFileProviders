@@ -87,7 +87,7 @@ namespace WriteableFileProviders
         /// <param name="subpath"></param>
         /// <param name="contents"></param>
         /// <returns></returns>
-        Task UpdateFileAsync(string subpath, Stream contents);
+        Task UpdateFileAsync(string subpath, UpdateFileMode mode, Stream contents);
         /// <summary>
         /// Updates a file with the specified contents
         /// </summary>
@@ -100,14 +100,14 @@ namespace WriteableFileProviders
         /// <param name="subpath"></param>
         /// <param name="contents"></param>
         /// <returns></returns>
-        void UpdateFile(string subpath, Stream contents);
+        void UpdateFile(string subpath, UpdateFileMode mode, Stream contents);
         /// <summary>
         /// Updates a file with the specified contents
         /// </summary>
         /// <param name="subpath"></param>
         /// <param name="contents"></param>
         /// <returns></returns>
-        void UpdateFile(Stream contents, params string[] pathSegments);
+        void UpdateFile(Stream contents, UpdateFileMode mode, params string[] pathSegments);
         
         /// <summary>
         /// Updates a file with the specified contents
@@ -115,21 +115,21 @@ namespace WriteableFileProviders
         /// <param name="subpath"></param>
         /// <param name="contents"></param>
         /// <returns></returns>
-        Task UpdateFileAsync(Stream contents, params string[] pathSegments);
+        Task UpdateFileAsync(Stream contents, UpdateFileMode mode, params string[] pathSegments);
         /// <summary>
         /// Updates a file with the specified contents
         /// </summary>
         /// <param name="subpath"></param>
         /// <param name="contents"></param>
         /// <returns></returns>
-        void UpdateFile(Stream contents, IFileInfo file);
+        void UpdateFile(Stream contents, UpdateFileMode mode, IFileInfo file);
         /// <summary>
         /// Updates a file with the specified contents
         /// </summary>
         /// <param name="subpath"></param>
         /// <param name="contents"></param>
         /// <returns></returns>
-        Task UpdateFileAsync(Stream contents, IFileInfo file);
+        Task UpdateFileAsync(Stream contents, UpdateFileMode mode, IFileInfo file);
         /// <summary>
         /// Deletes a file or directory. The delete is recursive for directories
         /// </summary>

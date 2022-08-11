@@ -240,7 +240,7 @@ namespace WriteableFileProviders
         {
             if (stream.ReadOnly) return;
             stream.Position = 0;
-            await updateFileAsync(stream, stream.TargetFilePathSegments);
+            await updateFileAsync(stream, UpdateFileMode.Overwrite, stream.TargetFilePathSegments);
         }
 
 

@@ -266,5 +266,47 @@ namespace WriteableFileProviders
         /// <param name="validity"></param>
         /// <returns></returns>
         Task<string> GetDownloadUrlAsync(IFileInfo file, TimeSpan validity);
+
+        /// <summary>
+        /// Moves a file from an old destination to a new one
+        /// </summary>
+        /// <param name="oldFileSegments"></param>
+        /// <param name="newFileSegments"></param>
+        /// <returns></returns>
+        void Move(string[] oldFileSegments, string[] newFileSegments);
+
+        /// <summary>
+        /// Moves a file from an old destination to a new one
+        /// </summary>
+        /// <returns></returns>
+        void Move(string oldPath, string newPath);
+
+        /// <summary>
+        /// Moves a file from an old destination to a new one
+        /// </summary>
+        /// <returns></returns>
+        void Move(IFileInfo file, string[] newFileSegments);
+
+
+
+        /// <summary>
+        /// Moves a file from an old destination to a new one
+        /// </summary>
+        /// <param name="oldFileSegments"></param>
+        /// <param name="newFileSegments"></param>
+        /// <returns></returns>
+        Task MoveAsync(string[] oldFileSegments, string[] newFileSegments);
+
+        /// <summary>
+        /// Moves a file from an old destination to a new one
+        /// </summary>
+        /// <returns></returns>
+        Task MoveAsync(string oldPath, string newPath);
+
+        /// <summary>
+        /// Moves a file from an old destination to a new one
+        /// </summary>
+        /// <returns></returns>
+        Task MoveAsync(IFileInfo file, string[] newFileSegments);
     }
 }

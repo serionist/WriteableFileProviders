@@ -301,5 +301,25 @@ namespace WriteableFileProviders
 
         public Task<string> GetDownloadUrlAsync(IFileInfo file, TimeSpan validity) 
             => getDownloadUrl(fileSegments(file), validity);
+
+        protected abstract Task move(string[] oldSegments, string[] newSegments);
+        public void Move(string[] oldFileSegments, string[] newFileSegments)
+            => MoveAsync(oldFileSegments, newFileSegments).Wait();
+
+        public void Move(string oldPath, string newPath) =>
+            MoveAsync(oldPath, newPath).Wait();
+
+        public void Move(IFileInfo file, string[] newFileSegments) =>
+            MoveAsync(file, newFileSegments).Wait();
+        public Task MoveAsync(string oldPath, string newPath) =>
+            MoveAsync(normalizePath(oldPath), normalizePath(newPath));
+
+        public Task MoveAsync(IFileInfo file, string[] newFileSegments) =>
+            move(fileSegments(file), getAbsoluteSegments(newFileSegments));
+
+        public Task MoveAsync(string[] oldFileSegments, string[] newFileSegments) =>
+            move(getAbsoluteSegments(oldFileSegments), getAbsoluteSegments(newFileSegments));
+
+        
     }
 }

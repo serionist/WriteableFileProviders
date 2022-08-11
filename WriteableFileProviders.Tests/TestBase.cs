@@ -70,7 +70,7 @@ namespace WriteableFileProviders.Tests
             if (entry.Exists)
                 Assert.Fail("Entry already exists");
 
-            await Provider.UpdateFileAsync(name, new MemoryStream(new[] {(byte) 6}));
+            await Provider.UpdateFileAsync(name, UpdateFileMode.Overwrite, new MemoryStream(new[] {(byte) 6}));
             entry = await Provider.GetFileInfoAsync(name);
             if (!entry.Exists)
                 Assert.Fail("Entry wasn't created");
@@ -84,7 +84,7 @@ namespace WriteableFileProviders.Tests
                     Assert.Fail("File contents were invalid");
             }
 
-            await Provider.UpdateFileAsync(name, new MemoryStream(new[] { (byte)12, (byte)6 }));
+            await Provider.UpdateFileAsync(name, UpdateFileMode.Overwrite, new MemoryStream(new[] { (byte)12, (byte)6 }));
             entry = await Provider.GetFileInfoAsync(name);
             if (!entry.Exists)
                 Assert.Fail("Entry was deleted after second rewrite");
@@ -114,10 +114,10 @@ namespace WriteableFileProviders.Tests
             var subfile2 = $"{dir2}/file1";
             var file1 = $"{baseDir}/file1";
             var file2 = $"{baseDir}/file2";
-            await Provider.UpdateFileAsync(subfile1, new MemoryStream(new[] { (byte)6 }));
-            await Provider.UpdateFileAsync(subfile2, new MemoryStream(new[] { (byte)6 }));
-            await Provider.UpdateFileAsync(file1, new MemoryStream(new[] { (byte)6 }));
-            await Provider.UpdateFileAsync(file2, new MemoryStream(new[] { (byte)6 }));
+            await Provider.UpdateFileAsync(subfile1, UpdateFileMode.Overwrite, new MemoryStream(new[] { (byte)6 }));
+            await Provider.UpdateFileAsync(subfile2, UpdateFileMode.Overwrite, new MemoryStream(new[] { (byte)6 }));
+            await Provider.UpdateFileAsync(file1, UpdateFileMode.Overwrite, new MemoryStream(new[] { (byte)6 }));
+            await Provider.UpdateFileAsync(file2, UpdateFileMode.Overwrite, new MemoryStream(new[] { (byte)6 }));
 
 
             var entries = (await Provider.GetDirectoryContentsAsync(baseDir)).ToList();
@@ -149,10 +149,10 @@ namespace WriteableFileProviders.Tests
             var subfile2 = $"{dir2}/file1";
             var file1 = $"{baseDir}/file1";
             var file2 = $"{baseDir}/file2";
-            await Provider.UpdateFileAsync(subfile1, new MemoryStream(new[] {(byte) 6}));
-            await Provider.UpdateFileAsync(subfile2, new MemoryStream(new[] { (byte)6 }));
-            await Provider.UpdateFileAsync(file1, new MemoryStream(new[] { (byte)6 }));
-            await Provider.UpdateFileAsync(file2, new MemoryStream(new[] { (byte)6 }));
+            await Provider.UpdateFileAsync(subfile1, UpdateFileMode.Overwrite, new MemoryStream(new[] {(byte) 6}));
+            await Provider.UpdateFileAsync(subfile2, UpdateFileMode.Overwrite, new MemoryStream(new[] { (byte)6 }));
+            await Provider.UpdateFileAsync(file1, UpdateFileMode.Overwrite, new MemoryStream(new[] { (byte)6 }));
+            await Provider.UpdateFileAsync(file2, UpdateFileMode.Overwrite, new MemoryStream(new[] { (byte)6 }));
            
             var entries = (await Provider.GetDirectoryContentsAsync(baseDir)).ToList();
             if (!entries.Exists(e => e.Name == "subdir1" && e.IsDirectory))
@@ -174,7 +174,7 @@ namespace WriteableFileProviders.Tests
             var entry = await p.GetFileInfoAsync(name);
             if (entry.Exists)
                 Assert.Fail("Entry already exists");
-            await p.UpdateFileAsync(name, new MemoryStream(new[] {(byte) 12}));
+            await p.UpdateFileAsync(name, UpdateFileMode.Overwrite, new MemoryStream(new[] {(byte) 12}));
             entry = await p.GetFileInfoAsync(name);
             if (!entry.Exists)
                 Assert.Fail("Entry was not created");
@@ -258,7 +258,7 @@ namespace WriteableFileProviders.Tests
                     tmpStrm.Write(oneMBBuffer, 0, oneMBBuffer.Length);
                 tmpStrm.Flush(true);
                 tmpStrm.Position = 0;
-                await p.UpdateFileAsync(name, tmpStrm);
+                await p.UpdateFileAsync(name, UpdateFileMode.Overwrite, tmpStrm);
             }
             entry = await p.GetFileInfoAsync(name);
             if (!entry.Exists)
@@ -312,6 +312,134 @@ namespace WriteableFileProviders.Tests
             if (entry.Exists)
                 Assert.Fail("Entry wasn't deleted");
 
+        }
+        [TestMethod]
+        public async Task TestAppend()
+        {
+            var Provider = GetProvider();
+            var name = "test/" + GetFileName();
+            var entry = await Provider.GetFileInfoAsync(name);
+            if (entry.Exists)
+                Assert.Fail("Entry already exists");
+
+            var rnd = new Random();
+            var content1 = new byte[1024];
+            rnd.NextBytes(content1);
+            var content2 = new byte[1024];
+            rnd.NextBytes(content2);
+            var content3 = new byte[1024];
+            rnd.NextBytes(content3);
+
+
+            await Provider.UpdateFileAsync(name, UpdateFileMode.Append, new MemoryStream(content1));
+            await Provider.UpdateFileAsync(name, UpdateFileMode.Append, new MemoryStream(content2));
+            await Provider.UpdateFileAsync(name, UpdateFileMode.Append, new MemoryStream(content3));
+            entry = await Provider.GetFileInfoAsync(name);
+            if (!entry.Exists)
+                Assert.Fail("Entry wasn't created");
+            if (entry.Length != (1024*3))
+                Assert.Fail($"Entry is not {(1024*3)} bytes long");
+            using (var read = entry.CreateReadStream())
+            {
+                var buf = new byte[(1024 * 3)];
+                read.Read(buf, 0, (1024 * 3));
+                if (!buf.SequenceEqual(content1.Concat(content2).Concat(content3)))
+                    Assert.Fail("File contents were invalid");
+                var buf2 = buf.Skip(1024).Take(1024);
+                if (!buf2.SequenceEqual(content2))
+                    Assert.Fail("File contents part 2 is invalid");
+            }
+
+           
+            await Provider.DeleteAsync(name);
+            entry = await Provider.GetFileInfoAsync(name);
+            if (entry.Exists)
+                Assert.Fail("Entry wasn't deleted");
+        }
+        [TestMethod]
+        public async Task TestOverwrite()
+        {
+            var Provider = GetProvider();
+            var name = "test/" + GetFileName();
+            var entry = await Provider.GetFileInfoAsync(name);
+            if (entry.Exists)
+                Assert.Fail("Entry already exists");
+
+            var rnd = new Random();
+            var content1 = new byte[1024];
+            rnd.NextBytes(content1);
+            var content2 = new byte[1024];
+            rnd.NextBytes(content2);
+            var content3 = new byte[1024];
+            rnd.NextBytes(content3);
+
+
+            await Provider.UpdateFileAsync(name, UpdateFileMode.Overwrite, new MemoryStream(content1));
+            await Provider.UpdateFileAsync(name, UpdateFileMode.Overwrite, new MemoryStream(content2));
+            await Provider.UpdateFileAsync(name, UpdateFileMode.Overwrite, new MemoryStream(content3));
+            entry = await Provider.GetFileInfoAsync(name);
+            if (!entry.Exists)
+                Assert.Fail("Entry wasn't created");
+            if (entry.Length != 1024)
+                Assert.Fail($"Entry is not 1024 bytes long");
+            using (var read = entry.CreateReadStream())
+            {
+                var buf = new byte[1024];
+                read.Read(buf, 0, 1024);
+                if (!buf.SequenceEqual(content3))
+                    Assert.Fail("File contents were invalid");
+            }
+
+
+            await Provider.DeleteAsync(name);
+            entry = await Provider.GetFileInfoAsync(name);
+            if (entry.Exists)
+                Assert.Fail("Entry wasn't deleted");
+        }
+        [TestMethod]
+        public async Task TestMove()
+        {
+            var Provider = GetProvider();
+            var name = "test/" + GetFileName();
+            var entry = await Provider.GetFileInfoAsync(name);
+            if (entry.Exists)
+                Assert.Fail("Entry already exists");
+
+            var rnd = new Random();
+            var content1 = new byte[1024];
+
+
+            await Provider.UpdateFileAsync(name, UpdateFileMode.Overwrite, new MemoryStream(content1));
+
+            var name2 = "test/" + GetFileName();
+
+            await Provider.MoveAsync(name, name2);
+
+            var info1 = await Provider.GetFileInfoAsync(name);
+            var info2 = await Provider.GetFileInfoAsync(name2);
+
+            if (info1.Exists)
+                Assert.Fail("Original file wasn't deleted");
+            if (!info2.Exists)
+                Assert.Fail("New file doesn't exist");
+
+
+
+            if (info2.Length != 1024)
+                Assert.Fail($"Entry is not 1024 bytes long");
+            using (var read = info2.CreateReadStream())
+            {
+                var buf = new byte[1024];
+                read.Read(buf, 0, 1024);
+                if (!buf.SequenceEqual(content1))
+                    Assert.Fail("File contents were invalid");
+            }
+
+
+            await Provider.DeleteAsync(info2);
+            entry = await Provider.GetFileInfoAsync(name2);
+            if (entry.Exists)
+                Assert.Fail("Entry wasn't deleted");
         }
     }
 }

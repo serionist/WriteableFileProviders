@@ -141,21 +141,38 @@ namespace WriteableFileProviders.AmazonS3
             
         }
 
-        protected override async Task updateFileAsync(Stream contents, params string[] absolutePathSegments)
+        protected override async Task updateFileAsync(Stream contents, UpdateFileMode mode, params string[] absolutePathSegments)
         {
-            var a = await Client.PutObjectAsync(new PutObjectRequest()
-            {
-                InputStream = contents,
-                BucketName = Options.BucketName,
-                AutoCloseStream = false,
-                AutoResetStreamPosition = true,
-                Key = path(absolutePathSegments),
-                RequestPayer = RequestPayer.Requester,
-                StorageClass = Options.StorageClassForNewFiles,
-              
-                
-            });
+            Stream str;
+            if (mode == UpdateFileMode.Append)
+                str = new CombinedStream(await createLocalFileStreamAsync(true, absolutePathSegments), contents);
+            else str = contents;
+            using (str) 
+                await Client.PutObjectAsync(new PutObjectRequest()
+                {
+                    InputStream = str,
+                    BucketName = Options.BucketName,
+                    AutoCloseStream = true,
+                    AutoResetStreamPosition = false,
+                    Key = path(absolutePathSegments),
+                    RequestPayer = RequestPayer.Requester,
+                    StorageClass = Options.StorageClassForNewFiles
+                });
             
+        }
+        protected override async Task move(string[] oldSegments, string[] newSegments)
+        {
+            var copyObjectRequest = new CopyObjectRequest
+            {
+                SourceBucket = Options.BucketName,
+                DestinationBucket = Options.BucketName,
+                SourceKey = path(oldSegments),
+                DestinationKey = path(newSegments)
+            };
+
+            await Client.CopyObjectAsync(copyObjectRequest);
+
+            await deleteAsync(oldSegments);
         }
 
         protected override async Task<bool> deleteAsync(params string[] absolutePathSegments)
@@ -209,5 +226,7 @@ namespace WriteableFileProviders.AmazonS3
             request.ResponseHeaderOverrides.ContentType = "application/octet-stream";
             return Task.FromResult(Client.GetPreSignedURL(request));
         }
+
+       
     }
 }

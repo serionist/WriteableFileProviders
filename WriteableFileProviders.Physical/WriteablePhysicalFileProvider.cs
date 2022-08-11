@@ -71,12 +71,18 @@ namespace WriteableFileProviders.Physical
             return new FileStream(p, FileMode.OpenOrCreate, FileAccess.Read);
         }
 
-        protected override async Task updateFileAsync(Stream contents, params string[] absolutePathSegments)
+        protected override async Task updateFileAsync(Stream contents, UpdateFileMode mode, params string[] absolutePathSegments)
         {
             string p = path(absolutePathSegments);
             Directory.CreateDirectory(Path.GetDirectoryName(p));
-            using (var fs = new FileStream(p, FileMode.OpenOrCreate, FileAccess.ReadWrite))
+            using (var fs = new FileStream(p, mode == UpdateFileMode.Overwrite ? FileMode.Create: FileMode.Append, FileAccess.Write))
                 contents.CopyTo(fs);
+        }
+
+        protected override Task move(string[] oldSegments, string[] newSegments)
+        {
+            File.Move(path(oldSegments), path(newSegments));
+            return Task.CompletedTask;
         }
 
         protected override async Task<bool> deleteAsync(params string[] absolutePathSegments)
@@ -125,5 +131,7 @@ namespace WriteableFileProviders.Physical
         {
             throw new NotSupportedException();
         }
+
+       
     }
 }

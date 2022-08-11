@@ -8,6 +8,7 @@ using Azure.Identity;
 using Azure.Storage;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
+using Azure.Storage.Blobs.Specialized;
 using Azure.Storage.Sas;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Primitives;
@@ -41,7 +42,7 @@ namespace WriteableFileProviders.AzureBlob
         {
             try
             {
-                var file = Container.GetBlobClient(getPath(absolutePathSegments));
+                var file = Container.GetAppendBlobClient(getPath(absolutePathSegments));
                 var properties = await file.GetPropertiesAsync();
                 return new FileInfo(this, true, properties.Value.ContentLength, getPath(absolutePathSegments), absolutePathSegments.Last(), properties.Value.LastModified, false, getRelativeSegments(absolutePathSegments));
             }
@@ -78,7 +79,7 @@ namespace WriteableFileProviders.AzureBlob
         {
             try
             {
-                var file = Container.GetBlobClient(getPath(absolutePathSegments));
+                var file = Container.GetAppendBlobClient(getPath(absolutePathSegments));
                 var download = await file.DownloadAsync();
                 return new AzureFileStream(download.Value.Content, download.Value.ContentLength);
             }
@@ -93,18 +94,84 @@ namespace WriteableFileProviders.AzureBlob
             }
         }
 
-        protected override async Task updateFileAsync(Stream contents, params string[] absolutePathSegments)
+        protected override async Task updateFileAsync(Stream contents, UpdateFileMode mode, params string[] absolutePathSegments)
         {
-            // await Container.CreateIfNotExistsAsync();
-            var file = Container.GetBlobClient(getPath(absolutePathSegments));
-            await file.UploadAsync(contents, true);
+            var file = Container.GetAppendBlobClient(getPath(absolutePathSegments));
+            try
+            {
+                if (mode == UpdateFileMode.Overwrite)
+                    await file.CreateAsync();
+                else await file.CreateIfNotExistsAsync();
+            }
+            catch (RequestFailedException ex)
+            {
+                if (ex.ErrorCode == BlobErrorCode.ContainerNotFound)
+                {
+                    await Container.CreateIfNotExistsAsync();
+                    await updateFileAsync(contents, mode, absolutePathSegments);
+                    return;
+                }
+                throw;
+            }
+            await file.AppendBlockAsync(contents);
         }
+
+        protected override async Task move(string[] oldSegments, string[] newSegments)
+        {
+            var oldFile = Container.GetAppendBlobClient(getPath(oldSegments));
+            var newFile = Container.GetAppendBlobClient(getPath(newSegments));
+            var lease = oldFile.GetBlobLeaseClient();
+            try
+            {
+                await lease.AcquireAsync(TimeSpan.FromSeconds(-1));
+                await newFile.StartCopyFromUriAsync(oldFile.Uri);
+                BlobProperties properties;
+                while (true)
+                {
+                    properties = await newFile.GetPropertiesAsync();
+                    if (properties.BlobCopyStatus == CopyStatus.Pending)
+                        await Task.Delay(1000);
+                    else break;
+                }
+                switch (properties.BlobCopyStatus)
+                {
+                    case CopyStatus.Success:
+                        await lease.BreakAsync();
+                        await deleteAsync(oldSegments);
+                        return;
+                    case CopyStatus.Failed:
+                    case CopyStatus.Aborted:
+                        throw new ApplicationException($"Failed to copy file: {properties.CopyStatusDescription}");
+                    default:
+                        throw new ApplicationException($"Failed to copy file: Unknown status {properties.BlobCopyStatus}");
+                }
+            }
+            catch (RequestFailedException ex)
+            {
+                if (ex.ErrorCode == BlobErrorCode.ContainerNotFound)
+                {
+                    await Container.CreateIfNotExistsAsync();
+                    await move(oldSegments, newSegments);
+                    return;
+                }
+                throw;
+            }
+            finally
+            {
+                try
+                {
+                    await lease.BreakAsync();
+                }
+                catch (Exception) { }
+            }
+        }
+
 
         protected override async Task<bool> deleteAsync(params string[] absolutePathSegments)
         {
             try
             {
-                var file = Container.GetBlobClient(getPath(absolutePathSegments));
+                var file = Container.GetAppendBlobClient(getPath(absolutePathSegments));
                 if (await file.DeleteIfExistsAsync())
                     return true;
                 var ret = false;
@@ -204,6 +271,7 @@ namespace WriteableFileProviders.AzureBlob
             if (ret.EndsWith("/")) ret = ret.Substring(0, ret.Length - 1);
             return ret.Substring(ret.LastIndexOf("/") + 1);
         }
-        
+
+       
     }
 }

@@ -102,30 +102,26 @@ namespace WriteableFileProviders.Minio
             return s;
         }
 
-        protected override async Task updateFileAsync(Stream contents, params string[] absolutePathSegments)
+        protected override async Task updateFileAsync(Stream contents, UpdateFileMode mode, params string[] absolutePathSegments)
         {
             await ensureBucketAsync();
-            var stream = contents;
-            long length;
-            try
-            {
-                length = stream.Length - stream.Position;
-            }
-            catch
-            {
-                using (var tmp = new FileStream(Path.GetTempFileName(), FileMode.OpenOrCreate, FileAccess.ReadWrite,
+
+            using (var tmp = new FileStream(Path.GetTempFileName(), FileMode.OpenOrCreate, FileAccess.ReadWrite,
                     FileShare.None, 4096, FileOptions.DeleteOnClose))
-                {
-                    await stream.CopyToAsync(tmp);
-                    await tmp.FlushAsync();
-                    tmp.Position = 0;
-                    stream = tmp;
-                }
-
-                length = stream.Length - stream.Position;
+            {
+                await contents.CopyToAsync(tmp);
+                if (mode == UpdateFileMode.Append)
+                    await tmp.CopyToAsync(await readFileAsync(absolutePathSegments));
+                await tmp.FlushAsync();
+                tmp.Position = 0;
+                await Client.PutObjectAsync(Options.BucketName, path(absolutePathSegments), tmp, tmp.Length);
             }
-
-            await Client.PutObjectAsync(Options.BucketName, path(absolutePathSegments), stream, length);
+            
+        }
+        protected override async Task move(string[] oldSegments, string[] newSegments)
+        {
+            await Client.CopyObjectAsync(Options.BucketName, path(oldSegments), Options.BucketName, path(newSegments));
+            await deleteAsync(oldSegments);
         }
 
         protected override async Task<bool> deleteAsync(params string[] absolutePathSegments)
@@ -179,5 +175,7 @@ namespace WriteableFileProviders.Minio
         {
             throw new NotSupportedException();
         }
+
+      
     }
 }

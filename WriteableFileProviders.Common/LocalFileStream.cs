@@ -13,6 +13,7 @@ namespace WriteableFileProviders
         public IWriteableFileProvider Provider { get; }
         public string[] TargetFilePathSegments { get; }
         public bool ReadOnly { get; }
+        public bool SkipReUploadOnDispose { get; set; } = false;
         public LocalFileStream(Stream str, IWriteableFileProvider provider, bool readOnly, string[] targetFilePathSegments)
         {
             Provider = provider;
@@ -31,7 +32,8 @@ namespace WriteableFileProviders
             if (!ReadOnly && !disposeEventCalled)
             {
                 disposeEventCalled = true;
-                await Provider.OnLocalFileStreamDisposingAsync(this);
+                if (!SkipReUploadOnDispose)
+                    await Provider.OnLocalFileStreamDisposingAsync(this);
             }
             Stream.Dispose();
         }

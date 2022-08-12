@@ -109,9 +109,14 @@ namespace WriteableFileProviders.Minio
             using (var tmp = new FileStream(Path.GetTempFileName(), FileMode.OpenOrCreate, FileAccess.ReadWrite,
                     FileShare.None, 4096, FileOptions.DeleteOnClose))
             {
-                await contents.CopyToAsync(tmp);
                 if (mode == UpdateFileMode.Append)
-                    await tmp.CopyToAsync(await readFileAsync(absolutePathSegments));
+                {
+                    var info = await getFileInfoAsync(absolutePathSegments);
+                    if (info.Exists)
+                        using (var s = await readFileAsync(absolutePathSegments))
+                            await s.CopyToAsync(tmp);
+                }
+                await contents.CopyToAsync(tmp);
                 await tmp.FlushAsync();
                 tmp.Position = 0;
                 await Client.PutObjectAsync(Options.BucketName, path(absolutePathSegments), tmp, tmp.Length);
@@ -135,8 +140,11 @@ namespace WriteableFileProviders.Minio
                 else
                 {
                     var files = await getDirectoryContentsAsync(absolutePathSegments);
-                    if (files.Any(e=>!e.IsDirectory))
-                        await Client.RemoveObjectAsync(Options.BucketName, files.Where(e=>!e.IsDirectory).Select(e => e.PhysicalPath).ToArray());
+                    if (files.Any(e => !e.IsDirectory))
+                    {
+                        var filePaths = files.Where(e => !e.IsDirectory).Select(e => e.PhysicalPath).ToArray();
+                        await Client.RemoveObjectAsync(Options.BucketName, filePaths);
+                    }
                 }
                 return true;
             }

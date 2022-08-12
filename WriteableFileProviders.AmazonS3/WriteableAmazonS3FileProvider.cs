@@ -143,21 +143,28 @@ namespace WriteableFileProviders.AmazonS3
 
         protected override async Task updateFileAsync(Stream contents, UpdateFileMode mode, params string[] absolutePathSegments)
         {
-            Stream str;
+            
             if (mode == UpdateFileMode.Append)
-                str = new CombinedStream(await createLocalFileStreamAsync(true, absolutePathSegments), contents);
-            else str = contents;
-            using (str) 
-                await Client.PutObjectAsync(new PutObjectRequest()
+            {
+                using (var str = await createLocalFileStreamAsync(false, absolutePathSegments))
                 {
-                    InputStream = str,
-                    BucketName = Options.BucketName,
-                    AutoCloseStream = true,
-                    AutoResetStreamPosition = false,
-                    Key = path(absolutePathSegments),
-                    RequestPayer = RequestPayer.Requester,
-                    StorageClass = Options.StorageClassForNewFiles
-                });
+                    str.Position = str.Length;
+                    using (contents)
+                        await contents.CopyToAsync(str);
+                }
+            }
+            else 
+                using (contents) 
+                    await Client.PutObjectAsync(new PutObjectRequest()
+                    {
+                        InputStream = contents,
+                        BucketName = Options.BucketName,
+                        AutoCloseStream = true,
+                        AutoResetStreamPosition = false,
+                        Key = path(absolutePathSegments),
+                        RequestPayer = RequestPayer.Requester,
+                        StorageClass = Options.StorageClassForNewFiles
+                    });
             
         }
         protected override async Task move(string[] oldSegments, string[] newSegments)

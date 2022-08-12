@@ -332,8 +332,11 @@ namespace WriteableFileProviders.Tests
 
 
             await Provider.UpdateFileAsync(name, UpdateFileMode.Append, new MemoryStream(content1));
+            //await Task.Delay(1000);
             await Provider.UpdateFileAsync(name, UpdateFileMode.Append, new MemoryStream(content2));
+            //await Task.Delay(1000);
             await Provider.UpdateFileAsync(name, UpdateFileMode.Append, new MemoryStream(content3));
+            //await Task.Delay(1000);
             entry = await Provider.GetFileInfoAsync(name);
             if (!entry.Exists)
                 Assert.Fail("Entry wasn't created");
@@ -341,8 +344,9 @@ namespace WriteableFileProviders.Tests
                 Assert.Fail($"Entry is not {(1024*3)} bytes long");
             using (var read = entry.CreateReadStream())
             {
-                var buf = new byte[(1024 * 3)];
-                read.Read(buf, 0, (1024 * 3));
+                using var s = new MemoryStream();
+                await read.CopyToAsync(s);
+                var buf = s.ToArray();
                 if (!buf.SequenceEqual(content1.Concat(content2).Concat(content3)))
                     Assert.Fail("File contents were invalid");
                 var buf2 = buf.Skip(1024).Take(1024);
@@ -375,8 +379,11 @@ namespace WriteableFileProviders.Tests
 
 
             await Provider.UpdateFileAsync(name, UpdateFileMode.Overwrite, new MemoryStream(content1));
+            //await Task.Delay(1000);
             await Provider.UpdateFileAsync(name, UpdateFileMode.Overwrite, new MemoryStream(content2));
+            //await Task.Delay(1000);
             await Provider.UpdateFileAsync(name, UpdateFileMode.Overwrite, new MemoryStream(content3));
+            //await Task.Delay(1000);
             entry = await Provider.GetFileInfoAsync(name);
             if (!entry.Exists)
                 Assert.Fail("Entry wasn't created");

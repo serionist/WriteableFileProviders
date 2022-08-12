@@ -11,7 +11,7 @@ WriteableFileProviders is a project aimed to provide writeable access to differe
 
   <ItemGroup>
     <PackageReference Include="AWSSDK.S3" Version="3.7.9.37" />
-	  <PackageReference Include="WriteableFileProviders.Common" Version="2022.8.11.3" />
+	  <PackageReference Include="WriteableFileProviders.Common" Version="2022.8.12.1" />
   </ItemGroup>
 
 </Project>

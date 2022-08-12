@@ -97,11 +97,11 @@ namespace WriteableFileProviders.AzureBlob
         protected override async Task updateFileAsync(Stream contents, UpdateFileMode mode, params string[] absolutePathSegments)
         {
             var file = Container.GetAppendBlobClient(getPath(absolutePathSegments));
+            Stream str;
             try
             {
-                if (mode == UpdateFileMode.Overwrite)
-                    await file.CreateAsync();
-                else await file.CreateIfNotExistsAsync();
+                await file.CreateIfNotExistsAsync();
+                str = await file.OpenWriteAsync(mode == UpdateFileMode.Overwrite);
             }
             catch (RequestFailedException ex)
             {
@@ -113,7 +113,9 @@ namespace WriteableFileProviders.AzureBlob
                 }
                 throw;
             }
-            await file.AppendBlockAsync(contents);
+
+            using (str)
+                await contents.CopyToAsync(str);
         }
 
         protected override async Task move(string[] oldSegments, string[] newSegments)

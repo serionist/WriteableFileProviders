@@ -114,7 +114,7 @@ namespace WriteableFileProviders.AzureBlob
                 throw;
             }
 
-            using (str)
+            await using (str)
                 await contents.CopyToAsync(str);
         }
 

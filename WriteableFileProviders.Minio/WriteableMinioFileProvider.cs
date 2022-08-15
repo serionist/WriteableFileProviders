@@ -106,22 +106,19 @@ namespace WriteableFileProviders.Minio
         {
             await ensureBucketAsync();
 
-            using (var tmp = new FileStream(Path.GetTempFileName(), FileMode.OpenOrCreate, FileAccess.ReadWrite,
-                    FileShare.None, 4096, FileOptions.DeleteOnClose))
+            await using var tmp = new FileStream(Path.GetTempFileName(), FileMode.OpenOrCreate, FileAccess.ReadWrite,
+                FileShare.None, 4096, FileOptions.DeleteOnClose);
+            if (mode == UpdateFileMode.Append)
             {
-                if (mode == UpdateFileMode.Append)
-                {
-                    var info = await getFileInfoAsync(absolutePathSegments);
-                    if (info.Exists)
-                        using (var s = await readFileAsync(absolutePathSegments))
-                            await s.CopyToAsync(tmp);
-                }
-                await contents.CopyToAsync(tmp);
-                await tmp.FlushAsync();
-                tmp.Position = 0;
-                await Client.PutObjectAsync(Options.BucketName, path(absolutePathSegments), tmp, tmp.Length);
+                var info = await getFileInfoAsync(absolutePathSegments);
+                if (info.Exists)
+                    await using (var s = await readFileAsync(absolutePathSegments))
+                        await s.CopyToAsync(tmp);
             }
-            
+            await contents.CopyToAsync(tmp);
+            await tmp.FlushAsync();
+            tmp.Position = 0;
+            await Client.PutObjectAsync(Options.BucketName, path(absolutePathSegments), tmp, tmp.Length);
         }
         protected override async Task move(string[] oldSegments, string[] newSegments)
         {

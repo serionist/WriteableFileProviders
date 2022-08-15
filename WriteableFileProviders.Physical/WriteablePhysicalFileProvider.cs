@@ -75,8 +75,8 @@ namespace WriteableFileProviders.Physical
         {
             string p = path(absolutePathSegments);
             Directory.CreateDirectory(Path.GetDirectoryName(p));
-            using (var fs = new FileStream(p, mode == UpdateFileMode.Overwrite ? FileMode.Create: FileMode.Append, FileAccess.Write))
-                contents.CopyTo(fs);
+            await using var fs = new FileStream(p, mode == UpdateFileMode.Overwrite ? FileMode.Create: FileMode.Append, FileAccess.Write);
+            await contents.CopyToAsync(fs);
         }
 
         protected override Task move(string[] oldSegments, string[] newSegments)

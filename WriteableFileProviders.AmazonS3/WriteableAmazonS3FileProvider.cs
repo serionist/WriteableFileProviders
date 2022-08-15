@@ -146,15 +146,13 @@ namespace WriteableFileProviders.AmazonS3
             
             if (mode == UpdateFileMode.Append)
             {
-                using (var str = await createLocalFileStreamAsync(false, absolutePathSegments))
-                {
-                    str.Position = str.Length;
-                    using (contents)
-                        await contents.CopyToAsync(str);
-                }
+                await using var str = await createLocalFileStreamAsync(false, absolutePathSegments);
+                str.Position = str.Length;
+                await using (contents)
+                    await contents.CopyToAsync(str);
             }
-            else 
-                using (contents) 
+            else
+                await using (contents) 
                     await Client.PutObjectAsync(new PutObjectRequest()
                     {
                         InputStream = contents,

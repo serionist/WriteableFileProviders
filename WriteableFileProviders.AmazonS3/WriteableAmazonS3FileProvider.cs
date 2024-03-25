@@ -220,7 +220,6 @@ namespace WriteableFileProviders.AmazonS3
 
         protected override Task<string> getDownloadUrl(string[] absolutePathSegments, TimeSpan validity)
         {
-            throw new NotSupportedException();
             var request = new GetPreSignedUrlRequest()
             {
                 BucketName = Options.BucketName,
@@ -231,7 +230,5 @@ namespace WriteableFileProviders.AmazonS3
             request.ResponseHeaderOverrides.ContentType = "application/octet-stream";
             return Task.FromResult(Client.GetPreSignedURL(request));
         }
-
-       
     }
 }

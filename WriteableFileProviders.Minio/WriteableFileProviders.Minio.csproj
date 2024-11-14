@@ -6,6 +6,10 @@
 
   <ItemGroup>
     <PackageReference Include="Minio" Version="3.1.1" />
+
+    <!--To solve dependency vulnerability (Transitive packages)-->
+    <PackageReference Include="RestSharp" Version="112.1.0" />
+    
   </ItemGroup>
 
   <ItemGroup>

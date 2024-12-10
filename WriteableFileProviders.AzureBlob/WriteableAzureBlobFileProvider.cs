@@ -2,9 +2,9 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime;
 using System.Threading.Tasks;
 using Azure;
-using Azure.Identity;
 using Azure.Storage;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
@@ -29,14 +29,17 @@ namespace WriteableFileProviders.AzureBlob
                 throw new ArgumentException("AccountKey is required", nameof(Options.AccountKey));
             if (string.IsNullOrEmpty(Options.ContainerName))
                 throw new ArgumentException("ContainerName is required", nameof(Options.ContainerName));
-            string blobEndpoint = string.Format("https://{0}.blob.core.windows.net", Options.AccountName);
+            if (string.IsNullOrEmpty(Options.Protocol))
+                throw new ArgumentException("Protocol is required", nameof(Options.Protocol));
+
+            var sanitizedUrl = $"{Options.AccountName}.blob.core.windows.net";
+            if (!string.IsNullOrEmpty(Options.Url))
+                sanitizedUrl = Options.Url;
+            var blobEndpoint = $"{Options.Protocol}://{sanitizedUrl}";
             Credential = new StorageSharedKeyCredential(Options.AccountName, Options.AccountKey);
             ServiceClient = new BlobServiceClient(new Uri(blobEndpoint), Credential);
             Container = ServiceClient.GetBlobContainerClient(Options.ContainerName);
         }
-
-
-
 
         protected override async Task<IFileInfo> getFileInfoAsync(params string[] absolutePathSegments)
         {

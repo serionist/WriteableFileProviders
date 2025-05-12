@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio 15
-VisualStudioVersion = 15.0.27703.2047
+# Visual Studio Version 17
+VisualStudioVersion = 17.13.35931.197 d17.13
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "WriteableFileProviders.Common", "WriteableFileProviders.Common\WriteableFileProviders.Common.csproj", "{48EC3E52-CC71-4C35-BC91-329FEFE9DE95}"
 EndProject
@@ -16,6 +16,8 @@ EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "WriteableFileProviders.AmazonS3", "WriteableFileProviders.AmazonS3\WriteableFileProviders.AmazonS3.csproj", "{A442D58F-C1C5-4A33-B388-578AFE3EF3B4}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WriteableFileProviders.Minio", "WriteableFileProviders.Minio\WriteableFileProviders.Minio.csproj", "{6E617602-72E5-45E0-8234-8AAA920B05C9}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WriteableFileProviders.Box", "WriteableFileProviders.Box\WriteableFileProviders.Box.csproj", "{59844C51-FD32-4A1D-BAF3-1CDAE68FF040}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -47,6 +49,10 @@ Global
 		{6E617602-72E5-45E0-8234-8AAA920B05C9}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{6E617602-72E5-45E0-8234-8AAA920B05C9}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{6E617602-72E5-45E0-8234-8AAA920B05C9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{59844C51-FD32-4A1D-BAF3-1CDAE68FF040}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{59844C51-FD32-4A1D-BAF3-1CDAE68FF040}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{59844C51-FD32-4A1D-BAF3-1CDAE68FF040}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{59844C51-FD32-4A1D-BAF3-1CDAE68FF040}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

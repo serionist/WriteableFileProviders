@@ -15,7 +15,7 @@ using Microsoft.Extensions.Primitives;
 
 namespace WriteableFileProviders.AzureBlob
 {
-    public class WriteableAzureBlobFileProvider:WriteableFileProvider<AzureFileProviderOptions>
+    public class WriteableAzureBlobFileProvider : WriteableFileProvider<AzureFileProviderOptions>
     {
         private readonly DateTime DefaultDateTime = new DateTime(1970, 1, 1, 0, 0, 0);
         private BlobServiceClient ServiceClient { get;}

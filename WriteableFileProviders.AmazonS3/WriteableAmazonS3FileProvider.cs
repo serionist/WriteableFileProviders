@@ -21,7 +21,7 @@ namespace WriteableFileProviders.AmazonS3
         {
             AWSCredentials credentials = Options.IsAnonymus
                 ? (AWSCredentials) new AnonymousAWSCredentials()
-                : new BasicAWSCredentials(Options.AccessKey, options.SecretKey);
+                : new BasicAWSCredentials(Options.AccessKey, Options.SecretKey);
             Client = new AmazonS3Client(credentials, RegionEndpoint.GetBySystemName(Options.BucketRegion));
         }
 
@@ -33,7 +33,7 @@ namespace WriteableFileProviders.AmazonS3
                 list = await Client.ListVersionsAsync(Options.BucketName, path(absolutePathSegments));
 
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 list = null;
             }

@@ -38,9 +38,9 @@ namespace WriteableFileProviders.Box
                 options.ClientId,
                 options.ClientSecret,
                 options.EnterpriseId,
-                options.PublicKeyId,
                 options.PrivateKey,
-                options.Passphrase);
+                options.Passphrase,
+                options.PublicKeyId);
 
             RootFolderId = options.RootFolderId ?? "0";
             jwtAuth = new BoxJWTAuth(boxConfig);

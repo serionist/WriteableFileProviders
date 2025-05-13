@@ -22,6 +22,6 @@
         public string PublicKeyId { get; set; }
         public string PrivateKey { get; set; }
         public string Passphrase { get; set; }
-        public string RootFolderId { get; set; } = "0"; // Default Box root
+        public string RootFolderId { get; set; }
     }
 }

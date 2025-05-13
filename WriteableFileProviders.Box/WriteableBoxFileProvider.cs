@@ -113,9 +113,9 @@ namespace WriteableFileProviders.Box
                     {
                         throw new BoxException($"Box API error while resolving path segment '{segment}': {ex.Message}", ex);
                     }
-                    catch (Exception ex)
+                    catch (Exception)
                     {
-                        throw new ApplicationException($"Error resolving path segment '{segment}'", ex);
+                        throw;
                     }
                 }
                 if (!found)
@@ -149,9 +149,9 @@ namespace WriteableFileProviders.Box
             {
                 throw new BoxException($"Box API error retrieving file info for {string.Join("/", absolutePathSegments)}: {ex.Message}", ex);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                throw new ApplicationException($"Error retrieving file info for {string.Join("/", absolutePathSegments)}", ex);
+                throw;
             }
         }
 
@@ -194,9 +194,9 @@ namespace WriteableFileProviders.Box
             {
                 throw new BoxException($"Box API error reading directory contents: {string.Join("/", absolutePathSegments)}: {ex.Message}", ex);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                throw new ApplicationException($"Error reading directory contents: {string.Join("/", absolutePathSegments)}", ex);
+                throw;
             }
         }
 
@@ -214,9 +214,9 @@ namespace WriteableFileProviders.Box
             {
                 throw new BoxException($"Box API error reading file: {string.Join("/", absolutePathSegments)}: {ex.Message}", ex);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                throw new ApplicationException($"Failed to read file: {string.Join("/", absolutePathSegments)}", ex);
+                throw;
             }
         }
 
@@ -244,9 +244,9 @@ namespace WriteableFileProviders.Box
             {
                 throw new BoxException($"Box API error updating file: {string.Join("/", absolutePathSegments)}: {ex.Message}", ex);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                throw new ApplicationException($"Failed to update file: {string.Join("/", absolutePathSegments)}", ex);
+                throw;
             }
         }
 
@@ -299,9 +299,9 @@ namespace WriteableFileProviders.Box
             {
                 throw new BoxException($"Box API error deleting item: {string.Join("/", absolutePathSegments)}: {ex.Message}", ex);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                throw new ApplicationException($"Failed to delete item: {string.Join("/", absolutePathSegments)}", ex);
+                throw;
             }
         }
 
@@ -343,9 +343,9 @@ namespace WriteableFileProviders.Box
             {
                 throw new BoxException($"Box API error moving item from {string.Join("/", oldSegments)} to {string.Join("/", newSegments)}: {ex.Message}", ex);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                throw new ApplicationException($"Failed to move item from {string.Join("/", oldSegments)} to {string.Join("/", newSegments)}", ex);
+                throw;
             }
         }
 
@@ -366,9 +366,9 @@ namespace WriteableFileProviders.Box
             {
                 throw new BoxException($"Box API error while retrieving download URL: {ex.Message}", ex);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                throw new ApplicationException($"Unexpected error retrieving download URL: {string.Join("/", absolutePathSegments)}", ex);
+                throw;
             }
         }
 

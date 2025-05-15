@@ -75,7 +75,7 @@ namespace WriteableFileProviders.AzureBlob
 
         protected override Task<IChangeToken> watchAsync(string filter)
         {
-            throw new NotImplementedException("Watch is not supported in WriteableAzureBlobFileProvider");
+            throw new PlatformNotSupportedException("Watch is not supported in WriteableAzureBlobFileProvider");
         }
 
         protected override async Task<Stream> readFileAsync(params string[] absolutePathSegments)

@@ -123,7 +123,7 @@ namespace WriteableFileProviders.AmazonS3
 
         protected override async Task<IChangeToken> watchAsync(string filter)
         {
-            throw new NotImplementedException();
+            throw new PlatformNotSupportedException("Watch is not supported in WriteableAmazonS3FileProvider");
         }
 
         public async Task<Stream> ReadFileAsync(string versionId, params string[] absolutePathSegments)

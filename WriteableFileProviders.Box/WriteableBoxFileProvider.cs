@@ -372,7 +372,6 @@ namespace WriteableFileProviders.Box
             }
         }
 
-
         protected override Task<IChangeToken> watchAsync(string filter)
         {
             throw new PlatformNotSupportedException("Watch is not supported in WriteableBoxFileProvider");

@@ -22,7 +22,6 @@ namespace WriteableFileProviders.Box
         private DateTime tokenExpirationTime;
         private BoxClient Client;
         private readonly string RootFolderId;
-        private const long MAX_SIMPLE_UPLOAD_SIZE = 50 * 1024 * 1024; // 50 MB
 
         private readonly SemaphoreSlim tokenRefreshSemaphore = new SemaphoreSlim(1, 1);
 
@@ -220,29 +219,48 @@ namespace WriteableFileProviders.Box
             }
         }
 
-        protected override async Task updateFileAsync(Stream contents, UpdateFileMode mode, params string[] absolutePathSegments)
+        protected override async Task updateFileAsync(Stream newContent, UpdateFileMode mode, params string[] absolutePathSegments)
         {
             try
             {
                 await ensureValidSessionAsync();
-                var parentPath = absolutePathSegments[..^1];
-                var fileName = absolutePathSegments.Last();
-                var (folder, folderIsValid) = await resolvePath(parentPath, expectFolder: true);
-                if (!folderIsValid)
-                    throw new DirectoryNotFoundException($"Parent folder not found: {string.Join("/", parentPath)}");
+                var (file, isFolder) = await resolvePath(absolutePathSegments);
+                var parentId = RootFolderId;
+                if (absolutePathSegments.Length > 1)
+                {
+                    var (parentFolder, isParentFolder) = await resolvePath(absolutePathSegments[..^1], expectFolder: true);
+                    if (!isParentFolder)
+                    {
+                        throw new DirectoryNotFoundException($"Parent folder not found: {string.Join("/", absolutePathSegments[..^1])}");
+                    }
+                    parentId = parentFolder.Id;
+                }
 
-                var (existing, isExistingFolder) = await resolvePath(absolutePathSegments);
-                contents.Position = 0;
-                long fileSize = contents.Length;
-
-                if (fileSize <= MAX_SIMPLE_UPLOAD_SIZE)
-                    await performSimpleUpload(contents, mode, fileName, folder, existing); // Simple upload for files 50 MB or smaller
+                if (file is BoxFile existingFile)
+                {
+                    if (mode == UpdateFileMode.Overwrite)
+                        await uploadNewVersionUsingChunks(existingFile.Id, file.Name, newContent);
+                    else if (mode == UpdateFileMode.Append)
+                    {
+                        using (var existingContent = await Client.FilesManager.DownloadAsync(existingFile.Id))
+                        using (var combinedStream = new MemoryStream())
+                        {
+                            await existingContent.CopyToAsync(combinedStream);
+                            await newContent.CopyToAsync(combinedStream);
+                            combinedStream.Position = 0;
+                            await uploadNewVersionUsingChunks(existingFile.Id, file.Name, combinedStream);
+                        }
+                    }
+                }
                 else
-                    await performChunkedUpload(contents, mode, fileName, folder, existing); // Chunked upload for large files
+                {
+                    var fileName = absolutePathSegments.Last();
+                    await uploadNewFileUsingChunks(fileName, parentId, newContent);
+                }
             }
             catch (BoxException ex)
             {
-                throw new BoxException($"Box API error updating file: {string.Join("/", absolutePathSegments)}: {ex.Message}", ex);
+                throw new BoxException($"Box API error updating file {string.Join("/", absolutePathSegments)}: {ex.Message}", ex);
             }
             catch (Exception)
             {
@@ -250,34 +268,139 @@ namespace WriteableFileProviders.Box
             }
         }
 
-        private async Task performSimpleUpload(Stream contents, UpdateFileMode mode, string fileName, BoxItem folder, BoxItem existing)
+        private async Task uploadNewFileUsingChunks(string fileName, string parentId, Stream fileStream)
         {
-            if (mode == UpdateFileMode.Overwrite && existing is BoxFile existingFile)
-                await Client.FilesManager.UploadNewVersionAsync(existingFile.Name, existingFile.Id, contents);
-            else
-                await Client.FilesManager.UploadAsync(new BoxFileRequest
+            if (!fileStream.CanSeek)
+            {
+                using var memoryStream = new MemoryStream();
+                await fileStream.CopyToAsync(memoryStream);
+                memoryStream.Position = 0;
+
+                long fileSize = memoryStream.Length;
+                var sessionRequest = new BoxFileUploadSessionRequest
                 {
-                    Name = fileName,
-                    Parent = new BoxRequestEntity { Id = folder.Id }
-                }, contents);
+                    FolderId = parentId,
+                    FileName = fileName,
+                    FileSize = fileSize
+                };
+
+                var uploadSession = await Client.FilesManager.CreateUploadSessionAsync(sessionRequest);
+                await uploadFileInChunks(uploadSession, memoryStream, fileSize);
+            }
+            else
+            {
+                long fileSize = fileStream.Length;
+                var sessionRequest = new BoxFileUploadSessionRequest
+                {
+                    FolderId = parentId,
+                    FileName = fileName,
+                    FileSize = fileSize
+                };
+
+                var uploadSession = await Client.FilesManager.CreateUploadSessionAsync(sessionRequest);
+                await uploadFileInChunks(uploadSession, fileStream, fileSize);
+            }
         }
 
-        private async Task performChunkedUpload(Stream contents, UpdateFileMode mode, string fileName, BoxItem folder, BoxItem existing)
+        private async Task uploadNewVersionUsingChunks(string fileId, string fileName, Stream fileStream)
         {
-            if (mode == UpdateFileMode.Overwrite && existing is BoxFile existingFile)
-                await Client.FilesManager.UploadNewVersionUsingSessionAsync(
-                    contents,
-                    existingFile.Id,
-                    fileName,
-                    timeout: TimeSpan.FromMinutes(10)
-                );
+            if (!fileStream.CanSeek)
+            {
+                using var memoryStream = new MemoryStream();
+                await fileStream.CopyToAsync(memoryStream);
+                memoryStream.Position = 0;
+                long fileSize = memoryStream.Length;
+
+                var sessionRequest = new BoxFileUploadSessionRequest
+                {
+                    FileSize = fileSize,
+                    FileName = fileName,
+                };
+                var uploadSession = await Client.FilesManager.CreateNewVersionUploadSessionAsync(fileId, sessionRequest);
+                await uploadFileInChunks(uploadSession, memoryStream, fileSize);
+            }
             else
-                await Client.FilesManager.UploadUsingSessionAsync(
-                    contents,
-                    fileName,
-                    folder.Id,
-                    timeout: TimeSpan.FromMinutes(10)
-                );
+            {
+                long fileSize = fileStream.Length;
+                var sessionRequest = new BoxFileUploadSessionRequest
+                {
+                    FileSize = fileSize,
+                    FileName = fileName,
+                };
+                var uploadSession = await Client.FilesManager.CreateNewVersionUploadSessionAsync(fileId, sessionRequest);
+                await uploadFileInChunks(uploadSession, fileStream, fileSize);
+            }
+        }
+
+
+        private async Task uploadFileInChunks(BoxFileUploadSession uploadSession, Stream fileStream, long fileSize)
+        {
+            fileStream.Position = 0;
+            long partSize = long.Parse(uploadSession.PartSize);
+            int totalParts = (int)Math.Ceiling((double)fileSize / partSize);
+            byte[] buffer = new byte[partSize];
+            var sessionParts = new List<BoxSessionPartInfo>();
+
+            using (var sha1 = System.Security.Cryptography.SHA1.Create())
+            {
+                sha1.Initialize();
+
+                for (int i = 0; i < totalParts; i++)
+                {
+                    long offset = i * partSize;
+                    int bytesToRead = (int)Math.Min(partSize, fileSize - offset);
+
+                    // Read the part into buffer
+                    await fileStream.ReadAsync(buffer, 0, bytesToRead);
+
+                    // Calculate SHA1 for the entire file
+                    sha1.TransformBlock(buffer, 0, bytesToRead, null, 0);
+
+                    // Calculate SHA1 for this part
+                    using (var partSha1 = System.Security.Cryptography.SHA1.Create())
+                    {
+                        byte[] partHash = partSha1.ComputeHash(buffer, 0, bytesToRead);
+                        string partDigest = $"sha={Convert.ToBase64String(partHash)}";
+
+                        // Create a stream for this part
+                        using (var partStream = new MemoryStream(buffer, 0, bytesToRead))
+                        {
+                            // Upload the part
+                            var uploadPartResponse = await Client.FilesManager.UploadPartAsync(
+                                new Uri(uploadSession.SessionEndpoints.UploadPart),
+                                partDigest,
+                                offset,
+                                fileSize,
+                                partStream,
+                                TimeSpan.FromMinutes(5));
+
+                            sessionParts.Add(new BoxSessionPartInfo
+                            {
+                                PartId = uploadPartResponse.Part.PartId,
+                                Offset = offset,
+                                Size = bytesToRead
+                            });
+                        }
+                    }
+                }
+
+                // Finalize hash for entire file
+                sha1.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
+                string fileDigest = $"sha={Convert.ToBase64String(sha1.Hash)}";
+                // Create session parts info
+                var sessionInfo = new BoxSessionParts { Parts = sessionParts };
+                // Commit the session
+                if (uploadSession.Type == "upload_session")
+                    await Client.FilesManager.CommitSessionAsync(
+                        new Uri(uploadSession.SessionEndpoints.Commit),
+                        fileDigest,
+                        sessionInfo);
+                else
+                    await Client.FilesManager.CommitFileVersionSessionAsync(
+                        new Uri(uploadSession.SessionEndpoints.Commit),
+                        fileDigest,
+                        sessionInfo);
+            }
         }
 
         protected override async Task<bool> deleteAsync(params string[] absolutePathSegments)

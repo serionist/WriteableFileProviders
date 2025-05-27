@@ -227,7 +227,11 @@ namespace WriteableFileProviders.Box
                 var (file, _) = await resolvePath(absolutePathSegments);
                 if (file is not BoxFile boxFile)
                     throw new FileNotFoundException($"File not found: {string.Join("/", absolutePathSegments)}");
-                return await Client.FilesManager.DownloadAsync(boxFile.Id);
+                using var downloadStream = await Client.FilesManager.DownloadAsync(boxFile.Id);
+                var fileStream = new FileStream(Path.GetTempFileName(), FileMode.Create, FileAccess.ReadWrite, FileShare.None, 4096, FileOptions.DeleteOnClose);
+                await downloadStream.CopyToAsync(fileStream);
+                fileStream.Position = 0;
+                return fileStream;
             }
             catch (BoxException ex)
             {
@@ -252,23 +256,14 @@ namespace WriteableFileProviders.Box
                 if (file is BoxFile existingFile)
                 {
                     if (mode == UpdateFileMode.Overwrite)
-                        await uploadNewVersionUsingChunks(existingFile.Id, file.Name, newContent);
+                        await uploadNewVersion(existingFile.Id, existingFile.Name, newContent);
                     else if (mode == UpdateFileMode.Append)
-                    {
-                        using (var existingContent = await Client.FilesManager.DownloadAsync(existingFile.Id))
-                        using (var combinedStream = new MemoryStream())
-                        {
-                            await existingContent.CopyToAsync(combinedStream);
-                            await newContent.CopyToAsync(combinedStream);
-                            combinedStream.Position = 0;
-                            await uploadNewVersionUsingChunks(existingFile.Id, file.Name, combinedStream);
-                        }
-                    }
+                        await appendToExistingFile(existingFile, newContent);
                 }
                 else
                 {
                     var fileName = absolutePathSegments.Last();
-                    await uploadNewFileUsingChunks(fileName, parentId, newContent);
+                    await uploadNewFile(fileName, parentId, newContent);
                 }
             }
             catch (BoxException ex)
@@ -309,7 +304,7 @@ namespace WriteableFileProviders.Box
             return currentParentId;
         }
 
-        private async Task uploadNewFileUsingChunks(string fileName, string parentId, Stream fileStream)
+        private async Task uploadNewFile(string fileName, string parentId, Stream fileStream)
         {
             if (!fileStream.CanSeek)
             {
@@ -327,10 +322,10 @@ namespace WriteableFileProviders.Box
         private async Task uploadNewFileInternal(string fileName, string parentId, Stream fileStream)
         {
             long fileSize = fileStream.Length;
+            fileStream.Position = 0;
+
             if (fileSize < CHUNKED_UPLOAD_THRESHOLD)
             {
-                // Use regular upload for small files
-                fileStream.Position = 0;
                 var uploadRequest = new BoxFileRequest
                 {
                     Name = fileName,
@@ -340,19 +335,15 @@ namespace WriteableFileProviders.Box
             }
             else
             {
-                // Use chunked upload for large files
-                var sessionRequest = new BoxFileUploadSessionRequest
-                {
-                    FolderId = parentId,
-                    FileName = fileName,
-                    FileSize = fileSize
-                };
-                var uploadSession = await Client.FilesManager.CreateUploadSessionAsync(sessionRequest);
-                await uploadFileInChunks(uploadSession, fileStream, fileSize);
+                await Client.FilesManager.UploadUsingSessionAsync(
+                    fileStream,
+                    fileName,
+                    parentId,
+                    timeout: TimeSpan.FromMinutes(5));
             }
         }
 
-        private async Task uploadNewVersionUsingChunks(string fileId, string fileName, Stream fileStream)
+        private async Task uploadNewVersion(string fileId, string fileName, Stream fileStream)
         {
             if (!fileStream.CanSeek)
             {
@@ -370,121 +361,77 @@ namespace WriteableFileProviders.Box
         private async Task uploadNewVersionInternal(string fileId, string fileName, Stream fileStream)
         {
             long fileSize = fileStream.Length;
-            if (fileSize < CHUNKED_UPLOAD_THRESHOLD)
-            {
-                // Use regular upload for small files
-                fileStream.Position = 0;
-                await Client.FilesManager.UploadNewVersionAsync(fileName, fileId, fileStream);
-            }
-            else
-            {
-                // Use chunked upload for large files
-                var sessionRequest = new BoxFileUploadSessionRequest
-                {
-                    FileSize = fileSize,
-                    FileName = fileName,
-                };
-                var uploadSession = await Client.FilesManager.CreateNewVersionUploadSessionAsync(fileId, sessionRequest);
-                await uploadFileInChunks(uploadSession, fileStream, fileSize);
-            }
-        }
-
-        private async Task uploadFileInChunks(BoxFileUploadSession uploadSession, Stream fileStream, long fileSize)
-        {
             fileStream.Position = 0;
-            long partSize = long.Parse(uploadSession.PartSize);
-            int totalParts = (int)Math.Ceiling((double)fileSize / partSize);
-            byte[] buffer = new byte[partSize];
-            var sessionParts = new List<BoxSessionPartInfo>();
-
-            using (var sha1 = System.Security.Cryptography.SHA1.Create())
-            {
-                sha1.Initialize();
-
-                for (int i = 0; i < totalParts; i++)
-                {
-                    long offset = i * partSize;
-                    int bytesToRead = (int)Math.Min(partSize, fileSize - offset);
-
-                    // Read the part into buffer
-                    await fileStream.ReadAsync(buffer, 0, bytesToRead);
-
-                    // Calculate SHA1 for the entire file
-                    sha1.TransformBlock(buffer, 0, bytesToRead, null, 0);
-
-                    // Calculate SHA1 for this part
-                    using (var partSha1 = System.Security.Cryptography.SHA1.Create())
-                    {
-                        byte[] partHash = partSha1.ComputeHash(buffer, 0, bytesToRead);
-                        string partDigest = $"sha={Convert.ToBase64String(partHash)}";
-
-                        // Create a stream for this part
-                        using (var partStream = new MemoryStream(buffer, 0, bytesToRead))
-                        {
-                            // Upload the part
-                            var uploadPartResponse = await Client.FilesManager.UploadPartAsync(
-                                new Uri(uploadSession.SessionEndpoints.UploadPart),
-                                partDigest,
-                                offset,
-                                fileSize,
-                                partStream,
-                                TimeSpan.FromMinutes(5));
-
-                            sessionParts.Add(new BoxSessionPartInfo
-                            {
-                                PartId = uploadPartResponse.Part.PartId,
-                                Offset = offset,
-                                Size = bytesToRead
-                            });
-                        }
-                    }
-                }
-
-                // Finalize hash for entire file
-                sha1.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
-                string fileDigest = $"sha={Convert.ToBase64String(sha1.Hash)}";
-                // Create session parts info
-                var sessionInfo = new BoxSessionParts { Parts = sessionParts };
-                // Commit the session
-                if (uploadSession.Type == "upload_session")
-                    await Client.FilesManager.CommitSessionAsync(
-                        new Uri(uploadSession.SessionEndpoints.Commit),
-                        fileDigest,
-                        sessionInfo);
-                else
-                    await Client.FilesManager.CommitFileVersionSessionAsync(
-                        new Uri(uploadSession.SessionEndpoints.Commit),
-                        fileDigest,
-                        sessionInfo);
-            }
+            if (fileSize < CHUNKED_UPLOAD_THRESHOLD)
+                await Client.FilesManager.UploadNewVersionAsync(fileName, fileId, fileStream);
+            else
+                await Client.FilesManager.UploadNewVersionUsingSessionAsync(
+                    fileStream,
+                    fileId,
+                    fileName,
+                    timeout: TimeSpan.FromMinutes(5));
         }
 
-        //private async Task verifyFileUpload(string fileId, long expectedSize)
-        //{
-        //    const int maxRetries = 5;
-        //    const int retryDelayMs = 200;
+        private async Task appendToExistingFile(BoxFile existingFile, Stream newContent)
+        {
+            // Get existing file size first to determine strategy
+            var fileInfo = await Client.FilesManager.GetInformationAsync(existingFile.Id);
+            long existingSize = fileInfo.Size ?? 0;
+            long newContentSize = newContent.CanSeek ? newContent.Length : await getStreamLength(newContent);
+            long totalSize = existingSize + newContentSize;
 
-        //    for (int i = 0; i < maxRetries; i++)
-        //    {
-        //        try
-        //        {
-        //            var fileInfo = await Client.FilesManager.GetInformationAsync(fileId);
-        //            if (fileInfo.Size.HasValue && fileInfo.Size.Value == expectedSize)
-        //            {
-        //                return; // Upload verified successfully
-        //            }
-        //        }
-        //        catch
-        //        {
-        //            // Ignore errors during verification attempts
-        //        }
+            // For small files or when total size is manageable, use memory
+            if (totalSize < CHUNKED_UPLOAD_THRESHOLD)
+                await appendUsingMemoryStream(existingFile, newContent);
+            else
+                // For large files, use temporary file to avoid memory issues
+                await appendUsingTempFile(existingFile, newContent);
+        }
 
-        //        if (i < maxRetries - 1)
-        //        {
-        //            await Task.Delay(retryDelayMs);
-        //        }
-        //    }
-        //}
+        private async Task appendUsingMemoryStream(BoxFile existingFile, Stream newContent)
+        {
+            using var existingContent = await Client.FilesManager.DownloadAsync(existingFile.Id);
+            using var combinedStream = new MemoryStream();
+            await existingContent.CopyToAsync(combinedStream);
+            await newContent.CopyToAsync(combinedStream);
+            combinedStream.Position = 0;
+            await uploadNewVersion(existingFile.Id, existingFile.Name, combinedStream);
+        }
+
+        private async Task appendUsingTempFile(BoxFile existingFile, Stream newContent)
+        {
+            using var tempFileStream = new FileStream(
+                Path.GetTempFileName(),
+                FileMode.OpenOrCreate,
+                FileAccess.ReadWrite,
+                FileShare.None,
+                4096,
+                FileOptions.DeleteOnClose | FileOptions.SequentialScan);
+
+            // Download existing content to temp file
+            using (var existingContent = await Client.FilesManager.DownloadAsync(existingFile.Id))
+            {
+                await existingContent.CopyToAsync(tempFileStream);
+            }
+            await newContent.CopyToAsync(tempFileStream);
+
+            tempFileStream.Position = 0;
+            await uploadNewVersion(existingFile.Id, existingFile.Name, tempFileStream);
+        }
+
+        private async Task<long> getStreamLength(Stream stream)
+        {
+            if (stream.CanSeek)
+                return stream.Length;
+            // For non-seekable streams, we need to read to determine length
+            using var tempStream = new MemoryStream();
+            var originalPosition = stream.CanSeek ? stream.Position : 0;
+            await stream.CopyToAsync(tempStream);
+            // Reset original stream if possible
+            if (stream.CanSeek)
+                stream.Position = originalPosition;
+            return tempStream.Length;
+        }
 
         protected override async Task<bool> deleteAsync(params string[] absolutePathSegments)
         {

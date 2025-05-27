@@ -137,12 +137,30 @@ namespace WriteableFileProviders.Box
                 if (file == null)
                     return new FileInfo(this, false, 0, string.Join("/", absolutePathSegments), absolutePathSegments.Last(), 
                         DefaultDateTime, false, getRelativeSegments(absolutePathSegments));
+
+                long fileSize = -1;
+                DateTime modifiedAt = file.ModifiedAt?.DateTime ?? DefaultDateTime;
+                if (!isFolder && file.Type == "file")
+                {
+                    // Get complete file information from Box API
+                    try
+                    {
+                        var completeFileInfo = await Client.FilesManager.GetInformationAsync(file.Id);
+                        fileSize = completeFileInfo.Size ?? 0;
+                        modifiedAt = completeFileInfo.ModifiedAt?.DateTime ?? modifiedAt;
+                    }
+                    catch
+                    {
+                        // Fallback to the size from the folder listing (which might be null)
+                        fileSize = (file as BoxFile)?.Size ?? 0;
+                    }
+                }
                 return new FileInfo(this,
                     !isFolder,
-                    isFolder ? -1 : (file as BoxFile)?.Size ?? 0,
+                    isFolder ? -1 : fileSize,
                     string.Join("/", absolutePathSegments),
                     absolutePathSegments.Last(),
-                    file.ModifiedAt?.DateTime ?? DefaultDateTime,
+                    modifiedAt,
                     isFolder,
                     getRelativeSegments(absolutePathSegments));
             }
@@ -352,7 +370,6 @@ namespace WriteableFileProviders.Box
         private async Task uploadNewVersionInternal(string fileId, string fileName, Stream fileStream)
         {
             long fileSize = fileStream.Length;
-
             if (fileSize < CHUNKED_UPLOAD_THRESHOLD)
             {
                 // Use regular upload for small files
@@ -441,6 +458,33 @@ namespace WriteableFileProviders.Box
                         sessionInfo);
             }
         }
+
+        //private async Task verifyFileUpload(string fileId, long expectedSize)
+        //{
+        //    const int maxRetries = 5;
+        //    const int retryDelayMs = 200;
+
+        //    for (int i = 0; i < maxRetries; i++)
+        //    {
+        //        try
+        //        {
+        //            var fileInfo = await Client.FilesManager.GetInformationAsync(fileId);
+        //            if (fileInfo.Size.HasValue && fileInfo.Size.Value == expectedSize)
+        //            {
+        //                return; // Upload verified successfully
+        //            }
+        //        }
+        //        catch
+        //        {
+        //            // Ignore errors during verification attempts
+        //        }
+
+        //        if (i < maxRetries - 1)
+        //        {
+        //            await Task.Delay(retryDelayMs);
+        //        }
+        //    }
+        //}
 
         protected override async Task<bool> deleteAsync(params string[] absolutePathSegments)
         {

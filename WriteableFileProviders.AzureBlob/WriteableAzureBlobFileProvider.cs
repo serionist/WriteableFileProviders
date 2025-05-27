@@ -15,7 +15,7 @@ using Microsoft.Extensions.Primitives;
 
 namespace WriteableFileProviders.AzureBlob
 {
-    public class WriteableAzureBlobFileProvider:WriteableFileProvider<AzureFileProviderOptions>
+    public class WriteableAzureBlobFileProvider : WriteableFileProvider<AzureFileProviderOptions>
     {
         private readonly DateTime DefaultDateTime = new DateTime(1970, 1, 1, 0, 0, 0);
         private BlobServiceClient ServiceClient { get;}
@@ -75,7 +75,7 @@ namespace WriteableFileProviders.AzureBlob
 
         protected override Task<IChangeToken> watchAsync(string filter)
         {
-            throw new NotImplementedException("Watch is not supported in WriteableAzureBlobFileProvider");
+            throw new PlatformNotSupportedException("Watch is not supported in WriteableAzureBlobFileProvider");
         }
 
         protected override async Task<Stream> readFileAsync(params string[] absolutePathSegments)

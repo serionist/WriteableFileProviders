@@ -5,7 +5,7 @@ using Amazon.S3;
 
 namespace WriteableFileProviders.AmazonS3
 {
-    public sealed class AmazonS3FileProviderOptions: FileProviderOptions
+    public sealed class AmazonS3FileProviderOptions : FileProviderOptions
     {
         public AmazonS3FileProviderOptions(string rootDirectory, string accessKey, string secretKey, string bucketName, string bucketRegion, S3StorageClass storageClassForNewFiles = null)
         {

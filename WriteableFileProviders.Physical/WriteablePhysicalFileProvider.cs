@@ -60,8 +60,7 @@ namespace WriteableFileProviders.Physical
 
         protected override async Task<IChangeToken> watchAsync(string filter)
         {
-            
-            throw new NotImplementedException();
+            throw new PlatformNotSupportedException("Watch is not supported in WriteablePhysicalFileProvider");
         }
 
         protected override async Task<Stream> readFileAsync(params string[] absolutePathSegments)

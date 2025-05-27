@@ -89,7 +89,7 @@ namespace WriteableFileProviders.Minio
 
         protected override async Task<IChangeToken> watchAsync(string filter)
         {
-            throw new NotImplementedException();
+            throw new PlatformNotSupportedException("Watch is not supported in WriteableMinioFileProvider");
         }
 
         protected override async Task<Stream> readFileAsync(params string[] absolutePathSegments)

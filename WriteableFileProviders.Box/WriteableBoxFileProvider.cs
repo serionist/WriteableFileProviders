@@ -25,6 +25,8 @@ namespace WriteableFileProviders.Box
 
         private readonly SemaphoreSlim tokenRefreshSemaphore = new SemaphoreSlim(1, 1);
 
+        private const long CHUNKED_UPLOAD_THRESHOLD = 20_000_000; // 20MB minimum for Box chunked uploads
+
         public WriteableBoxFileProvider(BoxFileProviderOptions options) : base(options)
         {
             if (string.IsNullOrEmpty(options.ClientId)) throw new ArgumentException("ClientId is required");
@@ -227,14 +229,7 @@ namespace WriteableFileProviders.Box
                 var (file, isFolder) = await resolvePath(absolutePathSegments);
                 var parentId = RootFolderId;
                 if (absolutePathSegments.Length > 1)
-                {
-                    var (parentFolder, isParentFolder) = await resolvePath(absolutePathSegments[..^1], expectFolder: true);
-                    if (!isParentFolder)
-                    {
-                        throw new DirectoryNotFoundException($"Parent folder not found: {string.Join("/", absolutePathSegments[..^1])}");
-                    }
-                    parentId = parentFolder.Id;
-                }
+                    parentId = await ensureParentDirectoriesExist(absolutePathSegments[..^1]);
 
                 if (file is BoxFile existingFile)
                 {
@@ -268,6 +263,34 @@ namespace WriteableFileProviders.Box
             }
         }
 
+        private async Task<string> ensureParentDirectoriesExist(string[] pathSegments)
+        {
+            var currentParentId = RootFolderId;
+            for (int i = 0; i < pathSegments.Length; i++)
+            {
+                var segmentName = pathSegments[i];
+                var (existingItem, isFolder) = await resolvePath(pathSegments[0..(i + 1)]);
+
+                if (existingItem != null)
+                {
+                    if (!isFolder)
+                        throw new InvalidOperationException($"Path segment '{segmentName}' exists but is a file, not a folder");
+                    currentParentId = existingItem.Id;
+                }
+                else
+                {
+                    var folderRequest = new BoxFolderRequest
+                    {
+                        Name = segmentName,
+                        Parent = new BoxRequestEntity { Id = currentParentId }
+                    };
+                    var createdFolder = await Client.FoldersManager.CreateAsync(folderRequest);
+                    currentParentId = createdFolder.Id;
+                }
+            }
+            return currentParentId;
+        }
+
         private async Task uploadNewFileUsingChunks(string fileName, string parentId, Stream fileStream)
         {
             if (!fileStream.CanSeek)
@@ -275,28 +298,37 @@ namespace WriteableFileProviders.Box
                 using var memoryStream = new MemoryStream();
                 await fileStream.CopyToAsync(memoryStream);
                 memoryStream.Position = 0;
-
-                long fileSize = memoryStream.Length;
-                var sessionRequest = new BoxFileUploadSessionRequest
-                {
-                    FolderId = parentId,
-                    FileName = fileName,
-                    FileSize = fileSize
-                };
-
-                var uploadSession = await Client.FilesManager.CreateUploadSessionAsync(sessionRequest);
-                await uploadFileInChunks(uploadSession, memoryStream, fileSize);
+                await uploadNewFileInternal(fileName, parentId, memoryStream);
             }
             else
             {
-                long fileSize = fileStream.Length;
+                await uploadNewFileInternal(fileName, parentId, fileStream);
+            }
+        }
+
+        private async Task uploadNewFileInternal(string fileName, string parentId, Stream fileStream)
+        {
+            long fileSize = fileStream.Length;
+            if (fileSize < CHUNKED_UPLOAD_THRESHOLD)
+            {
+                // Use regular upload for small files
+                fileStream.Position = 0;
+                var uploadRequest = new BoxFileRequest
+                {
+                    Name = fileName,
+                    Parent = new BoxRequestEntity { Id = parentId }
+                };
+                await Client.FilesManager.UploadAsync(uploadRequest, fileStream);
+            }
+            else
+            {
+                // Use chunked upload for large files
                 var sessionRequest = new BoxFileUploadSessionRequest
                 {
                     FolderId = parentId,
                     FileName = fileName,
                     FileSize = fileSize
                 };
-
                 var uploadSession = await Client.FilesManager.CreateUploadSessionAsync(sessionRequest);
                 await uploadFileInChunks(uploadSession, fileStream, fileSize);
             }
@@ -309,19 +341,27 @@ namespace WriteableFileProviders.Box
                 using var memoryStream = new MemoryStream();
                 await fileStream.CopyToAsync(memoryStream);
                 memoryStream.Position = 0;
-                long fileSize = memoryStream.Length;
-
-                var sessionRequest = new BoxFileUploadSessionRequest
-                {
-                    FileSize = fileSize,
-                    FileName = fileName,
-                };
-                var uploadSession = await Client.FilesManager.CreateNewVersionUploadSessionAsync(fileId, sessionRequest);
-                await uploadFileInChunks(uploadSession, memoryStream, fileSize);
+                await uploadNewVersionInternal(fileId, fileName, memoryStream);
             }
             else
             {
-                long fileSize = fileStream.Length;
+                await uploadNewVersionInternal(fileId, fileName, fileStream);
+            }
+        }
+
+        private async Task uploadNewVersionInternal(string fileId, string fileName, Stream fileStream)
+        {
+            long fileSize = fileStream.Length;
+
+            if (fileSize < CHUNKED_UPLOAD_THRESHOLD)
+            {
+                // Use regular upload for small files
+                fileStream.Position = 0;
+                await Client.FilesManager.UploadNewVersionAsync(fileName, fileId, fileStream);
+            }
+            else
+            {
+                // Use chunked upload for large files
                 var sessionRequest = new BoxFileUploadSessionRequest
                 {
                     FileSize = fileSize,
@@ -331,7 +371,6 @@ namespace WriteableFileProviders.Box
                 await uploadFileInChunks(uploadSession, fileStream, fileSize);
             }
         }
-
 
         private async Task uploadFileInChunks(BoxFileUploadSession uploadSession, Stream fileStream, long fileSize)
         {

@@ -3,7 +3,7 @@
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <Description>
-      WriteableAmazonS3FileProvider implementation if IWriteableFileProvider.
+      WriteableBoxFileProvider implementation if IWriteableFileProvider.
       WriteableFileProviders is a project aimed to provide writeable access to different file providers while also being usable as a standard ASP.NET Core IFileProvider.
     </Description>
     <Authors>Soma Osvay</Authors>

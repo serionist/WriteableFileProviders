@@ -220,24 +220,6 @@ namespace WriteableFileProviders.SharePoint
             return new DirectoryContents(ret.Any(), ret.ToArray());
         }
 
-        //protected override async Task<Stream> readFileAsync(params string[] absolutePathSegments)
-        //{
-        //    try
-        //    {
-        //        var path = getPath(absolutePathSegments);
-        //        var contentStream = await GraphClient.Drives[DriveId].Items["root"].ItemWithPath(path).Content.GetAsync();
-        //        return contentStream;
-        //    }
-        //    catch (ODataError ex)
-        //    {
-        //        if (ex.Error?.Code == "itemNotFound")
-        //        {
-        //            throw new FileNotFoundException($"File not found: {getPath(absolutePathSegments)}");
-        //        }
-        //        throw;
-        //    }
-        //}
-
         protected override async Task<Stream> readFileAsync(params string[] absolutePathSegments)
         {
             try
@@ -389,8 +371,6 @@ namespace WriteableFileProviders.SharePoint
             }
         }
 
-
-
         protected override async Task updateFileAsync(Stream contents, UpdateFileMode mode, params string[] absolutePathSegments)
         {
             try
@@ -409,48 +389,65 @@ namespace WriteableFileProviders.SharePoint
 
                 if (mode == UpdateFileMode.Append)
                 {
+                    Stream finalContentsStream = contents;
                     try
                     {
-                        var existingContent = await readFileAsync(absolutePathSegments);
-                        var existingSize = existingContent.Length;
-                        var newContentSize = contents.Length;
-                        var totalSize = existingSize + newContentSize;
-
-                        if (totalSize > SmallFileThreshold)
+                        using (var existingContent = await readFileAsync(absolutePathSegments))
                         {
-                            using var tempFileStream = new FileStream(
-                                Path.GetTempFileName(),
-                                FileMode.OpenOrCreate,
-                                FileAccess.ReadWrite,
-                                FileShare.None,
-                                4096,
-                                FileOptions.DeleteOnClose | FileOptions.SequentialScan);
+                            var existingSize = existingContent.Length;
+                            var newContentSize = contents.Length;
+                            var totalSize = existingSize + newContentSize;
 
-                            await existingContent.CopyToAsync(tempFileStream);
-                            await contents.CopyToAsync(tempFileStream);
-                            tempFileStream.Position = 0;
-                            contents = tempFileStream;
-                        }
-                        else
-                        {
-                            var combinedStream = new MemoryStream();
-                            await existingContent.CopyToAsync(combinedStream);
-                            await contents.CopyToAsync(combinedStream);
-                            combinedStream.Position = 0;
-                            contents = combinedStream;
+                            if (totalSize > SmallFileThreshold)
+                            {
+                                var tempFileStream = new FileStream(
+                                    Path.GetTempFileName(),
+                                    FileMode.OpenOrCreate,
+                                    FileAccess.ReadWrite,
+                                    FileShare.None,
+                                    4096,
+                                    FileOptions.DeleteOnClose | FileOptions.SequentialScan);
+
+                                await existingContent.CopyToAsync(tempFileStream);
+                                await contents.CopyToAsync(tempFileStream);
+                                tempFileStream.Position = 0;
+                                finalContentsStream = tempFileStream;
+                            }
+                            else
+                            {
+                                var combinedStream = new MemoryStream();
+                                await existingContent.CopyToAsync(combinedStream);
+                                await contents.CopyToAsync(combinedStream);
+                                combinedStream.Position = 0;
+                                finalContentsStream = combinedStream;
+                            }
                         }
                     }
                     catch (FileNotFoundException)
                     {
-                        throw new FileNotFoundException($"Cannot append to file '{fileName}' because it does not exist");
-                    }
-                }
 
-                var fileSize = contents.Length;
-                if (fileSize <= SmallFileThreshold)
-                    await uploadSmallFileAsync(contents, absolutePathSegments);
-                else
-                    await uploadLargeFileAsync(contents, absolutePathSegments);
+                    }
+
+                    if (finalContentsStream.CanSeek)
+                        finalContentsStream.Position = 0;
+
+                    var fileSize = finalContentsStream.Length;
+                    if (fileSize <= SmallFileThreshold)
+                        await uploadSmallFileAsync(finalContentsStream, absolutePathSegments);
+                    else
+                        await uploadLargeFileAsync(finalContentsStream, absolutePathSegments);
+                }
+                else 
+                {
+                    if (contents.CanSeek)
+                        contents.Position = 0;
+
+                    var fileSize = contents.Length;
+                    if (fileSize <= SmallFileThreshold)
+                        await uploadSmallFileAsync(contents, absolutePathSegments);
+                    else
+                        await uploadLargeFileAsync(contents, absolutePathSegments);
+                }
             }
             catch (ODataError ex)
             {

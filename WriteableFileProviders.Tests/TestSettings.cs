@@ -28,6 +28,7 @@
         public string SharePointFileProvider_TenantId { get; set; }
         public string SharePointFileProvider_ClientId { get; set; }
         public string SharePointFileProvider_ClientSecret { get; set; }
+        public string SharePointFileProvider_WorkFolderName { get; set; }
 
     }
 }

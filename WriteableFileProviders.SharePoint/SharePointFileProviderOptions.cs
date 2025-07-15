@@ -2,13 +2,14 @@
 {
     public class SharePointFileProviderOptions : FileProviderOptions
     {
-        public SharePointFileProviderOptions(string siteUrl, string documentLibraryName, string tenantId, string clientId, string clientSecret)
+        public SharePointFileProviderOptions(string siteUrl, string documentLibraryName, string tenantId, string clientId, string clientSecret, string workFolderName)
         {
             SiteUrl = siteUrl;
             DocumentLibraryName = documentLibraryName;
             TenantId = tenantId;
             ClientId = clientId;
             ClientSecret = clientSecret;
+            WorkFolderName = workFolderName;
         }
 
         public SharePointFileProviderOptions() { }
@@ -18,5 +19,6 @@
         public string TenantId { get; set; }
         public string ClientId { get; set; }
         public string ClientSecret { get; set; }
+        public string WorkFolderName { get; set; }
     }
 }

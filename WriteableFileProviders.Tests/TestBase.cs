@@ -264,7 +264,7 @@ namespace WriteableFileProviders.Tests
             if (!entry.Exists)
                 Assert.Fail("Entry was not created");
             if (entry.Length != oneMBBuffer.Length * 100)
-                Assert.Fail("Entry is not 1GB in size");
+                Assert.Fail("Entry is not 100MB in size");
 
             var mid1 = oneMBBuffer.Length;
             var mid2 = mid1 + 1;

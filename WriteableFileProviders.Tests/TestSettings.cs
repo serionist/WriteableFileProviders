@@ -23,6 +23,11 @@
         public string BoxFileProvider_PrivateKey { get; set; }
         public string BoxFileProvider_Passphrase { get; set; }
         public string BoxFileProvider_RootFolderId { get; set; } = "0";
+        public string SharePointFileProvider_SiteUrl { get; set; }
+        public string SharePointFileProvider_DocumentLibraryName { get; set; } = "Documents";
+        public string SharePointFileProvider_TenantId { get; set; }
+        public string SharePointFileProvider_ClientId { get; set; }
+        public string SharePointFileProvider_ClientSecret { get; set; }
 
     }
 }

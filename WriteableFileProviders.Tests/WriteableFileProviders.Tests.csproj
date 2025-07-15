@@ -12,7 +12,7 @@
 
   <ItemGroup>
     <Content Include="testsettings.json">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
 
@@ -28,6 +28,7 @@
     <ProjectReference Include="..\WriteableFileProviders.Box\WriteableFileProviders.Box.csproj" />
     <ProjectReference Include="..\WriteableFileProviders.Minio\WriteableFileProviders.Minio.csproj" />
     <ProjectReference Include="..\WriteableFileProviders.Physical\WriteableFileProviders.Physical.csproj" />
+    <ProjectReference Include="..\WriteableFileProviders.SharePoint\WriteableFileProviders.SharePoint.csproj" />
   </ItemGroup>
 
 </Project>

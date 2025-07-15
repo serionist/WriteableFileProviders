@@ -21,7 +21,8 @@ namespace WriteableFileProviders.Tests
                 DocumentLibraryName = Settings.SharePointFileProvider_DocumentLibraryName,
                 TenantId = Settings.SharePointFileProvider_TenantId,
                 ClientId = Settings.SharePointFileProvider_ClientId,
-                ClientSecret = Settings.SharePointFileProvider_ClientSecret
+                ClientSecret = Settings.SharePointFileProvider_ClientSecret,
+                WorkFolderName = Settings.SharePointFileProvider_WorkFolderName
             });
         }
     }

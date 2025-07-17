@@ -2,14 +2,14 @@
 {
     public class SharePointFileProviderOptions : FileProviderOptions
     {
-        public SharePointFileProviderOptions(string siteUrl, string documentLibraryName, string tenantId, string clientId, string clientSecret, string workFolderName)
+        public SharePointFileProviderOptions(string siteUrl, string documentLibraryName, string tenantId, string clientId, string clientSecret, string workFolderPath)
         {
             SiteUrl = siteUrl;
             DocumentLibraryName = documentLibraryName;
             TenantId = tenantId;
             ClientId = clientId;
             ClientSecret = clientSecret;
-            WorkFolderName = workFolderName;
+            WorkFolderPath = workFolderPath;
         }
 
         public SharePointFileProviderOptions() { }
@@ -19,6 +19,7 @@
         public string TenantId { get; set; }
         public string ClientId { get; set; }
         public string ClientSecret { get; set; }
-        public string WorkFolderName { get; set; }
+        // Optional path, like: "MainFolder/WorkFolder/Test"
+        public string WorkFolderPath { get; set; }
     }
 }

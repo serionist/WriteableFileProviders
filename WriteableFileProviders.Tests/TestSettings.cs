@@ -29,6 +29,11 @@
         public string SharePointFileProvider_ClientId { get; set; }
         public string SharePointFileProvider_ClientSecret { get; set; }
         public string SharePointFileProvider_WorkFolderPath { get; set; }
+        public string GoogleCloudStorageFileProvider_BucketName { get; set; }
+        public string GoogleCloudStorageFileProvider_ClientEmail { get; set; }
+        public string GoogleCloudStorageFileProvider_PrivateKey { get; set; }
+        public string GoogleCloudStorageFileProvider_ProjectId { get; set; }
+        public string GoogleCloudStorageFileProvider_RootPath { get; set; }
 
     }
 }

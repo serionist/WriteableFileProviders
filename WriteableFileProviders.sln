@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 17
-VisualStudioVersion = 17.13.35931.197
+# Visual Studio Version 18
+VisualStudioVersion = 18.7.11903.348 stable
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "WriteableFileProviders.Common", "WriteableFileProviders.Common\WriteableFileProviders.Common.csproj", "{48EC3E52-CC71-4C35-BC91-329FEFE9DE95}"
 EndProject
@@ -20,6 +20,8 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WriteableFileProviders.Box", "WriteableFileProviders.Box\WriteableFileProviders.Box.csproj", "{59844C51-FD32-4A1D-BAF3-1CDAE68FF040}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WriteableFileProviders.SharePoint", "WriteableFileProviders.SharePoint\WriteableFileProviders.SharePoint.csproj", "{FED24169-9258-4BFA-9061-D6C38BB5A8F8}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WriteableFileProviders.GoogleCloudStorage", "WriteableFileProviders.GoogleCloudStorage\WriteableFileProviders.GoogleCloudStorage.csproj", "{8636D574-8157-9A83-E70F-EBB062AB61E6}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -59,6 +61,10 @@ Global
 		{FED24169-9258-4BFA-9061-D6C38BB5A8F8}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{FED24169-9258-4BFA-9061-D6C38BB5A8F8}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{FED24169-9258-4BFA-9061-D6C38BB5A8F8}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8636D574-8157-9A83-E70F-EBB062AB61E6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8636D574-8157-9A83-E70F-EBB062AB61E6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8636D574-8157-9A83-E70F-EBB062AB61E6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8636D574-8157-9A83-E70F-EBB062AB61E6}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

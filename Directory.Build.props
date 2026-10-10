@@ -1,0 +1,21 @@
+<Project>
+
+  <!-- What every project shares lives here, once, never per .csproj. The modernization adds the target framework and
+       the strictness (Nullable, TreatWarningsAsErrors, EnforceCodeStyleInBuild) here when the code is ready for them. -->
+
+  <PropertyGroup Label="Package metadata">
+    <Authors>Soma Osvay</Authors>
+    <PackageProjectUrl>https://github.com/serionist/WriteableFileProviders</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/serionist/WriteableFileProviders.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+  </PropertyGroup>
+
+  <PropertyGroup Label="Package advisories">
+    <!-- Every package with a known advisory, direct or transitive, shows in the build. They are warnings until the
+         modernization makes warnings errors. -->
+    <NuGetAudit>true</NuGetAudit>
+    <NuGetAuditMode>all</NuGetAuditMode>
+    <NuGetAuditLevel>low</NuGetAuditLevel>
+  </PropertyGroup>
+
+</Project>

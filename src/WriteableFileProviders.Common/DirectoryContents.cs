@@ -1,31 +1,23 @@
-﻿using System;
 using System.Collections;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 using Microsoft.Extensions.FileProviders;
 
-namespace WriteableFileProviders
+namespace WriteableFileProviders;
+
+/// <summary>The entries of one folder, as <see cref="IWriteableFileProvider.GetDirectoryContentsAsync"/> lists them.</summary>
+/// <param name="exists">Whether the folder exists.</param>
+/// <param name="entries">The folder's files and folders, one level.</param>
+public sealed class DirectoryContents(bool exists, IEnumerable<IFileInfo> entries) : IDirectoryContents
 {
-    public class DirectoryContents: IDirectoryContents
-    {
+    private readonly IFileInfo[] _entries = [.. entries ?? throw new ArgumentNullException(nameof(entries))];
 
-        public DirectoryContents(bool exists, IFileInfo[] infos)
-        {
-            Exists = exists;
-            _files = infos;
-        }
+    /// <summary>A folder that does not exist: no entries.</summary>
+    public static DirectoryContents NotFound { get; } = new(false, []);
 
-        private IFileInfo[] _files { get; }
-        public bool Exists { get; }
-        public IEnumerator<IFileInfo> GetEnumerator()
-        {
-            return _files.AsEnumerable().GetEnumerator();
-        }
+    /// <inheritdoc />
+    public bool Exists { get; } = exists;
 
-        IEnumerator IEnumerable.GetEnumerator()
-        {
-            return _files.GetEnumerator();
-        }
-    }
+    /// <inheritdoc />
+    public IEnumerator<IFileInfo> GetEnumerator() => ((IEnumerable<IFileInfo>)_entries).GetEnumerator();
+
+    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 }

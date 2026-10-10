@@ -1,10 +1,10 @@
 {
-  "WriteableFileProviders.AmazonS3": { "lines": 16, "branches": 13 },
-  "WriteableFileProviders.AzureBlob": { "lines": 78, "branches": 64 },
-  "WriteableFileProviders.Box": { "lines": 8, "branches": 0 },
-  "WriteableFileProviders.Common": { "lines": 82, "branches": 80 },
-  "WriteableFileProviders.GoogleCloudStorage": { "lines": 24, "branches": 13 },
-  "WriteableFileProviders.Minio": { "lines": 92, "branches": 70 },
-  "WriteableFileProviders.Physical": { "lines": 92, "branches": 80 },
+  "WriteableFileProviders.AmazonS3": { "lines": 23, "branches": 13 },
+  "WriteableFileProviders.AzureBlob": { "lines": 80, "branches": 65 },
+  "WriteableFileProviders.Box": { "lines": 72, "branches": 61 },
+  "WriteableFileProviders.Common": { "lines": 95, "branches": 90 },
+  "WriteableFileProviders.GoogleCloudStorage": { "lines": 27, "branches": 14 },
+  "WriteableFileProviders.Minio": { "lines": 93, "branches": 70 },
+  "WriteableFileProviders.Physical": { "lines": 98, "branches": 86 },
   "WriteableFileProviders.SharePoint": { "lines": 20, "branches": 15 }
 }

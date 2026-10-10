@@ -16,7 +16,7 @@ namespace WriteableFileProviders.Tests.Common
         private class SegmentProvider : WriteablePhysicalFileProvider
         {
             public SegmentProvider(string rootPath) : base(rootPath) { }
-            public static string[] Validate(params string[] segments) => validateSegments(segments);
+            public static string[] Validate(params string[] segments) => ValidateSegments(segments);
         }
 
         [TestInitialize]
@@ -49,9 +49,9 @@ namespace WriteableFileProviders.Tests.Common
         {
             await provider.UpdateFileAsync(Content(), UpdateFileMode.Overwrite, "a/b", "c.txt");
             Assert.IsTrue(File.Exists(Path.Combine(root, "a", "b", "c.txt")));
-            var info = (FileInfo)await provider.GetFileInfoAsync("a/b", "c.txt");
+            var info = (WriteableFileInfo)await provider.GetFileInfoAsync("a/b", "c.txt");
             Assert.IsTrue(info.Exists);
-            CollectionAssert.AreEqual(new[] { "a", "b", "c.txt" }, info.PathSegments);
+            CollectionAssert.AreEqual(new[] { "a", "b", "c.txt" }, info.Path.Segments.ToArray());
         }
 
         [DataTestMethod]
@@ -175,12 +175,13 @@ namespace WriteableFileProviders.Tests.Common
         }
 
         [TestMethod]
-        public async Task ZeroSegmentFileInfoIsNotFound()
+        public async Task ZeroSegmentFileInfoIsTheRootFolder()
         {
+            // Since 2027 the root is a folder on every provider (the contract), where 2026 reported it missing.
             foreach (var info in new[] { await provider.GetFileInfoAsync(""), await provider.GetFileInfoAsync(new string[0]), provider.GetFileInfo("/") })
             {
-                Assert.IsFalse(info.Exists);
-                Assert.IsFalse(info.IsDirectory);
+                Assert.IsTrue(info.Exists);
+                Assert.IsTrue(info.IsDirectory);
             }
             Assert.IsTrue((await provider.GetDirectoryContentsAsync("")).Exists);
         }

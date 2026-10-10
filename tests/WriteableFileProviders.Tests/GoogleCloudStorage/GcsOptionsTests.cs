@@ -102,11 +102,23 @@ namespace WriteableFileProviders.Tests.GoogleCloudStorage
             Assert.IsFalse(info.Exists);
         }
 
+        [TestMethod]
+        public async Task ReadUrlsAreSignedOffline()
+        {
+            // V4 signing with a service account key is local: the URL names the object under the root.
+            var url = await new Probe(options(escapedLf, "base")).Sign("dir/file.txt", TimeSpan.FromMinutes(5));
+            StringAssert.Contains(url.Url.AbsolutePath, "base/dir/file.txt");
+            StringAssert.Contains(url.Url.Query, "X-Goog-Expires=300");
+        }
+
         private class Probe : WriteableGoogleCloudStorageFileProvider
         {
             public Probe(GoogleCloudStorageFileProviderOptions options) : base(options) { }
-            public Task<bool> DeleteAbsolute(params string[] absolutePathSegments) => deleteAsync(absolutePathSegments);
-            public Task<IFileInfo> FileInfoAbsolute(params string[] absolutePathSegments) => getFileInfoAsync(absolutePathSegments);
+            public Task<SignedUrl> Sign(string path, TimeSpan validity) =>
+                GetSignedUrlCoreAsync(Resolve(path), new SignedUrlOptions { Validity = validity }, default);
+            private ResolvedPath Raw(string[] absolute) => new ResolvedPath(Options.RootDirectorySegments, GetRelativeSegments(absolute));
+            public Task<bool> DeleteAbsolute(params string[] absolutePathSegments) => DeleteCoreAsync(Raw(absolutePathSegments), default);
+            public Task<IWriteableFileInfo> FileInfoAbsolute(params string[] absolutePathSegments) => GetFileInfoCoreAsync(Raw(absolutePathSegments), default);
         }
     }
 }

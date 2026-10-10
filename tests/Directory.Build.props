@@ -2,21 +2,30 @@
 
   <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
 
-  <!-- Test projects: MSTest on Microsoft.Testing.Platform (global.json selects it for dotnet test), never packed, no XML
-       docs. Coverage comes from the Microsoft.Testing.Extensions.CodeCoverage extension (AGENTS.md, Coverage). -->
+  <!-- Everything under tests/: never packed, no XML docs. A project whose name ends in .Tests is a test application on
+       MSTest and Microsoft.Testing.Platform (global.json selects it for dotnet test); WriteableFileProviders.Testing is a
+       library of shared test code. Coverage comes from the Microsoft.Testing.Extensions.CodeCoverage extension
+       (AGENTS.md, Coverage). The name decides, because a project's own properties are not set yet when this file is read. -->
 
   <PropertyGroup>
     <IsPackable>false</IsPackable>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <WfpTestApplication>$([System.String]::Copy('$(MSBuildProjectName)').EndsWith('.Tests'))</WfpTestApplication>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(WfpTestApplication)' == 'true'">
     <IsTestProject>true</IsTestProject>
     <OutputType>Exe</OutputType>
     <EnableMSTestRunner>true</EnableMSTestRunner>
-    <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="MSTest.TestFramework" />
-    <PackageReference Include="MSTest.TestAdapter" />
     <PackageReference Include="MSTest.Analyzers" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(WfpTestApplication)' == 'true'">
+    <PackageReference Include="MSTest.TestAdapter" />
     <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" />
     <PackageReference Include="Microsoft.Testing.Extensions.TrxReport" />
   </ItemGroup>

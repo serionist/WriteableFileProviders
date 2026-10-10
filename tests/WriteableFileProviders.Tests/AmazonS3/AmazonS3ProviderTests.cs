@@ -60,7 +60,8 @@ namespace WriteableFileProviders.Tests
         private class RootGuardProbe : WriteableAmazonS3FileProvider
         {
             public RootGuardProbe(AmazonS3FileProviderOptions options) : base(options) { }
-            public Task<bool> DeleteAbsolute(params string[] absolutePathSegments) => deleteAsync(absolutePathSegments);
+            private ResolvedPath Raw(string[] absolute) => new ResolvedPath(Options.RootDirectorySegments, GetRelativeSegments(absolute));
+            public Task<bool> DeleteAbsolute(params string[] absolutePathSegments) => DeleteCoreAsync(Raw(absolutePathSegments), default);
         }
 
         private static string NewName(string prefix) => $"{prefix}{Guid.NewGuid():N}";
@@ -119,21 +120,21 @@ namespace WriteableFileProviders.Tests
             CollectionAssert.AreEquivalent(new[] { "a", "m", "x.txt" }, entries.Select(e => e.Name).ToArray(),
                 "Listing must contain exactly the direct children, without the folder marker or empty names");
 
-            foreach (var dir in entries.Where(e => e.Name != "x.txt").Cast<FileInfo>())
+            foreach (var dir in entries.Where(e => e.Name != "x.txt").Cast<WriteableFileInfo>())
             {
                 Assert.IsTrue(dir.IsDirectory && dir.Exists, $"{dir.Name} is not an existing directory");
                 Assert.AreEqual(-1, dir.Length);
                 Assert.AreEqual($"{keyPrefix}{baseDir}/{dir.Name}", dir.PhysicalPath);
-                CollectionAssert.AreEqual(new[] { baseDir, dir.Name }, dir.PathSegments);
+                CollectionAssert.AreEqual(new[] { baseDir, dir.Name }, dir.Path.Segments.ToArray());
             }
 
-            var file = (FileInfo)entries.Single(e => e.Name == "x.txt");
+            var file = (WriteableFileInfo)entries.Single(e => e.Name == "x.txt");
             Assert.IsTrue(file.Exists && !file.IsDirectory);
             Assert.AreEqual(5, file.Length);
             Assert.IsTrue(file.LastModified > new DateTimeOffset(2020, 1, 1, 0, 0, 0, TimeSpan.Zero), "File LastModified is not the stored value");
             Assert.AreEqual($"{keyPrefix}{baseDir}/x.txt", file.PhysicalPath);
-            CollectionAssert.AreEqual(new[] { baseDir, "x.txt" }, file.PathSegments);
-            Assert.IsTrue((await provider.GetFileInfoAsync(file.PathSegments)).Exists, "PathSegments do not round-trip");
+            CollectionAssert.AreEqual(new[] { baseDir, "x.txt" }, file.Path.Segments.ToArray());
+            Assert.IsTrue((await provider.GetFileInfoAsync(file.Path.Segments.ToArray())).Exists, "PathSegments do not round-trip");
             using (var reader = new StreamReader(await provider.ReadFileAsync(file)))
                 Assert.AreEqual("hello", await reader.ReadToEndAsync());
 
@@ -141,7 +142,7 @@ namespace WriteableFileProviders.Tests
             Assert.AreEqual(1, nested.Count);
             Assert.AreEqual("b", nested[0].Name);
             Assert.IsTrue(nested[0].IsDirectory);
-            CollectionAssert.AreEqual(new[] { baseDir, "a", "b" }, ((FileInfo)nested[0]).PathSegments);
+            CollectionAssert.AreEqual(new[] { baseDir, "a", "b" }, ((WriteableFileInfo)nested[0]).Path.Segments.ToArray());
 
             var missing = await provider.GetDirectoryContentsAsync(baseDir, "missing");
             Assert.IsFalse(missing.Exists);
@@ -173,7 +174,7 @@ namespace WriteableFileProviders.Tests
                 var dir = root.SingleOrDefault(e => e.Name == baseDir);
                 Assert.IsNotNull(dir, "Bucket root listing does not contain the test folder");
                 Assert.IsTrue(dir.IsDirectory && dir.Exists);
-                CollectionAssert.AreEqual(new[] { baseDir }, ((FileInfo)dir).PathSegments);
+                CollectionAssert.AreEqual(new[] { baseDir }, ((WriteableFileInfo)dir).Path.Segments.ToArray());
             }
             finally
             {
@@ -197,7 +198,7 @@ namespace WriteableFileProviders.Tests
                 Assert.AreEqual(1, root.Count);
                 Assert.AreEqual(baseDir, root[0].Name);
                 Assert.IsTrue(root[0].IsDirectory && root[0].Exists);
-                CollectionAssert.AreEqual(new[] { baseDir }, ((FileInfo)root[0]).PathSegments);
+                CollectionAssert.AreEqual(new[] { baseDir }, ((WriteableFileInfo)root[0]).Path.Segments.ToArray());
             }
             finally
             {
@@ -348,7 +349,7 @@ namespace WriteableFileProviders.Tests
                     Assert.AreEqual("inside", await reader.ReadToEndAsync());
                 var listed = await provider.EnumerateObjects(new[] { rootDir, "dir" }, true);
                 Assert.AreEqual(1, listed.Count);
-                CollectionAssert.AreEqual(new[] { "dir", "file.txt" }, ((FileInfo)listed[0]).PathSegments);
+                CollectionAssert.AreEqual(new[] { "dir", "file.txt" }, ((WriteableFileInfo)listed[0]).Path.Segments.ToArray());
 
                 await Assert.ThrowsExactlyAsync<ArgumentException>(() => provider.ReadFileAsync(null, outside, "secret.txt"));
                 await Assert.ThrowsExactlyAsync<ArgumentException>(() => provider.EnumerateObjects(new[] { outside }, true));

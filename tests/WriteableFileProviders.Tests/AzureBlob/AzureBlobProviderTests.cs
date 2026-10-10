@@ -75,18 +75,18 @@ namespace WriteableFileProviders.Tests.AzureBlob
             await Write(provider, $"{dir}/a/b/c.txt", "deep");
             await Write(provider, $"{dir}/x.txt", "hello");
 
-            var entries = (await provider.GetDirectoryContentsAsync(dir)).Cast<FileInfo>().ToList();
+            var entries = (await provider.GetDirectoryContentsAsync(dir)).Cast<WriteableFileInfo>().ToList();
             var x = entries.Single(e => e.Name == "x.txt");
             var a = entries.Single(e => e.Name == "a");
-            CollectionAssert.AreEqual(new[] { dir, "x.txt" }, x.PathSegments);
-            CollectionAssert.AreEqual(new[] { dir, "a" }, a.PathSegments);
+            CollectionAssert.AreEqual(new[] { dir, "x.txt" }, x.Path.Segments.ToArray());
+            CollectionAssert.AreEqual(new[] { dir, "a" }, a.Path.Segments.ToArray());
 
             Assert.AreEqual("hello", await Read(await provider.ReadFileAsync(x)));
-            Assert.IsTrue((await provider.GetFileInfoAsync(x.PathSegments)).Exists);
-            var b = (await provider.GetDirectoryContentsAsync(a.PathSegments)).Cast<FileInfo>().Single();
-            CollectionAssert.AreEqual(new[] { dir, "a", "b" }, b.PathSegments);
-            var c = (await provider.GetDirectoryContentsAsync(b.PathSegments)).Cast<FileInfo>().Single();
-            CollectionAssert.AreEqual(new[] { dir, "a", "b", "c.txt" }, c.PathSegments);
+            Assert.IsTrue((await provider.GetFileInfoAsync(x.Path.Segments.ToArray())).Exists);
+            var b = (await provider.GetDirectoryContentsAsync(a.Path.Segments.ToArray())).Cast<WriteableFileInfo>().Single();
+            CollectionAssert.AreEqual(new[] { dir, "a", "b" }, b.Path.Segments.ToArray());
+            var c = (await provider.GetDirectoryContentsAsync(b.Path.Segments.ToArray())).Cast<WriteableFileInfo>().Single();
+            CollectionAssert.AreEqual(new[] { dir, "a", "b", "c.txt" }, c.Path.Segments.ToArray());
             Assert.AreEqual("deep", await Read(await provider.ReadFileAsync(c)));
         }
 
@@ -97,16 +97,17 @@ namespace WriteableFileProviders.Tests.AzureBlob
             try
             {
                 var provider = Azurite.CreateProvider(container);
-                Assert.IsFalse((await provider.GetDirectoryContentsAsync("")).Exists);
+                // The provider root always lists as an existing folder since 2027; S6 makes a missing container throw.
+                Assert.AreEqual(0, (await provider.GetDirectoryContentsAsync("")).Count());
                 await Write(provider, "top.txt", "top");
                 await Write(provider, "folder/inner.txt", "inner");
 
                 var contents = await provider.GetDirectoryContentsAsync("");
                 Assert.IsTrue(contents.Exists);
-                var entries = contents.Cast<FileInfo>().ToList();
+                var entries = contents.Cast<WriteableFileInfo>().ToList();
                 CollectionAssert.AreEquivalent(new[] { "top.txt", "folder" }, entries.Select(e => e.Name).ToArray());
-                CollectionAssert.AreEqual(new[] { "folder" }, entries.Single(e => e.IsDirectory).PathSegments);
-                CollectionAssert.AreEqual(new[] { "top.txt" }, entries.Single(e => !e.IsDirectory).PathSegments);
+                CollectionAssert.AreEqual(new[] { "folder" }, entries.Single(e => e.IsDirectory).Path.Segments.ToArray());
+                CollectionAssert.AreEqual(new[] { "top.txt" }, entries.Single(e => !e.IsDirectory).Path.Segments.ToArray());
             }
             finally
             {
@@ -137,10 +138,11 @@ namespace WriteableFileProviders.Tests.AzureBlob
             {
                 Assert.IsFalse((await provider.GetFileInfoAsync("missing.txt")).Exists);
                 Assert.IsFalse((await provider.GetDirectoryContentsAsync("dir")).Exists);
-                Assert.IsFalse((await provider.GetDirectoryContentsAsync("")).Exists);
+                Assert.AreEqual(0, (await provider.GetDirectoryContentsAsync("")).Count());
                 Assert.IsFalse(await provider.DeleteAsync("missing.txt"));
                 Assert.IsFalse(await provider.DeleteAsync("dir"));
-                Assert.IsNotNull(await provider.GetDownloadUrlAsync("missing.txt", TimeSpan.FromMinutes(5)));
+                // A read URL for a missing file throws since 2027 (the contract), where 2026 signed one.
+                await Assert.ThrowsExactlyAsync<FileNotFoundException>(() => provider.GetDownloadUrlAsync("missing.txt", TimeSpan.FromMinutes(5)));
                 var ex = await Assert.ThrowsExactlyAsync<RequestFailedException>(() => provider.ReadFileAsync("missing.txt"));
                 Assert.AreEqual(404, ex.Status);
 
@@ -249,23 +251,27 @@ namespace WriteableFileProviders.Tests.AzureBlob
         [TestMethod]
         public async Task DownloadUrl_ValidityCappedAndHttpsOnly()
         {
+            // The SAS itself, below the base class's checks: the provider still caps at 7 days and signs https only for an
+            // https endpoint. Through the public API a validity over 7 days is refused (NotSupportedException).
             var options = Azurite.OfflineOptions("c");
             options.Protocol = "https";
             options.Url = null;
-            var provider = new WriteableAzureBlobFileProvider(options);
+            var provider = new SasProbe(options);
 
-            var query = HttpUtility.ParseQueryString(new Uri(await provider.GetDownloadUrlAsync("a/b.txt", TimeSpan.FromDays(30))).Query);
+            var query = HttpUtility.ParseQueryString((await provider.Sign("a/b.txt", TimeSpan.FromDays(30))).Url.Query);
             Assert.AreEqual("https", query["spr"]);
             var expires = DateTimeOffset.Parse(query["se"]);
             Assert.IsTrue(expires <= DateTimeOffset.UtcNow.AddDays(7).AddMinutes(1), $"Expiry {expires} exceeds 7 days");
             Assert.IsTrue(expires >= DateTimeOffset.UtcNow.AddDays(7).AddMinutes(-5));
 
-            query = HttpUtility.ParseQueryString(new Uri(await provider.GetDownloadUrlAsync("a/b.txt", TimeSpan.FromHours(1))).Query);
+            query = HttpUtility.ParseQueryString((await provider.Sign("a/b.txt", TimeSpan.FromHours(1))).Url.Query);
             Assert.IsTrue(DateTimeOffset.Parse(query["se"]) <= DateTimeOffset.UtcNow.AddHours(1).AddMinutes(1));
 
-            var http = new WriteableAzureBlobFileProvider(Azurite.OfflineOptions("c"));
-            query = HttpUtility.ParseQueryString(new Uri(await http.GetDownloadUrlAsync("a/b.txt", TimeSpan.FromHours(1))).Query);
+            var http = new SasProbe(Azurite.OfflineOptions("c"));
+            query = HttpUtility.ParseQueryString((await http.Sign("a/b.txt", TimeSpan.FromHours(1))).Url.Query);
             Assert.IsNull(query["spr"]);
+
+            await Assert.ThrowsExactlyAsync<NotSupportedException>(() => provider.GetDownloadUrlAsync("a/b.txt", TimeSpan.FromDays(30)));
         }
 
         [TestMethod]
@@ -304,10 +310,18 @@ namespace WriteableFileProviders.Tests.AzureBlob
             Assert.AreEqual("block", await Read(await provider.ReadFileAsync($"{dir}/block2.txt")));
         }
 
+        private class SasProbe : WriteableAzureBlobFileProvider
+        {
+            public SasProbe(AzureFileProviderOptions options) : base(options) { }
+            public Task<SignedUrl> Sign(string path, TimeSpan validity) =>
+                GetSignedUrlCoreAsync(Resolve(path), new SignedUrlOptions { Validity = validity }, default);
+        }
+
         private class RootProbe : WriteableAzureBlobFileProvider
         {
             public RootProbe(AzureFileProviderOptions options) : base(options) { }
-            public Task<bool> DeleteAbsolute(params string[] absolutePathSegments) => deleteAsync(absolutePathSegments);
+            private ResolvedPath Raw(string[] absolute) => new ResolvedPath(Options.RootDirectorySegments, GetRelativeSegments(absolute));
+            public Task<bool> DeleteAbsolute(params string[] absolutePathSegments) => DeleteCoreAsync(Raw(absolutePathSegments), default);
         }
     }
 }

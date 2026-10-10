@@ -11,7 +11,10 @@ and what never to do.
 |------|------|
 | `src/WriteableFileProviders.Common/` | `IWriteableFileProvider`; `WriteableFileProvider<TOptions>`, the base class every provider derives from; `FileProviderOptions` (the root folder); `LocalFileStream`; `WriteableFileProviderSerializer`, which builds a provider from configuration or JSON. Package `WriteableFileProviders.Common`. |
 | `src/WriteableFileProviders.<Provider>/` | One provider each: `Physical`, `AzureBlob`, `AmazonS3`, `Minio`, `Box`, `SharePoint`, `GoogleCloudStorage`. Package `WriteableFileProviders.<Provider>`. |
-| `tests/WriteableFileProviders.Tests/` | The one MSTest project, for every provider (see Tests below). |
+| `tests/WriteableFileProviders.Testing/` | Shared test code: `ProviderConformanceTests`, the contract every provider passes, and `InMemoryFileProvider`, the reference provider that passes it. |
+| `tests/WriteableFileProviders.Common.Tests/` | Common's tests: the conformance suite on the in-memory provider, unit tests, and the configuration-shape goldens. |
+| `tests/WriteableFileProviders.Tests/` | The provider tests from before the modernization; each provider's rewrite moves its tests to a project of its own on the conformance suite. |
+| `docs/migration-2027.md` | What 2027.0.0 breaks and how to move over; each change of the release adds its part. |
 | `REVIEW.md` | The questions every review answers. |
 | `docs/plans/` | The plan of each non-trivial change, and the template (`docs/plans/README.md`). |
 | `docs/reviews/` | Reports of whole-repo or whole-folder reviews. A change's own review goes in its PR. |
@@ -61,12 +64,18 @@ Run everything from the repo root, with a .NET 10 SDK (`global.json`).
 
 ### Tests
 
-`TestBase` is the shared suite: every provider runs the same create, overwrite, append, move, delete, listing, local
-stream, download URL and 100 MB tests. The classes fall in four groups:
+`ProviderConformanceTests` (tests/WriteableFileProviders.Testing) is the contract: one test per rule of "The behaviour
+contract" in the modernization plan. A provider's test project derives a `[TestClass]` from it, says how to build the
+provider and what the store can do (real folders, case, signed URLs, the large-file size), and so runs every rule. It
+passes today against `InMemoryFileProvider` in `WriteableFileProviders.Common.Tests`; each provider joins it in its own
+step of #3.
 
-- **Unit tests**, no outside service: `SegmentValidationTests`, `LocalFileStreamCommitTests`, `PhysicalReadTests`,
-  `AmazonS3PathTests`, `BoxOptionsTests`, `GcsOptionsTests`, `SharePointPathTests` (with a fake Graph), and the options
-  tests in `AzureBlobProviderTests`.
+`TestBase`, in tests/WriteableFileProviders.Tests, is the older shared suite each provider still runs until then: create,
+overwrite, append, move, delete, listing, local stream, download URL and 100 MB tests. Its classes fall in four groups:
+
+- **Unit tests**, no outside service: `SegmentValidationTests`, `PhysicalReadTests`, `AmazonS3PathTests`,
+  `BoxOptionsTests`, `BoxOfflineTests` (with a fake Box API), `GcsOptionsTests`, `SharePointPathTests` (with a fake
+  Graph), and the options tests in `AzureBlobProviderTests`.
 - **Physical**, `PyhsicalFileProvider`: the shared suite on the local disk, under `PhysicalFileProvider_RootPath`, or a
   temp folder when it is not set.
 - **Emulator tests**: `Emulators` starts each emulator once per run through Testcontainers, and the containers go when
@@ -85,7 +94,8 @@ stream, download URL and 100 MB tests. The classes fall in four groups:
 - **Live suites**, `[TestCategory("Live")]`, which the filter above leaves out: the shared suite against a real
   account, with the credentials from `testsettings.json`. They fail without them. Run one only against an account you
   own (`--filter "FullyQualifiedName~<Provider>FileProvider"`), and check it is clean afterwards.
-- **Configuration shape**: `ConfigurationShapeTests` pins the one-way door with the files in `Serialization/Golden/`:
+- **Configuration shape**: `ConfigurationShapeTests`, in WriteableFileProviders.Common.Tests, pins the one-way door with
+  the files in `Serialization/Golden/`:
   `Writeable*.json` were written by the 2026.10.10.x serializer and are never regenerated; `Lenient.*.json` and
   `Config.*.json` are hand-written inputs the 2026.10.10.x readers accept (JSON and configuration), which every later
   reader must accept too.
@@ -130,12 +140,17 @@ agree in its issue.
 
 - **Names:** the `WriteableFileProviders.*` package ids and namespaces, published on nuget.org. The spelling
   "Writeable" stays.
-- **The Common API:** `IWriteableFileProvider`, `WriteableFileProvider<TOptions>`, `FileProviderOptions`,
-  `UpdateFileMode`, `LocalFileStream`. Every provider and every consumer builds on them; removing a member or changing
-  what it means breaks them.
+- **The Common API:** `IWriteableFileProvider` and `IWriteableFileInfo`; `WriteableFileProvider<TOptions>` with its
+  protected `...CoreAsync` members and helpers, which third-party providers build on; `ProviderPath`, `ResolvedPath`,
+  `WriteableFileInfo`, `DirectoryContents`, `FileProviderOptions`; `UpdateFileMode`, `UpdateFileOptions`,
+  `ReadOptions`, `SeekableReadOptions`; `SignedUrl`, `SignedUrlOptions`, `SignedUrlAccess`, `SignedUrlKind`;
+  `LocalFileStream`, `RangeReadStream`; `PreconditionFailedException`, `FileExistsException`; and the extension and
+  DI classes. Every provider and every consumer builds on them; removing a member or changing what it means breaks
+  them. docs/migration-2027.md records each break of 2027.0.0.
 - **The configuration shape:** `WriteableFileProviderSerializer` builds a provider from its `Type` and the property
-  names of its options class. Consumers keep that in configuration files and databases, so renaming a provider class,
-  an options property or the `Type` key breaks what they stored.
+  names of its options class, from configuration or JSON (System.Text.Json since 2027.0.0). Consumers keep that in
+  configuration files and databases, so renaming a provider class, an options property or the `Type` key breaks what
+  they stored. Every later reader reads what an earlier version wrote (the goldens pin it); the reverse is not promised.
 - **One meaning across providers:** a member does the same thing on every provider. A provider that cannot do something
   says so with an exception, the same way the others do, never by doing something else.
 

@@ -251,12 +251,12 @@ public interface IWriteableFileProvider : IFileProvider, IDisposable, IAsyncDisp
 public sealed record UpdateFileOptions { UpdateFileMode Mode; string? ContentType; string? IfMatch; bool IfNotExists; }
 public sealed record ReadOptions { string? IfMatch; }
 public sealed record SeekableReadOptions { int BufferSize = 1 MiB; bool AllowModifications; }
-public sealed record SignedUrlOptions { required TimeSpan Validity; SignedUrlPermission Permission = Read;
+public sealed record SignedUrlOptions { required TimeSpan Validity; SignedUrlAccess Permission = Read;
     string? DownloadFileName; string? ContentType; bool AllowShorterValidity; }
 public sealed class SignedUrl { required Uri Url; required string Method; DateTimeOffset? ExpiresOn;
     IReadOnlyDictionary<string,string> Headers; SignedUrlKind Kind; }      // a class with init members, so it can grow
-public enum SignedUrlPermission { Read, Create /* only if absent */, Write }
-public enum SignedUrlKind { Signed, PreAuthenticated, Gateway }
+public enum SignedUrlAccess { Read, Create /* only if absent */, Write }      // built as SignedUrlAccess (CA1711)
+public enum SignedUrlKind { Presigned, PreAuthenticated, Gateway }          // "Signed" trips CA1720
 public class PreconditionFailedException : IOException      public class FileExistsException : IOException
 ```
 
@@ -452,7 +452,16 @@ public class PreconditionFailedException : IOException      public class FileExi
   - `FileInfo` becomes `WriteableFileInfo`.
   - `LocalFileStream`'s constructor becomes internal, and `DisposeAsync` becomes a `ValueTask` override.
   - The protected members of `WriteableFileProvider<T>` are renamed (`...CoreAsync`), which breaks third-party
-    providers.
+    providers. `normalizePath`, `fileSegments` and both `RunTaskSerial` overloads go (`ProviderPath.Parse`,
+    `IWriteableFileInfo.Path`, await). `createLocalFileStreamAsync` and the public virtual `CreateLocalFileStreamAsync`
+    become `CreateLocalFileStreamCoreAsync`; the public member is no longer virtual. `GetRelativeSegments`, `IsRootPath`
+    and `NormalizePem` are `[Obsolete]` and go before 2027.0.0 (S12).
+  - Capability hooks whose defaults refuse or weaken an operation until a provider overrides them:
+    `SupportsAtomicPreconditions`, `IsCaseInsensitive`, `SupportsSignedUrl`, `SupportsSignedUrlContentHeaders`,
+    `MaxSignedUrlValidity`, and the `TimeProvider` property.
+  - `DirectoryContents` is sealed and takes `IEnumerable<IFileInfo>`; null entries throw.
+  - The `IFileInfo` overloads take only entries a writeable provider returned (`IWriteableFileInfo`); 2026 fell back to
+    any entry's `PhysicalPath`.
   - Providers are disposable.
 - **Configuration shape:**
   - Kept: the `Type` key and every options property name, including the misspelt `IsAnonymus`.
@@ -499,7 +508,7 @@ Each step is an issue under #3, a branch `<issue>-<slug>`, and a PR that builds 
 | S1 Record | #5 | #18 | This plan, the review, the roadmap. | — | done (b13ecda); round 2 applied in #21 |
 | S2 Build and layout | #6 | #19 | `.slnx`, `src/` and `tests/`, both build-props files, lock files, net10.0, `ProjectReference` to Common, MinVer, unused packages dropped, `WfpLegacy` ratchet, LF renormalization; REVIEW.md, finish-work, `.editorconfig` and `.gitattributes` updated; the `-> warning` analyzer rules become warnings (legacy projects silence them). Pulled forward from S3, because worktrees have no `testsettings.json`: settings optional, the Physical suite on a temp folder, and `test.runsettings` and the publish profile deleted (part of F56). Old tests still run. No copyright line in the packages until D8 settles. | F23 F46 F50 F55 F60 F71 F72, F26 (one Azure.Identity version) | done (7d83e44) |
 | S3 Test platform and CI | #7 | #20 | MSTest 4 on Microsoft.Testing.Platform, Testcontainers fixtures, live suites tagged `Live`, the golden corpus of the stored configuration shape from the old code (JSON for six providers, configuration for Azure, S3, MinIO and Physical, Physical built at run time, the `Type` key rules, F78 on both paths), coverage collection and gate, `ci.yml`, the F68 assertion fixes. AGENTS.md's suite rule is unchanged (D21). F28 and F29 move to the conformance suite (S4), F56's remaining dead weight goes with TestBase (S5–S10). | F27 F30 F42 F68 | todo |
-| S4 Common 2027 | #8 | | The Common API and contract, `RangeReadStream`, signed URL types, the System.Text.Json serializer, DI, disposal, `LocalFileStream`, helpers, XML docs, the full conformance suite run against an in-memory reference provider in `WriteableFileProviders.Testing`, Common at 90%. Every provider moved mechanically onto the new base, so `main` keeps building: signature renames only, no behaviour change, and the PR lists per provider what verified it; AmazonS3, GCS, Box and SharePoint are "not verified until S7, S8, S9, S10", which run the full conformance suite including root protection and delete scope (P7). The old tests whose behaviour changes are updated and listed in the PR. One PR with two doors, the Common API and the configuration-shape serializer, both named in its title and description; splitting would keep Newtonsoft alive one step longer (P34). Docs (P11): `docs/migration-2027.md` starts here, Common's README, and AGENTS.md (the Testing project, the conformance suite, One-way doors extended to the 2027 Common surface). Shared files (`Directory.Packages.props`, Testing) change here or one step at a time. | F11 F12 F13 F14 F16 F17 F22 F33 F34 F35 F36 F37 F47 F48 F52 F53 F57 F58 F59 F61 F69 F74 | todo |
+| S4 Common 2027 | #8 | | The Common API and contract, `RangeReadStream`, signed URL types, the System.Text.Json serializer, DI, disposal, `LocalFileStream`, helpers, XML docs, the full conformance suite run against an in-memory reference provider in `WriteableFileProviders.Testing`, Common at 90%. Every provider moved mechanically onto the new base, so `main` keeps building: signature renames only, no behaviour change, and the PR lists per provider what verified it; AmazonS3, GCS, Box and SharePoint are "not verified until S7, S8, S9, S10", which run the full conformance suite including root protection and delete scope (P7). The old tests whose behaviour changes are updated and listed in the PR. One PR with two doors, the Common API and the configuration-shape serializer, both named in its title and description; splitting would keep Newtonsoft alive one step longer (P34). Docs (P11): `docs/migration-2027.md` starts here, Common's README, and AGENTS.md (the Testing project, the conformance suite, One-way doors extended to the 2027 Common surface). Shared files (`Directory.Packages.props`, Testing) change here or one step at a time. It also carries one unplanned harness change, e041292: the deep review's refuters probe in a scratch copy, never the checkout under review; its PR names it. | F4 F11 F12 F13 F14 F16 F17 F18 F19 F20 F21 F22 F28 F29 F31 F33 F34 F35 F36 F37 F38 F47 F48 F52 F53 F54 F57 F58 F59 F61 F69 F72 F74 F78 | in review |
 | S5 Physical | #9 | | The Physical row. Each provider step wires its own test project to the conformance suite, deletes its old TestBase class, raises its coverage floor, and updates its README, options docs and the migration ledger. | F3 F5 F17–F21 F53 F54 F74 F77 | todo |
 | S6 AzureBlob | #10 | | The AzureBlob row, with Azurite. | F3 F11 F15 F17–F21 F26 F40 F44 F53 F64 F70 F74 | todo |
 | S7 AmazonS3 and MinIO | #11 | | `S3Core`, the S3 and MinIO rows, with S3Mock. | F1 F2 F4 F10 F11 F17–F21 F24 F28 F38 F41 F45 F51 F53 F65 F73 F74 | todo |
@@ -507,7 +516,7 @@ Each step is an issue under #3, a branch `<issue>-<slug>`, and a PR that builds 
 | S9 SharePoint | #13 | | The SharePoint row, with the Graph fake; its live run is outstanding for the maintainers (D21). | F4 F6 F7 F8 F11 F13 F17–F21 F26 F39 F43 F49 F53 F62 F66 F70 F74 F77 | todo |
 | S10 Box | #14 | | The Box row, with the Box fake; its live run is outstanding for the maintainers (D21). | F4 F6 F11 F13 F17–F21 F25 F32 F53 F63 F67 F74 F77 | todo |
 | S11 AspNetCore gateway | #15 | | The new package, the URL service, endpoints, the gateway tests and defaults (D22, P13, P27); its README, migration entry and AGENTS.md entry; whether the token purpose string and URL shape are a one-way door (they are: tokens issued by one version must redeem on the next minor). | F11 | todo |
-| S12 Docs, CI, launch prep | #16 | | The root README, the migration guide's final pass, CONTRIBUTING, SECURITY, AGENTS.md and REVIEW.md, codeql, dependabot, `live.yml`, the release workflow, every floor at 90% or more, a check that no project sets `WfpLegacy`, the PublicAPI files, and a final deep `review-code` of the whole repo. | F12 F76 | todo |
+| S12 Docs, CI, launch prep | #16 | | The root README, the migration guide's final pass, CONTRIBUTING, SECURITY, AGENTS.md and REVIEW.md, codeql, dependabot, `live.yml`, the release workflow, every floor at 90% or more, a check that no project sets `WfpLegacy`, the removal of the `[Obsolete]` 2026 helpers in Common (`GetRelativeSegments`, `IsRootPath`, `NormalizePem`, which Box and GCS take over), the PublicAPI files, and a final deep `review-code` of the whole repo. | F12 F76 | todo |
 
 The provider steps S5–S10 are independent once S4 is merged. They may run in parallel agents, each in its own worktree,
 touching only their provider's folders, but they merge one at a time (P41): each rebases onto main before its PR and
@@ -556,8 +565,8 @@ Covered under Design, Docs. AGENTS.md changes in S2 (layout, commands), in S3 (t
   this file is the record, and it is updated after every step.
 - **Publishing and the advisory:** the patch and 2027.0.0 packages are published by the maintainers, not this session.
   Until then, `main` holds fixes that no released package has.
-- **The review workflow edited the working tree during the audit** (refuter probes, reverted). Mitigation: refuters in
-  this work run probes in a scratch copy. Recorded for the harness under Later.
+- **The review workflow edited the working tree during the audit** (refuter probes, reverted). Fixed in e041292,
+  which rides in S4's PR: the refuters probe in a scratch copy, never the checkout under review.
 
 ## Later
 
@@ -574,7 +583,6 @@ Covered under Design, Docs. AGENTS.md changes in S2 (layout, commands), in S3 (t
 - **A Box path-to-id cache**, for latency on deep paths (D23).
 - **Convenience extensions** such as `ReadAllBytes`, `WriteAllText` and a sync `Copy` (D23).
 - **Scanning loaded assemblies** for provider types (D23).
-- **The harness:** `review.workflow.js` should tell refuters to probe in a scratch copy, never the working tree.
 - **Package validation baselines:** set them to `2027.0.0` after it ships, and keep the PublicAPI files from then on.
 
 ## Finding tracker
@@ -587,41 +595,41 @@ Status: `todo`, `done` (with the PR), `wontfix` (with the reason). F-numbers are
 | F1 | S3 version read skips root and hides base overloads | S0, S7 | S0 done (#17); S7 removes the member |
 | F2 | S3 EnumerateObjects lists outside the root | S0, S7 | S0 done (#17); S7 removes the member |
 | F3 | Failed overwrite truncates on Physical and Azure | S5, S6 | todo |
-| F4 | Append-by-rewrite five ways; S3/GCS upload half-appended files | S4, S7, S8 | todo |
+| F4 | Append-by-rewrite five ways; S3/GCS upload half-appended files | S4, S7, S8 | S4 done (`AppendByRewriteAsync`: spools, then writes with `IfMatch` on the version read, and refuses a file without an ETag); S7, S8 move S3 and GCS onto it |
 | F5 | Physical local stream writes in place; Skip does nothing | S5 | todo |
 | F6 | Box and SharePoint rewind the caller's stream | S9, S10 | todo |
 | F7 | SharePoint strips WorkFolderPath from caller paths | S9 | todo |
 | F8 | SharePoint unbounded itemNotFound retry | S9 | todo |
 | F9 | Commented MinIO test, leaked key in ado history | S0 | done (#17); key rotation is the maintainers' |
 | F10 | MinIO plain HTTP by default | S7 | todo |
-| F11 | Download URL lifetime differs per provider | S4, S6–S11 | todo |
-| F12 | Download URL docs wrong | S4, S12 | todo |
-| F13 | Sync-over-async, no ConfigureAwait, I/O in constructors | S4, S9, S10 | todo |
-| F14 | Local stream copies with sync CopyTo | S4 | todo |
+| F11 | Download URL lifetime differs per provider | S4, S6–S11 | S4 done (validity rules, read URLs need the file); S6–S11 per provider |
+| F12 | Download URL docs wrong | S4, S12 | S4 done (interface docs); S12 READMEs |
+| F13 | Sync-over-async, no ConfigureAwait, I/O in constructors | S4, S9, S10 | S4 done (ConfigureAwait, one sync helper in Common); S8–S10 lazy init |
+| F14 | Local stream copies with sync CopyTo | S4 | done (S4): the local stream copies asynchronously |
 | F15 | AzureFileStream lacks async reads | S6 | todo |
-| F16 | No CancellationToken | S4 | todo |
-| F17 | No ranged reads | S4, S5–S10 | todo |
-| F18 | Missing-file exception differs | S4, S5–S10 | todo |
-| F19 | Move semantics differ | S4, S5–S10 | todo |
-| F20 | GetFileInfo on folders differs | S4, S5–S10 | todo |
-| F21 | PhysicalPath means different things | S4, S5–S10 | todo |
-| F22 | Naming rule vs protected camelCase members | S4 | todo |
+| F16 | No CancellationToken | S4 | done (S4): every async member takes a token |
+| F17 | No ranged reads | S4, S5–S10 | S4 done (API, base default); S5–S10 native ranges |
+| F18 | Missing-file exception differs | S4, S5–S10 | S4 done (the base turns a store's not-found into `FileNotFoundException`; conformance tests); S5–S10 per provider |
+| F19 | Move semantics differ | S4, S5–S10 | S4 done (the base checks the source and the destination; case-only renames on stores that ignore case); S5–S10 per provider |
+| F20 | GetFileInfo on folders differs | S4, S5–S10 | S4 done (the contract and its conformance tests); S5–S10 per provider. Box still reports a folder as missing; its offline test leaves that unchecked until S10 |
+| F21 | PhysicalPath means different things | S4, S5–S10 | S4 done (the contract and its conformance test); S5–S10 per provider |
+| F22 | Naming rule vs protected camelCase members | S4 | done (S4): the protected members are PascalCase `...CoreAsync` |
 | F23 | net8.0 hard-coded, no Nullable | S2 | done (#19) |
 | F24 | AWS SDK v3 end of support | S7 | todo |
 | F25 | Box.V2.Core 5.8 outdated | S10 | todo |
 | F26 | Azure.Identity unused and deprecated | S6 | todo |
 | F27 | Coverage not configured or enforced | S3, S12 | todo |
-| F28 | Download URL test passes on NotSupported | S4 (suite), S7, S8 | todo |
-| F29 | No cleanup after failed live tests | S4 (suite) | todo |
+| F28 | Download URL test passes on NotSupported | S4 (suite), S7, S8 | S4 done (suite: `NotSupportedException` is asserted exactly where the fixture says so, never swallowed); S7, S8 offline expiry tests |
+| F29 | No cleanup after failed live tests | S4 (suite) | done (S4): each conformance test works under its own root folder, deleted in `[TestCleanup]` whether it passed or failed |
 | F30 | Configuration shape not pinned | S3 | todo |
-| F31 | LocalFileStream contract untested | S4 | todo |
-| F32 | Box cannot be constructed offline | S10 | todo |
-| F33 | Move/GetDownloadUrl throw AggregateException | S4 | todo |
-| F34 | LocalFileStream leaks temp stream on failed upload | S4 | todo |
-| F35 | Additions must not break implementers | S4 (moot in a major; recorded) | todo |
-| F36 | 45-member interface | S4 | todo |
-| F37 | LocalFileStream.DisposeAsync hides Stream's | S4 | todo |
-| F38 | Move deletes a prefix if the key vanished | S7, S8 | todo |
+| F31 | LocalFileStream contract untested | S4 | done (S4): `LocalFileStreamTests` and the `LocalStream_*` conformance tests |
+| F32 | Box cannot be constructed offline | S4 (internal test constructor over the 5.8 SDK), S10 (public client constructor, lazy auth) | in part |
+| F33 | Move/GetDownloadUrl throw AggregateException | S4 | done (S4): every sync form goes through the one helper, `WriteableFileProviderExtensions.Wait` |
+| F34 | LocalFileStream leaks temp stream on failed upload | S4 | done (S4): the local stream always disposes its temp file |
+| F35 | Additions must not break implementers | S4 (moot in a major; recorded) | done (S4): moot in the major; new members ship with defaults in the base |
+| F36 | 45-member interface | S4 | done (S4): one member per operation on `ProviderPath`; the rest are extensions |
+| F37 | LocalFileStream.DisposeAsync hides Stream's | S4 | done (S4): `LocalFileStream` overrides `DisposeAsync` |
+| F38 | Move deletes a prefix if the key vanished | S4, S7, S8 | S4 done (`DeleteFileCoreAsync`, and the conformance test `Move_RemovesExactlyTheSourceKey`); S7, S8 todo |
 | F39 | SharePoint chunked upload fragile | S9 | todo |
 | F40 | Azure SAS starts now | S6 | todo |
 | F41 | S3/GCS dispose the caller's stream | S7, S8 | todo |
@@ -630,21 +638,21 @@ Status: `todo`, `done` (with the PR), `wontfix` (with the reason). F-numbers are
 | F44 | Bucket auto-create differs | S6, S7, S8 | todo |
 | F45 | MinIO download URL unsupported | S7 | todo |
 | F46 | .sln, no CPM | S2 | done (#19) |
-| F47 | Public LocalFileStream ctor bypasses root | S0, S4 | S0 done (#17); S4 makes the constructor internal |
-| F48 | JObject in the public API | S4 | todo |
+| F47 | Public LocalFileStream ctor bypasses root | S0, S4 | done: S0 (#17) checked it; S4 makes the constructor internal |
+| F48 | JObject in the public API | S4 | done (S4): System.Text.Json; no Newtonsoft in any package |
 | F49 | Graph.Core 3.2.6 deprecated pin | S9 | todo |
 | F50 | Common's Version 1.1.2 | S2 | done (#19) |
 | F51 | MinIO and S3 duplicate the protocol | S7 | todo |
-| F52 | Providers not disposable | S4 | todo |
-| F53 | Root guard written seven times | S4 | todo |
-| F54 | Seven identical Watch overrides | S4, S5 | todo |
+| F52 | Providers not disposable | S4 | done (S4) for the base; S5–S10 dispose their clients |
+| F53 | Root guard written seven times | S4 | S4 done (one resolution in the base); S5–S10 drop their own guards |
+| F54 | Seven identical Watch overrides | S4, S5 | S4 done (the seven overrides removed; the base `WatchCore` throws `NotSupportedException`); S5 Physical Watch |
 | F55 | UseLocalCommon switch | S2 | done (#19) |
 | F56 | Test-suite dead weight | S2 (runsettings, publish profile), S5–S10 (with TestBase) | in part |
-| F57 | Contract cases missing from the shared suite | S4 | todo |
-| F58 | Root and segment exceptions undocumented | S4 | todo |
-| F59 | Interface docs copy-paste | S4 | todo |
+| F57 | Contract cases missing from the shared suite | S4 | done (S4): the conformance suite |
+| F58 | Root and segment exceptions undocumented | S4 | done (S4): the interface documents them |
+| F59 | Interface docs copy-paste | S4 | done (S4): the interface docs are rewritten |
 | F60 | XML docs only for Common | S2 | done (#19) |
-| F61 | Serializer and options undocumented | S4, S12 | todo |
+| F61 | Serializer and options undocumented | S4, S12 | S4 done (serializer); S12 options docs |
 | F62 | SharePoint folder creation three ways | S9 | todo |
 | F63 | Whole-object download before read | S8, S9, S10 (S7 MinIO via S3Core) | todo |
 | F64 | AzureFileStream vs OpenReadAsync | S6 | todo |
@@ -652,33 +660,33 @@ Status: `todo`, `done` (with the PR), `wontfix` (with the reason). F-numbers are
 | F66 | SharePoint maps all errors to not-found | S9 | todo |
 | F67 | Box offset paging | S10 | todo |
 | F68 | Assertion bugs in the shared suite | S3 | todo |
-| F69 | FileInfo collides with System.IO.FileInfo | S4 | todo |
+| F69 | FileInfo collides with System.IO.FileInfo | S4 | done (S4): `WriteableFileInfo` |
 | F70 | UploadResult and AzureFileStream public | S6, S9 | todo |
 | F71 | net10-only drops .NET 8 consumers | S2 (D2) | done (#19) |
-| F72 | Unused packages | S2, S4 | S2 part done (#19); Newtonsoft goes in S4 |
+| F72 | Unused packages | S2, S4 | S2 part done (#19); S4 done (Newtonsoft removed from every project) |
 | F73 | Minio forces Extensions 9 and Reactive | S7 | todo |
-| F74 | Temp-file spool written nine times | S4 | todo |
+| F74 | Temp-file spool written nine times | S4 | S4 done (`SpoolToTempFileAsync`, `AppendByRewriteAsync`); S5–S10 use them |
 | F75 | GCS has no emulator seam | S8 | todo |
 | F76 | Package descriptions and READMEs | S12 | todo |
 | F77 | Dead code in providers | S5, S9, S10 | todo |
-| F78 | S3 `StorageClassForNewFiles` is written as `{"Value":…}` and read back as `STANDARD`, and the configuration path never reads it at all (found in S3 by the golden corpus) | S4, S7 | todo |
+| F78 | S3 `StorageClassForNewFiles` is written as `{"Value":…}` and read back as `STANDARD`, and the configuration path never reads it at all (found in S3 by the golden corpus) | S4, S7 | done (S4): both forms read, the string is written, configuration converts it |
 | F79 | On Unix, Physical's `Options.RootDirectoryPath`, and so its `ToJson` output, carries the internal `root:` marker of an absolute path instead of the path (found by S3's first Linux CI run) | S5 | todo |
 
 ## Feature tracker
 
 | Feature (roadmap) | Step | Status |
 |---|---|---|
-| P1.1 Index-based reads: ranges and seekable streams, all seven | S4, S5–S10 | todo |
-| P1.2 Signed URLs, read and write, all seven, and the gateway | S4, S6–S11 | todo |
-| P1.3 Cancellation everywhere | S4 | todo |
+| P1.1 Index-based reads: ranges and seekable streams, all seven | S4, S5–S10 | S4 done (API, defaults, conformance); S5–S10 native |
+| P1.2 Signed URLs, read and write, all seven, and the gateway | S4, S6–S11 | S4 done (API, validity rules); S6–S11 |
+| P1.3 Cancellation everywhere | S4 | done (S4) |
 | P1.4 Dependencies current | S2, S6–S10 | todo |
 | P2.5 Streaming writes without temp-file round trips where the SDK can | S5–S8 | todo |
-| P2.6 ETags and conditional writes | S4, S5–S10 | todo |
-| P2.7 Content type on write and read | S4, S5–S10 | todo |
-| P2.8 Async listing, recursive | S4, S5–S10 | todo |
-| P2.9 Dependency injection | S4, S11 | todo |
+| P2.6 ETags and conditional writes | S4, S5–S10 | S4 done (API, non-atomic default); S5–S10 native |
+| P2.7 Content type on write and read | S4, S5–S10 | S4 done (API, hint); S5–S10 |
+| P2.8 Async listing, recursive | S4, S5–S10 | S4 done (API, default walk); S5–S10 |
+| P2.9 Dependency injection | S4, S11 | S4 done (registration); S11 gateway |
 | P2.10 More credential options | S6, S7, S8 | todo |
-| P2.11 Server-side copy, GCS native move | S4, S5–S10 | todo |
+| P2.11 Server-side copy, GCS native move | S4, S5–S10 | S4 done (API, default); S5–S10 native |
 | P2.12 Physical Watch | S5 | todo |
 
 ## Progress log
@@ -719,6 +727,78 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     - The coverage floors are re-baselined from the first green CI run (run 38089480611) and a Windows run: Common
       82/80, Physical 92/80, Minio 92/70, AzureBlob 78/64, GCS 24/14, SharePoint 20/15, AmazonS3 16/14, Box 8/0
       (lines/branches).
+
+- **2026-10-11, S4 (#8):** Common 2027, built in a forked session on branch `8-common-2027`.
+  - **Common:**
+    - The API of the plan's sketch, the contract, the System.Text.Json serializer, DI.
+    - Builds strict (nullable, warnings as errors, code style).
+    - 96% of lines and 92% of branches, from `WriteableFileProviders.Common.Tests`.
+  - **Tests:**
+    - `WriteableFileProviders.Testing` holds `ProviderConformanceTests`, one test per contract rule, which passes
+      against `InMemoryFileProvider`, and covers every case D20–D24 asked for.
+    - The golden corpus reads identically (`Config.*` through `FromConfiguration` too), and F78 is fixed on both paths.
+  - **Deviations from the sketch, each forced by an analyzer:** `SignedUrlPermission` became `SignedUrlAccess`
+    (CA1711), and `SignedUrlKind.Signed` became `Presigned` (CA1720). CA1716 is suppressed on the two members whose
+    public `readOnly` parameter predates it (`GlobalSuppressions.cs` in Common), nowhere else.
+  - **ProviderPath** is built through its constructor, `Parse` and the implicit conversions. `FromString` and
+    `FromSegments` were dropped in review: CA2225 is not on, so no analyzer asks for named alternates.
+  - **Hooks added beyond the sketch:**
+    - `FolderExistsCoreAsync`: an empty listing asks whether the folder exists, so Physical keeps empty folders.
+    - `DeleteFileCoreAsync`: move deletes exactly one key.
+    - `SupportsAtomicPreconditions`: the base checks `IfMatch` and `IfNotExists` non-atomically unless the provider
+      does.
+    - `IsCaseInsensitive`, `IsNotFound`, `MaxSignedUrlValidity`, `SupportsSignedUrl`.
+    - `SupportsSignedUrlContentHeaders`: a signed URL request with `DownloadFileName` or `ContentType` throws
+      `NotSupportedException` unless the provider honours them (each provider turns it on in its step).
+  - **Providers:** moved by renames only. The base's contract now applies to them:
+    - a missing or folder source, or an existing destination, on move and copy;
+    - the root is a folder;
+    - read-only local streams of missing files;
+    - signed URL validity.
+
+    Physical's local stream is now the base's temp copy: its in-place override needed `LocalFileStream`'s public
+    constructor, which is gone.
+  - **Old tests changed for the new contract:**
+    - `LocalFileStreamCommitTests` is deleted; a hand-built stream no longer exists. `Common.Tests` covers the commit.
+    - `AmazonS3PathTests`: `ParamName` is `path`.
+    - `SegmentValidationTests`: the root is a folder; the `(bool, string)` local stream shim parses the path.
+    - `AzureBlobProviderTests`: the root lists as existing; a read URL needs the file; the SAS checks go through a
+      probe.
+    - `MinioProviderTests`: the root lists as existing.
+    - `SharePointPathTests`: moving the work folder is refused as a folder source.
+  - **Coverage floors:** raised to the measured figures, lines/branches: Common 95/90, Physical 98/86, AzureBlob
+    80/65, Minio 93/70, AmazonS3 23/13, GCS 27/14, SharePoint 20/15, Box 72/61. Box's floor comes from
+    `BoxOfflineTests`: an internal constructor takes a ready `BoxClient`, built over a fake `IRequestHandler` that
+    answers the Box API from memory (the start of S10's fake).
+  - **Review round 1** (`.local/review/8/r1/report.md`), all 26 findings fixed:
+    - Box: the offline tests above instead of a lowered floor (R1-F1).
+    - Signed URLs: the content-header hook (F2); the in-memory provider honours both options, and a fixed-lifetime
+      fixture checks D18 (F7); GCS without a signer throws `NotSupportedException` before signing (F10).
+    - Case-only renames: Physical (Windows, macOS), Box and SharePoint set `IsCaseInsensitive`, which restores the 2026
+      rename (F3); the default `MoveCoreAsync` renames through a temporary name (F12); a case-insensitive in-memory
+      fixture and a Physical test pin it (F4).
+    - `RangeReadStream` never serves a buffer a failed fetch half wrote (F5).
+    - Conformance: a move removes exactly the source key (F6); a read-only local stream of a folder throws
+      `FileNotFoundException` (F21).
+    - A file without an ETag refuses a pinned seekable read and an append by rewrite (F13, F14).
+    - A built-in provider type resolves in a fresh `AssemblyLoadContext` (F8); `ResolveProviderType` is internal (F17).
+    - Every sync site uses the one helper (F9). The temp file of a failed commit is checked deleted (F20).
+    - Docs: the migration ledger (F15, F16, F24), the tracker and this row (F23), the GCS cref (F26), the test packages'
+      group (F25), the harness commit (F11). The 2026 path helpers are `[Obsolete]`, removed in S12 (F18).
+    - Each new test was checked to fail with its fix reverted.
+  - **Verified by:**
+    - Physical, MinIO (S3Mock) and Azure (Azurite) ran their suites with `WFP_REQUIRE_DOCKER=1`.
+    - AmazonS3, GCS, Box and SharePoint are not verified until S7, S8, S9 and S10: their suites need an endpoint or
+      an account. Only their offline tests ran.
+
+- **2026-10-11, S4 review:**
+  - Deep review round 1 of #23: 1 blocker, 5 majors, 18 minors, 2 nits, all fixed (f9aa55f, 0e2299b, 355b4ef).
+  - Round 2 verified them and found three minors (a failed case-only rename could hide the file, the move docs, and
+    the S10 handoff notes), fixed in the next commit.
+  - Carried to later steps: a test that GCS without a signer throws `NotSupportedException` lands with S8's seam
+    (round-1 F10). `BoxOfflineTests` asserts today's Box URL behaviour, which S10 replaces with D18's.
+  - Main-session decisions for S5–S10 are in `.local/briefs/decisions-s5-s10.md`; each step records the ones it
+    applies.
 
 ### For the maintainers
 

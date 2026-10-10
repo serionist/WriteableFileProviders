@@ -1,12 +1,13 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Runtime.CompilerServices;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.FileProviders;
-using Microsoft.Extensions.Primitives;
 using Minio;
 using Minio.DataModel.Args;
 using Minio.Exceptions;
@@ -15,6 +16,30 @@ namespace WriteableFileProviders.Minio
 {
     public class WriteableMinioFileProvider: WriteableFileProvider<MinioFileProviderOptions>
     {
+
+        private WriteableFileInfo legacyInfo(bool exists, long length, string physicalPath, string name, DateTimeOffset lastModified, bool isDirectory, string[] relativeSegments) =>
+            new WriteableFileInfo(this, new ProviderPath(relativeSegments), exists, isDirectory, length, lastModified, physicalPath);
+
+        protected override Task<IWriteableFileInfo> GetFileInfoCoreAsync(ResolvedPath resolved, CancellationToken cancellationToken) =>
+            getFileInfoAsync(resolved.AbsoluteSegments);
+
+        protected override async IAsyncEnumerable<IWriteableFileInfo> EnumerateCoreAsync(ResolvedPath resolved, [EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            foreach (var entry in await getDirectoryContentsAsync(resolved.AbsoluteSegments))
+                yield return (IWriteableFileInfo)entry;
+        }
+
+        protected override Task<Stream> ReadFileCoreAsync(ResolvedPath resolved, CancellationToken cancellationToken) =>
+            readFileAsync(resolved.AbsoluteSegments);
+
+        protected override Task UpdateFileCoreAsync(ResolvedPath resolved, Stream contents, UpdateFileOptions options, CancellationToken cancellationToken) =>
+            updateFileAsync(contents, options.Mode, resolved.AbsoluteSegments);
+
+        protected override Task MoveCoreAsync(ResolvedPath source, ResolvedPath destination, CancellationToken cancellationToken) =>
+            move(source.AbsoluteSegments, destination.AbsoluteSegments);
+
+        protected override Task<bool> DeleteCoreAsync(ResolvedPath resolved, CancellationToken cancellationToken) =>
+            deleteAsync(resolved.AbsoluteSegments);
         private const int DeleteBatchSize = 1000;
         private const string RootModificationMessage = "The provider root cannot be deleted or modified.";
         // Shared by all instances. Attached after Build(), which changes the client's timeout and headers.
@@ -34,7 +59,7 @@ namespace WriteableFileProviders.Minio
             Client = client.WithHttpClient(SharedHttpClient);
         }
 
-        protected override async Task<IFileInfo> getFileInfoAsync(params string[] absolutePathSegments)
+        private async Task<IWriteableFileInfo> getFileInfoAsync(params string[] absolutePathSegments)
         {
             if (isRoot(absolutePathSegments))
                 return notFound(absolutePathSegments);
@@ -42,8 +67,8 @@ namespace WriteableFileProviders.Minio
             try
             {
                 var stat = await Client.StatObjectAsync(new StatObjectArgs().WithBucket(Options.BucketName).WithObject(key));
-                return new FileInfo(this, true, stat.Size, key, fileName(key), stat.LastModified, false,
-                    getRelativeSegments(absolutePathSegments));
+                return legacyInfo(true, stat.Size, key, fileName(key), stat.LastModified, false,
+                    GetRelativeSegments(absolutePathSegments));
             }
             catch (ObjectNotFoundException)
             {
@@ -54,12 +79,12 @@ namespace WriteableFileProviders.Minio
             }
 
             await foreach (var _ in Client.ListObjectsEnumAsync(listArgs(dirPath(absolutePathSegments), false)))
-                return new FileInfo(this, true, -1, key, fileName(key), DefaultDateTime, true,
-                    getRelativeSegments(absolutePathSegments));
+                return legacyInfo(true, -1, key, fileName(key), DefaultDateTime, true,
+                    GetRelativeSegments(absolutePathSegments));
             return notFound(absolutePathSegments);
         }
 
-        protected override async Task<IDirectoryContents> getDirectoryContentsAsync(params string[] absolutePathSegments)
+        private async Task<IDirectoryContents> getDirectoryContentsAsync(params string[] absolutePathSegments)
         {
             var prefix = dirPath(absolutePathSegments);
             var exists = false;
@@ -76,10 +101,10 @@ namespace WriteableFileProviders.Minio
                     var name = key.Substring(prefix.Length).TrimEnd('/');
                     if (name.Length == 0 || name.Contains('/'))
                         continue;
-                    var segments = getRelativeSegments(absolutePathSegments.Concat(new[] { name }).ToArray());
+                    var segments = GetRelativeSegments(absolutePathSegments.Concat(new[] { name }).ToArray());
                     res.Add(item.IsDir
-                        ? new FileInfo(this, true, -1, prefix + name, name, DefaultDateTime, true, segments)
-                        : new FileInfo(this, true, (long) item.Size, key, name,
+                        ? legacyInfo(true, -1, prefix + name, name, DefaultDateTime, true, segments)
+                        : legacyInfo(true, (long) item.Size, key, name,
                             item.LastModifiedDateTime ?? DefaultDateTime, false, segments));
                 }
             }
@@ -94,12 +119,8 @@ namespace WriteableFileProviders.Minio
             return new DirectoryContents(exists, res.ToArray());
         }
 
-        protected override async Task<IChangeToken> watchAsync(string filter)
-        {
-            throw new PlatformNotSupportedException("Watch is not supported in WriteableMinioFileProvider");
-        }
 
-        protected override async Task<Stream> readFileAsync(params string[] absolutePathSegments)
+        private async Task<Stream> readFileAsync(params string[] absolutePathSegments)
         {
             var tmp = new FileStream(Path.GetTempFileName(), FileMode.Open, FileAccess.ReadWrite, FileShare.None, 4096,
                 FileOptions.DeleteOnClose);
@@ -118,7 +139,7 @@ namespace WriteableFileProviders.Minio
             }
         }
 
-        protected override async Task updateFileAsync(Stream contents, UpdateFileMode mode, params string[] absolutePathSegments)
+        private async Task updateFileAsync(Stream contents, UpdateFileMode mode, params string[] absolutePathSegments)
         {
             ensureNotRoot(absolutePathSegments);
             await ensureBucketAsync();
@@ -141,7 +162,7 @@ namespace WriteableFileProviders.Minio
                 .WithObjectSize(tmp.Length)
                 .WithContentType("application/octet-stream"));
         }
-        protected override async Task move(string[] oldSegments, string[] newSegments)
+        private async Task move(string[] oldSegments, string[] newSegments)
         {
             ensureNotRoot(oldSegments);
             ensureNotRoot(newSegments);
@@ -151,7 +172,7 @@ namespace WriteableFileProviders.Minio
             await Client.RemoveObjectAsync(new RemoveObjectArgs().WithBucket(Options.BucketName).WithObject(path(oldSegments)));
         }
 
-        protected override async Task<bool> deleteAsync(params string[] absolutePathSegments)
+        private async Task<bool> deleteAsync(params string[] absolutePathSegments)
         {
             ensureNotRoot(absolutePathSegments);
             var info = await getFileInfoAsync(absolutePathSegments);
@@ -197,15 +218,15 @@ namespace WriteableFileProviders.Minio
             return new ListObjectsArgs().WithBucket(Options.BucketName).WithPrefix(prefix).WithRecursive(recursive);
         }
 
-        private IFileInfo notFound(string[] absolutePathSegments)
+        private WriteableFileInfo notFound(string[] absolutePathSegments)
         {
-            return new FileInfo(this, false, -1, path(absolutePathSegments), fileName(path(absolutePathSegments)),
-                DefaultDateTime, false, getRelativeSegments(absolutePathSegments));
+            return legacyInfo(false, -1, path(absolutePathSegments), fileName(path(absolutePathSegments)),
+                DefaultDateTime, false, GetRelativeSegments(absolutePathSegments));
         }
 
         private bool isRoot(string[] absolutePathSegments)
         {
-            return getRelativeSegments(absolutePathSegments ?? new string[0]).Length == 0;
+            return GetRelativeSegments(absolutePathSegments ?? new string[0]).Length == 0;
         }
 
         private void ensureNotRoot(string[] absolutePathSegments)
@@ -254,9 +275,5 @@ namespace WriteableFileProviders.Minio
             bucketReady = true;
         }
 
-        protected override Task<string> getDownloadUrl(string[] absolutePathSegments, TimeSpan validity)
-        {
-            throw new NotSupportedException();
-        }
     }
 }

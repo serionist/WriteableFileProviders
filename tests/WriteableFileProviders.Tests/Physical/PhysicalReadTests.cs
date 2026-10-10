@@ -17,11 +17,38 @@ namespace WriteableFileProviders.Tests.Physical
         private class TestProvider : WriteablePhysicalFileProvider
         {
             public TestProvider(string rootPath) : base(rootPath) { }
+            private ResolvedPath Raw(string[] absolute) => new ResolvedPath(Options.RootDirectorySegments, GetRelativeSegments(absolute));
             public string[] Absolute(params string[] relative) => Options.RootDirectorySegments.Concat(relative).ToArray();
-            public Task<Stream> ReadAbsoluteAsync(params string[] absolute) => readFileAsync(absolute);
-            public Task<bool> DeleteAbsoluteAsync(params string[] absolute) => deleteAsync(absolute);
-            public Task UpdateAbsoluteAsync(Stream contents, params string[] absolute) => updateFileAsync(contents, UpdateFileMode.Overwrite, absolute);
-            public Task<IDirectoryContents> ListAbsoluteAsync(params string[] absolute) => getDirectoryContentsAsync(absolute);
+            public Task<Stream> ReadAbsoluteAsync(params string[] absolute) => ReadFileCoreAsync(Raw(absolute), default);
+            public Task<bool> DeleteAbsoluteAsync(params string[] absolute) => DeleteCoreAsync(Raw(absolute), default);
+            public Task UpdateAbsoluteAsync(Stream contents, params string[] absolute) => UpdateFileCoreAsync(Raw(absolute), contents, UpdateFileOptions.Overwrite, default);
+            public async Task<IDirectoryContents> ListAbsoluteAsync(params string[] absolute)
+            {
+                var entries = new System.Collections.Generic.List<Microsoft.Extensions.FileProviders.IFileInfo>();
+                await foreach (var entry in EnumerateCoreAsync(Raw(absolute), default))
+                    entries.Add(entry);
+                return new DirectoryContents(entries.Count > 0, entries);
+            }
+        }
+
+        [TestMethod]
+        public void Options_RootForms()
+        {
+            Assert.ThrowsExactly<ArgumentException>(() => new WriteablePhysicalFileProvider(""));
+            Assert.AreEqual(0, new PhysicalFileProviderOptions { RootDirectoryPath = "" }.RootDirectorySegments.Length);
+            Assert.AreEqual(0, new PhysicalFileProviderOptions { RootDirectoryPath = null }.RootDirectorySegments.Length);
+            CollectionAssert.AreEqual(new[] { "\\", "server", "share", "x" }, new PhysicalFileProviderOptions { RootDirectoryPath = @"\\server\share\x" }.RootDirectorySegments);
+            CollectionAssert.AreEqual(new[] { "root:", "abs", "path" }, new PhysicalFileProviderOptions { RootDirectoryPath = "/abs/path" }.RootDirectorySegments);
+
+            var relative = new WriteablePhysicalFileProvider("relative-root");
+            Assert.IsTrue(Path.IsPathRooted(relative.Options.RootDirectoryPath.Replace("root:", "")));
+        }
+
+        [TestMethod]
+        public async Task MissingFolder_ListsAsMissing()
+        {
+            Assert.IsFalse((await provider.GetDirectoryContentsAsync("missing")).Exists);
+            Assert.AreEqual(0, (await provider.ListAbsoluteAsync(provider.Absolute("missing"))).Count());
         }
 
         [TestInitialize]
@@ -124,6 +151,17 @@ namespace WriteableFileProviders.Tests.Physical
             Assert.IsFalse(File.Exists(Path.Combine(Path.GetDirectoryName(root), "escaped.txt")));
             await Assert.ThrowsExactlyAsync<ArgumentException>(() => provider.ReadFileAsync("..", "outside.txt"));
             await Assert.ThrowsExactlyAsync<ArgumentException>(() => provider.ReadFileAsync("c:", "outside.txt"));
+        }
+
+        [TestMethod]
+        public async Task CaseOnlyRename_Renames()
+        {
+            // On Windows and macOS the destination "exists" because it is the source; on every system the move renames.
+            await provider.UpdateFileAsync("a.txt", Content());
+            await provider.MoveAsync("a.txt", "A.txt");
+            CollectionAssert.AreEqual(new[] { "A.txt" }, Directory.GetFiles(root).Select(Path.GetFileName).ToArray());
+            using (var s = await provider.ReadFileAsync("A.txt"))
+                Assert.AreEqual(2, s.Length);
         }
 
         [TestMethod]

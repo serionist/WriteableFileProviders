@@ -7,3 +7,7 @@ dotnet_diagnostic.CA1707.severity = none
 dotnet_diagnostic.CA2007.severity = none
 # [GeneratedRegex] is a startup win in a library; in a test it is ceremony for one-shot assertions.
 dotnet_diagnostic.SYSLIB1045.severity = none
+# Expected values written inline as array literals read best in assertions; a test runs them once.
+dotnet_diagnostic.CA1861.severity = none
+# A test class owns its fixture and disposes it in [TestCleanup]; it is not IDisposable itself.
+dotnet_diagnostic.CA1001.severity = none

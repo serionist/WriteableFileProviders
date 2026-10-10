@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <Content Include="Serialization/Golden/*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Configuration" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WriteableFileProviders.Testing\WriteableFileProviders.Testing.csproj" />
+    <!-- The configuration-shape tests read every provider's options. -->
+    <ProjectReference Include="..\..\src\WriteableFileProviders.AmazonS3\WriteableFileProviders.AmazonS3.csproj" />
+    <ProjectReference Include="..\..\src\WriteableFileProviders.AzureBlob\WriteableFileProviders.AzureBlob.csproj" />
+    <ProjectReference Include="..\..\src\WriteableFileProviders.Box\WriteableFileProviders.Box.csproj" />
+    <ProjectReference Include="..\..\src\WriteableFileProviders.GoogleCloudStorage\WriteableFileProviders.GoogleCloudStorage.csproj" />
+    <ProjectReference Include="..\..\src\WriteableFileProviders.Minio\WriteableFileProviders.Minio.csproj" />
+    <ProjectReference Include="..\..\src\WriteableFileProviders.Physical\WriteableFileProviders.Physical.csproj" />
+    <ProjectReference Include="..\..\src\WriteableFileProviders.SharePoint\WriteableFileProviders.SharePoint.csproj" />
+  </ItemGroup>
+
+</Project>

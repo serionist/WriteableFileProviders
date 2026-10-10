@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The conformance suite every provider's tests run, and the in-memory reference provider that passes it. -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\WriteableFileProviders.Common\WriteableFileProviders.Common.csproj" />
+  </ItemGroup>
+
+</Project>

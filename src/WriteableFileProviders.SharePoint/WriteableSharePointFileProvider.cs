@@ -1,6 +1,5 @@
-﻿using Azure.Identity;
+using Azure.Identity;
 using Microsoft.Extensions.FileProviders;
-using Microsoft.Extensions.Primitives;
 using Microsoft.Graph;
 using Microsoft.Graph.Drives.Item.Items.Item.CreateUploadSession;
 using Microsoft.Graph.Models;
@@ -11,12 +10,46 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Runtime.CompilerServices;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace WriteableFileProviders.SharePoint
 {
     public class WriteableSharePointFileProvider : WriteableFileProvider<SharePointFileProviderOptions>
     {
+
+        private WriteableFileInfo legacyInfo(bool exists, long length, string physicalPath, string name, DateTimeOffset lastModified, bool isDirectory, string[] relativeSegments) =>
+            new WriteableFileInfo(this, new ProviderPath(relativeSegments), exists, isDirectory, length, lastModified, physicalPath);
+
+        protected override Task<IWriteableFileInfo> GetFileInfoCoreAsync(ResolvedPath resolved, CancellationToken cancellationToken) =>
+            getFileInfoAsync(resolved.AbsoluteSegments);
+
+        protected override async IAsyncEnumerable<IWriteableFileInfo> EnumerateCoreAsync(ResolvedPath resolved, [EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            foreach (var entry in await getDirectoryContentsAsync(resolved.AbsoluteSegments))
+                yield return (IWriteableFileInfo)entry;
+        }
+
+        protected override Task<Stream> ReadFileCoreAsync(ResolvedPath resolved, CancellationToken cancellationToken) =>
+            readFileAsync(resolved.AbsoluteSegments);
+
+        protected override Task UpdateFileCoreAsync(ResolvedPath resolved, Stream contents, UpdateFileOptions options, CancellationToken cancellationToken) =>
+            updateFileAsync(contents, options.Mode, resolved.AbsoluteSegments);
+
+        protected override Task MoveCoreAsync(ResolvedPath source, ResolvedPath destination, CancellationToken cancellationToken) =>
+            move(source.AbsoluteSegments, destination.AbsoluteSegments);
+
+        protected override Task<bool> DeleteCoreAsync(ResolvedPath resolved, CancellationToken cancellationToken) =>
+            deleteAsync(resolved.AbsoluteSegments);
+
+        // SharePoint matches names without regard to case: a folder cannot hold "a.txt" and "A.txt".
+        protected override bool IsCaseInsensitive => true;
+
+        protected override bool SupportsSignedUrl(SignedUrlAccess permission) => permission == SignedUrlAccess.Read;
+
+        protected override async Task<SignedUrl> GetSignedUrlCoreAsync(ResolvedPath resolved, SignedUrlOptions options, CancellationToken cancellationToken) =>
+            new SignedUrl { Url = new Uri(await getDownloadUrl(resolved.AbsoluteSegments, options.Validity)), ExpiresOn = null, Kind = SignedUrlKind.PreAuthenticated };
         private readonly DateTime DefaultDateTime = new DateTime(1970, 1, 1, 0, 0, 0);
         private const long ChunkSize = 320 * 1024 * 10; // 3.2MB chunks (recommended by Microsoft)
         private const long SmallFileThreshold = 20 * 1024 * 1024; // 20MB - simple upload for smaller files
@@ -47,9 +80,9 @@ namespace WriteableFileProviders.SharePoint
             WorkFolderId = workFolderId;
         }
 
-        protected override bool isSegmentAllowed(string part)
+        protected override bool IsSegmentAllowed(string part)
         {
-            return base.isSegmentAllowed(part) && part.IndexOf(':') < 0;
+            return base.IsSegmentAllowed(part) && part.IndexOf(':') < 0;
         }
 
         private GraphServiceClient createGraphClient()
@@ -285,7 +318,7 @@ namespace WriteableFileProviders.SharePoint
             return items;
         }
 
-        protected override async Task<IFileInfo> getFileInfoAsync(params string[] absolutePathSegments)
+        private async Task<IWriteableFileInfo> getFileInfoAsync(params string[] absolutePathSegments)
         {
             try
             {
@@ -297,30 +330,28 @@ namespace WriteableFileProviders.SharePoint
                 else
                     item = await getParentItemBuilder().ItemWithPath(relativePath).GetAsync();
 
-                return new FileInfo(
-                    this,
+                return legacyInfo(
                     true,
                     item.Size ?? 0,
                     getPath(absolutePathSegments),
                     absolutePathSegments.LastOrDefault() ?? "",
                     item.LastModifiedDateTime ?? DefaultDateTime,
                     item.Folder != null,
-                    getRelativeSegments(absolutePathSegments)
+                    GetRelativeSegments(absolutePathSegments)
                 );
             }
             catch (ODataError ex)
             {
                 if (ex.Error?.Code == "itemNotFound")
                 {
-                    return new FileInfo(
-                        this,
+                    return legacyInfo(
                         false,
                         0,
                         getPath(absolutePathSegments),
                         absolutePathSegments.LastOrDefault() ?? "",
                         DefaultDateTime,
                         false,
-                        getRelativeSegments(absolutePathSegments)
+                        GetRelativeSegments(absolutePathSegments)
                     );
                 }
                 throw new FileNotFoundException($"SharePoint error retrieving file info for {getPath(absolutePathSegments)}: {ex.Message}", ex);
@@ -331,43 +362,41 @@ namespace WriteableFileProviders.SharePoint
             }
         }
 
-        protected override async Task<IDirectoryContents> getDirectoryContentsAsync(params string[] absolutePathSegments)
+        private async Task<IDirectoryContents> getDirectoryContentsAsync(params string[] absolutePathSegments)
         {
             var e = await enumerateFiles(absolutePathSegments, false);
             var ret = new List<IFileInfo>();
 
             foreach (var file in e.files)
             {
-                ret.Add(new FileInfo(
-                    this,
+                ret.Add(legacyInfo(
                     true,
                     file.Size ?? 0,
                     file.Name,
                     file.Name,
                     file.LastModifiedDateTime ?? DefaultDateTime,
                     false,
-                    getRelativeSegments(absolutePathSegments.Concat(new[] { file.Name }).ToArray())
+                    GetRelativeSegments(absolutePathSegments.Concat(new[] { file.Name }).ToArray())
                 ));
             }
 
             foreach (var dir in e.directories)
             {
-                ret.Add(new FileInfo(
-                    this,
+                ret.Add(legacyInfo(
                     true,
                     -1,
                     dir.Name,
                     dir.Name,
                     dir.LastModifiedDateTime ?? DefaultDateTime,
                     true,
-                    getRelativeSegments(absolutePathSegments.Concat(new[] { dir.Name }).ToArray())
+                    GetRelativeSegments(absolutePathSegments.Concat(new[] { dir.Name }).ToArray())
                 ));
             }
 
             return new DirectoryContents(ret.Any(), ret.ToArray());
         }
 
-        protected override async Task<Stream> readFileAsync(params string[] absolutePathSegments)
+        private async Task<Stream> readFileAsync(params string[] absolutePathSegments)
         {
             try
             {
@@ -533,7 +562,7 @@ namespace WriteableFileProviders.SharePoint
             }
         }
 
-        protected override async Task updateFileAsync(Stream contents, UpdateFileMode mode, params string[] absolutePathSegments)
+        private async Task updateFileAsync(Stream contents, UpdateFileMode mode, params string[] absolutePathSegments)
         {
             refuseProviderRoot(absolutePathSegments);
             var ownsBufferedStream = false;
@@ -759,7 +788,7 @@ namespace WriteableFileProviders.SharePoint
             }
         }
 
-        protected override async Task<bool> deleteAsync(params string[] absolutePathSegments)
+        private async Task<bool> deleteAsync(params string[] absolutePathSegments)
         {
             refuseProviderRoot(absolutePathSegments);
             try
@@ -778,7 +807,7 @@ namespace WriteableFileProviders.SharePoint
             }
         }
 
-        protected override async Task move(string[] oldSegments, string[] newSegments)
+        private async Task move(string[] oldSegments, string[] newSegments)
         {
             try
             {
@@ -851,7 +880,7 @@ namespace WriteableFileProviders.SharePoint
             }
         }
 
-        protected override async Task<string> getDownloadUrl(string[] absolutePathSegments, TimeSpan validity)
+        private async Task<string> getDownloadUrl(string[] absolutePathSegments, TimeSpan validity)
         {
             try
             {
@@ -871,10 +900,6 @@ namespace WriteableFileProviders.SharePoint
             }
         }
 
-        protected override Task<IChangeToken> watchAsync(string filter)
-        {
-            throw new PlatformNotSupportedException("Watch is not supported in WriteableSharePointFileProvider");
-        }
     }
 
     public class UploadResult<T>

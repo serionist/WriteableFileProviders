@@ -4,12 +4,13 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Runtime.CompilerServices;
+using System.Threading;
 using System.Threading.Tasks;
 using Google;
 using Google.Apis.Auth.OAuth2;
 using Google.Cloud.Storage.V1;
 using Microsoft.Extensions.FileProviders;
-using Microsoft.Extensions.Primitives;
 
 namespace WriteableFileProviders.GoogleCloudStorage
 {
@@ -22,6 +23,36 @@ namespace WriteableFileProviders.GoogleCloudStorage
     /// </summary>
     public class WriteableGoogleCloudStorageFileProvider : WriteableFileProvider<GoogleCloudStorageFileProviderOptions>
     {
+
+        private WriteableFileInfo legacyInfo(bool exists, long length, string physicalPath, string name, DateTimeOffset lastModified, bool isDirectory, string[] relativeSegments) =>
+            new WriteableFileInfo(this, new ProviderPath(relativeSegments), exists, isDirectory, length, lastModified, physicalPath);
+
+        protected override Task<IWriteableFileInfo> GetFileInfoCoreAsync(ResolvedPath resolved, CancellationToken cancellationToken) =>
+            getFileInfoAsync(resolved.AbsoluteSegments);
+
+        protected override async IAsyncEnumerable<IWriteableFileInfo> EnumerateCoreAsync(ResolvedPath resolved, [EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            foreach (var entry in await getDirectoryContentsAsync(resolved.AbsoluteSegments))
+                yield return (IWriteableFileInfo)entry;
+        }
+
+        protected override Task<Stream> ReadFileCoreAsync(ResolvedPath resolved, CancellationToken cancellationToken) =>
+            readFileAsync(resolved.AbsoluteSegments);
+
+        protected override Task UpdateFileCoreAsync(ResolvedPath resolved, Stream contents, UpdateFileOptions options, CancellationToken cancellationToken) =>
+            updateFileAsync(contents, options.Mode, resolved.AbsoluteSegments);
+
+        protected override Task MoveCoreAsync(ResolvedPath source, ResolvedPath destination, CancellationToken cancellationToken) =>
+            move(source.AbsoluteSegments, destination.AbsoluteSegments);
+
+        protected override Task<bool> DeleteCoreAsync(ResolvedPath resolved, CancellationToken cancellationToken) =>
+            deleteAsync(resolved.AbsoluteSegments);
+
+        // Only a credential that can sign issues URLs; without one the base class throws NotSupportedException.
+        protected override bool SupportsSignedUrl(SignedUrlAccess permission) => permission == SignedUrlAccess.Read && UrlSigner != null;
+
+        protected override async Task<SignedUrl> GetSignedUrlCoreAsync(ResolvedPath resolved, SignedUrlOptions options, CancellationToken cancellationToken) =>
+            new SignedUrl { Url = new Uri(await getDownloadUrl(resolved.AbsoluteSegments, options.Validity)), ExpiresOn = DateTimeOffset.UtcNow.Add(options.Validity), Kind = SignedUrlKind.Presigned };
         private const string DefaultContentType = "application/octet-stream";
         private const int DeletePageSize = 1000;
         private const int DeleteParallelism = 8;
@@ -69,28 +100,28 @@ namespace WriteableFileProviders.GoogleCloudStorage
             return GoogleCredential.GetApplicationDefault();
         }
 
-        internal static string NormalizePem(string pem) => normalizePem(pem);
+        internal static new string NormalizePem(string pem) => WriteableFileProvider<GoogleCloudStorageFileProviderOptions>.NormalizePem(pem);
 
-        protected override async Task<IFileInfo> getFileInfoAsync(params string[] absolutePathSegments)
+        private async Task<IWriteableFileInfo> getFileInfoAsync(params string[] absolutePathSegments)
         {
             var key = getPath(absolutePathSegments);
             if (absolutePathSegments.Length == 0)
-                return new FileInfo(this, false, -1, key, "", DefaultDateTime, false,
-                    getRelativeSegments(absolutePathSegments));
+                return legacyInfo(false, -1, key, "", DefaultDateTime, false,
+                    GetRelativeSegments(absolutePathSegments));
             try
             {
                 var obj = await Client.GetObjectAsync(Options.BucketName, key);
-                return new FileInfo(this, true, (long)(obj.Size ?? 0), key, getFileName(key),
-                    obj.UpdatedDateTimeOffset ?? DefaultDateTime, false, getRelativeSegments(absolutePathSegments));
+                return legacyInfo(true, (long)(obj.Size ?? 0), key, getFileName(key),
+                    obj.UpdatedDateTimeOffset ?? DefaultDateTime, false, GetRelativeSegments(absolutePathSegments));
             }
             catch (GoogleApiException ex) when (ex.HttpStatusCode == HttpStatusCode.NotFound)
             {
-                return new FileInfo(this, false, -1, key, getFileName(key), DefaultDateTime, false,
-                    getRelativeSegments(absolutePathSegments));
+                return legacyInfo(false, -1, key, getFileName(key), DefaultDateTime, false,
+                    GetRelativeSegments(absolutePathSegments));
             }
         }
 
-        protected override async Task<IDirectoryContents> getDirectoryContentsAsync(params string[] absolutePathSegments)
+        private async Task<IDirectoryContents> getDirectoryContentsAsync(params string[] absolutePathSegments)
         {
             var prefix = getDirPrefix(absolutePathSegments);
             var ret = new List<IFileInfo>();
@@ -104,28 +135,24 @@ namespace WriteableFileProviders.GoogleCloudStorage
                         if (obj.Name == prefix) continue;
                         var name = getFileName(obj.Name);
                         if (string.IsNullOrEmpty(name)) continue;
-                        ret.Add(new FileInfo(this, true, (long)(obj.Size ?? 0), obj.Name, name,
+                        ret.Add(legacyInfo(true, (long)(obj.Size ?? 0), obj.Name, name,
                             obj.UpdatedDateTimeOffset ?? DefaultDateTime, false,
-                            getRelativeSegments(absolutePathSegments.Concat(new[] { name }).ToArray())));
+                            GetRelativeSegments(absolutePathSegments.Concat(new[] { name }).ToArray())));
                     }
                 if (page.Prefixes != null)
                     foreach (var dir in page.Prefixes)
                     {
                         var name = getFileName(dir);
                         if (string.IsNullOrEmpty(name)) continue;
-                        ret.Add(new FileInfo(this, true, -1, dir.TrimEnd('/'), name, DefaultDateTime, true,
-                            getRelativeSegments(absolutePathSegments.Concat(new[] { name }).ToArray())));
+                        ret.Add(legacyInfo(true, -1, dir.TrimEnd('/'), name, DefaultDateTime, true,
+                            GetRelativeSegments(absolutePathSegments.Concat(new[] { name }).ToArray())));
                     }
             }
             return new DirectoryContents(ret.Any(), ret.ToArray());
         }
 
-        protected override Task<IChangeToken> watchAsync(string filter)
-        {
-            throw new PlatformNotSupportedException("Watch is not supported in WriteableGoogleCloudStorageFileProvider");
-        }
 
-        protected override async Task<Stream> readFileAsync(params string[] absolutePathSegments)
+        private async Task<Stream> readFileAsync(params string[] absolutePathSegments)
         {
             // GCS only exposes object downloads into a caller-provided stream, so stream the
             // contents into a temp file (deleted on close) and hand that back. This keeps memory
@@ -146,13 +173,13 @@ namespace WriteableFileProviders.GoogleCloudStorage
             }
         }
 
-        protected override async Task updateFileAsync(Stream contents, UpdateFileMode mode, params string[] absolutePathSegments)
+        private async Task updateFileAsync(Stream contents, UpdateFileMode mode, params string[] absolutePathSegments)
         {
             if (mode == UpdateFileMode.Append)
             {
                 // GCS has no native append; download the existing object, append, and re-upload.
-                // Disposing the local stream commits it back via OnLocalFileStreamDisposingAsync.
-                await using var str = await createLocalFileStreamAsync(false, absolutePathSegments);
+                // Disposing the local stream commits it back.
+                await using var str = await CreateLocalFileStreamCoreAsync(Resolve(new ProviderPath(GetRelativeSegments(absolutePathSegments))), false, CancellationToken.None);
                 str.Position = str.Length;
                 await using (contents)
                     await contents.CopyToAsync(str);
@@ -165,14 +192,14 @@ namespace WriteableFileProviders.GoogleCloudStorage
             }
         }
 
-        protected override async Task move(string[] oldSegments, string[] newSegments)
+        private async Task move(string[] oldSegments, string[] newSegments)
         {
             await Client.CopyObjectAsync(Options.BucketName, getPath(oldSegments), Options.BucketName,
                 getPath(newSegments));
             await deleteAsync(oldSegments);
         }
 
-        protected override async Task<bool> deleteAsync(params string[] absolutePathSegments)
+        private async Task<bool> deleteAsync(params string[] absolutePathSegments)
         {
             if (absolutePathSegments.Length == 0 || absolutePathSegments.SequenceEqual(Options.RootDirectorySegments))
                 throw new InvalidOperationException("The provider root cannot be deleted or modified.");
@@ -208,10 +235,10 @@ namespace WriteableFileProviders.GoogleCloudStorage
             return deleted;
         }
 
-        protected override async Task<string> getDownloadUrl(string[] absolutePathSegments, TimeSpan validity)
+        private async Task<string> getDownloadUrl(string[] absolutePathSegments, TimeSpan validity)
         {
             if (UrlSigner == null)
-                throw new PlatformNotSupportedException(
+                throw new NotSupportedException(
                     "Signed download URLs require a credential that can sign: either an inline service " +
                     "account key (CredentialsJson) or a Workload Identity / impersonated identity that " +
                     "holds the iam.serviceAccounts.signBlob permission.");

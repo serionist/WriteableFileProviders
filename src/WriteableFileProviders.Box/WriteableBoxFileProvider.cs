@@ -1,14 +1,15 @@
-﻿using Box.V2;
+using Box.V2;
 using Box.V2.Config;
 using Box.V2.Exceptions;
 using Box.V2.JWTAuth;
 using Box.V2.Models;
 using Microsoft.Extensions.FileProviders;
-using Microsoft.Extensions.Primitives;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -16,6 +17,38 @@ namespace WriteableFileProviders.Box
 {
     public class WriteableBoxFileProvider : WriteableFileProvider<BoxFileProviderOptions>
     {
+
+        private WriteableFileInfo legacyInfo(bool exists, long length, string physicalPath, string name, DateTimeOffset lastModified, bool isDirectory, string[] relativeSegments) =>
+            new WriteableFileInfo(this, new ProviderPath(relativeSegments), exists, isDirectory, length, lastModified, physicalPath);
+
+        protected override Task<IWriteableFileInfo> GetFileInfoCoreAsync(ResolvedPath resolved, CancellationToken cancellationToken) =>
+            getFileInfoAsync(resolved.AbsoluteSegments);
+
+        protected override async IAsyncEnumerable<IWriteableFileInfo> EnumerateCoreAsync(ResolvedPath resolved, [EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            foreach (var entry in await getDirectoryContentsAsync(resolved.AbsoluteSegments))
+                yield return (IWriteableFileInfo)entry;
+        }
+
+        protected override Task<Stream> ReadFileCoreAsync(ResolvedPath resolved, CancellationToken cancellationToken) =>
+            readFileAsync(resolved.AbsoluteSegments);
+
+        protected override Task UpdateFileCoreAsync(ResolvedPath resolved, Stream contents, UpdateFileOptions options, CancellationToken cancellationToken) =>
+            updateFileAsync(contents, options.Mode, resolved.AbsoluteSegments);
+
+        protected override Task MoveCoreAsync(ResolvedPath source, ResolvedPath destination, CancellationToken cancellationToken) =>
+            move(source.AbsoluteSegments, destination.AbsoluteSegments);
+
+        protected override Task<bool> DeleteCoreAsync(ResolvedPath resolved, CancellationToken cancellationToken) =>
+            deleteAsync(resolved.AbsoluteSegments);
+
+        // Box matches names without regard to case: a folder cannot hold "a.txt" and "A.txt".
+        protected override bool IsCaseInsensitive => true;
+
+        protected override bool SupportsSignedUrl(SignedUrlAccess permission) => permission == SignedUrlAccess.Read;
+
+        protected override async Task<SignedUrl> GetSignedUrlCoreAsync(ResolvedPath resolved, SignedUrlOptions options, CancellationToken cancellationToken) =>
+            new SignedUrl { Url = new Uri(await getDownloadUrl(resolved.AbsoluteSegments, options.Validity)), ExpiresOn = null, Kind = SignedUrlKind.PreAuthenticated };
         private readonly DateTime DefaultDateTime = new DateTime(1970, 1, 1, 0, 0, 0);
         private readonly BoxJWTAuth jwtAuth;
         private string accessToken;
@@ -51,7 +84,16 @@ namespace WriteableFileProviders.Box
             Client = jwtAuth.AdminClient(accessToken);
         }
 
-        internal static string normalizePrivateKey(string pem) => normalizePem(pem);
+        // For the offline tests: a client over a fake request handler, and a session that never needs refreshing.
+        internal WriteableBoxFileProvider(BoxFileProviderOptions options, BoxClient client) : base(options)
+        {
+            RootFolderId = options.RootFolderId ?? "0";
+            Client = client;
+            accessToken = "offline";
+            tokenExpirationTime = DateTime.MaxValue;
+        }
+
+        internal static string normalizePrivateKey(string pem) => NormalizePem(pem);
 
         private async Task initializeOAuthSessionAsync()
         {
@@ -151,7 +193,7 @@ namespace WriteableFileProviders.Box
                 ?? DefaultDateTime;
         }
 
-        protected override async Task<IFileInfo> getFileInfoAsync(params string[] absolutePathSegments)
+        private async Task<IWriteableFileInfo> getFileInfoAsync(params string[] absolutePathSegments)
         {
             try
             {
@@ -159,8 +201,8 @@ namespace WriteableFileProviders.Box
                 var (file, isFolder) = await resolvePath(absolutePathSegments);
                 var name = absolutePathSegments.LastOrDefault() ?? "";
                 if (file == null)
-                    return new FileInfo(this, false, 0, string.Join("/", absolutePathSegments), name,
-                        DefaultDateTime, false, getRelativeSegments(absolutePathSegments));
+                    return legacyInfo(false, 0, string.Join("/", absolutePathSegments), name,
+                        DefaultDateTime, false, GetRelativeSegments(absolutePathSegments));
 
                 long fileSize = -1;
                 var modifiedAt = lastModified(file);
@@ -181,14 +223,14 @@ namespace WriteableFileProviders.Box
                         }
                     }
                 }
-                return new FileInfo(this,
+                return legacyInfo(
                     !isFolder,
                     isFolder ? -1 : fileSize,
                     string.Join("/", absolutePathSegments),
                     name,
                     modifiedAt,
                     isFolder,
-                    getRelativeSegments(absolutePathSegments));
+                    GetRelativeSegments(absolutePathSegments));
             }
             catch (BoxException ex)
             {
@@ -200,7 +242,7 @@ namespace WriteableFileProviders.Box
             }
         }
 
-        protected override async Task<IDirectoryContents> getDirectoryContentsAsync(params string[] absolutePathSegments)
+        private async Task<IDirectoryContents> getDirectoryContentsAsync(params string[] absolutePathSegments)
         {
             try
             {
@@ -219,14 +261,14 @@ namespace WriteableFileProviders.Box
 
                     foreach (var item in items.Entries)
                     {
-                        results.Add(new FileInfo(this,
+                        results.Add(legacyInfo(
                             item.Type == "file" || item.Type == "folder",
                             item is BoxFile f ? f.Size ?? 0 : -1,
                             item.Name,
                             item.Name,
                             lastModified(item),
                             item.Type == "folder",
-                            getRelativeSegments(absolutePathSegments.Concat(new[] { item.Name }).ToArray())));
+                            GetRelativeSegments(absolutePathSegments.Concat(new[] { item.Name }).ToArray())));
                     }
 
                     offset += limit;
@@ -245,7 +287,7 @@ namespace WriteableFileProviders.Box
             }
         }
 
-        protected override async Task<Stream> readFileAsync(params string[] absolutePathSegments)
+        private async Task<Stream> readFileAsync(params string[] absolutePathSegments)
         {
             try
             {
@@ -277,7 +319,7 @@ namespace WriteableFileProviders.Box
             }
         }
 
-        protected override async Task updateFileAsync(Stream newContent, UpdateFileMode mode, params string[] absolutePathSegments)
+        private async Task updateFileAsync(Stream newContent, UpdateFileMode mode, params string[] absolutePathSegments)
         {
             try
             {
@@ -412,7 +454,7 @@ namespace WriteableFileProviders.Box
                 await uploadNewVersionInternal(existingFile.Id, existingFile.Name, combined);
         }
 
-        protected override async Task<bool> deleteAsync(params string[] absolutePathSegments)
+        private async Task<bool> deleteAsync(params string[] absolutePathSegments)
         {
             try
             {
@@ -442,7 +484,7 @@ namespace WriteableFileProviders.Box
             }
         }
 
-        protected override async Task move(string[] oldSegments, string[] newSegments)
+        private async Task move(string[] oldSegments, string[] newSegments)
         {
             try
             {
@@ -491,7 +533,7 @@ namespace WriteableFileProviders.Box
             }
         }
 
-        protected override async Task<string> getDownloadUrl(string[] absolutePathSegments, TimeSpan validity)
+        private async Task<string> getDownloadUrl(string[] absolutePathSegments, TimeSpan validity)
         {
             try
             {
@@ -514,9 +556,5 @@ namespace WriteableFileProviders.Box
             }
         }
 
-        protected override Task<IChangeToken> watchAsync(string filter)
-        {
-            throw new PlatformNotSupportedException("Watch is not supported in WriteableBoxFileProvider");
-        }
     }
 }

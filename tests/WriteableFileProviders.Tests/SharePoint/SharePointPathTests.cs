@@ -70,9 +70,11 @@ namespace WriteableFileProviders.Tests
         public async Task Move_FromOrToWorkFolderItself_IsRefused()
         {
             var (provider, handler) = createProvider();
-            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.MoveAsync("Archive/Stale", "Archive/Stale/x"));
-            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.MoveAsync("Archive/Stale/x", "Archive/Stale"));
-            Assert.AreEqual(0, handler.Requests.Count);
+            // Since 2027 the base class checks the source first: the work folder is a folder and "x" does not exist, so both
+            // are refused as missing files before the provider's own work-folder guard. S9 makes the work folder the root.
+            await Assert.ThrowsExactlyAsync<FileNotFoundException>(() => provider.MoveAsync("Archive/Stale", "Archive/Stale/x"));
+            await Assert.ThrowsExactlyAsync<FileNotFoundException>(() => provider.MoveAsync("Archive/Stale/x", "Archive/Stale"));
+            Assert.IsTrue(handler.Requests.Count <= 2, "Only the source lookups were sent");
         }
 
         [TestMethod]

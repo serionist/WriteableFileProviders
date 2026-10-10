@@ -1,88 +1,191 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Text;
-using System.Threading.Tasks;
-using Microsoft.Extensions.FileProviders;
+namespace WriteableFileProviders;
 
-namespace WriteableFileProviders
+/// <summary>
+/// A local temp copy of a provider's file, from <see cref="IWriteableFileProvider.CreateLocalFileStreamAsync"/>. A
+/// writeable stream uploads its content to the file when it is disposed, or when <see cref="CommitAsync"/> is called:
+/// once, atomically, and again only after further writes. A dispose after an exception uploads too, so partially written
+/// content is uploaded; set <see cref="SkipReUploadOnDispose"/> to prevent that. The temp file is deleted on dispose.
+/// </summary>
+public sealed class LocalFileStream : Stream
 {
-    /// <summary>
-    /// A local copy of a provider file. Unless read-only, the contents are uploaded to the provider when the stream is disposed,
-    /// including a dispose after an exception (partially written content is uploaded).
-    /// </summary>
-    public class LocalFileStream : Stream
+    private readonly Stream _inner;
+    private readonly Func<Stream, CancellationToken, Task>? _commit;
+    private bool _needsCommit;
+    private bool _disposed;
+
+    internal LocalFileStream(Stream inner, IWriteableFileProvider provider, ProviderPath path, bool readOnly, Func<Stream, CancellationToken, Task>? commit)
     {
-        private Stream Stream { get; }
-        public IWriteableFileProvider Provider { get; }
-        public string[] TargetFilePathSegments { get; }
-        public bool ReadOnly { get; }
-        public bool SkipReUploadOnDispose { get; set; } = false;
-        public LocalFileStream(Stream str, IWriteableFileProvider provider, bool readOnly, string[] targetFilePathSegments)
-        {
-            Provider = provider;
-            ReadOnly = readOnly;
-            TargetFilePathSegments = targetFilePathSegments;
-            Stream = str;
-        }
+        _inner = inner;
+        Provider = provider;
+        Path = path;
+        ReadOnly = readOnly;
+        _commit = commit;
+        _needsCommit = !readOnly && commit is not null;
+    }
 
-        private bool disposeEventCalled = false;
-        /// <summary>
-        /// Gracefully (async) disposes the stream, that will cause the provider to finalize it.
-        /// A writeable stream is uploaded also when it is disposed after an exception, so partially written content is uploaded;
-        /// set <see cref="SkipReUploadOnDispose"/> to prevent it.
-        /// </summary>
-        /// <returns></returns>
-        public async Task DisposeAsync()
+    /// <summary>The provider the file belongs to.</summary>
+    public IWriteableFileProvider Provider { get; }
+
+    /// <summary>The file's path, relative to the provider root.</summary>
+    public ProviderPath Path { get; }
+
+    /// <summary>Whether the stream is read-only: it cannot be written, and never uploads.</summary>
+    public bool ReadOnly { get; }
+
+    /// <summary>The local temp file's full name, for the tests.</summary>
+    internal string? TempFilePath => (_inner as FileStream)?.Name;
+
+    /// <summary>When true, disposing the stream does not upload it.</summary>
+    public bool SkipReUploadOnDispose { get; set; }
+
+    /// <inheritdoc />
+    public override bool CanRead => !_disposed && _inner.CanRead;
+
+    /// <inheritdoc />
+    public override bool CanSeek => !_disposed && _inner.CanSeek;
+
+    /// <inheritdoc />
+    public override bool CanWrite => !_disposed && !ReadOnly && _inner.CanWrite;
+
+    /// <inheritdoc />
+    public override long Length => _inner.Length;
+
+    /// <inheritdoc />
+    public override long Position
+    {
+        get => _inner.Position;
+        set => _inner.Position = value;
+    }
+
+    /// <summary>Uploads the content now. A later dispose uploads again only if the stream was written after this.</summary>
+    /// <param name="cancellationToken">Cancels the upload.</param>
+    /// <exception cref="NotSupportedException">The stream is read-only.</exception>
+    public async Task CommitAsync(CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (ReadOnly || _commit is null)
+            throw new NotSupportedException("A read-only stream has nothing to upload.");
+        await CommitCoreAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public override int Read(byte[] buffer, int offset, int count) => _inner.Read(buffer, offset, count);
+
+    /// <inheritdoc />
+    public override int Read(Span<byte> buffer) => _inner.Read(buffer);
+
+    /// <inheritdoc />
+    public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+        _inner.ReadAsync(buffer, offset, count, cancellationToken);
+
+    /// <inheritdoc />
+    public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
+        _inner.ReadAsync(buffer, cancellationToken);
+
+    /// <inheritdoc />
+    public override void Write(byte[] buffer, int offset, int count)
+    {
+        EnsureWriteable();
+        _inner.Write(buffer, offset, count);
+        _needsCommit = true;
+    }
+
+    /// <inheritdoc />
+    public override void Write(ReadOnlySpan<byte> buffer)
+    {
+        EnsureWriteable();
+        _inner.Write(buffer);
+        _needsCommit = true;
+    }
+
+    /// <inheritdoc />
+    public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+        WriteAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+
+    /// <inheritdoc />
+    public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+    {
+        EnsureWriteable();
+        await _inner.WriteAsync(buffer, cancellationToken).ConfigureAwait(false);
+        _needsCommit = true;
+    }
+
+    /// <inheritdoc />
+    public override long Seek(long offset, SeekOrigin origin) => _inner.Seek(offset, origin);
+
+    /// <inheritdoc />
+    public override void SetLength(long value)
+    {
+        EnsureWriteable();
+        _inner.SetLength(value);
+        _needsCommit = true;
+    }
+
+    /// <inheritdoc />
+    public override void Flush() => _inner.Flush();
+
+    /// <inheritdoc />
+    public override Task FlushAsync(CancellationToken cancellationToken) => _inner.FlushAsync(cancellationToken);
+
+    /// <summary>Uploads the content unless read-only, skipped or already uploaded, then deletes the temp file.</summary>
+    public override async ValueTask DisposeAsync()
+    {
+        if (!_disposed)
         {
-            if (!ReadOnly && !disposeEventCalled)
+            try
             {
-                disposeEventCalled = true;
-                if (!SkipReUploadOnDispose)
-                    await Provider.OnLocalFileStreamDisposingAsync(this);
+                if (_needsCommit && !SkipReUploadOnDispose)
+                    await CommitCoreAsync(CancellationToken.None).ConfigureAwait(false);
             }
-            Stream.Dispose();
+            finally
+            {
+                _disposed = true;
+                await _inner.DisposeAsync().ConfigureAwait(false);
+            }
         }
-        protected override void Dispose(bool disposing)
-        {
-            
-            DisposeAsync().Wait();
-            Stream.Dispose();
-        }
+        await base.DisposeAsync().ConfigureAwait(false);
+    }
 
-        public override void Flush()
+    /// <inheritdoc />
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing && !_disposed)
         {
-            Stream.Flush();
+            try
+            {
+                if (_needsCommit && !SkipReUploadOnDispose)
+                    WriteableFileProviderExtensions.Wait(CommitCoreAsync(CancellationToken.None));
+            }
+            finally
+            {
+                _disposed = true;
+                _inner.Dispose();
+            }
         }
+        base.Dispose(disposing);
+    }
 
-        public override int Read(byte[] buffer, int offset, int count)
+    private async Task CommitCoreAsync(CancellationToken cancellationToken)
+    {
+        // Upload at most once per change: a failed upload is not retried by a later dispose.
+        _needsCommit = false;
+        var position = _inner.Position;
+        _inner.Position = 0;
+        try
         {
-            return Stream.Read(buffer, offset, count);
+            await _commit!(_inner, cancellationToken).ConfigureAwait(false);
         }
+        finally
+        {
+            if (!_disposed && _inner.CanSeek)
+                _inner.Position = position;
+        }
+    }
 
-        public override long Seek(long offset, SeekOrigin origin)
-        {
-            return Stream.Seek(offset, origin);
-        }
-
-        public override void SetLength(long value)
-        {
-            Stream.SetLength(value);
-        }
-
-        public override void Write(byte[] buffer, int offset, int count)
-        {
-            Stream.Write(buffer, offset, count);
-        }
-
-        public override bool CanRead => Stream.CanRead;
-        public override bool CanSeek => Stream.CanSeek;
-        public override bool CanWrite => Stream.CanWrite && !ReadOnly;
-        public override long Length => Stream.Length;
-        public override long Position
-        {
-            get => Stream.Position;
-            set => Stream.Position = value;
-        }
+    private void EnsureWriteable()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (!CanWrite)
+            throw new NotSupportedException("The stream is read-only.");
     }
 }

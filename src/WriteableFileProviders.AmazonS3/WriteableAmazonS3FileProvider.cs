@@ -4,13 +4,14 @@ using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Runtime.CompilerServices;
+using System.Threading;
 using System.Threading.Tasks;
 using Amazon;
 using Amazon.Runtime;
 using Amazon.S3;
 using Amazon.S3.Model;
 using Microsoft.Extensions.FileProviders;
-using Microsoft.Extensions.Primitives;
 
 namespace WriteableFileProviders.AmazonS3
 {
@@ -39,28 +40,31 @@ namespace WriteableFileProviders.AmazonS3
             return response.S3Objects.FirstOrDefault();
         }
 
-        protected override async Task<IFileInfo> getFileInfoAsync(params string[] absolutePathSegments)
+        private WriteableFileInfo info(bool exists, long length, string physicalPath, DateTimeOffset lastModified, bool isDirectory, string[] relativeSegments) =>
+            new WriteableFileInfo(this, new ProviderPath(relativeSegments), exists, isDirectory, length, lastModified, physicalPath);
+
+        protected override async Task<IWriteableFileInfo> GetFileInfoCoreAsync(ResolvedPath resolved, CancellationToken cancellationToken)
         {
+            var absolutePathSegments = resolved.AbsoluteSegments;
             var key = path(absolutePathSegments);
-            var relativeSegments = getRelativeSegments(absolutePathSegments);
+            var relativeSegments = GetRelativeSegments(absolutePathSegments);
             if (string.IsNullOrEmpty(key))
-                return new FileInfo(this, false, -1, key, fileName(key), DefaultDateTime, false, relativeSegments);
+                return info(false, -1, key, DefaultDateTime, false, relativeSegments);
 
             //an exact key is always listed first under its own prefix
             var first = await firstObject(key);
             if (first != null && first.Key == key)
-                return new FileInfo(this, true, first.Size, key, fileName(key), first.LastModified, false, relativeSegments);
+                return info(true, first.Size, key, first.LastModified, false, relativeSegments);
 
             var isDirectory = first != null
                               && (first.Key.StartsWith(key + "/", StringComparison.Ordinal) || await firstObject(key + "/") != null);
-            return new FileInfo(this, false, -1, key, fileName(key), DefaultDateTime, isDirectory, relativeSegments);
+            return info(false, -1, key, DefaultDateTime, isDirectory, relativeSegments);
         }
 
-        protected override async Task<IDirectoryContents> getDirectoryContentsAsync(params string[] absolutePathSegments)
+        protected override async IAsyncEnumerable<IWriteableFileInfo> EnumerateCoreAsync(ResolvedPath resolved, [EnumeratorCancellation] CancellationToken cancellationToken)
         {
-            var ret = await enumerateObjects(absolutePathSegments, false);
-
-            return new DirectoryContents(ret.Any(), ret.ToArray());
+            foreach (var entry in await enumerateObjects(resolved.AbsoluteSegments, false))
+                yield return (IWriteableFileInfo)entry;
         }
 
         /// <summary>
@@ -80,7 +84,7 @@ namespace WriteableFileProviders.AmazonS3
             var segments = absolutePathSegments ?? new string[0];
             if (segments.Length < root.Length || !root.SequenceEqual(segments.Take(root.Length), StringComparer.Ordinal))
                 throw new ArgumentException("The path segments must start with the provider root segments.", nameof(absolutePathSegments));
-            var relative = validateSegments(segments.Skip(root.Length));
+            var relative = ValidateSegments(segments.Skip(root.Length));
             if (!allowRoot && relative.Length == 0)
                 throw new ArgumentException("The path must contain at least one segment.", nameof(absolutePathSegments));
             return root.Concat(relative).ToArray();
@@ -114,7 +118,7 @@ namespace WriteableFileProviders.AmazonS3
                     //skip folder markers and keys containing empty segments
                     if (relativeParts.Any(string.IsNullOrEmpty)) continue;
 
-                    ret.Add(new FileInfo(this, true, r.Size, r.Key, fileName(r.Key), r.LastModified, false, getRelativeSegments(absolutePathSegments.Concat(relativeParts).ToArray())));
+                    ret.Add(info(true, r.Size, r.Key, r.LastModified, false, GetRelativeSegments(absolutePathSegments.Concat(relativeParts).ToArray())));
                 }
 
                 foreach (var p in results.CommonPrefixes)
@@ -125,14 +129,9 @@ namespace WriteableFileProviders.AmazonS3
                 }
             } while (!string.IsNullOrEmpty(continuationToken));
             foreach (var d in dirnames)
-                ret.Add(new FileInfo(this, true, -1, dirPath + d, d, DefaultDateTime, true, getRelativeSegments(absolutePathSegments.Concat(new[] { d }).ToArray())));
+                ret.Add(info(true, -1, dirPath + d, DefaultDateTime, true, GetRelativeSegments(absolutePathSegments.Concat(new[] { d }).ToArray())));
 
             return ret;
-        }
-
-        protected override async Task<IChangeToken> watchAsync(string filter)
-        {
-            throw new PlatformNotSupportedException("Watch is not supported in WriteableAmazonS3FileProvider");
         }
 
         /// <summary>
@@ -150,7 +149,7 @@ namespace WriteableFileProviders.AmazonS3
             readObjectAsync(versionId, checkAbsoluteSegments(absolutePathSegments, allowRoot: false));
 
         /// <summary>Reads the file at the given path, relative to the provider root.</summary>
-        public new Task<Stream> ReadFileAsync(string subpath) => base.ReadFileAsync(subpath);
+        public Task<Stream> ReadFileAsync(string subpath) => base.ReadFileAsync(subpath);
 
         /// <summary>Reads a version of the file at the given path segments, relative to the provider root.</summary>
         /// <param name="versionId">The S3 version id, or null or empty for the current version.</param>
@@ -158,7 +157,7 @@ namespace WriteableFileProviders.AmazonS3
         /// <exception cref="ArgumentException">A segment is not allowed, or the path is the provider root.</exception>
         public Task<Stream> ReadFileVersionAsync(string versionId, params string[] pathSegments)
         {
-            var relative = validateSegments(pathSegments);
+            var relative = ValidateSegments(pathSegments);
             if (relative.Length == 0)
                 throw new ArgumentException("The path must contain at least one segment.", nameof(pathSegments));
             return readObjectAsync(versionId, (Options.RootDirectorySegments ?? new string[0]).Concat(relative).ToArray());
@@ -171,14 +170,14 @@ namespace WriteableFileProviders.AmazonS3
             else
                 return (await Client.GetObjectAsync(Options.BucketName, path(absolutePathSegments), versionId)).ResponseStream;
         }
-        protected override Task<Stream> readFileAsync(params string[] absolutePathSegments) => readObjectAsync(null, absolutePathSegments);
+        protected override Task<Stream> ReadFileCoreAsync(ResolvedPath resolved, CancellationToken cancellationToken) => readObjectAsync(null, resolved.AbsoluteSegments);
 
-        protected override async Task updateFileAsync(Stream contents, UpdateFileMode mode, params string[] absolutePathSegments)
+        protected override async Task UpdateFileCoreAsync(ResolvedPath resolved, Stream contents, UpdateFileOptions options, CancellationToken cancellationToken)
         {
-
-            if (mode == UpdateFileMode.Append)
+            var absolutePathSegments = resolved.AbsoluteSegments;
+            if (options.Mode == UpdateFileMode.Append)
             {
-                await using var str = await createLocalFileStreamAsync(false, absolutePathSegments);
+                await using var str = await CreateLocalFileStreamCoreAsync(resolved, false, cancellationToken);
                 str.Position = str.Length;
                 await using (contents)
                     await contents.CopyToAsync(str);
@@ -202,7 +201,10 @@ namespace WriteableFileProviders.AmazonS3
         /// Copies the object to the new key with a single CopyObject request, then deletes the original.
         /// S3 limits a single copy to objects of at most 5 GB, so larger objects cannot be moved.
         /// </summary>
-        protected override async Task move(string[] oldSegments, string[] newSegments)
+        protected override Task MoveCoreAsync(ResolvedPath source, ResolvedPath destination, CancellationToken cancellationToken) =>
+            move(source.AbsoluteSegments, destination.AbsoluteSegments);
+
+        private async Task move(string[] oldSegments, string[] newSegments)
         {
             var copyObjectRequest = new CopyObjectRequest
             {
@@ -217,9 +219,12 @@ namespace WriteableFileProviders.AmazonS3
             await deleteAsync(oldSegments);
         }
 
-        protected override async Task<bool> deleteAsync(params string[] absolutePathSegments)
+        protected override Task<bool> DeleteCoreAsync(ResolvedPath resolved, CancellationToken cancellationToken) =>
+            deleteAsync(resolved.AbsoluteSegments);
+
+        private async Task<bool> deleteAsync(string[] absolutePathSegments)
         {
-            if (getRelativeSegments(absolutePathSegments).Length == 0)
+            if (GetRelativeSegments(absolutePathSegments).Length == 0)
                 throw new InvalidOperationException("The provider root cannot be deleted or modified.");
 
             var key = path(absolutePathSegments);
@@ -283,7 +288,15 @@ namespace WriteableFileProviders.AmazonS3
             return ret;
         }
 
-        protected override Task<string> getDownloadUrl(string[] absolutePathSegments, TimeSpan validity)
+        protected override bool SupportsSignedUrl(SignedUrlAccess permission) => permission == SignedUrlAccess.Read;
+
+        protected override Task<SignedUrl> GetSignedUrlCoreAsync(ResolvedPath resolved, SignedUrlOptions options, CancellationToken cancellationToken)
+        {
+            var url = getDownloadUrl(resolved.AbsoluteSegments, options.Validity);
+            return Task.FromResult(new SignedUrl { Url = new Uri(url), ExpiresOn = DateTimeOffset.UtcNow.Add(options.Validity) });
+        }
+
+        private string getDownloadUrl(string[] absolutePathSegments, TimeSpan validity)
         {
             var request = new GetPreSignedUrlRequest()
             {
@@ -293,7 +306,7 @@ namespace WriteableFileProviders.AmazonS3
                 Verb = HttpVerb.GET
             };
             request.ResponseHeaderOverrides.ContentType = "application/octet-stream";
-            return Task.FromResult(Client.GetPreSignedURL(request));
+            return Client.GetPreSignedURL(request);
         }
     }
 }

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>WriteableFileProviders.AzureBlob</PackageId>
+    <Description>WriteableFileProviders for Azure Blob Storage: a writeable IFileProvider over a blob container.</Description>
+    <WfpLegacy>true</WfpLegacy>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Azure.Storage.Blobs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WriteableFileProviders.Common\WriteableFileProviders.Common.csproj" />
+  </ItemGroup>
+
+</Project>

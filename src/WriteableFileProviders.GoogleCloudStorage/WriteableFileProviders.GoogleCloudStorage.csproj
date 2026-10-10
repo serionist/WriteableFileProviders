@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>WriteableFileProviders.GoogleCloudStorage</PackageId>
+    <Description>WriteableFileProviders for Google Cloud Storage: a writeable IFileProvider over a bucket.</Description>
+    <WfpLegacy>true</WfpLegacy>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Google.Cloud.Storage.V1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WriteableFileProviders.Common\WriteableFileProviders.Common.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="WriteableFileProviders.Tests" />
+  </ItemGroup>
+
+</Project>

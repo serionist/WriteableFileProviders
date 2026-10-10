@@ -9,38 +9,42 @@ and what never to do.
 
 | Path | What |
 |------|------|
-| `WriteableFileProviders.Common/` | `IWriteableFileProvider`; `WriteableFileProvider<TOptions>`, the base class every provider derives from; `FileProviderOptions` (the root folder); `LocalFileStream`; `WriteableFileProviderSerializer`, which builds a provider from configuration or JSON. Package `WriteableFileProviders.Common`. |
-| `WriteableFileProviders.<Provider>/` | One provider each: `Physical`, `AzureBlob`, `AmazonS3`, `Minio`, `Box`, `SharePoint`, `GoogleCloudStorage`. Package `WriteableFileProviders.<Provider>`. |
-| `WriteableFileProviders.Tests/` | The one MSTest project, for every provider (see Tests below). |
+| `src/WriteableFileProviders.Common/` | `IWriteableFileProvider`; `WriteableFileProvider<TOptions>`, the base class every provider derives from; `FileProviderOptions` (the root folder); `LocalFileStream`; `WriteableFileProviderSerializer`, which builds a provider from configuration or JSON. Package `WriteableFileProviders.Common`. |
+| `src/WriteableFileProviders.<Provider>/` | One provider each: `Physical`, `AzureBlob`, `AmazonS3`, `Minio`, `Box`, `SharePoint`, `GoogleCloudStorage`. Package `WriteableFileProviders.<Provider>`. |
+| `tests/WriteableFileProviders.Tests/` | The one MSTest project, for every provider (see Tests below). |
 | `REVIEW.md` | The questions every review answers. |
 | `docs/plans/` | The plan of each non-trivial change, and the template (`docs/plans/README.md`). |
 | `docs/reviews/` | Reports of whole-repo or whole-folder reviews. A change's own review goes in its PR. |
 | `.claude/skills/` | The work loop: `start-work`, `review-plan`, `review-code`, `finish-work`. |
-| `Directory.Build.props`, `global.json`, `nuget.config` | Settings every project shares, the SDK, the package source (nuget.org only). |
+| `WriteableFileProviders.slnx` | The solution. |
+| `Directory.Build.props`, `Directory.Build.targets` | Settings every project shares; `src/` and `tests/` add their own (packaging; test project settings). The `.targets` file holds the strictness switch. |
+| `Directory.Packages.props` | Every package version, once (central package management). A `.csproj` names packages without versions. |
+| `global.json`, `nuget.config` | The SDK; the package source (nuget.org only). |
 
-The code predates the style in `.editorconfig`: block-scoped namespaces, no nullable annotations, `net8.0`. The
-modernization brings it over in one pass. Until then, new code follows `.editorconfig`, and nothing reformats a file it
-does not otherwise change.
+Every project targets `net10.0`. A project still holding code from before the modernization (#3) sets
+`<WfpLegacy>true</WfpLegacy>`, which turns off nullable analysis, implicit usings, warnings as errors and the style
+checks in the build, lowers the analysis level to the minimum and silences missing-docs warnings; its rewrite removes the
+flag. New code follows `.editorconfig` either way, and nothing reformats a file it does not
+otherwise change.
 
 ## Build and test
 
-Run everything from the repo root, with a .NET 10 SDK (`global.json`) and the .NET 8 runtime for the tests.
+Run everything from the repo root, with a .NET 10 SDK (`global.json`).
 
 - **Once per clone:**
-  - Copy `WriteableFileProviders.Tests/testsettings.sample.json` to `testsettings.json` next to it, and set
-    `PhysicalFileProvider_RootPath` to a scratch folder. The build fails without the file. It is git-ignored: real
-    credentials go there and nowhere else.
+  - Only for the live suites: copy `tests/WriteableFileProviders.Tests/testsettings.sample.json` to `testsettings.json`
+    next to it and fill in the accounts you own. It is git-ignored: real credentials go there and nowhere else. Nothing
+    else needs it; without it the Physical suite works under a temp folder.
   - With Claude Code: install the C# language server its plugin runs, `dotnet tool install --global csharp-ls`. Claude
     Code asks before it loads the docs servers in `.mcp.json`; to approve them once for this clone, copy
     `.claude/settings.local.json.example` to `.claude/settings.local.json`.
-- **`UseLocalCommon`:** each provider builds against the *published* `WriteableFileProviders.Common` package, at the
-  version its `.csproj` pins, unless `-p:UseLocalCommon=true` puts the Common project in this repo in its place. Pass it
-  to every build and test while you work, or a change to Common is not what the providers and tests run against.
-- **Build:** `dotnet build WriteableFileProviders.sln -p:UseLocalCommon=true`
+- **Build:** `dotnet build WriteableFileProviders.slnx`. Providers reference Common as a project, and every package
+  is versioned together from git tags (MinVer).
+- **Pack:** `dotnet pack WriteableFileProviders.slnx -o <folder>`; an untagged build is `2027.0.0-alpha.0.<height>`.
 - **Offline tests**, everything that needs no cloud account:
 
   ```
-  dotnet test WriteableFileProviders.sln -p:UseLocalCommon=true --filter "ClassName!=WriteableFileProviders.Tests.AmazonS3FileProvider&ClassName!=WriteableFileProviders.Tests.AzureBlobFileProvider&ClassName!=WriteableFileProviders.Tests.BoxFileProvider&ClassName!=WriteableFileProviders.Tests.GoogleCloudStorageFileProvider&ClassName!=WriteableFileProviders.Tests.MinioFileProvider&ClassName!=WriteableFileProviders.Tests.SharePointFileProvider"
+  dotnet test WriteableFileProviders.slnx --filter "ClassName!=WriteableFileProviders.Tests.AmazonS3FileProvider&ClassName!=WriteableFileProviders.Tests.AzureBlobFileProvider&ClassName!=WriteableFileProviders.Tests.BoxFileProvider&ClassName!=WriteableFileProviders.Tests.GoogleCloudStorageFileProvider&ClassName!=WriteableFileProviders.Tests.MinioFileProvider&ClassName!=WriteableFileProviders.Tests.SharePointFileProvider"
   ```
 
 ### Tests
@@ -51,7 +55,8 @@ stream, download URL and 100 MB tests. The classes fall in four groups:
 - **Unit tests**, no outside service: `SegmentValidationTests`, `LocalFileStreamCommitTests`, `PhysicalReadTests`,
   `AmazonS3PathTests`, `BoxOptionsTests`, `GcsOptionsTests`, `SharePointPathTests` (with a fake Graph), and the options
   tests in `AzureBlobProviderTests`.
-- **Physical**, `PyhsicalFileProvider`: the shared suite on the local disk, under `PhysicalFileProvider_RootPath`.
+- **Physical**, `PyhsicalFileProvider`: the shared suite on the local disk, under `PhysicalFileProvider_RootPath`, or a
+  temp folder when it is not set.
 - **Emulator tests**, inconclusive, not failed, when their emulator is not running (S3: while its variable is unset):
   - Azure Blob against Azurite: `AzuriteFileProvider` and the rest of `AzureBlobProviderTests`.
     `docker run -d -p 10000:10000 mcr.microsoft.com/azure-storage/azurite azurite-blob --blobHost 0.0.0.0`

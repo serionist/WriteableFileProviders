@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>WriteableFileProviders.AmazonS3</PackageId>
+    <Description>WriteableFileProviders for Amazon S3: a writeable IFileProvider over an S3 bucket.</Description>
+    <WfpLegacy>true</WfpLegacy>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AWSSDK.S3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WriteableFileProviders.Common\WriteableFileProviders.Common.csproj" />
+  </ItemGroup>
+
+</Project>

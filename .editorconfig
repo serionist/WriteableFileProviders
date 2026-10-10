@@ -1,8 +1,6 @@
-# Code style: one line per rule, with its reason where it isn't obvious. This is the target the code moves to: the
-# existing code predates it, and the modernization brings it over in one pass, then turns on EnforceCodeStyleInBuild and
-# TreatWarningsAsErrors so the build fails every `warning` here. Until then the IDE rules warn in the editor only, and
-# the analyzer rules the build runs (CA, SYSLIB) are `suggestion`, marked `-> warning`, so the build output still shows
-# the warnings that matter today.
+# Code style: one line per rule, with its reason where it isn't obvious. A project builds with EnforceCodeStyleInBuild
+# and TreatWarningsAsErrors (Directory.Build.targets), so every `warning` here fails its build; a project that still
+# holds code from before the modernization sets WfpLegacy, which turns both off until its rewrite.
 root = true
 
 [*]
@@ -16,12 +14,8 @@ indent_size = 4
 [*.{json,yml,yaml}]
 indent_size = 2
 
-[*.{csproj,props,targets,runsettings,pubxml}]
+[*.{csproj,props,targets,slnx,runsettings,xml}]
 indent_size = 2
-
-[*.sln]
-end_of_line = crlf
-indent_style = tab
 
 [*.md]
 # Two trailing spaces are a line break in markdown.
@@ -62,7 +56,7 @@ csharp_style_prefer_index_operator = true:warning
 csharp_style_prefer_range_operator = true:warning
 csharp_style_unused_value_expression_statement_preference = discard_variable:silent
 
-# --- Analyzers: each rule is `warning` (for now `suggestion -> warning`, see the top) or `none` with its reason ---
+# --- Analyzers: each rule is `warning` or `none` with its reason ---
 
 # Kept.
 dotnet_diagnostic.IDE0003.severity = warning   # no `this.`
@@ -88,13 +82,13 @@ dotnet_diagnostic.IDE0305.severity = warning   # collection expression for fluen
 dotnet_diagnostic.IDE0330.severity = warning   # System.Threading.Lock
 dotnet_diagnostic.IDE0340.severity = warning   # unbound generic type
 dotnet_diagnostic.IDE1006.severity = warning   # the naming rules below; a rule's own severity reaches the IDE only
-dotnet_diagnostic.CA1068.severity = suggestion    # -> warning: CancellationToken goes last
-dotnet_diagnostic.CA1816.severity = suggestion    # -> warning: Dispose calls SuppressFinalize
-dotnet_diagnostic.CA1822.severity = suggestion    # -> warning: mark members static
-dotnet_diagnostic.CA1861.severity = suggestion    # -> warning: constant array arguments become static readonly
-dotnet_diagnostic.CA1875.severity = suggestion    # -> warning: Regex.Count over Matches().Count
-dotnet_diagnostic.CA2007.severity = suggestion    # -> warning: ConfigureAwait(false): a library must not capture its caller's context
-dotnet_diagnostic.SYSLIB1045.severity = suggestion  # -> warning: [GeneratedRegex]; relaxed for tests in WriteableFileProviders.Tests/.editorconfig
+dotnet_diagnostic.CA1068.severity = warning    # CancellationToken goes last
+dotnet_diagnostic.CA1816.severity = warning    # Dispose calls SuppressFinalize
+dotnet_diagnostic.CA1822.severity = warning    # mark members static
+dotnet_diagnostic.CA1861.severity = warning    # constant array arguments become static readonly
+dotnet_diagnostic.CA1875.severity = warning    # Regex.Count over Matches().Count
+dotnet_diagnostic.CA2007.severity = warning    # ConfigureAwait(false): a library must not capture its caller's context
+dotnet_diagnostic.SYSLIB1045.severity = warning  # [GeneratedRegex]; relaxed for tests in tests/WriteableFileProviders.Tests/.editorconfig
 
 # Off.
 # CA1859: IReadOnlyList, IReadOnlyDictionary and IReadOnlySet return types are an immutability contract.

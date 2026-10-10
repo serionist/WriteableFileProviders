@@ -20,7 +20,9 @@ namespace WriteableFileProviders.Tests
         public PyhsicalFileProvider() : base(context) { }
         protected override IWriteableFileProvider GetProvider()
         {
-            var dir = Path.GetFullPath(Settings.PhysicalFileProvider_RootPath);
+            var dir = Path.GetFullPath(string.IsNullOrEmpty(Settings.PhysicalFileProvider_RootPath)
+                ? Path.Combine(Path.GetTempPath(), "wfp-physical-suite")
+                : Settings.PhysicalFileProvider_RootPath);
             Directory.CreateDirectory(dir);
             return new WriteablePhysicalFileProvider(dir);
         }

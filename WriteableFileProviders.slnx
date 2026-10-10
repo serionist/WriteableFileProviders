@@ -1,0 +1,23 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path=".editorconfig" />
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Build.targets" />
+    <File Path="Directory.Packages.props" />
+    <File Path="global.json" />
+    <File Path="nuget.config" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/WriteableFileProviders.Common/WriteableFileProviders.Common.csproj" />
+    <Project Path="src/WriteableFileProviders.Physical/WriteableFileProviders.Physical.csproj" />
+    <Project Path="src/WriteableFileProviders.AzureBlob/WriteableFileProviders.AzureBlob.csproj" />
+    <Project Path="src/WriteableFileProviders.AmazonS3/WriteableFileProviders.AmazonS3.csproj" />
+    <Project Path="src/WriteableFileProviders.Minio/WriteableFileProviders.Minio.csproj" />
+    <Project Path="src/WriteableFileProviders.GoogleCloudStorage/WriteableFileProviders.GoogleCloudStorage.csproj" />
+    <Project Path="src/WriteableFileProviders.Box/WriteableFileProviders.Box.csproj" />
+    <Project Path="src/WriteableFileProviders.SharePoint/WriteableFileProviders.SharePoint.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/WriteableFileProviders.Tests/WriteableFileProviders.Tests.csproj" />
+  </Folder>
+</Solution>

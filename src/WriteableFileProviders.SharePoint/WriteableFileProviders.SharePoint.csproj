@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>WriteableFileProviders.SharePoint</PackageId>
+    <Description>WriteableFileProviders for SharePoint and OneDrive: a writeable IFileProvider over a document library, through Microsoft Graph.</Description>
+    <WfpLegacy>true</WfpLegacy>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Azure.Identity" />
+    <PackageReference Include="Microsoft.Graph" />
+    <PackageReference Include="Microsoft.Graph.Core" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WriteableFileProviders.Common\WriteableFileProviders.Common.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="WriteableFileProviders.Tests" />
+  </ItemGroup>
+
+</Project>

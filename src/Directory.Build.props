@@ -1,0 +1,25 @@
+<Project>
+
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <!-- Packaging, for every package under src/. Versions come from git tags (MinVer): tag v2027.0.0 to release
+       2027.0.0; an untagged build is 2027.0.0-alpha.0.<height>. All packages release together at one version. -->
+
+  <PropertyGroup Label="Package">
+    <IsPackable>true</IsPackable>
+    <PackageTags>IFileProvider;fileprovider;storage;writeable;blob;s3;minio;gcs;box;sharepoint</PackageTags>
+    <PackageReleaseNotes>https://github.com/serionist/WriteableFileProviders/releases</PackageReleaseNotes>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <MinVerTagPrefix>v</MinVerTagPrefix>
+    <MinVerMinimumMajorMinor>2027.0</MinVerMinimumMajorMinor>
+    <MinVerDefaultPreReleaseIdentifiers>alpha.0</MinVerDefaultPreReleaseIdentifiers>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MinVer" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>

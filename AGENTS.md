@@ -19,7 +19,10 @@ and what never to do.
 | `WriteableFileProviders.slnx` | The solution. |
 | `Directory.Build.props`, `Directory.Build.targets` | Settings every project shares; `src/` and `tests/` add their own (packaging; test project settings). The `.targets` file holds the strictness switch. |
 | `Directory.Packages.props` | Every package version, once (central package management). A `.csproj` names packages without versions. |
-| `global.json`, `nuget.config` | The SDK; the package source (nuget.org only). |
+| `global.json`, `nuget.config` | The SDK and the test runner; the package source (nuget.org only). |
+| `eng/` | `coverage-gate.cs`, the coverage gate, and `coverage.json`, the floor of each assembly. |
+| `tests/coverage.runsettings` | What the coverage run measures. |
+| `.github/workflows/` | CI (`ci.yml`). |
 
 Every project targets `net10.0`. A project still holding code from before the modernization (#3) sets
 `<WfpLegacy>true</WfpLegacy>`, which turns off nullable analysis, implicit usings, warnings as errors and the style
@@ -41,11 +44,20 @@ Run everything from the repo root, with a .NET 10 SDK (`global.json`).
 - **Build:** `dotnet build WriteableFileProviders.slnx`. Providers reference Common as a project, and every package
   is versioned together from git tags (MinVer).
 - **Pack:** `dotnet pack WriteableFileProviders.slnx -o <folder>`; an untagged build is `2027.0.0-alpha.0.<height>`.
-- **Offline tests**, everything that needs no cloud account:
+- **Tests**, everything that needs no cloud account, on MSTest and Microsoft.Testing.Platform (`global.json` selects
+  it for `dotnet test`). With Docker running, the emulator suites start their containers themselves:
 
   ```
-  dotnet test WriteableFileProviders.slnx --filter "ClassName!=WriteableFileProviders.Tests.AmazonS3FileProvider&ClassName!=WriteableFileProviders.Tests.AzureBlobFileProvider&ClassName!=WriteableFileProviders.Tests.BoxFileProvider&ClassName!=WriteableFileProviders.Tests.GoogleCloudStorageFileProvider&ClassName!=WriteableFileProviders.Tests.MinioFileProvider&ClassName!=WriteableFileProviders.Tests.SharePointFileProvider"
+  dotnet test --solution WriteableFileProviders.slnx --filter "TestCategory!=Live"
   ```
+
+- **Coverage:** delete `artifacts/TestResults` (the gate keeps the best figure across every report it finds), run the
+  same tests with `--coverage --coverage-output-format cobertura --coverage-settings tests/coverage.runsettings
+  --results-directory artifacts/TestResults`, then `dotnet run eng/coverage-gate.cs -- artifacts/TestResults`. The gate fails when an assembly under `src/` falls below
+  its floor in `eng/coverage.json`, and prints the floors that can rise. Raise them in the change that earns it; never
+  lower one to pass. The goal is 90% of lines on every assembly.
+- **CI** (`.github/workflows/ci.yml`) runs the build, the tests with coverage, the gate and the pack on Linux, where
+  Docker is available and a missing emulator fails the run (`WFP_REQUIRE_DOCKER=1`), and the build and tests on Windows.
 
 ### Tests
 
@@ -57,12 +69,11 @@ stream, download URL and 100 MB tests. The classes fall in four groups:
   tests in `AzureBlobProviderTests`.
 - **Physical**, `PyhsicalFileProvider`: the shared suite on the local disk, under `PhysicalFileProvider_RootPath`, or a
   temp folder when it is not set.
-- **Emulator tests**, inconclusive, not failed, when their emulator is not running (S3: while its variable is unset):
+- **Emulator tests**: `Emulators` starts each emulator once per run through Testcontainers, and the containers go when
+  the run ends. Without Docker they are inconclusive, not failed, unless `WFP_REQUIRE_DOCKER=1` (CI).
   - Azure Blob against Azurite: `AzuriteFileProvider` and the rest of `AzureBlobProviderTests`.
-    `docker run -d -p 10000:10000 mcr.microsoft.com/azure-storage/azurite azurite-blob --blobHost 0.0.0.0`
-  - MinIO against s3mock: `MinioEndpointFileProvider` and `MinioProviderTests`.
-    `docker run -d -p 9090:9090 -e COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS=wfp-test adobe/s3mock`, or another
-    endpoint through the `WFP_MINIO_*` variables (`MinioTestEndpoint`).
+  - MinIO against S3Mock: `MinioEndpointFileProvider` and `MinioProviderTests`, or another endpoint through the
+    `WFP_MINIO_*` variables (`MinioTestEndpoint`).
   - S3: `AmazonS3LocalStackSuite`, `AmazonS3LocalStackRootSuite` and `AmazonS3ProviderTests`, against the S3-compatible
     endpoint in `AWS_ENDPOINT_URL_S3`, which must have the bucket `wfp-test` (or `WFP_S3_TEST_BUCKET`) and accept the
     access key and secret `test`. They check only that the variable is set, not that the endpoint answers, so with it
@@ -71,12 +82,16 @@ stream, download URL and 100 MB tests. The classes fall in four groups:
     a PowerShell window you close afterwards. With LocalStack, which needs a free auth token from localstack.cloud:
     `docker run -d --name localstack -p 4566:4566 -e LOCALSTACK_AUTH_TOKEN=<token> localstack/localstack`, then
     `docker exec localstack awslocal s3 mb s3://wfp-test`; the endpoint is `http://s3.localhost.localstack.cloud:4566`.
-- **Live suites**, the six classes the filter above leaves out: the shared suite against a real account, with the
-  credentials from `testsettings.json`. They fail without them. Run one only against an account you own, and check it
-  is clean afterwards.
+- **Live suites**, `[TestCategory("Live")]`, which the filter above leaves out: the shared suite against a real
+  account, with the credentials from `testsettings.json`. They fail without them. Run one only against an account you
+  own (`--filter "FullyQualifiedName~<Provider>FileProvider"`), and check it is clean afterwards.
+- **Configuration shape**: `ConfigurationShapeTests` pins the one-way door with the files in `Serialization/Golden/`:
+  `Writeable*.json` were written by the 2026.10.10.x serializer and are never regenerated; `Lenient.*.json` and
+  `Config.*.json` are hand-written inputs the 2026.10.10.x readers accept (JSON and configuration), which every later
+  reader must accept too.
 
 A change to a provider runs that provider's emulator suite, or its live suite where there is no emulator (Box,
-SharePoint, Google Cloud Storage), and its PR says which ran.
+SharePoint, Google Cloud Storage), and its PR says which ran, or that it did not run and why.
 
 ## How a change lands
 

@@ -64,7 +64,7 @@ namespace WriteableFileProviders.Tests
             using (var read = entry.CreateReadStream())
             {
                 var buf = new byte[1];
-                read.Read(buf, 0, 1);
+                read.ReadExactly(buf, 0, 1);
                 if (buf[0] != 6)
                     Assert.Fail("File contents were invalid");
             }
@@ -78,8 +78,8 @@ namespace WriteableFileProviders.Tests
             using (var read = entry.CreateReadStream())
             {
                 var buf = new byte[2];
-                read.Read(buf, 0, 2);
-                if (buf[0] != 12 && buf[1] != 6)
+                read.ReadExactly(buf, 0, 2);
+                if (buf[0] != 12 || buf[1] != 6)
                     Assert.Fail("Rewritten file contents were invalid");
             }
 
@@ -284,6 +284,8 @@ namespace WriteableFileProviders.Tests
                 while (totalRead < entry.Length)
                 {
                     var read = openStream.Read(b, 0, b.Length);
+                    if (read == 0)
+                        Assert.Fail($"The stream ended after {totalRead} of {entry.Length} bytes");
                     if (totalRead < mid1 + 1  && totalRead + read >= mid1 + 1)
                         bmid1 = b[mid1 - totalRead];
                     if (totalRead < mid2 + 1 && totalRead + read >= mid2 + 1)
@@ -385,7 +387,7 @@ namespace WriteableFileProviders.Tests
             using (var read = entry.CreateReadStream())
             {
                 var buf = new byte[1024];
-                read.Read(buf, 0, 1024);
+                read.ReadExactly(buf, 0, 1024);
                 if (!buf.SequenceEqual(content3))
                     Assert.Fail("File contents were invalid");
             }
@@ -430,7 +432,7 @@ namespace WriteableFileProviders.Tests
             using (var read = info2.CreateReadStream())
             {
                 var buf = new byte[1024];
-                read.Read(buf, 0, 1024);
+                read.ReadExactly(buf, 0, 1024);
                 if (!buf.SequenceEqual(content1))
                     Assert.Fail("File contents were invalid");
             }

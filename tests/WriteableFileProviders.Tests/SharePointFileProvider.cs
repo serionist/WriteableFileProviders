@@ -1,9 +1,11 @@
-﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 using WriteableFileProviders.SharePoint;
 
 namespace WriteableFileProviders.Tests
 {
+    // A live suite: runs against a real account with the credentials in testsettings.json. Excluded by TestCategory!=Live.
     [TestClass]
+    [TestCategory("Live")]
     public class SharePointFileProvider : TestBase
     {
         private static TestContext context;

@@ -8,25 +8,21 @@ using WriteableFileProviders.AzureBlob;
 namespace WriteableFileProviders.Tests.AzureBlob
 {
     /// <summary>
-    /// Connection details of a local Azurite blob emulator:
-    /// docker run -d -p 10000:10000 mcr.microsoft.com/azure-storage/azurite azurite-blob --blobHost 0.0.0.0
-    /// Tests are inconclusive when it is not running.
+    /// Connection details of the Azurite blob emulator that <see cref="Emulators"/> starts through Testcontainers.
+    /// Tests are inconclusive when Docker is not available.
     /// </summary>
     internal static class Azurite
     {
         public const string AccountName = "devstoreaccount1";
+        // Azurite's well-known development account key, published by Microsoft; not a secret.
         public const string AccountKey = "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==";
-        public const string Url = "127.0.0.1:10000/devstoreaccount1";
 
-        private static readonly Lazy<bool> available = new Lazy<bool>(probe);
+        /// <summary>host:port/devstoreaccount1 of the running emulator.</summary>
+        public static string Url => new Uri(Emulators.Azurite.GetBlobEndpoint()).Authority + "/" + AccountName;
 
         public static string NewContainerName() => $"wfp-test-{Guid.NewGuid():N}";
 
-        public static void RequireRunning()
-        {
-            if (!available.Value)
-                Assert.Inconclusive("Azurite is not running on 127.0.0.1:10000");
-        }
+        public static void RequireRunning() => _ = Emulators.Azurite;
 
         public static WriteableAzureBlobFileProvider CreateProvider(string containerName, string rootDirectoryPath = null)
         {
@@ -34,7 +30,14 @@ namespace WriteableFileProviders.Tests.AzureBlob
             return new WriteableAzureBlobFileProvider(Options(containerName, rootDirectoryPath));
         }
 
-        public static AzureFileProviderOptions Options(string containerName, string rootDirectoryPath = null)
+        public static AzureFileProviderOptions Options(string containerName, string rootDirectoryPath = null) =>
+            Options(containerName, rootDirectoryPath, Url);
+
+        /// <summary>Options with a fixed, unreachable endpoint, for tests that never send a request: no Docker needed.</summary>
+        public static AzureFileProviderOptions OfflineOptions(string containerName) =>
+            Options(containerName, null, "127.0.0.1:10000/" + AccountName);
+
+        private static AzureFileProviderOptions Options(string containerName, string rootDirectoryPath, string url)
         {
             return new AzureFileProviderOptions
             {
@@ -42,7 +45,7 @@ namespace WriteableFileProviders.Tests.AzureBlob
                 AccountKey = AccountKey,
                 ContainerName = containerName,
                 Protocol = "http",
-                Url = Url,
+                Url = url,
                 RootDirectoryPath = rootDirectoryPath
             };
         }
@@ -55,25 +58,8 @@ namespace WriteableFileProviders.Tests.AzureBlob
 
         public static async Task DeleteContainer(string containerName)
         {
-            if (available.Value)
-                await Container(containerName).DeleteIfExistsAsync();
-        }
-
-        private static bool probe()
-        {
-            try
-            {
-                var options = new BlobClientOptions();
-                options.Retry.MaxRetries = 0;
-                options.Retry.NetworkTimeout = TimeSpan.FromSeconds(3);
-                var service = new BlobServiceClient(new Uri($"http://{Url}"), new StorageSharedKeyCredential(AccountName, AccountKey), options);
-                service.GetProperties();
-                return true;
-            }
-            catch (Exception)
-            {
-                return false;
-            }
+            if (!Emulators.AzuriteStarted) return;
+            await Container(containerName).DeleteIfExistsAsync();
         }
     }
 }

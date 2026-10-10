@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Text;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -7,7 +7,9 @@ using WriteableFileProviders.Minio;
 
 namespace WriteableFileProviders.Tests
 {
+    // A live suite: runs against a real account with the credentials in testsettings.json. Excluded by TestCategory!=Live.
     [TestClass]
+    [TestCategory("Live")]
     public class MinioFileProvider : TestBase
     {
         private static TestContext context;

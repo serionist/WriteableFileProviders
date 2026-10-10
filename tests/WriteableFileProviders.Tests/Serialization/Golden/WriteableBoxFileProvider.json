@@ -1,0 +1,15 @@
+{
+  "ClientId": "client-id",
+  "ClientSecret": "client-secret",
+  "EnterpriseId": "123456",
+  "PublicKeyId": "public-key-id",
+  "PrivateKey": "fake-private-key",
+  "Passphrase": "passphrase",
+  "RootFolderId": "0",
+  "RootDirectoryPath": "root/dir/",
+  "RootDirectorySegments": [
+    "root",
+    "dir"
+  ],
+  "Type": "WriteableBoxFileProvider"
+}

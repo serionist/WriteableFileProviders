@@ -141,7 +141,7 @@ namespace WriteableFileProviders.Tests.AzureBlob
                 Assert.IsFalse(await provider.DeleteAsync("missing.txt"));
                 Assert.IsFalse(await provider.DeleteAsync("dir"));
                 Assert.IsNotNull(await provider.GetDownloadUrlAsync("missing.txt", TimeSpan.FromMinutes(5)));
-                var ex = await Assert.ThrowsExceptionAsync<RequestFailedException>(() => provider.ReadFileAsync("missing.txt"));
+                var ex = await Assert.ThrowsExactlyAsync<RequestFailedException>(() => provider.ReadFileAsync("missing.txt"));
                 Assert.AreEqual(404, ex.Status);
 
                 Assert.IsFalse((await client.ExistsAsync()).Value, "A read path created the container");
@@ -199,17 +199,17 @@ namespace WriteableFileProviders.Tests.AzureBlob
             {
                 var provider = Azurite.CreateProvider(container);
                 await Write(provider, "keep.txt", "keep");
-                var ex = await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => provider.DeleteAsync(""));
+                var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.DeleteAsync(""));
                 Assert.AreEqual("The provider root cannot be deleted or modified.", ex.Message);
-                await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => provider.DeleteAsync(new string[0]));
+                await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.DeleteAsync(new string[0]));
 
                 var probe = new RootProbe(Azurite.Options(container));
-                await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => probe.DeleteAbsolute());
+                await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => probe.DeleteAbsolute());
 
                 var rooted = new RootProbe(Azurite.Options(container, "base/inner"));
                 await Write(rooted, "f.txt", "x");
-                await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => rooted.DeleteAsync(""));
-                await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => rooted.DeleteAbsolute("base", "inner"));
+                await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => rooted.DeleteAsync(""));
+                await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => rooted.DeleteAbsolute("base", "inner"));
 
                 Assert.IsTrue((await provider.GetFileInfoAsync("keep.txt")).Exists);
                 Assert.IsTrue((await rooted.GetFileInfoAsync("f.txt")).Exists);
@@ -225,22 +225,22 @@ namespace WriteableFileProviders.Tests.AzureBlob
         {
             foreach (var protocol in new[] { null, "", "http", "https", "HTTPS" })
             {
-                var options = Azurite.Options("c");
+                var options = Azurite.OfflineOptions("c");
                 options.Protocol = protocol;
                 Assert.IsNotNull(new WriteableAzureBlobFileProvider(options), protocol);
             }
             foreach (var protocol in new[] { "ftp", "https://", "file", " http" })
             {
-                var options = Azurite.Options("c");
+                var options = Azurite.OfflineOptions("c");
                 options.Protocol = protocol;
-                Assert.ThrowsException<ArgumentException>(() => new WriteableAzureBlobFileProvider(options), protocol);
+                Assert.ThrowsExactly<ArgumentException>(() => new WriteableAzureBlobFileProvider(options), protocol);
             }
         }
 
         [TestMethod]
         public void Protocol_IsNotChangedOnTheOptions()
         {
-            var options = Azurite.Options("c");
+            var options = Azurite.OfflineOptions("c");
             options.Protocol = null;
             var provider = new WriteableAzureBlobFileProvider(options);
             Assert.IsNull(provider.Options.Protocol);
@@ -249,7 +249,7 @@ namespace WriteableFileProviders.Tests.AzureBlob
         [TestMethod]
         public async Task DownloadUrl_ValidityCappedAndHttpsOnly()
         {
-            var options = Azurite.Options("c");
+            var options = Azurite.OfflineOptions("c");
             options.Protocol = "https";
             options.Url = null;
             var provider = new WriteableAzureBlobFileProvider(options);
@@ -263,7 +263,7 @@ namespace WriteableFileProviders.Tests.AzureBlob
             query = HttpUtility.ParseQueryString(new Uri(await provider.GetDownloadUrlAsync("a/b.txt", TimeSpan.FromHours(1))).Query);
             Assert.IsTrue(DateTimeOffset.Parse(query["se"]) <= DateTimeOffset.UtcNow.AddHours(1).AddMinutes(1));
 
-            var http = new WriteableAzureBlobFileProvider(Azurite.Options("c"));
+            var http = new WriteableAzureBlobFileProvider(Azurite.OfflineOptions("c"));
             query = HttpUtility.ParseQueryString(new Uri(await http.GetDownloadUrlAsync("a/b.txt", TimeSpan.FromHours(1))).Query);
             Assert.IsNull(query["spr"]);
         }
@@ -298,7 +298,7 @@ namespace WriteableFileProviders.Tests.AzureBlob
             Assert.AreEqual(BlobType.Append, overwritten.Value.BlobType);
             Assert.AreEqual("new", await Read(await provider.ReadFileAsync($"{dir}/block.txt")));
 
-            var ex = await Assert.ThrowsExceptionAsync<RequestFailedException>(() =>
+            var ex = await Assert.ThrowsExactlyAsync<RequestFailedException>(() =>
                 provider.UpdateFileAsync($"{dir}/block2.txt", UpdateFileMode.Append, new MemoryStream(Encoding.UTF8.GetBytes("more"))));
             Assert.AreEqual(BlobErrorCode.InvalidBlobType.ToString(), ex.ErrorCode);
             Assert.AreEqual("block", await Read(await provider.ReadFileAsync($"{dir}/block2.txt")));

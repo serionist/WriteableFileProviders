@@ -1,0 +1,13 @@
+{
+  "AccountName": "account",
+  "AccountKey": "ZmFrZS1rZXk=",
+  "ContainerName": "container",
+  "Protocol": "https",
+  "Url": "account.blob.example.net",
+  "RootDirectoryPath": "root/dir/",
+  "RootDirectorySegments": [
+    "root",
+    "dir"
+  ],
+  "Type": "WriteableAzureBlobFileProvider"
+}

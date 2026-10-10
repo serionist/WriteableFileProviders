@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -15,25 +15,25 @@ using WriteableFileProviders.Minio;
 namespace WriteableFileProviders.Tests.Minio
 {
     /// <summary>
-    /// Endpoint for the Minio provider tests, read from WFP_MINIO_ENDPOINT, WFP_MINIO_ACCESS_KEY, WFP_MINIO_SECRET_KEY
-    /// and WFP_MINIO_BUCKET. The defaults match a local adobe/s3mock container
-    /// (docker run -d -p 9090:9090 -e COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS=wfp-test adobe/s3mock).
-    /// Tests are inconclusive when the endpoint is not reachable.
+    /// The MinIO test endpoint: S3Mock, started through Testcontainers (<see cref="Emulators"/>), unless WFP_MINIO_ENDPOINT
+    /// and the other WFP_MINIO_* variables point the tests at another S3-compatible server.
     /// </summary>
     internal static class MinioTestEndpoint
     {
-        public static string HostAndPort => env("WFP_MINIO_ENDPOINT", "127.0.0.1:9090");
+        // WFP_MINIO_ENDPOINT points the tests at another server; otherwise they start S3Mock through Testcontainers.
+        public static string HostAndPort => env("WFP_MINIO_ENDPOINT", null) ?? Emulators.S3MockHostAndPort;
         public static string AccessKey => env("WFP_MINIO_ACCESS_KEY", "foo");
         public static string SecretKey => env("WFP_MINIO_SECRET_KEY", "bar");
-        public static string BucketName => env("WFP_MINIO_BUCKET", "wfp-test");
+        public static string BucketName => env("WFP_MINIO_BUCKET", Emulators.S3MockBucket);
 
         private static bool? reachable;
 
         public static void EnsureReachable()
         {
+            var hostAndPort = HostAndPort;
             if (reachable == null)
             {
-                var parts = HostAndPort.Split(':');
+                var parts = hostAndPort.Split(':');
                 try
                 {
                     using var client = new TcpClient();
@@ -45,7 +45,7 @@ namespace WriteableFileProviders.Tests.Minio
                 }
             }
             if (reachable != true)
-                Assert.Inconclusive($"Minio endpoint {HostAndPort} is not reachable");
+                Assert.Inconclusive($"Minio endpoint {hostAndPort} is not reachable");
         }
 
         public static MinioFileProviderOptions Options(string rootDirectory, string bucketName = null)
@@ -250,16 +250,16 @@ namespace WriteableFileProviders.Tests.Minio
             var p = provider();
             await write(p, "survivor.txt");
 
-            var ex = await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => p.DeleteAsync(""));
+            var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => p.DeleteAsync(""));
             Assert.AreEqual("The provider root cannot be deleted or modified.", ex.Message);
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => p.DeleteAsync(new string[0]));
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => p.DeleteAsync(new string[0]));
 
             var unrooted = new WriteableMinioFileProvider(MinioTestEndpoint.Options(null));
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => unrooted.DeleteAsync(""));
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => unrooted.DeleteAsync(""));
 
             var probe = new RootProbe(MinioTestEndpoint.Options(root));
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => probe.DeleteAbsolute(root.Split('/')));
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => new RootProbe(MinioTestEndpoint.Options(null)).DeleteAbsolute());
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => probe.DeleteAbsolute(root.Split('/')));
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => new RootProbe(MinioTestEndpoint.Options(null)).DeleteAbsolute());
 
             Assert.IsTrue((await p.GetFileInfoAsync("survivor.txt")).Exists);
         }
@@ -272,7 +272,7 @@ namespace WriteableFileProviders.Tests.Minio
         {
             var p = provider();
             await write(p, "exists.txt");
-            await Assert.ThrowsExceptionAsync<ObjectNotFoundException>(() => p.ReadFileAsync("missing.txt"));
+            await Assert.ThrowsExactlyAsync<ObjectNotFoundException>(() => p.ReadFileAsync("missing.txt"));
         }
 
         [TestMethod]
@@ -296,7 +296,7 @@ namespace WriteableFileProviders.Tests.Minio
             Assert.IsFalse((await p.GetFileInfoAsync("a.txt")).Exists);
             Assert.IsFalse((await p.GetDirectoryContentsAsync("")).Exists);
             Assert.IsFalse((await p.GetDirectoryContentsAsync("d")).Exists);
-            await Assert.ThrowsExceptionAsync<BucketNotFoundException>(() => p.ReadFileAsync("a.txt"));
+            await Assert.ThrowsExactlyAsync<BucketNotFoundException>(() => p.ReadFileAsync("a.txt"));
             Assert.IsFalse(await p.DeleteAsync("a.txt"));
             Assert.IsFalse(await client.BucketExistsAsync(new BucketExistsArgs().WithBucket(bucket)));
 

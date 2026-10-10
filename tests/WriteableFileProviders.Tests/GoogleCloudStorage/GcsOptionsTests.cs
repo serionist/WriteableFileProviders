@@ -60,7 +60,7 @@ namespace WriteableFileProviders.Tests.GoogleCloudStorage
         [TestMethod]
         public void EscapedKey_IsRejectedByTheCredentialStackWithoutNormalisation()
         {
-            Assert.ThrowsException<FormatException>(() => new ServiceAccountCredential.Initializer(ClientEmail).FromPrivateKey(escapedLf));
+            Assert.ThrowsExactly<FormatException>(() => new ServiceAccountCredential.Initializer(ClientEmail).FromPrivateKey(escapedLf));
         }
 
         [TestMethod]
@@ -86,13 +86,13 @@ namespace WriteableFileProviders.Tests.GoogleCloudStorage
         public async Task Delete_ProviderRootIsRefusedWithoutNetwork()
         {
             var provider = new Probe(options(escapedLf));
-            var ex = await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => provider.DeleteAbsolute());
+            var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.DeleteAbsolute());
             Assert.AreEqual("The provider root cannot be deleted or modified.", ex.Message);
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => provider.DeleteAsync(""));
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.DeleteAsync(""));
 
             var rooted = new Probe(options(escapedLf, "base/inner"));
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => rooted.DeleteAbsolute("base", "inner"));
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => rooted.DeleteAsync(""));
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => rooted.DeleteAbsolute("base", "inner"));
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => rooted.DeleteAsync(""));
         }
 
         [TestMethod]

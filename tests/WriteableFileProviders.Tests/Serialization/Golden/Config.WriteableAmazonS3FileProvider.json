@@ -1,0 +1,11 @@
+{
+  "Files": {
+    "Type": "WriteableAmazonS3FileProvider",
+    "AccessKey": "test-access-key",
+    "SecretKey": "test-secret-key",
+    "BucketName": "bucket",
+    "BucketRegion": "eu-west-1",
+    "StorageClassForNewFiles": "STANDARD_IA",
+    "RootDirectoryPath": "root/dir"
+  }
+}

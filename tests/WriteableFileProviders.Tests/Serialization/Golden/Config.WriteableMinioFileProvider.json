@@ -1,0 +1,11 @@
+{
+  "Files": {
+    "type": "writeableminiofileprovider",
+    "hostAndPort": "minio.example.net:9000",
+    "UseSSL": "true",
+    "AccessKey": "test-access-key",
+    "SecretKey": "test-secret-key",
+    "BucketName": "bucket",
+    "RootDirectoryPath": "root/dir"
+  }
+}

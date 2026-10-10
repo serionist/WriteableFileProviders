@@ -1,0 +1,13 @@
+{
+  "BucketName": "bucket",
+  "ClientEmail": "service@project.example",
+  "PrivateKey": "fake-private-key",
+  "ProjectId": "project",
+  "CredentialsJson": "{}",
+  "RootDirectoryPath": "root/dir/",
+  "RootDirectorySegments": [
+    "root",
+    "dir"
+  ],
+  "Type": "WriteableGoogleCloudStorageFileProvider"
+}

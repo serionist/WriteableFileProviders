@@ -350,10 +350,10 @@ namespace WriteableFileProviders.Tests
                 Assert.AreEqual(1, listed.Count);
                 CollectionAssert.AreEqual(new[] { "dir", "file.txt" }, ((FileInfo)listed[0]).PathSegments);
 
-                await Assert.ThrowsExceptionAsync<ArgumentException>(() => provider.ReadFileAsync(null, outside, "secret.txt"));
-                await Assert.ThrowsExceptionAsync<ArgumentException>(() => provider.EnumerateObjects(new[] { outside }, true));
+                await Assert.ThrowsExactlyAsync<ArgumentException>(() => provider.ReadFileAsync(null, outside, "secret.txt"));
+                await Assert.ThrowsExactlyAsync<ArgumentException>(() => provider.EnumerateObjects(new[] { outside }, true));
 #pragma warning restore CS0618
-                await Assert.ThrowsExceptionAsync<ArgumentException>(() => provider.ReadFileVersionAsync(null, "..", outside, "secret.txt"));
+                await Assert.ThrowsExactlyAsync<ArgumentException>(() => provider.ReadFileVersionAsync(null, "..", outside, "secret.txt"));
             }
             finally
             {
@@ -375,12 +375,12 @@ namespace WriteableFileProviders.Tests
 
                 foreach (var provider in new[] { noRoot, withRoot })
                 {
-                    await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => provider.DeleteAsync(""));
-                    await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => provider.DeleteAsync(new string[0]));
+                    await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.DeleteAsync(""));
+                    await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.DeleteAsync(new string[0]));
                 }
 
-                await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => new RootGuardProbe(LocalStackS3.Options(null)).DeleteAbsolute());
-                await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => new RootGuardProbe(LocalStackS3.Options(rootDir)).DeleteAbsolute(rootDir));
+                await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => new RootGuardProbe(LocalStackS3.Options(null)).DeleteAbsolute());
+                await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => new RootGuardProbe(LocalStackS3.Options(rootDir)).DeleteAbsolute(rootDir));
 
                 Assert.IsTrue((await withRoot.GetFileInfoAsync("keep.txt")).Exists, "Content under the root was deleted");
             }

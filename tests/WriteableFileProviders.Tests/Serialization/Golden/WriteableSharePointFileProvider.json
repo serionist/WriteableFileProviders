@@ -1,0 +1,14 @@
+{
+  "SiteUrl": "https://tenant.sharepoint.example/sites/files",
+  "DocumentLibraryName": "Documents",
+  "TenantId": "00000000-0000-0000-0000-000000000001",
+  "ClientId": "00000000-0000-0000-0000-000000000002",
+  "ClientSecret": "client-secret",
+  "WorkFolderPath": "Main/Work",
+  "RootDirectoryPath": "root/dir/",
+  "RootDirectorySegments": [
+    "root",
+    "dir"
+  ],
+  "Type": "WriteableSharePointFileProvider"
+}

@@ -18,12 +18,5 @@
   "BoxFileProvider_PublicKeyId": "",
   "BoxFileProvider_PrivateKey": "",
   "BoxFileProvider_Passphrase": "",
-  "BoxFileProvider_RootFolderId": "0",
-
-  "SharePointFileProvider_SiteUrl": "",
-  "SharePointFileProvider_DocumentLibraryName": "Documents",
-  "SharePointFileProvider_TenantId": "",
-  "SharePointFileProvider_ClientId": "",
-  "SharePointFileProvider_ClientSecret": "",
-  "SharePointFileProvider_WorkFolderPath": ""
+  "BoxFileProvider_RootFolderId": "0"
 }

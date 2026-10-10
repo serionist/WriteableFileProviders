@@ -10,7 +10,6 @@ using WriteableFileProviders.Box;
 using WriteableFileProviders.GoogleCloudStorage;
 using WriteableFileProviders.Minio;
 using WriteableFileProviders.Physical;
-using WriteableFileProviders.SharePoint;
 
 namespace WriteableFileProviders.Common.Tests.Serialization;
 
@@ -35,7 +34,6 @@ public sealed class ConfigurationShapeTests
         ["WriteableMinioFileProvider", new MinioFileProviderOptions("root/dir", "minio.example.net:9000", "test-access-key", "test-secret-key", "bucket") { UseSSL = true }],
         ["WriteableGoogleCloudStorageFileProvider", new GoogleCloudStorageFileProviderOptions("bucket", "service@project.example", "fake-private-key", "project", "root/dir") { CredentialsJson = "{}" }],
         ["WriteableBoxFileProvider", new BoxFileProviderOptions("client-id", "client-secret", "123456", "public-key-id", "fake-private-key", "passphrase", "0") { RootDirectoryPath = "root/dir" }],
-        ["WriteableSharePointFileProvider", new SharePointFileProviderOptions("https://tenant.sharepoint.example/sites/files", "Documents", "00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002", "client-secret", "Main/Work") { RootDirectoryPath = "root/dir" }],
     ];
 
     [TestMethod]

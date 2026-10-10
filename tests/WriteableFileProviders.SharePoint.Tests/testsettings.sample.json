@@ -1,0 +1,11 @@
+{
+  "SharePointFileProvider_SiteUrl": "",
+  "SharePointFileProvider_DocumentLibraryName": "Documents",
+  "SharePointFileProvider_TenantId": "",
+  "SharePointFileProvider_ClientId": "",
+  "SharePointFileProvider_ClientSecret": "",
+  "SharePointFileProvider_ClientCertificateBase64": "",
+  "SharePointFileProvider_ClientCertificatePassword": "",
+  "SharePointFileProvider_UseDefaultAzureCredential": "false",
+  "SharePointFileProvider_WorkFolderPath": "wfp-live"
+}

@@ -19,7 +19,6 @@
     <ProjectReference Include="..\..\src\WriteableFileProviders.GoogleCloudStorage\WriteableFileProviders.GoogleCloudStorage.csproj" />
     <ProjectReference Include="..\..\src\WriteableFileProviders.Minio\WriteableFileProviders.Minio.csproj" />
     <ProjectReference Include="..\..\src\WriteableFileProviders.Physical\WriteableFileProviders.Physical.csproj" />
-    <ProjectReference Include="..\..\src\WriteableFileProviders.SharePoint\WriteableFileProviders.SharePoint.csproj" />
   </ItemGroup>
 
 </Project>

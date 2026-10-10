@@ -2,9 +2,13 @@
 
   <PropertyGroup>
     <PackageId>WriteableFileProviders.SharePoint</PackageId>
-    <Description>WriteableFileProviders for SharePoint and OneDrive: a writeable IFileProvider over a document library, through Microsoft Graph.</Description>
-    <WfpLegacy>true</WfpLegacy>
+    <Description>WriteableFileProviders for SharePoint document libraries: a writeable IFileProvider over a library through Microsoft Graph, with ranged reads, upload sessions, server-side copy and pre-authenticated download URLs.</Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Azure.Identity" />
@@ -17,7 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="WriteableFileProviders.Tests" />
+    <InternalsVisibleTo Include="WriteableFileProviders.SharePoint.Tests" />
   </ItemGroup>
 
 </Project>

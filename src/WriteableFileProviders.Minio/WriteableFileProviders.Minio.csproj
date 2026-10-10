@@ -2,16 +2,30 @@
 
   <PropertyGroup>
     <PackageId>WriteableFileProviders.Minio</PackageId>
-    <Description>WriteableFileProviders for MinIO and other S3-compatible servers: a writeable IFileProvider over a bucket.</Description>
-    <WfpLegacy>true</WfpLegacy>
+    <Description>WriteableFileProviders for MinIO: a writeable IFileProvider over a MinIO bucket, on the AWS SDK for .NET v4.</Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Minio" />
+    <None Include="README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The S3 protocol, shared with WriteableFileProviders.AmazonS3: each package compiles its own internal copy, so
+         neither depends on the other. -->
+    <Compile Include="..\Shared\S3\*.cs" LinkBase="S3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AWSSDK.S3" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\WriteableFileProviders.Common\WriteableFileProviders.Common.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="WriteableFileProviders.Minio.Tests" />
   </ItemGroup>
 
 </Project>

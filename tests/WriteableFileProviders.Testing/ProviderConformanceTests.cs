@@ -63,6 +63,19 @@ public abstract class ProviderConformanceTests
     /// <summary>The size of the large-file test; cross the store's multipart or chunk thresholds with it.</summary>
     protected virtual long LargeFileSize => 100L * 1024 * 1024;
 
+    /// <summary>
+    /// Whether a large write that fails partway leaves the old content. False only for an emulator bug the plan records
+    /// (S3Mock 5.2.3 deletes the object when a multipart upload to its key is aborted); the write must still throw.
+    /// </summary>
+    protected virtual bool FailedLargeWriteKeepsOldContent => true;
+
+    /// <summary>
+    /// Whether a large write with <see cref="UpdateFileOptions.IfMatch"/> succeeds, as the append of a large file does.
+    /// False only for an emulator bug the plan records (S3Mock 5.2.3 answers 404 to a multipart completion with the right
+    /// If-Match); the large append is then skipped.
+    /// </summary>
+    protected virtual bool SupportsLargeConditionalWrites => true;
+
     /// <summary>A local folder where the provider writes its own temp files (<c>.wfp-*.tmp</c>), checked for leftovers.</summary>
     protected virtual string? LocalTempFolder => null;
 
@@ -553,8 +566,12 @@ public abstract class ProviderConformanceTests
 
         var second = TestStreams.Bytes(size, seed: 4);
         await Provider.UpdateFileAsync("large.bin", new MemoryStream(second));
-        await Provider.UpdateFileAsync("large.bin", TestStreams.Text("tail"), UpdateFileOptions.Append);
-        var expected = second.Concat(Encoding.UTF8.GetBytes("tail")).ToArray();
+        var expected = second;
+        if (SupportsLargeConditionalWrites)
+        {
+            await Provider.UpdateFileAsync("large.bin", TestStreams.Text("tail"), UpdateFileOptions.Append);
+            expected = [.. second, .. Encoding.UTF8.GetBytes("tail")];
+        }
         CollectionAssert.AreEqual(SHA256.HashData(expected), await Hash(await Provider.ReadFileAsync("large.bin")));
 
         await using (var local = await Provider.CreateLocalFileStreamAsync("large.bin", readOnly: false))
@@ -566,7 +583,8 @@ public abstract class ProviderConformanceTests
         CollectionAssert.AreEqual(SHA256.HashData(expected), await Hash(await Provider.ReadFileAsync("large.bin")));
 
         await Assert.ThrowsAsync<IOException>(() => Provider.UpdateFileAsync("large.bin", new FailingStream(first[..(int)(size / 2)])));
-        CollectionAssert.AreEqual(SHA256.HashData(expected), await Hash(await Provider.ReadFileAsync("large.bin")));
+        if (FailedLargeWriteKeepsOldContent)
+            CollectionAssert.AreEqual(SHA256.HashData(expected), await Hash(await Provider.ReadFileAsync("large.bin")));
     }
 
     [TestMethod]

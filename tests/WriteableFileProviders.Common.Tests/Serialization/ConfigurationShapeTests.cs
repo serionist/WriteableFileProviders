@@ -46,6 +46,14 @@ public sealed class ConfigurationShapeTests
         AssertSameOptions(options, read);
     }
 
+    // The options properties 2027.0.0 adds (plan, Compatibility). They are written at their defaults, which the 2026
+    // golden cannot hold; any other key it lacks is a renamed or a stray property.
+    private static readonly Dictionary<string, string[]> _additions = new()
+    {
+        ["WriteableAmazonS3FileProvider"] = ["ServiceUrl", "ForcePathStyle", "UseDefaultCredentials", "CreateBucketIfMissing"],
+        ["WriteableMinioFileProvider"] = ["AllowInsecureHttp", "Region", "CreateBucketIfMissing"],
+    };
+
     [TestMethod]
     [DynamicData(nameof(Shapes))]
     public void WrittenShapeMatchesGoldenExceptStringConvertibles(string type, object options)
@@ -53,6 +61,12 @@ public sealed class ConfigurationShapeTests
         var written = JsonSerializer.SerializeToNode(options, options.GetType(), OptionsJson.Options)!.AsObject();
         written["Type"] = type;
         var golden = GoldenNode(type + ".json");
+        foreach (var addition in _additions.GetValueOrDefault(type, []))
+        {
+            Assert.IsFalse(golden.ContainsKey(addition), addition);
+            Assert.IsTrue(written[addition] is null || written[addition]!.GetValueKind() == JsonValueKind.False, $"{addition} is not at its default");
+            written.Remove(addition);
+        }
         // The 2026 serializer wrote S3's storage class as {"Value":...} and could not read it back (F78); 2027 writes the
         // string, which is also what 2026 reads correctly.
         if (golden["StorageClassForNewFiles"] is JsonObject storageClass)
@@ -79,9 +93,9 @@ public sealed class ConfigurationShapeTests
     {
         // F78, fixed: the object form the 2026 serializer wrote reads back, and so does the string form.
         var objectForm = JsonSerializer.Deserialize<AmazonS3FileProviderOptions>(Golden("WriteableAmazonS3FileProvider.json"), OptionsJson.Options)!;
-        Assert.AreEqual("STANDARD_IA", objectForm.StorageClassForNewFiles.Value);
+        Assert.AreEqual("STANDARD_IA", objectForm.StorageClassForNewFiles?.Value);
         var stringForm = JsonSerializer.Deserialize<AmazonS3FileProviderOptions>(Golden("Lenient.AmazonS3.json"), OptionsJson.Options)!;
-        Assert.AreEqual("STANDARD_IA", stringForm.StorageClassForNewFiles.Value);
+        Assert.AreEqual("STANDARD_IA", stringForm.StorageClassForNewFiles?.Value);
         var written = JsonSerializer.SerializeToNode(objectForm, OptionsJson.Options)!;
         Assert.AreEqual("STANDARD_IA", written["StorageClassForNewFiles"]!.GetValue<string>());
     }
@@ -162,7 +176,7 @@ public sealed class ConfigurationShapeTests
         // F78, fixed on the configuration path too: the storage class converts from its string.
         using var s3 = WriteableFileProviderSerializer.FromConfiguration(ConfigSection("Config.WriteableAmazonS3FileProvider.json"));
         AssertSameOptions(Shapes.Single(s => (string)s[0] == "WriteableAmazonS3FileProvider")[1], s3.Options);
-        Assert.AreEqual("STANDARD_IA", ((AmazonS3FileProviderOptions)s3.Options).StorageClassForNewFiles.Value);
+        Assert.AreEqual("STANDARD_IA", ((AmazonS3FileProviderOptions)s3.Options).StorageClassForNewFiles?.Value);
     }
 
     [TestMethod]

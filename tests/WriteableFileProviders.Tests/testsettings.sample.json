@@ -1,14 +1,3 @@
 {
-  "PhysicalFileProvider_RootPath": "",
-
-  "AmazonS3FileProvider_AccessKey": "",
-  "AmazonS3FileProvider_SecretKey": "",
-  "AmazonS3FileProvider_BucketName": "",
-  "AmazonS3FileProvider_BucketRegion": "",
-
-  "MinioProvider_HostAndPort": "",
-  "MinioProvider_AccessKey": "",
-  "MinioProvider_SecretKey": "",
-  "MinioProvider_BucketName": "",
-  "MinioProvider_RootPath": ""
+  "PhysicalFileProvider_RootPath": ""
 }

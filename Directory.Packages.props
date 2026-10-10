@@ -17,7 +17,7 @@
   </ItemGroup>
 
   <ItemGroup Label="Provider SDKs">
-    <PackageVersion Include="AWSSDK.S3" Version="3.7.305.22" />
+    <PackageVersion Include="AWSSDK.S3" Version="4.0.104.2" />
     <!-- Shared by AzureBlob and SharePoint. Since 1.21.0 its types live in Azure.Core and the package forwards them; a
          reference keeps a consumer's own Azure.Identity at 1.21.0 or later, so the types are never defined twice. -->
     <PackageVersion Include="Azure.Identity" Version="1.21.0" />
@@ -26,7 +26,6 @@
     <PackageVersion Include="Google.Cloud.Storage.V1" Version="5.0.0" />
     <PackageVersion Include="Microsoft.Graph" Version="6.8.0" />
     <PackageVersion Include="Microsoft.Graph.Core" Version="4.0.1" />
-    <PackageVersion Include="Minio" Version="7.0.0" />
   </ItemGroup>
 
   <ItemGroup Label="Build">

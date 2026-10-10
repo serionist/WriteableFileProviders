@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <!-- The S3 test code shared with WriteableFileProviders.AmazonS3.Tests: the emulators, the HTTP seam, the behaviour tests. -->
+    <Compile Include="..\Shared\S3\*.cs" LinkBase="Shared" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Remove="testsettings.json" />
+    <!-- Optional: an account for the live suite (TestCategory=Live). Nothing else needs it; it is git-ignored. -->
+    <Content Include="testsettings.json" Condition="Exists('testsettings.json')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Configuration" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" />
+    <PackageReference Include="Testcontainers" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WriteableFileProviders.Testing\WriteableFileProviders.Testing.csproj" />
+    <ProjectReference Include="..\..\src\WriteableFileProviders.Minio\WriteableFileProviders.Minio.csproj" />
+  </ItemGroup>
+
+</Project>

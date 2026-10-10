@@ -515,7 +515,7 @@ Each step is an issue under #3, a branch `<issue>-<slug>`, and a PR that builds 
 | S8 GoogleCloudStorage | #12 | | The GCS row, with fake-gcs-server. | F4 F11 F13 F17–F21 F28 F38 F41 F53 F63 F74 F75 | todo |
 | S9 SharePoint | #13 | | The SharePoint row, with the Graph fake; its live run is outstanding for the maintainers (D21). | F4 F6 F7 F8 F11 F13 F17–F21 F26 F39 F43 F49 F53 F62 F66 F70 F74 F77 | todo |
 | S10 Box | #14 | | The Box row, with the Box fake; its live run is outstanding for the maintainers (D21). | F4 F6 F11 F13 F17–F21 F25 F32 F53 F63 F67 F74 F77 | todo |
-| S11 AspNetCore gateway | #15 | | The new package, the URL service, endpoints, the gateway tests and defaults (D22, P13, P27); its README, migration entry and AGENTS.md entry; whether the token purpose string and URL shape are a one-way door (they are: tokens issued by one version must redeem on the next minor). | F11 | todo |
+| S11 AspNetCore gateway | #15 | | The new package, the URL service, endpoints, the gateway tests and defaults (D22, P13, P27); its README, migration entry and AGENTS.md entry; whether the token purpose string and URL shape are a one-way door (they are: tokens issued by one version must redeem on the next minor; recorded under One-way doors in AGENTS.md). | F11 | in review (branch `15-aspnetcore-gateway`) |
 | S12 Docs, CI, launch prep | #16 | | The root README, the migration guide's final pass, CONTRIBUTING, SECURITY, AGENTS.md and REVIEW.md, codeql, dependabot, `live.yml`, the release workflow, every floor at 90% or more, a check that no project sets `WfpLegacy`, the removal of the `[Obsolete]` 2026 helpers in Common (`GetRelativeSegments`, `IsRootPath`, `NormalizePem`, which Box and GCS take over), the PublicAPI files, and a final deep `review-code` of the whole repo. | F12 F76 | todo |
 
 The provider steps S5–S10 are independent once S4 is merged. They may run in parallel agents, each in its own worktree,
@@ -602,7 +602,7 @@ Status: `todo`, `done` (with the PR), `wontfix` (with the reason). F-numbers are
 | F8 | SharePoint unbounded itemNotFound retry | S9 | todo |
 | F9 | Commented MinIO test, leaked key in ado history | S0 | done (#17); key rotation is the maintainers' |
 | F10 | MinIO plain HTTP by default | S7 | todo |
-| F11 | Download URL lifetime differs per provider | S4, S6–S11 | S4 done (validity rules, read URLs need the file); S6–S11 per provider |
+| F11 | Download URL lifetime differs per provider | S4, S6–S11 | S4 done (validity rules, read URLs need the file); S11 done (the URL service falls back to the gateway on `NotSupportedException`, so every provider gets a URL that lives as asked); S6–S10 per provider |
 | F12 | Download URL docs wrong | S4, S12 | S4 done (interface docs); S12 READMEs |
 | F13 | Sync-over-async, no ConfigureAwait, I/O in constructors | S4, S9, S10 | S4 done (ConfigureAwait, one sync helper in Common); S8–S10 lazy init |
 | F14 | Local stream copies with sync CopyTo | S4 | done (S4): the local stream copies asynchronously |
@@ -677,14 +677,14 @@ Status: `todo`, `done` (with the PR), `wontfix` (with the reason). F-numbers are
 | Feature (roadmap) | Step | Status |
 |---|---|---|
 | P1.1 Index-based reads: ranges and seekable streams, all seven | S4, S5–S10 | S4 done (API, defaults, conformance); S5–S10 native |
-| P1.2 Signed URLs, read and write, all seven, and the gateway | S4, S6–S11 | S4 done (API, validity rules); S6–S11 |
+| P1.2 Signed URLs, read and write, all seven, and the gateway | S4, S6–S11 | S4 done (API, validity rules); S11 done (the gateway and the URL service: read, create and write URLs for every provider); S6–S10 native |
 | P1.3 Cancellation everywhere | S4 | done (S4) |
 | P1.4 Dependencies current | S2, S6–S10 | todo |
 | P2.5 Streaming writes without temp-file round trips where the SDK can | S5–S8 | todo |
 | P2.6 ETags and conditional writes | S4, S5–S10 | S4 done (API, non-atomic default); S5–S10 native |
 | P2.7 Content type on write and read | S4, S5–S10 | S4 done (API, hint); S5–S10 |
 | P2.8 Async listing, recursive | S4, S5–S10 | S4 done (API, default walk); S5–S10 |
-| P2.9 Dependency injection | S4, S11 | S4 done (registration); S11 gateway |
+| P2.9 Dependency injection | S4, S11 | S4 done (registration); S11 done (`AddWriteableFileProviderGateway`, `MapWriteableFileProviderGateway`, keyed providers resolved by name) |
 | P2.10 More credential options | S6, S7, S8 | todo |
 | P2.11 Server-side copy, GCS native move | S4, S5–S10 | S4 done (API, default); S5–S10 native |
 | P2.12 Physical Watch | S5 | todo |
@@ -799,6 +799,48 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     (round-1 F10). `BoxOfflineTests` asserts today's Box URL behaviour, which S10 replaces with D18's.
   - Main-session decisions for S5–S10 are in `.local/briefs/decisions-s5-s10.md`; each step records the ones it
     applies.
+
+- **2026-10-11, S11 (#15):** `WriteableFileProviders.AspNetCore`, built in a forked session on branch
+  `15-aspnetcore-gateway`.
+  - **The package:** builds strict, XML docs on every public member, README packed. Public surface:
+    `AddWriteableFileProviderGateway(Action<WriteableFileProviderGatewayOptions>)`, `MapWriteableFileProviderGateway()`
+    (returns the endpoints' convention builder), `IWriteableFileUrlService`, `IGatewayReplayStore`,
+    `DistributedCacheGatewayReplayStore`, `WriteableFileProviderGatewayOptions`. Common is unchanged.
+  - **Tokens:** `{r|c|w}.{base64url provider name}.{payload}`, the payload protected by a time-limited Data Protection
+    protector with the purpose chain `WriteableFileProviders.Gateway.v1`, the provider name, the access. The plan wrote
+    the purpose as one slash-joined string; a chain isolates the same way without parsing a provider name that holds a
+    `/`. The access and the provider name travel in the clear only to pick the protector: changing either changes the
+    purpose, so the payload no longer unprotects. The payload holds the path segments, the access, the content type, the
+    file name and a `jti`. The one-way door (format, purpose chain, URL shape) is recorded in AGENTS.md.
+  - **Choices beyond the plan's text**, each the fail-closed or recommended option, for the maintainers' review:
+    - Options: `MaxReadValidity` (7 days) and `MaxUploadValidity` (1 hour), both capped at 7 days, Read included, like
+      the native URLs; `OneTimeUploadTokens` (true); `MaxUploadBytes` (100 MiB); `PreferGateway` (false, global);
+      `BasePath` (`/files`); and `AllowInsecureHttp` (false), the D7 rule for MinIO applied to `PublicBaseUri`: plain
+      `http` only on a loopback host unless set. A validity over the maximum throws `NotSupportedException`, or with
+      `AllowShorterValidity` gets the maximum and its true `ExpiresOn`, as D18 has the providers do.
+    - Every token problem answers 404, a replayed one-time token included. 412 for a Create that finds the file, 413
+      over `MaxUploadBytes` (a declared `Content-Length` before the token is used; a chunked body cut off as read), 415
+      for a `Content-Type` that differs from the token's (exact, case-insensitive). A token without a content type
+      stores the request's. The one-time token is used up after the request's checks and before the body is read, so
+      concurrent `PUT`s cannot both write; a failed upload needs a new URL.
+    - A download is always `attachment`; the file name defaults to the path's name. A provider that cannot pin a
+      version (`OpenReadSeekableAsync` throws `NotSupportedException`) is served whole, without ranges or an `ETag`.
+    - The endpoints `AllowAnonymous` (a fallback authorization policy would break every URL), are excluded from output
+      caching (a cached response would outlive its token) and from API descriptions. An `IHttpLoggingInterceptor`
+      replaces the request path of gateway requests in `UseHttpLogging`; the README lists the other logs to redact
+      (hosting diagnostics, the `RequestPath` log scope, OpenTelemetry `url.path`, proxies).
+    - `DistributedCacheGatewayReplayStore` checks an in-memory set first, so it is exact within one instance and best
+      effort across instances.
+  - **Tests:** `WriteableFileProviders.AspNetCore.Tests`, 168 tests on TestServer over `InMemoryFileProvider` and a
+    delegating provider without native URLs: every case of the gateway's Tests bullet, plus the URL service's choice,
+    DI, options validation and start-up failure, and the HTTP logging, output caching and fallback authorization
+    pipelines. Key cases were checked to fail with their code reverted (the codec's access check, an atomic replay
+    store). The package measures 99.7% of lines and 97.9% of branches (Windows); its floor is 98/96.
+  - **Verified by:** the solution builds (warnings only in the `WfpLegacy` projects, as on `main`); every non-Live test
+    with `WFP_REQUIRE_DOCKER=1` passes, the 30 `AWS_ENDPOINT_URL_S3` suites inconclusive as before S7; the coverage gate
+    passes; `dotnet pack` puts the README in the package.
+  - **Not done here:** PublicAPI files (no package has them yet; S12). A live check behind a real proxy and Kestrel's
+    own body limit (TestServer has none; a test installs the feature and checks the gateway raises it).
 
 ### For the maintainers
 

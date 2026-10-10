@@ -109,6 +109,7 @@ skipped or loosened, a review step dropped, tool attribution let through. Blocke
 Every finding gets a refutation attempt before it is reported. Rule it not real when it is a nit dressed as a bug,
 already handled elsewhere (read further), contradicted by the source or the SDK's documented behaviour, or uncertain.
 Settle it with evidence: in the standard tier, quote the line that proves or kills it; in the deep tier and for a
-blocker's refuter, run the test or apply the change where that can run here. A refutation you could not check leaves
+blocker's refuter, run the test or apply the change where that can run here. Outside code is never run here
+(`review-code`, Never): read it, quote it, and leave what only running it could settle unverified. A refutation you could not check leaves
 the finding real. A refuted finding stays in the record, with its reason. A finding whose refuter failed is unverified,
 never refuted.

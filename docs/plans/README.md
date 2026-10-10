@@ -6,7 +6,8 @@ inside one provider that a reviewer can follow from the PR alone needs none; its
 
 - One file per plan: `YYYY-MM-DD-<slug>.md`, the date it was started.
 - Written with `start-work`, reviewed with `review-plan` until approved, approved by a maintainer, and committed as the
-  first commit of its branch.
+  first commit of its branch. A contributor from outside puts it up as a draft PR for that approval (`start-work`,
+  step 6).
 - A plan is the record of what was decided and why at the time. It changes while its branch is open, when the work
   departs from it, and not after the merge.
 - Fill every section. "None" is an answer; a blank is not.

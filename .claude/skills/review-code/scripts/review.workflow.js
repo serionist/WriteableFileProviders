@@ -4,9 +4,11 @@
 // kinetic-platform's review engine.
 //
 // Run: Workflow({ scriptPath: ".claude/skills/review-code/scripts/review.workflow.js", args })
-//   code:  { kind: "code", label, files: [...], diffPath, base?, model? }   a change: scope resolved by the caller with git
-//   audit: { kind: "audit", label, files: [...], model? }                   a path: the code as it stands, no diff
+//   code:  { kind: "code", label, files: [...], diffPath, base?, readOnly?, model? }   a change, resolved with git
+//   audit: { kind: "audit", label, files: [...], model? }                             a path: the code as it stands
 //   plan:  { kind: "plan", label, plan, model? }
+// readOnly: true for outside code (a PR or branch from outside the maintainers): no agent checks it out, applies it,
+// builds it or runs its tests, since it would run with every credential on this machine (review-code, Never).
 export const meta = {
   name: 'wfp-review',
   description: 'WriteableFileProviders deep review: every lens in parallel, reconcile, solo refuters and three voters, synthesis',
@@ -26,6 +28,7 @@ const ARGS = (typeof args === 'string')
 const KIND = ARGS.kind
 const MODEL = ARGS.model || 'opus'
 const LABEL = String(ARGS.label || 'review').replace(/[^A-Za-z0-9._-]/g, '-')
+const READ_ONLY = ARGS.readOnly === true
 if (!['code', 'audit', 'plan'].includes(KIND)) throw new Error('args.kind must be "code", "audit" or "plan"')
 
 // The scope comes resolved from the caller, never inferred here: an engine that guessed its scope from a description
@@ -191,7 +194,7 @@ const packPath = (prep && prep.packPath) || null
 const packNote = packPath
   ? `Read the pack at ${packPath} first; open other files only to chase a suspicion or to check a finding against the live text.`
   : `There is no pack this run: read the ground truth yourself: ${GROUND}, and the subject.`
-log(`${LABEL} ${KIND} review · ${DIMENSIONS.length} lenses · model ${MODEL}${packPath ? '' : ' · no pack'}`)
+log(`${LABEL} ${KIND} review · ${DIMENSIONS.length} lenses · model ${MODEL}${packPath ? '' : ' · no pack'}${READ_ONLY ? ' · read-only' : ''}`)
 
 phase('Review')
 const reviews = await parallel(DIMENSIONS.map(d => () =>
@@ -216,25 +219,18 @@ reviews.forEach((r, i) => {
 if (failedLenses.length) log(`lenses that failed (coverage gap): ${failedLenses.join(', ')}`)
 const found = reviews.filter(Array.isArray).flat()
 
-// Plain dedupe before paying for verification. Code: the same file with lines within 3 of each other. Plan: the same
-// section judged against the same rule. Under-merging costs a vote; over-merging would lose a finding.
+// Plain dedupe before paying for verification, for plans only: the same section judged against the same rule. Code
+// findings are not merged here: two lines close together can hold two defects, and a merged pair falls together when
+// its first claim is refuted. Code findings go to reconcile, which merges only the same defect told twice.
+// Under-merging costs a vote; over-merging would lose a finding.
 const norm = (s) => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim()
-const lineRange = (anchor) => {
-  const m = /:(\d+)(?:\s*[-–]\s*(\d+))?\s*$/.exec(String(anchor || ''))
-  return m ? [parseInt(m[1], 10), parseInt(m[2] || m[1], 10)] : null
-}
-const fileOf = (anchor) => String(anchor || '').replace(/:\d+(?:\s*[-–]\s*\d+)?\s*$/, '')
 const merged = []
 for (const f of found) {
-  const hit = CODE_LIKE
-    ? merged.find(m => {
-        const a = lineRange(m.anchor); const b = lineRange(f.anchor)
-        return a && b && fileOf(m.anchor) === fileOf(f.anchor) && !(b[0] > a[1] + 3 || b[1] < a[0] - 3)
-      })
-    : (norm(f.against).startsWith('none') ? null
-      : merged.find(m => norm(m.anchor) === norm(f.anchor) && norm(m.against) === norm(f.against)))
-  if (!hit) { merged.push({ ...f, lenses: [f.lens] }); continue }
+  const hit = CODE_LIKE || norm(f.against).startsWith('none') ? null
+    : merged.find(m => norm(m.anchor) === norm(f.anchor) && norm(m.against) === norm(f.against))
+  if (!hit) { merged.push({ ...f, lenses: [f.lens], mergedTitles: [] }); continue }
   if (!hit.lenses.includes(f.lens)) hit.lenses.push(f.lens)
+  hit.mergedTitles.push(f.title)
   if (SEVERITIES.indexOf(f.severity) > SEVERITIES.indexOf(hit.severity)) hit.severity = f.severity
   hit.sensitive = hit.sensitive || f.sensitive
   hit.evidence = `${hit.evidence}\n[also reported as "${f.title}" by ${f.lens}]: ${f.evidence}`
@@ -274,6 +270,8 @@ if (merged.length > 1) {
       // OR across the group: a sensitive finding merged into a plain one keeps its solo refuter.
       sensitive: group.some(g => g.sensitive),
       lenses: [...new Set(group.flatMap(g => g.lenses))],
+      // Every title merged in, so a refuted group still names each report it took down.
+      mergedTitles: [...new Set(group.flatMap(g => [...(g === f ? [] : [g.title]), ...(g.mergedTitles || [])]))],
       evidence: from.length ? `${f.evidence}\n${from.map(i => `[also: "${merged[i].title}": ${merged[i].evidence}]`).join('\n')}` : f.evidence,
     })
   }
@@ -293,10 +291,15 @@ const isDeep = (f) => f.sensitive || f.severity === 'blocker' || f.severity === 
 const solo = reconciled.filter(isDeep)
 const light = reconciled.filter(f => !isDeep(f))
 const VOTERS = 3
-const refuteRules = `Follow the "Refuting" section of ${LENSES}. ` + (CODE_LIKE
-  ? 'Demonstrate, do not assert: read the code path, and run the test or apply the change where that can run here ' +
-    '(AGENTS.md, Build and test). A refutation you could not check leaves the finding real.'
-  : 'Quote the plan text and the rule or code; a refutation without quoted text leaves the finding real.')
+const refuteRules = `Follow the "Refuting" section of ${LENSES}. ` + (!CODE_LIKE
+  ? 'Quote the plan text and the rule or code; a refutation without quoted text leaves the finding real.'
+  : READ_ONLY
+    ? 'This is outside code, from outside the maintainers: read it, never run it. Do not check it out, apply its ' +
+      'diff, build it or run its ' +
+      'tests. Settle the finding by reading the code path and quoting it; a finding only running code could settle ' +
+      'stays real, and your reason says it is unverified.'
+    : 'Demonstrate, do not assert: read the code path, and run the test or apply the change where that can run here ' +
+      '(AGENTS.md, Build and test). A refutation you could not check leaves the finding real.')
 const soloThunks = solo.map(f => () =>
   agent(
     `Try to refute this ${f.sensitive ? 'sensitive ' : ''}${f.severity} finding of a WriteableFileProviders ${KIND} ` +
@@ -311,7 +314,8 @@ const voterThunks = light.length ? Array.from({ length: VOTERS }, (_, voter) => 
   agent(
     `Try to refute each of these ${light.length} minor or nit findings of a WriteableFileProviders ${KIND} review of ` +
     `${SUBJECT}\n${packNote}\n${refuteRules} You are voter ${voter + 1} of ${VOTERS}; a finding falls only on a ` +
-    "majority, so judge each on its merits. Use 'drop' only with real=false. One verdict per index, each with its own " +
+    "majority, so judge each on its merits. If a finding's evidence holds merged reports, rule it real when any of " +
+    "them is, and say which. Use 'drop' only with real=false. One verdict per index, each with its own " +
     `specific reason.\n\nFINDINGS:\n${JSON.stringify(light.map((f, i) => ({ index: i, ...pub(f) })))}`,
     { label: `vote:${voter + 1}/${VOTERS}`, phase: 'Verify', schema: BATCH_SCHEMA, model: MODEL, effort: 'medium' })
     .then(v => ({ verdicts: (v && v.verdicts) || null }))
@@ -371,11 +375,12 @@ const report = await agent(
   `Write the findings part of a WriteableFileProviders ${KIND} review of "${LABEL}", in plain markdown, from the ` +
   `verified results below. Sections: Verdict (${verdictWords}); Findings (${prefix}1, ${prefix}2, ... by severity, ` +
   'blocker first: title, anchor, what it is judged against, the problem, the fix, status open, and how it was verified); ' +
-  'Refuted (each with its reason); Not covered (failed lenses, unverified findings to re-check by hand, residual risk). ' +
+  'Refuted (each with its reason, and every merged title it took down); Not covered (failed lenses, unverified ' +
+  'findings to re-check by hand, residual risk). ' +
   'Do not invent or drop findings.\n\n' +
   `FAILED LENSES: ${JSON.stringify(failedLenses)}\nMERGED AWAY (not refutations): ${JSON.stringify(reconcileNotes)}\n` +
   `CONFIRMED: ${JSON.stringify(confirmed.map(f => ({ ...pub(f), verdict: f.verdict, verifiedBy: f.verifiedBy })))}\n` +
-  `REFUTED: ${JSON.stringify(refutedFindings.map(f => ({ title: f.title, anchor: f.anchor, reason: f.verdict.reason })))}\n` +
+  `REFUTED: ${JSON.stringify(refutedFindings.map(f => ({ title: f.title, mergedTitles: f.mergedTitles || [], anchor: f.anchor, reason: f.verdict.reason })))}\n` +
   `UNVERIFIED: ${JSON.stringify(unverified.map(pub))}`,
   { label: 'synthesize', phase: 'Synthesize', model: MODEL, effort: 'high' })
 
@@ -385,7 +390,7 @@ return {
   // A dead synthesizer must not read as a clean review: the confirmed findings are returned either way.
   report: report || `(the synthesis agent failed: triage the ${confirmed.length} confirmed finding(s) below by hand)`,
   confirmed: confirmed.map(f => ({ ...pub(f), verdict: f.verdict, verifiedBy: f.verifiedBy })),
-  refuted: refutedFindings.map(f => ({ ...pub(f), reason: f.verdict.reason })),
+  refuted: refutedFindings.map(f => ({ ...pub(f), mergedTitles: f.mergedTitles || [], reason: f.verdict.reason })),
   unverified: unverified.map(pub),
   failedLenses,
   agents,

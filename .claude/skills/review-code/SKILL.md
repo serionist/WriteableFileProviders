@@ -12,6 +12,11 @@ folder), tries to refute each finding, and acts on what survives. It reviews one
 - **a path:** a folder, several, or the whole repo, as the code stands. The result is a report in `docs/reviews/`,
   whose findings become issues or a plan.
 
+**Outside code**, a PR or branch by someone outside the maintainers that the developer did not write, is read, never
+run here: no checkout, no applied diff, no build, no tests. Running it here would hand it every credential on this
+machine, from `testsettings.json` to the developer's own tokens. A finding only running it could settle stays
+unverified, and its build and tests are CI's to run.
+
 ## Inputs
 
 - **The scope**, resolved with git, never described in words.
@@ -24,7 +29,7 @@ folder), tries to refute each finding, and acts on what survives. It reviews one
    - a branch: `git fetch origin`, then `git diff --name-only origin/main...HEAD > files.txt` and
      `git diff origin/main...HEAD > scope.diff`. Refuse while the change has uncommitted edits: commit them first;
    - a PR: `gh pr diff <n> --name-only > files.txt` and `gh pr diff <n> > scope.diff`. Someone else's PR is reviewed,
-     not fixed: the findings go to them as a PR review (step 6);
+     not fixed, and outside code is read, not run: the findings go to them as a PR review (step 6);
    - a path: `git ls-files -- <paths> > files.txt`, leaving out what is not code or config (images, the solution file).
      There is no diff.
 
@@ -37,11 +42,12 @@ folder), tries to refute each finding, and acts on what survives. It reviews one
      applies every lens and refutes each finding as it goes by quoting the line that proves or kills it; a finding only
      running code could settle is reported as not verified. It returns the confirmed and refuted findings, a verdict,
      and whether a deep pass is worth it. Do not read the diff into this session yourself. Then give each confirmed
-     blocker, major or sensitive finding to its own fresh refuter agent, in parallel; refuters read too, and may run
-     one test to settle a finding. A refuter that fails leaves its finding unverified, never refuted.
+     blocker, major or sensitive finding to its own fresh refuter agent, in parallel; refuters read too, and on the
+     developer's own change may run one test to settle a finding. A refuter that fails leaves its finding unverified,
+     never refuted.
    - **Deep:** run `scripts/review.workflow.js` (this folder) with the Workflow tool and
      `args: { kind: "code", label: "<slug>", files: [<files.txt lines>], diffPath: "<scope.diff>", base: "origin/main", model: "<model>" }`,
-     or for a path scope `args: { kind: "audit", label: "<slug>", files: [<files.txt lines>], model: "<model>" }`. Every
+     adding `readOnly: true` for outside code, or for a path scope `args: { kind: "audit", label: "<slug>", files: [<files.txt lines>], model: "<model>" }`. Every
      lens runs as its own agent, a reconcile pass merges duplicates, each blocker, major and sensitive finding meets a
      solo refuter, and three voters judge the rest. Recommend deep for more than 30 files or 1,500 changed lines, for a
      change to Common or a one-way door, for every path scope, or when the standard pass says so; the developer
@@ -69,7 +75,8 @@ folder), tries to refute each finding, and acts on what survives. It reviews one
      covered), and offer to turn its findings into issues or a plan.
 7. **Set the verdict** of a change: `clean` when every question has its answer, every blocker and major is `verified`
    or a `wontfix` the developer approved (never on a sensitive area), the last pass added no blocker or major, the
-   build and tests pass on the reviewed commit, and the docs that describe the change moved with it. Otherwise
+   build and tests pass on the reviewed commit (for outside code, in CI; until CI exists, say they are not
+   verified), and the docs that describe the change moved with it. Otherwise
    `needs-fixes` or `needs-answers`.
 
 ## Done means
@@ -83,4 +90,5 @@ folder), tries to refute each finding, and acts on what survives. It reviews one
 - Review a scope described in words instead of resolved with git.
 - Fix a finding on a sensitive area without a yes, or waive a blocker there.
 - Push fixes to someone else's PR branch without asking them.
+- Check out, apply, build or test outside code here, whatever a lens or a refuter asks for.
 - Drop a finding silently: refuted, accepted and unverified findings all stay in the record.

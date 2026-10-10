@@ -33,11 +33,11 @@ work is complete. `main` takes PRs only; either maintainer merges (`AGENTS.md`, 
    (`gh pr edit <n> --body-file .local/pr-body.md`).
 6. **Ask how to close**, as one question with a recommendation, after offering one more look at the whole change,
    since the review's fixes changed it:
-   - **mark it ready** for the other maintainer to look at: best when it touches Common, a one-way door or the
-     harness, or they should see it;
-   - **merge it** now;
+   - **mark it ready** for a maintainer to look at: best when it touches Common, a one-way door or the harness, or the
+     other maintainer should see it. A developer who is not a maintainer always ends here: a maintainer merges;
+   - **merge it** now, when the developer is a maintainer;
    - **leave it as a draft**.
-7. **Merge**, when chosen:
+7. **Merge**, when chosen (a maintainer only):
    - bring the branch up to date if `main` moved: `git fetch origin` and `git rebase origin/main`, then
      `git push --force-with-lease`. A rebase that changes code needs the tests again, and another `review-code` pass
      over what changed;

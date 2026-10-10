@@ -8,7 +8,8 @@ acceptable.
 
 1. **Build and tests.** Does the solution build with `-p:UseLocalCommon=true`, and do the offline tests pass
    (`AGENTS.md`, Build and test)? For a change to a provider, did its emulator or live suite run, and does the PR say
-   which?
+   which? For a PR from outside the maintainers, the answer comes from CI, never from running its code on a
+   maintainer's machine; until CI exists, the review says it is not verified.
 2. **One-way doors.** Does the change leave the one-way doors in `AGENTS.md` alone, or does its PR name the one it
    changes and link the issue where the maintainers agreed?
 3. **Every provider.** Is a change to Common's contract or to shared behaviour made in all seven providers, tested on

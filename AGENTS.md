@@ -26,9 +26,13 @@ does not otherwise change.
 
 Run everything from the repo root, with a .NET 10 SDK (`global.json`) and the .NET 8 runtime for the tests.
 
-- **Once per clone:** copy `WriteableFileProviders.Tests/testsettings.sample.json` to `testsettings.json` next to it,
-  and set `PhysicalFileProvider_RootPath` to a scratch folder. The build fails without the file. It is git-ignored:
-  real credentials go there and nowhere else.
+- **Once per clone:**
+  - Copy `WriteableFileProviders.Tests/testsettings.sample.json` to `testsettings.json` next to it, and set
+    `PhysicalFileProvider_RootPath` to a scratch folder. The build fails without the file. It is git-ignored: real
+    credentials go there and nowhere else.
+  - With Claude Code: install the C# language server its plugin runs, `dotnet tool install --global csharp-ls`. Claude
+    Code asks before it loads the docs servers in `.mcp.json`; to approve them once for this clone, copy
+    `.claude/settings.local.json.example` to `.claude/settings.local.json`.
 - **`UseLocalCommon`:** each provider builds against the *published* `WriteableFileProviders.Common` package, at the
   version its `.csproj` pins, unless `-p:UseLocalCommon=true` puts the Common project in this repo in its place. Pass it
   to every build and test while you work, or a change to Common is not what the providers and tests run against.
@@ -44,12 +48,21 @@ Run everything from the repo root, with a .NET 10 SDK (`global.json`) and the .N
 `TestBase` is the shared suite: every provider runs the same create, overwrite, append, move, delete, listing, local
 stream, download URL and 100 MB tests. The classes fall in four groups:
 
-- **Unit tests**, the classes named `*Tests`: no outside service.
+- **Unit tests**, no outside service: `SegmentValidationTests`, `PhysicalReadTests`, `BoxOptionsTests`,
+  `GcsOptionsTests`, `SharePointPathTests` (with a fake Graph), and the options tests in `AzureBlobProviderTests`.
 - **Physical**, `PyhsicalFileProvider`: the shared suite on the local disk, under `PhysicalFileProvider_RootPath`.
-- **Emulator suites**: Azure Blob against Azurite, S3 against LocalStack, MinIO against s3mock. Each is inconclusive,
-  not failed, when its emulator is not running. The doc comment on `Azurite` (`AzureBlob/Azurite.cs`), `LocalStackS3`
-  (`AmazonS3/AmazonS3ProviderTests.cs`) and `MinioTestEndpoint` (`Minio/MinioProviderTests.cs`) gives the container
-  and the environment variables.
+- **Emulator tests**, inconclusive, not failed, when their emulator is not running:
+  - Azure Blob against Azurite: `AzuriteFileProvider` and the rest of `AzureBlobProviderTests`.
+    `docker run -d -p 10000:10000 mcr.microsoft.com/azure-storage/azurite azurite-blob --blobHost 0.0.0.0`
+  - MinIO against s3mock: `MinioEndpointFileProvider` and `MinioProviderTests`.
+    `docker run -d -p 9090:9090 -e COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS=wfp-test adobe/s3mock`, or another
+    endpoint through the `WFP_MINIO_*` variables (`MinioTestEndpoint`).
+  - S3: `AmazonS3LocalStackSuite`, `AmazonS3LocalStackRootSuite` and `AmazonS3ProviderTests`, against the S3-compatible
+    endpoint in `AWS_ENDPOINT_URL_S3`, which must have the bucket `wfp-test` (or `WFP_S3_TEST_BUCKET`) and accept the
+    access key and secret `test`. With LocalStack, which needs a free auth token from localstack.cloud:
+    `docker run -d --name localstack -p 4566:4566 -e LOCALSTACK_AUTH_TOKEN=<token> localstack/localstack`, then
+    `docker exec localstack awslocal s3 mb s3://wfp-test`, and
+    `AWS_ENDPOINT_URL_S3=http://s3.localhost.localstack.cloud:4566`.
 - **Live suites**, the six classes the filter above leaves out: the shared suite against a real account, with the
   credentials from `testsettings.json`. They fail without them. Run one only against an account you own, and check it
   is clean afterwards.
@@ -63,9 +76,12 @@ SharePoint, Google Cloud Storage), and its PR says which ran.
 their own PRs included; merging is the approval. Anyone else opens a PR from a fork, and a maintainer merges it. PRs are
 squash-merged, so the PR title becomes the commit subject on `main`.
 
+In the skills, *the developer* is the person driving the session: a maintainer, or a contributor from outside. Two
+steps belong to a maintainer alone, approving a plan and merging, and the skills say so where they come up.
+
 1. **Start** (`start-work`): an issue for anything beyond a typo, and a branch from `origin/main` named
    `<issue>-<slug>` (`42-sharepoint-paging`). A non-trivial change gets a plan in `docs/plans/`, reviewed with
-   `review-plan` and approved before any code.
+   `review-plan` and approved by a maintainer before any code.
 2. **Build it**, with its tests and its docs in the same change.
 3. **Finish** (`finish-work`): the build and the offline tests pass, `review-code` is clean, and the PR follows the
    template and says `Closes #<n>`.
@@ -106,4 +122,6 @@ agree in its issue.
 - Commit secrets: keys, tokens, passwords, connection strings or private endpoints, in code, comments, tests or
   settings files. Credentials live in `testsettings.json`, environment variables or the emulators' public defaults.
 - Change a one-way door without the maintainers' agreement.
+- Check out, build, test or run someone else's code from outside the maintainers (a contributor's PR or branch) on your
+  machine: it would run with every credential there. Review it by reading; its build and tests run in CI.
 - Weaken a test, an analyzer or a check to make a change pass.

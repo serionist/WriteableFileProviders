@@ -23,8 +23,14 @@ it.
    Fill every section; "none" is an answer, a blank is not. A plan that changes a one-way door says so in Compatibility,
    and needs the maintainers' agreement in the issue before it is approved.
 5. **Review the plan** with the `review-plan` skill until its verdict is `approved`.
-6. **Get it approved.** Give the plan's path and the review's verdict, and ask the developer to approve it. Then set
-   `status: approved`, `approved_by: <GitHub login>` and `approved_at: <date>` in its frontmatter. No code before this.
+6. **Get it approved by a maintainer.** No code before this.
+   - **The developer is a maintainer:** give the plan's path and the review's verdict, and ask them to approve it.
+   - **The developer is not:** do steps 7 and 8 first, so the plan is the branch's only commit, push the branch to
+     their fork, and open a draft PR titled `Plan: <title>` that links the issue. A maintainer approves it there; the
+     plan stays the file, and the PR is only where it is read.
+
+   Then set `status: approved`, `approved_by: <the approving maintainer's GitHub login>` and `approved_at: <date>` in
+   the plan's frontmatter, and commit that.
 7. **Start the branch** `<issue>-<slug>` from `origin/main`, after `git fetch origin`. Ask where, as one question with
    a recommendation:
    - **a new branch** in this checkout (`git switch -c <branch> origin/main`): best when the checkout is clean and

@@ -2,16 +2,26 @@
 
   <PropertyGroup>
     <PackageId>WriteableFileProviders.AzureBlob</PackageId>
-    <Description>WriteableFileProviders for Azure Blob Storage: a writeable IFileProvider over a blob container.</Description>
-    <WfpLegacy>true</WfpLegacy>
+    <Description>WriteableFileProviders for Azure Blob Storage: a writeable IFileProvider over a blob container, on block blobs, with atomic and conditional writes, ranged reads and SAS URLs.</Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
   <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- DefaultAzureCredential, for UseDefaultAzureCredential. -->
+    <PackageReference Include="Azure.Identity" />
     <PackageReference Include="Azure.Storage.Blobs" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\WriteableFileProviders.Common\WriteableFileProviders.Common.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="WriteableFileProviders.AzureBlob.Tests" />
   </ItemGroup>
 
 </Project>

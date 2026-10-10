@@ -1,311 +1,503 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Runtime;
 using System.Runtime.CompilerServices;
-using System.Threading;
-using System.Threading.Tasks;
 using Azure;
+using Azure.Core;
+using Azure.Identity;
 using Azure.Storage;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using Azure.Storage.Blobs.Specialized;
-using Azure.Storage.Sas;
 
-namespace WriteableFileProviders.AzureBlob
+namespace WriteableFileProviders.AzureBlob;
+
+/// <summary>
+/// A writeable file provider over an Azure Blob Storage container. Files are block blobs; folders are name prefixes, so
+/// a folder exists while some file is in it.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>Writes</b> stage the content as blocks and commit them in one request, so a write that fails leaves the old content
+/// and readers never see half of it. <see cref="UpdateFileOptions.IfMatch"/> and <see cref="UpdateFileOptions.IfNotExists"/>
+/// are checked atomically by that commit. An append re-commits the file's block list with the new blocks after it, on
+/// the condition that the file has not changed since it was read; a concurrent change makes it read again and retry a
+/// few times, then throw <see cref="PreconditionFailedException"/>, so it never loses a concurrent write.
+/// </para>
+/// <para>
+/// <b>Append blobs</b> written by 2026.10.10.x stay readable. Azure cannot turn one into a block blob in place, so the first
+/// write or append to one goes through a hidden temporary blob under <c>.wfp-tmp/</c> in the provider root: the new content
+/// is committed there, the append blob is deleted (with its snapshots) if it has not changed, the temporary blob is copied
+/// to its name, and only then removed. The file is missing for a moment between the delete and the copy; if the copy
+/// fails, the exception names the temporary blob that holds the content. Page blobs can be read, not written.
+/// </para>
+/// <para>
+/// <b>Moves and copies</b> copy on the server, refusing an existing destination atomically; a move then deletes the source
+/// only if it has not changed since it was copied, and otherwise removes the copy and throws
+/// <see cref="PreconditionFailedException"/>. Deleting or moving a blob also deletes its snapshots.
+/// </para>
+/// <para>
+/// <b>Signed URLs</b> are service SAS with a shared key, or user delegation SAS when the provider signs in with Microsoft
+/// Entra ID, for reading, creating (only if absent) and writing, up to 7 days. Their start time is 15 minutes in the past,
+/// so a clock that runs behind does not reject them, and they never live past the requested validity.
+/// </para>
+/// <para>
+/// A missing container makes every member throw <see cref="InvalidOperationException"/>, unless
+/// <see cref="AzureFileProviderOptions.CreateContainerIfMissing"/> lets the first write create it. Names are
+/// case-sensitive. The provider owns no disposable resources, and never disposes a client it was given.
+/// </para>
+/// </remarks>
+public partial class WriteableAzureBlobFileProvider : WriteableFileProvider<AzureFileProviderOptions>
 {
-    /// <summary>
-    /// A writeable file provider backed by an Azure Blob Storage container. Files are stored as append blobs.
-    /// <para>
-    /// Writes are not atomic: an overwrite replaces the blob with an empty append blob and then appends the
-    /// new content, so concurrent readers can observe partial content, and a failed upload leaves a partial blob.
-    /// </para>
-    /// <para>
-    /// An existing blob of another type (for example a BlockBlob uploaded by another tool) is replaced by an
-    /// append blob on overwrite; appending to it fails with a <see cref="RequestFailedException"/> (InvalidBlobType).
-    /// </para>
-    /// <para>
-    /// The container is created on the first write; reads, listings and deletes never create it.
-    /// </para>
-    /// </summary>
-    public class WriteableAzureBlobFileProvider : WriteableFileProvider<AzureFileProviderOptions>
+    private const string TempFolder = ".wfp-tmp";
+    private const string HiddenPrefix = ".wfp-";
+    private const string DefaultContentType = "application/octet-stream";
+    private const int DeleteParallelism = 8;
+
+    private readonly BlobContainerClient _container;
+
+    /// <summary>Creates the provider from its options; it does no network I/O until it is used.</summary>
+    /// <param name="options">The account, how to sign in, the container and the root folder.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="options"/> is null.</exception>
+    /// <exception cref="ArgumentException">The options are incomplete or contradict each other; the message says which.</exception>
+    public WriteableAzureBlobFileProvider(AzureFileProviderOptions options)
+        : this(options, null, null)
     {
-        private static readonly TimeSpan LeaseDuration = TimeSpan.FromSeconds(60);
-        private static readonly TimeSpan LeaseRenewInterval = TimeSpan.FromSeconds(30);
-        private static readonly TimeSpan CopyTimeout = TimeSpan.FromMinutes(10);
-        private static readonly TimeSpan MaxSasValidity = TimeSpan.FromDays(7);
-        private const int DeletePageSize = 1000;
-        private const int DeleteParallelism = 8;
+    }
 
-        private readonly DateTime DefaultDateTime = new DateTime(1970, 1, 1, 0, 0, 0);
-        private BlobServiceClient ServiceClient { get;}
-        private BlobContainerClient Container { get; }
-        private StorageSharedKeyCredential Credential { get; }
-        public WriteableAzureBlobFileProvider(AzureFileProviderOptions options) : base(options)
+    /// <summary>
+    /// Creates the provider over a container client the caller built, such as one signed in with a managed identity, with
+    /// custom retries or a custom transport. The provider never disposes it. Only the root folder and
+    /// <see cref="AzureFileProviderOptions.CreateContainerIfMissing"/> are read from <paramref name="options"/>; the account
+    /// and sign-in options may stay empty, and <see cref="WriteableFileProvider{TOptions}.ToJson"/> writes only the
+    /// options.
+    /// </summary>
+    /// <param name="container">The container client. Its credential decides how signed URLs are signed: a shared key signs a
+    /// service SAS, a token credential a user delegation SAS; with neither, signed URLs throw
+    /// <see cref="NotSupportedException"/>.</param>
+    /// <param name="options">The root folder and the container option; null for the container's root.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="container"/> is null.</exception>
+    /// <exception cref="ArgumentException"><see cref="AzureFileProviderOptions.ContainerName"/> names another container.</exception>
+    public WriteableAzureBlobFileProvider(BlobContainerClient container, AzureFileProviderOptions? options = null)
+        : base(options ?? new AzureFileProviderOptions())
+    {
+        ArgumentNullException.ThrowIfNull(container);
+        if (!string.IsNullOrEmpty(Options.ContainerName) && !string.Equals(Options.ContainerName, container.Name, StringComparison.Ordinal))
+            throw new ArgumentException($"AzureFileProviderOptions.ContainerName is '{Options.ContainerName}', but the client is for container '{container.Name}'.", nameof(options));
+        _container = container;
+    }
+
+    /// <summary>The options constructor, with the client options and the credential a test can give.</summary>
+    internal WriteableAzureBlobFileProvider(AzureFileProviderOptions options, BlobClientOptions? clientOptions, TokenCredential? credential)
+        : base(options)
+    {
+        _container = CreateContainerClient(Options, clientOptions, credential);
+    }
+
+    /// <summary>The size of each staged block: 8 MiB. A write from a seekable stream uses larger blocks when it needs them.</summary>
+    internal int BlockSize { get; set; } = 8 << 20;
+
+    /// <summary>The largest block a write stages: 256 MiB.</summary>
+    internal int MaxBlockSize { get; set; } = 256 << 20;
+
+    /// <summary>How many blocks a write stages at the same time.</summary>
+    internal int MaxConcurrency { get; set; } = 4;
+
+    /// <summary>Azure's limit of committed blocks per blob: 50,000.</summary>
+    internal int MaxCommittedBlocks { get; set; } = 50_000;
+
+    /// <summary>The largest range one server-side block copy (Put Block From URL) takes: 100 MiB.</summary>
+    internal long CopyRangeSize { get; set; } = 100L << 20;
+
+    /// <summary>How many times an append or a replace reads the file again after a concurrent change.</summary>
+    internal int MaxAttempts { get; set; } = 5;
+
+    /// <summary>How often a pending server-side copy is polled.</summary>
+    internal TimeSpan CopyPollInterval { get; set; } = TimeSpan.FromMilliseconds(500);
+
+    /// <summary>The clock for signed URL times, for the tests.</summary>
+    internal TimeProvider Clock
+    {
+        get => TimeProvider;
+        set => TimeProvider = value;
+    }
+
+    /// <summary>The container client the provider works through.</summary>
+    internal BlobContainerClient Container => _container;
+
+    /// <inheritdoc />
+    protected override bool SupportsAtomicPreconditions => true;
+
+    /// <inheritdoc />
+    protected override async Task<IWriteableFileInfo> GetFileInfoCoreAsync(ResolvedPath path, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        cancellationToken.ThrowIfCancellationRequested();
+        return await GuardAsync(async () =>
         {
-            if (string.IsNullOrEmpty(Options.AccountName))
-                throw new ArgumentException("AccountName is required", nameof(Options.AccountName));
-            if (string.IsNullOrEmpty(Options.AccountKey))
-                throw new ArgumentException("AccountKey is required", nameof(Options.AccountKey));
-            if (string.IsNullOrEmpty(Options.ContainerName))
-                throw new ArgumentException("ContainerName is required", nameof(Options.ContainerName));
-            var protocol = string.IsNullOrEmpty(Options.Protocol) ? Uri.UriSchemeHttps : Options.Protocol.ToLowerInvariant();
-            if (protocol != Uri.UriSchemeHttps && protocol != Uri.UriSchemeHttp)
-                throw new ArgumentException("Protocol must be http or https", nameof(Options.Protocol));
+            var properties = await GetPropertiesOrNullAsync(Blob(path), cancellationToken).ConfigureAwait(false);
+            if (properties is not null)
+                return FileInfo(path.Path, properties.ContentLength, properties.LastModified, properties.ETag, properties.ContentType);
+            return await HasBlobsUnderAsync(path, cancellationToken).ConfigureAwait(false)
+                ? WriteableFileInfo.Folder(this, path.Path)
+                : WriteableFileInfo.Missing(this, path.Path);
+        }).ConfigureAwait(false);
+    }
 
-            var sanitizedUrl = $"{Options.AccountName}.blob.core.windows.net";
-            if (!string.IsNullOrEmpty(Options.Url))
-                sanitizedUrl = Options.Url;
-            var blobEndpoint = $"{protocol}://{sanitizedUrl}";
-            Credential = new StorageSharedKeyCredential(Options.AccountName, Options.AccountKey);
-            ServiceClient = new BlobServiceClient(new Uri(blobEndpoint), Credential);
-            Container = ServiceClient.GetBlobContainerClient(Options.ContainerName);
-        }
+    /// <inheritdoc />
+    protected override async Task<bool> FolderExistsCoreAsync(ResolvedPath path, CancellationToken cancellationToken) =>
+        await GuardAsync(() => HasBlobsUnderAsync(path, cancellationToken)).ConfigureAwait(false);
 
-        private WriteableFileInfo info(bool exists, long length, string physicalPath, DateTimeOffset lastModified, bool isDirectory, string[] relativeSegments) =>
-            new WriteableFileInfo(this, new ProviderPath(relativeSegments), exists, isDirectory, length, lastModified, physicalPath);
+    /// <inheritdoc />
+    protected override IAsyncEnumerable<IWriteableFileInfo> EnumerateCoreAsync(ResolvedPath path, CancellationToken cancellationToken) =>
+        GuardAsync(EnumerateLevelAsync(path, cancellationToken), cancellationToken);
 
-        protected override async Task<IWriteableFileInfo> GetFileInfoCoreAsync(ResolvedPath resolved, CancellationToken cancellationToken)
+    /// <summary>
+    /// Every level of a folder from one flat listing of the blobs under it, in name order: each folder is made up from the
+    /// first blob below it, and yielded once, before it.
+    /// </summary>
+    /// <param name="path">The folder; may be the root.</param>
+    /// <param name="cancellationToken">Cancels the enumeration.</param>
+    protected override IAsyncEnumerable<IWriteableFileInfo> EnumerateRecursiveCoreAsync(ResolvedPath path, CancellationToken cancellationToken) =>
+        GuardAsync(EnumerateTreeAsync(path, cancellationToken), cancellationToken);
+
+    /// <inheritdoc />
+    protected override async Task<Stream> ReadFileCoreAsync(ResolvedPath path, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return await GuardAsync(async () =>
         {
-            var absolutePathSegments = resolved.AbsoluteSegments;
-            var path = getPath(absolutePathSegments);
-            if (absolutePathSegments.Length == 0)
-                return info(false, 0, path, DefaultDateTime, false, GetRelativeSegments(absolutePathSegments));
+            var download = await Blob(path).DownloadStreamingAsync(new BlobDownloadOptions(), cancellationToken).ConfigureAwait(false);
+            return download.Value.Content;
+        }).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    protected override async Task<Stream> ReadRangeCoreAsync(ResolvedPath path, long offset, long? length, string? ifMatch, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var blob = Blob(path);
+        var conditions = ifMatch is null ? null : new BlobRequestConditions { IfMatch = new ETag(ifMatch) };
+        return await GuardAsync(async () =>
+        {
             try
             {
-                var file = Container.GetAppendBlobClient(path);
-                var properties = await file.GetPropertiesAsync();
-                return info(true, properties.Value.ContentLength, path, properties.Value.LastModified, false, GetRelativeSegments(absolutePathSegments));
+                return await DownloadRangeAsync(blob, offset, length, conditions, cancellationToken).ConfigureAwait(false);
             }
-            catch(RequestFailedException ex) when (ex.ErrorCode == BlobErrorCode.BlobNotFound || ex.ErrorCode == BlobErrorCode.ContainerNotFound)
+            catch (RequestFailedException e) when (e.Status == 412)
             {
-                return info(false, 0, path, DefaultDateTime, false, GetRelativeSegments(absolutePathSegments));
+                throw new PreconditionFailedException($"The file '{path}' changed: its version is no longer '{ifMatch}'.", e);
             }
-        }
+        }).ConfigureAwait(false);
+    }
 
-        protected override async IAsyncEnumerable<IWriteableFileInfo> EnumerateCoreAsync(ResolvedPath resolved, [EnumeratorCancellation] CancellationToken cancellationToken)
+    private static async Task<Stream> DownloadRangeAsync(BlobClient blob, long offset, long? length, BlobRequestConditions? conditions, CancellationToken cancellationToken)
+    {
+        try
         {
-            foreach (var entry in await listAsync(resolved.AbsoluteSegments))
-                yield return entry;
+            // A range of length 0 cannot be asked for; the file must still exist and match.
+            if (length == 0)
+            {
+                await blob.GetPropertiesAsync(conditions, cancellationToken).ConfigureAwait(false);
+                return Stream.Null;
+            }
+            var download = await blob.DownloadStreamingAsync(new BlobDownloadOptions
+            {
+                Range = new HttpRange(offset, length),
+                Conditions = conditions,
+            }, cancellationToken).ConfigureAwait(false);
+            return download.Value.Content;
         }
-
-        private async Task<List<IWriteableFileInfo>> listAsync(string[] absolutePathSegments)
+        catch (RequestFailedException e) when (e.Status == 416)
         {
-            var prefix = getDirPrefix(absolutePathSegments);
-            var ret = new List<IWriteableFileInfo>();
+            // Past the end, or any range of an empty file. The version still has to match.
+            if (conditions is not null)
+                await blob.GetPropertiesAsync(conditions, cancellationToken).ConfigureAwait(false);
+            return Stream.Null;
+        }
+    }
+
+    /// <summary>
+    /// Opens the blob's own seekable stream, which reads ranges as it goes. Unless modifications are allowed, it is pinned
+    /// to the version it opened, atomically: a read after the file changed throws <see cref="PreconditionFailedException"/>.
+    /// </summary>
+    /// <param name="path">The file.</param>
+    /// <param name="options">How the stream reads.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    protected override async Task<Stream> OpenReadSeekableCoreAsync(ResolvedPath path, SeekableReadOptions options, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        cancellationToken.ThrowIfCancellationRequested();
+        return await GuardAsync(async () =>
+        {
+            var stream = await Blob(path).OpenReadAsync(new BlobOpenReadOptions(options.AllowModifications) { BufferSize = options.BufferSize }, cancellationToken).ConfigureAwait(false);
+            return (Stream)new BlobReadStream(stream, path.ToString());
+        }).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    protected override async Task<bool> DeleteCoreAsync(ResolvedPath path, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return await GuardAsync(async () =>
+        {
+            if (await DeleteBlobAsync(Blob(path), cancellationToken).ConfigureAwait(false))
+                return true;
+            var deleted = 0;
+            var pages = _container.GetBlobsAsync(new GetBlobsOptions { Prefix = FolderPrefix(path) }, cancellationToken).AsPages();
+            await foreach (var page in pages.WithCancellation(cancellationToken).ConfigureAwait(false))
+            {
+                await Parallel.ForEachAsync(page.Values, new ParallelOptions { MaxDegreeOfParallelism = DeleteParallelism, CancellationToken = cancellationToken }, async (item, token) =>
+                {
+                    if (await DeleteBlobAsync(_container.GetBlobClient(item.Name), token).ConfigureAwait(false))
+                        Interlocked.Increment(ref deleted);
+                }).ConfigureAwait(false);
+            }
+            return deleted > 0;
+        }).ConfigureAwait(false);
+    }
+
+    /// <summary>Deletes exactly the one blob, never what is under its name as a folder.</summary>
+    /// <param name="path">The file.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    protected override async Task DeleteFileCoreAsync(ResolvedPath path, CancellationToken cancellationToken) =>
+        await GuardAsync(() => DeleteBlobAsync(Blob(path), cancellationToken)).ConfigureAwait(false);
+
+    /// <summary>A store's "blob not found": read members turn it into a <see cref="FileNotFoundException"/>.</summary>
+    /// <param name="exception">The store's exception.</param>
+    protected override bool IsNotFound(Exception exception) =>
+        exception is RequestFailedException { Status: 404 } e && !Is(e, BlobErrorCode.ContainerNotFound);
+
+    private static BlobContainerClient CreateContainerClient(AzureFileProviderOptions options, BlobClientOptions? clientOptions, TokenCredential? credential)
+    {
+        if (string.IsNullOrWhiteSpace(options.ContainerName))
+            throw new ArgumentException("AzureFileProviderOptions.ContainerName is required.", nameof(options));
+        var hasKey = !string.IsNullOrEmpty(options.AccountKey);
+        if (options.UseDefaultAzureCredential && hasKey)
+            throw new ArgumentException("Set AzureFileProviderOptions.AccountKey or UseDefaultAzureCredential, not both.", nameof(options));
+        if (!options.UseDefaultAzureCredential && !hasKey)
+            throw new ArgumentException("AzureFileProviderOptions.AccountKey is required, unless UseDefaultAzureCredential is set.", nameof(options));
+        if (!options.UseDefaultAzureCredential && string.IsNullOrWhiteSpace(options.AccountName))
+            throw new ArgumentException("AzureFileProviderOptions.AccountName is required with a shared key.", nameof(options));
+
+        var serviceUri = ServiceUri(options);
+        if (!options.UseDefaultAzureCredential)
+        {
+            StorageSharedKeyCredential sharedKey;
             try
             {
-                await foreach (var item in Container.GetBlobsByHierarchyAsync(delimiter: "/", prefix: prefix))
+                sharedKey = new StorageSharedKeyCredential(options.AccountName, options.AccountKey);
+            }
+            catch (FormatException e)
+            {
+                throw new ArgumentException("AzureFileProviderOptions.AccountKey is not a base64 key.", nameof(options), e);
+            }
+            return new BlobServiceClient(serviceUri, sharedKey, clientOptions).GetBlobContainerClient(options.ContainerName);
+        }
+        if (serviceUri.Scheme != Uri.UriSchemeHttps)
+            throw new ArgumentException("UseDefaultAzureCredential needs an https endpoint: AzureFileProviderOptions.Protocol cannot be http.", nameof(options));
+        return new BlobServiceClient(serviceUri, credential ?? new DefaultAzureCredential(), clientOptions).GetBlobContainerClient(options.ContainerName);
+    }
+
+    private static Uri ServiceUri(AzureFileProviderOptions options)
+    {
+        var scheme = string.IsNullOrEmpty(options.Protocol) ? Uri.UriSchemeHttps : options.Protocol.ToLowerInvariant();
+        if (scheme != Uri.UriSchemeHttps && scheme != Uri.UriSchemeHttp)
+            throw new ArgumentException($"AzureFileProviderOptions.Protocol must be http or https, not '{options.Protocol}'.", nameof(options));
+        string url;
+        if (string.IsNullOrWhiteSpace(options.Url))
+        {
+            if (string.IsNullOrWhiteSpace(options.AccountName))
+                throw new ArgumentException("AzureFileProviderOptions.AccountName or Url is required.", nameof(options));
+            url = $"{scheme}://{options.AccountName}.blob.core.windows.net";
+        }
+        else if (options.Url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || options.Url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            url = options.Url;
+            if (!string.IsNullOrEmpty(options.Protocol) && !url.StartsWith(scheme + "://", StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException($"AzureFileProviderOptions.Url '{options.Url}' does not use the scheme of Protocol '{options.Protocol}'.", nameof(options));
+        }
+        else
+        {
+            url = $"{scheme}://{options.Url}";
+        }
+        return Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https" && uri.Host.Length > 0
+            ? uri
+            : throw new ArgumentException($"AzureFileProviderOptions.Url does not make a valid endpoint: '{url}'.", nameof(options));
+    }
+
+    private async IAsyncEnumerable<IWriteableFileInfo> EnumerateLevelAsync(ResolvedPath path, [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var prefix = FolderPrefix(path);
+        var items = _container.GetBlobsByHierarchyAsync(new GetBlobsByHierarchyOptions { Delimiter = "/", Prefix = prefix }, cancellationToken);
+        await foreach (var item in items.WithCancellation(cancellationToken).ConfigureAwait(false))
+        {
+            if (item.IsPrefix)
+            {
+                var name = item.Prefix[prefix.Length..];
+                name = name.EndsWith('/') ? name[..^1] : name;
+                if (IsListable(name))
+                    yield return WriteableFileInfo.Folder(this, path.Child(name).Path);
+            }
+            else if (item.IsBlob)
+            {
+                var name = item.Blob.Name[prefix.Length..];
+                if (IsListable(name))
+                    yield return FileInfo(path.Child(name).Path, item.Blob.Properties);
+            }
+        }
+    }
+
+    private async IAsyncEnumerable<IWriteableFileInfo> EnumerateTreeAsync(ResolvedPath path, [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var prefix = FolderPrefix(path);
+        var folders = new HashSet<string>(StringComparer.Ordinal);
+        var items = _container.GetBlobsAsync(new GetBlobsOptions { Prefix = prefix }, cancellationToken);
+        await foreach (var item in items.WithCancellation(cancellationToken).ConfigureAwait(false))
+        {
+            var parts = item.Name[prefix.Length..].Split('/');
+            // The folders above the blob, up to its first name the provider cannot address, as the one-level listing shows
+            // them; the blob itself only when every name is addressable. A blob named "dir/" (a folder marker, as the Azure
+            // portal makes them) ends in an empty name: a folder, not a file.
+            var addressable = Array.FindIndex(parts, part => !IsListable(part));
+            if (addressable < 0)
+                addressable = parts.Length;
+            for (var depth = 1; depth <= Math.Min(addressable, parts.Length - 1); depth++)
+            {
+                if (folders.Add(string.Join('/', parts[..depth])))
+                    yield return WriteableFileInfo.Folder(this, new ProviderPath([.. path.RelativeSegments, .. parts[..depth]]));
+            }
+            if (addressable == parts.Length)
+                yield return FileInfo(new ProviderPath([.. path.RelativeSegments, .. parts]), item.Properties);
+        }
+    }
+
+    // A name the provider can address as one segment: what a listing shows. Blob names with empty, dot-only or
+    // backslashed segments, or the provider's own hidden .wfp- entries, are left out.
+    private static bool IsListable(string name)
+    {
+        if (name.Length == 0 || name.StartsWith(HiddenPrefix, StringComparison.Ordinal) || name.Contains('\\', StringComparison.Ordinal))
+            return false;
+        try
+        {
+            return ValidateSegments([name]).Length == 1;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    private async Task<bool> HasBlobsUnderAsync(ResolvedPath path, CancellationToken cancellationToken)
+    {
+        var pages = _container.GetBlobsAsync(new GetBlobsOptions { Prefix = FolderPrefix(path) }, cancellationToken).AsPages(pageSizeHint: 1);
+        await foreach (var page in pages.WithCancellation(cancellationToken).ConfigureAwait(false))
+        {
+            if (page.Values.Count > 0)
+                return true;
+        }
+        return false;
+    }
+
+    private static async Task<BlobProperties?> GetPropertiesOrNullAsync(BlobBaseClient blob, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return (await blob.GetPropertiesAsync(cancellationToken: cancellationToken).ConfigureAwait(false)).Value;
+        }
+        catch (RequestFailedException e) when (Is(e, BlobErrorCode.BlobNotFound))
+        {
+            return null;
+        }
+    }
+
+    private static async Task<bool> DeleteBlobAsync(BlobBaseClient blob, CancellationToken cancellationToken) =>
+        (await blob.DeleteIfExistsAsync(DeleteSnapshotsOption.IncludeSnapshots, cancellationToken: cancellationToken).ConfigureAwait(false)).Value;
+
+    private WriteableFileInfo FileInfo(ProviderPath path, long length, DateTimeOffset lastModified, ETag etag, string? contentType) =>
+        new(this, path, true, false, length, lastModified, etag: Tag(etag), contentType: contentType);
+
+    private WriteableFileInfo FileInfo(ProviderPath path, BlobItemProperties properties) =>
+        new(this, path, true, false, properties.ContentLength ?? 0, properties.LastModified ?? DateTimeOffset.UnixEpoch,
+            etag: properties.ETag is { } etag ? Tag(etag) : null, contentType: properties.ContentType);
+
+    // One form of an ETag everywhere: a HEAD returns it quoted, a listing bare.
+    private static string Tag(ETag etag) => etag.ToString("H");
+
+    private static bool SameTag(ETag etag, string other) => string.Equals(Tag(etag), Tag(new ETag(other)), StringComparison.Ordinal);
+
+    private BlobClient Blob(ResolvedPath path) => _container.GetBlobClient(BlobName(path));
+
+    private BlockBlobClient BlockBlob(ResolvedPath path) => _container.GetBlockBlobClient(BlobName(path));
+
+    private static string BlobName(ResolvedPath path) => string.Join('/', path.AbsoluteSegments);
+
+    private static string FolderPrefix(ResolvedPath path) => path.AbsoluteSegments.Length == 0 ? "" : BlobName(path) + "/";
+
+    private static bool Is(RequestFailedException exception, BlobErrorCode code) =>
+        string.Equals(exception.ErrorCode, code.ToString(), StringComparison.Ordinal);
+
+    private InvalidOperationException ContainerMissing(Exception? innerException) =>
+        new($"The blob container '{_container.Name}' does not exist. Create it, or set AzureFileProviderOptions.{nameof(AzureFileProviderOptions.CreateContainerIfMissing)} so the first write creates it.", innerException);
+
+    // Every member: a missing container is an InvalidOperationException, never a missing path (P18).
+    private async Task<T> GuardAsync<T>(Func<Task<T>> operation)
+    {
+        try
+        {
+            return await operation().ConfigureAwait(false);
+        }
+        catch (RequestFailedException e) when (Is(e, BlobErrorCode.ContainerNotFound))
+        {
+            throw ContainerMissing(e);
+        }
+    }
+
+    private async Task GuardAsync(Func<Task> operation)
+    {
+        try
+        {
+            await operation().ConfigureAwait(false);
+        }
+        catch (RequestFailedException e) when (Is(e, BlobErrorCode.ContainerNotFound))
+        {
+            throw ContainerMissing(e);
+        }
+    }
+
+    private async IAsyncEnumerable<T> GuardAsync<T>(IAsyncEnumerable<T> source, [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var enumerator = source.GetAsyncEnumerator(cancellationToken);
+        await using (enumerator.ConfigureAwait(false))
+        {
+            while (true)
+            {
+                bool hasNext;
+                try
                 {
-                    if (item.IsPrefix)
-                    {
-                        var name = item.Prefix.Substring(prefix.Length);
-                        if (name.EndsWith("/"))
-                            name = name.Substring(0, name.Length - 1);
-                        if (name.Length == 0 || name.Contains("/"))
-                            continue;
-                        ret.Add(info(true, -1, item.Prefix, DefaultDateTime, true,
-                            GetRelativeSegments(absolutePathSegments.Concat(new[] { name }).ToArray())));
-                    }
-                    else if (item.IsBlob)
-                    {
-                        var name = item.Blob.Name.Substring(prefix.Length);
-                        if (name.Length == 0)
-                            continue;
-                        ret.Add(info(true, item.Blob.Properties.ContentLength ?? 0, item.Blob.Name,
-                            item.Blob.Properties.LastModified ?? DefaultDateTime, false,
-                            GetRelativeSegments(absolutePathSegments.Concat(new[] { name }).ToArray())));
-                    }
+                    hasNext = await enumerator.MoveNextAsync().ConfigureAwait(false);
                 }
-            }
-            catch (RequestFailedException ex) when (ex.ErrorCode == BlobErrorCode.ContainerNotFound)
-            {
-                return new List<IWriteableFileInfo>();
-            }
-            return ret;
-        }
-
-        protected override async Task<Stream> ReadFileCoreAsync(ResolvedPath resolved, CancellationToken cancellationToken)
-        {
-            var file = Container.GetAppendBlobClient(getPath(resolved.AbsoluteSegments));
-            var download = await file.DownloadAsync();
-            return new AzureFileStream(download.Value.Content, download.Value.ContentLength);
-        }
-
-        protected override Task UpdateFileCoreAsync(ResolvedPath resolved, Stream contents, UpdateFileOptions options, CancellationToken cancellationToken) =>
-            updateFileAsync(contents, options.Mode, resolved.AbsoluteSegments);
-
-        private async Task updateFileAsync(Stream contents, UpdateFileMode mode, string[] absolutePathSegments)
-        {
-            var file = Container.GetAppendBlobClient(getPath(absolutePathSegments));
-            Stream str;
-            try
-            {
-                await file.CreateIfNotExistsAsync();
-                str = await file.OpenWriteAsync(mode == UpdateFileMode.Overwrite);
-            }
-            catch (RequestFailedException ex)
-            {
-                if (ex.ErrorCode == BlobErrorCode.ContainerNotFound)
+                catch (RequestFailedException e) when (Is(e, BlobErrorCode.ContainerNotFound))
                 {
-                    await Container.CreateIfNotExistsAsync();
-                    await updateFileAsync(contents, mode, absolutePathSegments);
-                    return;
+                    throw ContainerMissing(e);
                 }
-                throw;
-            }
-
-            await using (str)
-                await contents.CopyToAsync(str);
-        }
-
-        protected override Task MoveCoreAsync(ResolvedPath source, ResolvedPath destination, CancellationToken cancellationToken) =>
-            move(source.AbsoluteSegments, destination.AbsoluteSegments);
-
-        private async Task move(string[] oldSegments, string[] newSegments)
-        {
-            var oldFile = Container.GetAppendBlobClient(getPath(oldSegments));
-            var newFile = Container.GetAppendBlobClient(getPath(newSegments));
-            var lease = oldFile.GetBlobLeaseClient();
-            var leased = false;
-            try
-            {
-                await lease.AcquireAsync(LeaseDuration);
-                leased = true;
-                await newFile.StartCopyFromUriAsync(oldFile.Uri);
-                var deadline = DateTimeOffset.UtcNow + CopyTimeout;
-                var renewAt = DateTimeOffset.UtcNow + LeaseRenewInterval;
-                BlobProperties properties;
-                while (true)
-                {
-                    properties = await newFile.GetPropertiesAsync();
-                    if (properties.BlobCopyStatus != CopyStatus.Pending)
-                        break;
-                    if (DateTimeOffset.UtcNow >= deadline)
-                    {
-                        try
-                        {
-                            await newFile.AbortCopyFromUriAsync(properties.CopyId);
-                        }
-                        catch (RequestFailedException) { }
-                        throw new TimeoutException($"Copying the file did not complete within {CopyTimeout.TotalMinutes} minutes");
-                    }
-                    if (DateTimeOffset.UtcNow >= renewAt)
-                    {
-                        await lease.RenewAsync();
-                        renewAt = DateTimeOffset.UtcNow + LeaseRenewInterval;
-                    }
-                    await Task.Delay(1000);
-                }
-                switch (properties.BlobCopyStatus)
-                {
-                    case CopyStatus.Success:
-                        await oldFile.DeleteIfExistsAsync(conditions: new BlobRequestConditions { LeaseId = lease.LeaseId });
-                        leased = false;
-                        return;
-                    case CopyStatus.Failed:
-                    case CopyStatus.Aborted:
-                        throw new ApplicationException($"Failed to copy file: {properties.CopyStatusDescription}");
-                    default:
-                        throw new ApplicationException($"Failed to copy file: Unknown status {properties.BlobCopyStatus}");
-                }
-            }
-            catch (RequestFailedException ex)
-            {
-                if (ex.ErrorCode == BlobErrorCode.ContainerNotFound)
-                {
-                    await Container.CreateIfNotExistsAsync();
-                    await move(oldSegments, newSegments);
-                    return;
-                }
-                throw;
-            }
-            finally
-            {
-                if (leased)
-                {
-                    try
-                    {
-                        await lease.ReleaseAsync();
-                    }
-                    catch (Exception) { }
-                }
+                if (!hasNext)
+                    yield break;
+                yield return enumerator.Current;
             }
         }
+    }
 
-
-        protected override async Task<bool> DeleteCoreAsync(ResolvedPath resolved, CancellationToken cancellationToken)
+    // A write's first request: on a missing container, create it when the options allow, then try once more.
+    private async Task<T> WithContainerAsync<T>(Func<Task<T>> operation, CancellationToken cancellationToken)
+    {
+        try
         {
-            var absolutePathSegments = resolved.AbsoluteSegments;
-            if (isProviderRoot(absolutePathSegments))
-                throw new InvalidOperationException("The provider root cannot be deleted or modified.");
-            try
-            {
-                var file = Container.GetAppendBlobClient(getPath(absolutePathSegments));
-                if (await file.DeleteIfExistsAsync())
-                    return true;
-                var deleted = false;
-                await foreach (var page in Container.GetBlobsAsync(prefix: getDirPrefix(absolutePathSegments)).AsPages(pageSizeHint: DeletePageSize))
-                {
-                    var blobs = page.Values;
-                    var results = new bool[blobs.Count];
-                    await Parallel.ForEachAsync(Enumerable.Range(0, blobs.Count),
-                        new ParallelOptions { MaxDegreeOfParallelism = DeleteParallelism },
-                        async (i, ct) => results[i] = await Container.GetBlobClient(blobs[i].Name).DeleteIfExistsAsync(cancellationToken: ct));
-                    deleted |= results.Any(r => r);
-                }
-                return deleted;
-            }
-            catch (RequestFailedException ex) when (ex.ErrorCode == BlobErrorCode.ContainerNotFound)
-            {
-                return false;
-            }
+            return await operation().ConfigureAwait(false);
         }
-
-        protected override bool SupportsSignedUrl(SignedUrlAccess permission) => permission == SignedUrlAccess.Read;
-
-        protected override Task<SignedUrl> GetSignedUrlCoreAsync(ResolvedPath resolved, SignedUrlOptions options, CancellationToken cancellationToken)
+        catch (RequestFailedException e) when (Is(e, BlobErrorCode.ContainerNotFound) && Options.CreateContainerIfMissing)
         {
-            var url = getDownloadUrl(resolved.AbsoluteSegments, options.Validity);
-            return Task.FromResult(new SignedUrl { Url = new Uri(url), ExpiresOn = DateTimeOffset.UtcNow.Add(options.Validity) });
-        }
-
-        private string getDownloadUrl(string[] absolutePathSegments, TimeSpan validity)
-        {
-            if (validity > MaxSasValidity)
-                validity = MaxSasValidity;
-            var file = Container.GetBlobClient(getPath(absolutePathSegments));
-            var builder = new BlobSasBuilder()
-            {
-                BlobContainerName = Container.Name,
-                BlobName = getPath(absolutePathSegments),
-                StartsOn = DateTimeOffset.UtcNow,
-                ExpiresOn = DateTimeOffset.UtcNow.Add(validity)
-            };
-            if (file.Uri.Scheme == Uri.UriSchemeHttps)
-                builder.Protocol = SasProtocol.Https;
-            builder.SetPermissions(BlobAccountSasPermissions.Read);
-            return new BlobUriBuilder(file.Uri)
-            {
-                Sas = builder.ToSasQueryParameters(Credential)
-            }.ToUri().ToString();
-        }
-
-
-        private string getPath(string[] absolutePathSegments)
-        {
-            return string.Join("/", absolutePathSegments);
-        }
-
-        private string getDirPrefix(string[] absolutePathSegments)
-        {
-            return absolutePathSegments.Length == 0 ? "" : getPath(absolutePathSegments) + "/";
-        }
-
-        private bool isProviderRoot(string[] absolutePathSegments)
-        {
-            return absolutePathSegments.Length == 0 || absolutePathSegments.SequenceEqual(Options.RootDirectorySegments);
+            await _container.CreateIfNotExistsAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
+            return await operation().ConfigureAwait(false);
         }
     }
 }

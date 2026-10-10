@@ -1,11 +1,6 @@
 {
   "PhysicalFileProvider_RootPath": "",
 
-  "AzureBlobFileProvider_AccountName": "",
-  "AzureBlobFileProvider_AccountKey": "",
-  "AzureBlobFileProvider_ContainerName": "",
-  "AzureBlobFileProvider_RootPath": "",
-
   "AmazonS3FileProvider_AccessKey": "",
   "AmazonS3FileProvider_SecretKey": "",
   "AmazonS3FileProvider_BucketName": "",

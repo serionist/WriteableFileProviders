@@ -3,7 +3,6 @@ using System.Threading.Tasks;
 using DotNet.Testcontainers.Builders;
 using DotNet.Testcontainers.Containers;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Testcontainers.Azurite;
 
 namespace WriteableFileProviders.Tests
 {
@@ -14,17 +13,8 @@ namespace WriteableFileProviders.Tests
     /// </summary>
     internal static class Emulators
     {
-        public const string AzuriteImage = "mcr.microsoft.com/azure-storage/azurite:3.37.0";
         public const string S3MockImage = "adobe/s3mock:5.2.3";
         public const string S3MockBucket = "wfp-test";
-
-        private static readonly Lazy<Task<AzuriteContainer>> azurite = new Lazy<Task<AzuriteContainer>>(async () =>
-        {
-            // --skipApiVersionCheck: a newer Azure.Storage.Blobs may send an x-ms-version this Azurite does not know yet.
-            var container = new AzuriteBuilder(AzuriteImage).WithCommand("--skipApiVersionCheck").Build();
-            await container.StartAsync().ConfigureAwait(false);
-            return container;
-        });
 
         private static readonly Lazy<Task<IContainer>> s3Mock = new Lazy<Task<IContainer>>(async () =>
         {
@@ -38,12 +28,6 @@ namespace WriteableFileProviders.Tests
         });
 
         public static bool DockerRequired => Environment.GetEnvironmentVariable("WFP_REQUIRE_DOCKER") == "1";
-
-        /// <summary>Whether Azurite was started in this run; cleanup does nothing when it was not.</summary>
-        public static bool AzuriteStarted => azurite.IsValueCreated && azurite.Value.IsCompletedSuccessfully;
-
-        /// <summary>The Azurite container: its blob endpoint is http://host:port/devstoreaccount1.</summary>
-        public static AzuriteContainer Azurite => start(azurite, "Azurite");
 
         /// <summary>The S3Mock container's host:port, with the bucket <see cref="S3MockBucket"/>.</summary>
         public static string S3MockHostAndPort

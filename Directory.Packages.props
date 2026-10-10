@@ -18,8 +18,10 @@
 
   <ItemGroup Label="Provider SDKs">
     <PackageVersion Include="AWSSDK.S3" Version="3.7.305.22" />
+    <!-- Shared by AzureBlob and SharePoint. Since 1.21.0 its types live in Azure.Core and the package forwards them; a
+         reference keeps a consumer's own Azure.Identity at 1.21.0 or later, so the types are never defined twice. -->
     <PackageVersion Include="Azure.Identity" Version="1.21.0" />
-    <PackageVersion Include="Azure.Storage.Blobs" Version="12.23.0" />
+    <PackageVersion Include="Azure.Storage.Blobs" Version="12.30.1" />
     <PackageVersion Include="Box.V2.Core" Version="5.8.0" />
     <PackageVersion Include="Google.Cloud.Storage.V1" Version="5.0.0" />
     <PackageVersion Include="Microsoft.Graph" Version="5.85.0" />

@@ -60,7 +60,7 @@ namespace WriteableFileProviders.Tests.Common
         {
             var provider = new RecordingProvider("tenantA");
             var stream = HandBuilt(provider, segments);
-            await Assert.ThrowsExceptionAsync<ArgumentException>(() => stream.DisposeAsync());
+            await Assert.ThrowsExactlyAsync<ArgumentException>(() => stream.DisposeAsync());
             Assert.AreEqual(0, provider.Writes.Count);
         }
 
@@ -69,7 +69,7 @@ namespace WriteableFileProviders.Tests.Common
         {
             var provider = new RecordingProvider("tenantA");
             var stream = HandBuilt(provider, "tenantA");
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => stream.DisposeAsync());
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => stream.DisposeAsync());
             Assert.AreEqual(0, provider.Writes.Count);
         }
 
@@ -80,7 +80,7 @@ namespace WriteableFileProviders.Tests.Common
             var other = new RecordingProvider("tenantA");
             var stream = HandBuilt(owner, "tenantA", "x.txt");
             stream.SkipReUploadOnDispose = true;
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => other.OnLocalFileStreamDisposingAsync(stream));
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => other.OnLocalFileStreamDisposingAsync(stream));
             Assert.AreEqual(0, other.Writes.Count);
             await stream.DisposeAsync();
             Assert.AreEqual(0, owner.Writes.Count);

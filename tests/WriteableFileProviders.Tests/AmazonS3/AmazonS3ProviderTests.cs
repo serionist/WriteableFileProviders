@@ -350,10 +350,10 @@ namespace WriteableFileProviders.Tests
                 Assert.AreEqual(1, listed.Count);
                 CollectionAssert.AreEqual(new[] { "dir", "file.txt" }, ((FileInfo)listed[0]).PathSegments);
 
-                await Assert.ThrowsExceptionAsync<ArgumentException>(() => provider.ReadFileAsync(null, outside, "secret.txt"));
-                await Assert.ThrowsExceptionAsync<ArgumentException>(() => provider.EnumerateObjects(new[] { outside }, true));
+                await Assert.ThrowsExactlyAsync<ArgumentException>(() => provider.ReadFileAsync(null, outside, "secret.txt"));
+                await Assert.ThrowsExactlyAsync<ArgumentException>(() => provider.EnumerateObjects(new[] { outside }, true));
 #pragma warning restore CS0618
-                await Assert.ThrowsExceptionAsync<ArgumentException>(() => provider.ReadFileVersionAsync(null, "..", outside, "secret.txt"));
+                await Assert.ThrowsExactlyAsync<ArgumentException>(() => provider.ReadFileVersionAsync(null, "..", outside, "secret.txt"));
             }
             finally
             {

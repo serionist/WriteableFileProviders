@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -60,9 +60,9 @@ namespace WriteableFileProviders.Tests
         public async Task Delete_WorkFolderItself_IsRefused()
         {
             var (provider, handler) = createProvider();
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => provider.DeleteAsync("Archive", "Stale"));
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => provider.DeleteAsync("Archive/Stale"));
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => provider.DeleteAsync(""));
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.DeleteAsync("Archive", "Stale"));
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.DeleteAsync("Archive/Stale"));
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.DeleteAsync(""));
             Assert.AreEqual(0, handler.Requests.Count);
         }
 
@@ -70,8 +70,8 @@ namespace WriteableFileProviders.Tests
         public async Task Move_FromOrToWorkFolderItself_IsRefused()
         {
             var (provider, handler) = createProvider();
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => provider.MoveAsync("Archive/Stale", "Archive/Stale/x"));
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => provider.MoveAsync("Archive/Stale/x", "Archive/Stale"));
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.MoveAsync("Archive/Stale", "Archive/Stale/x"));
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.MoveAsync("Archive/Stale/x", "Archive/Stale"));
             Assert.AreEqual(0, handler.Requests.Count);
         }
 
@@ -80,8 +80,8 @@ namespace WriteableFileProviders.Tests
         {
             var (provider, handler) = createProvider();
             using var content = new MemoryStream(Encoding.UTF8.GetBytes("x"));
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => provider.UpdateFileAsync(content, UpdateFileMode.Overwrite, "Archive", "Stale"));
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => provider.UpdateFileAsync(content, UpdateFileMode.Append, "Archive", "Stale"));
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.UpdateFileAsync(content, UpdateFileMode.Overwrite, "Archive", "Stale"));
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.UpdateFileAsync(content, UpdateFileMode.Append, "Archive", "Stale"));
             Assert.AreEqual(0, handler.Requests.Count);
         }
 
@@ -99,8 +99,8 @@ namespace WriteableFileProviders.Tests
         public async Task Segment_WithColon_IsRejected()
         {
             var (provider, handler) = createProvider();
-            await Assert.ThrowsExceptionAsync<ArgumentException>(() => provider.GetFileInfoAsync("a:b"));
-            await Assert.ThrowsExceptionAsync<ArgumentException>(() => provider.DeleteAsync("dir", "a%3Ab"));
+            await Assert.ThrowsExactlyAsync<ArgumentException>(() => provider.GetFileInfoAsync("a:b"));
+            await Assert.ThrowsExactlyAsync<ArgumentException>(() => provider.DeleteAsync("dir", "a%3Ab"));
             Assert.AreEqual(0, handler.Requests.Count);
         }
 

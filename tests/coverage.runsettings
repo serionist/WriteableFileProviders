@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Code coverage settings for the coverage run (AGENTS.md, Coverage). Test assemblies are left out already: the
+     extension does not measure them under Microsoft.Testing.Platform. -->
+<Configuration>
+  <CodeCoverage>
+    <ModulePaths>
+      <Include>
+        <ModulePath>.*WriteableFileProviders\.[A-Za-z0-9]+\.dll$</ModulePath>
+      </Include>
+      <Exclude>
+        <ModulePath>.*Tests\.dll$</ModulePath>
+        <ModulePath>.*\.Testing\.dll$</ModulePath>
+      </Exclude>
+    </ModulePaths>
+    <Attributes>
+      <Exclude>
+        <Attribute>^System\.CodeDom\.Compiler\.GeneratedCodeAttribute$</Attribute>
+        <Attribute>^System\.Diagnostics\.CodeAnalysis\.ExcludeFromCodeCoverageAttribute$</Attribute>
+      </Exclude>
+    </Attributes>
+    <!-- Instrument the assemblies before the run rather than through the CLR profiler: the profiler would attach to every
+         .NET process the tests start too. -->
+    <EnableStaticManagedInstrumentation>True</EnableStaticManagedInstrumentation>
+    <EnableDynamicManagedInstrumentation>False</EnableDynamicManagedInstrumentation>
+  </CodeCoverage>
+</Configuration>

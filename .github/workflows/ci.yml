@@ -1,0 +1,79 @@
+# Build, test with coverage, and pack, on every pull request and every push to main. The emulator suites start their
+# containers through Testcontainers, which needs Docker: present on the Linux runner, where WFP_REQUIRE_DOCKER makes a
+# missing emulator fail the run instead of leaving its tests inconclusive. Live suites (TestCategory=Live) never run here.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  linux:
+    name: Build, test, coverage, pack (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      WFP_REQUIRE_DOCKER: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # MinVer versions the packages from the git history and tags.
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+      - name: Restore (locked)
+        run: dotnet restore WriteableFileProviders.slnx --locked-mode
+      - name: Build
+        run: dotnet build WriteableFileProviders.slnx --no-restore -c Release
+      - name: Test with coverage
+        run: >-
+          dotnet test --solution WriteableFileProviders.slnx --no-build -c Release
+          --filter "TestCategory!=Live"
+          --coverage --coverage-output-format cobertura --coverage-settings tests/coverage.runsettings
+          --results-directory artifacts/TestResults --report-trx
+      - name: Coverage gate
+        run: dotnet run eng/coverage-gate.cs -- artifacts/TestResults
+      - name: Pack
+        run: dotnet pack WriteableFileProviders.slnx --no-build -c Release -o artifacts/packages
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: test-results
+          path: artifacts/TestResults
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: packages
+          path: artifacts/packages
+
+  windows:
+    name: Build and test (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+      - name: Restore (locked)
+        run: dotnet restore WriteableFileProviders.slnx --locked-mode
+      - name: Build
+        run: dotnet build WriteableFileProviders.slnx --no-restore -c Release
+      # No Linux containers on Windows runners: the emulator suites are inconclusive here and run on Linux.
+      - name: Test
+        run: dotnet test --solution WriteableFileProviders.slnx --no-build -c Release --filter "TestCategory!=Live"

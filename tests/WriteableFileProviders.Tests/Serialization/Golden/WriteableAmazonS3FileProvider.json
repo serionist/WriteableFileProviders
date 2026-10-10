@@ -1,0 +1,16 @@
+{
+  "IsAnonymus": false,
+  "AccessKey": "test-access-key",
+  "SecretKey": "test-secret-key",
+  "BucketName": "bucket",
+  "BucketRegion": "eu-west-1",
+  "StorageClassForNewFiles": {
+    "Value": "STANDARD_IA"
+  },
+  "RootDirectoryPath": "root/dir/",
+  "RootDirectorySegments": [
+    "root",
+    "dir"
+  ],
+  "Type": "WriteableAmazonS3FileProvider"
+}

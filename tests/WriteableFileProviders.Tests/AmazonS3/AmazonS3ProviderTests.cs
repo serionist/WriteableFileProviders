@@ -375,12 +375,12 @@ namespace WriteableFileProviders.Tests
 
                 foreach (var provider in new[] { noRoot, withRoot })
                 {
-                    await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => provider.DeleteAsync(""));
-                    await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => provider.DeleteAsync(new string[0]));
+                    await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.DeleteAsync(""));
+                    await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.DeleteAsync(new string[0]));
                 }
 
-                await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => new RootGuardProbe(LocalStackS3.Options(null)).DeleteAbsolute());
-                await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => new RootGuardProbe(LocalStackS3.Options(rootDir)).DeleteAbsolute(rootDir));
+                await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => new RootGuardProbe(LocalStackS3.Options(null)).DeleteAbsolute());
+                await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => new RootGuardProbe(LocalStackS3.Options(rootDir)).DeleteAbsolute(rootDir));
 
                 Assert.IsTrue((await withRoot.GetFileInfoAsync("keep.txt")).Exists, "Content under the root was deleted");
             }

@@ -3,7 +3,9 @@ using WriteableFileProviders.GoogleCloudStorage;
 
 namespace WriteableFileProviders.Tests
 {
+    // A live suite: runs against a real account with the credentials in testsettings.json. Excluded by TestCategory!=Live.
     [TestClass]
+    [TestCategory("Live")]
     public class GoogleCloudStorageFileProvider : TestBase
     {
         private static TestContext context;

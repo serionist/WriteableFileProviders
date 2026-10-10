@@ -213,6 +213,19 @@ public sealed class GcsProviderTests
     }
 
     [TestMethod]
+    public async Task Provider_SendsNothingUntilItsFirstCallAndOneRequestPerRange()
+    {
+        var http = new FaultInjection();
+        var provider = Provider(http);
+        Assert.AreEqual(0, http.Requests.Count, "The constructor sends nothing (F13)");
+        await provider.UpdateFileAsync("f.txt", TestStreams.Text("0123456789"));
+        http.Requests.Clear();
+        Assert.AreEqual("345", await ReadAll(await provider.ReadRangeAsync("f.txt", 3, 3)));
+        Assert.AreEqual(1, http.Requests.Count, string.Join(", ", http.Requests));
+        StringAssert.Contains(http.Requests[0], "alt=media");
+    }
+
+    [TestMethod]
     public async Task GivenClient_WhoseCredentialCannotSignRefusesSignedUrls()
     {
         // An access token reads and writes but cannot sign: the provider says so up front.

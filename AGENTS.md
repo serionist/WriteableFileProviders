@@ -90,6 +90,12 @@ step of #3, in a test project of its own:
   `AzureConfigurationShapeTests`. Live: `AzureBlobLiveTests`, only with `WFP_LIVE=1` (inconclusive without it) and an
   account in the `WFP_AZURE_*` variables or in `testsettings.json` next to the project (see `testsettings.sample.json`
   there).
+- **SharePoint**, `tests/WriteableFileProviders.SharePoint.Tests`: the suite runs offline against `GraphFake`, a stateful
+  in-memory Microsoft Graph at the end of the SDK's own HTTP pipeline, through both constructors (a caller's
+  `GraphServiceClient`, and options with a work folder). Unit tests cover the requests sent, upload sessions, races the
+  service settles, faults and the options. `SharePointLiveTests` (`Live`) runs the suite against a real library with
+  `WFP_LIVE=1` and the `WFP_SHAREPOINT_*` variables or a `testsettings.json` next to the project
+  (`testsettings.sample.json` lists the keys).
 
 `WriteableFileProviders.AspNetCore.Tests` runs the gateway end to end on TestServer (`Microsoft.AspNetCore.TestHost`),
 with ephemeral Data Protection keys, over `InMemoryFileProvider` and a delegating provider that signs no URLs natively
@@ -104,7 +110,7 @@ regenerated.
 overwrite, append, move, delete, listing, local stream, download URL and 100 MB tests. Its classes fall in four groups:
 
 - **Unit tests**, no outside service: `SegmentValidationTests`, `PhysicalReadTests`, `AmazonS3PathTests`,
-  `BoxOptionsTests`, `BoxOfflineTests` (with a fake Box API) and `SharePointPathTests` (with a fake Graph).
+  `BoxOptionsTests` and `BoxOfflineTests` (with a fake Box API).
 - **Physical**, `PyhsicalFileProvider`: the shared suite on the local disk, under `PhysicalFileProvider_RootPath`, or a
   temp folder when it is not set.
 - **Emulator tests**: `Emulators` starts each emulator once per run through Testcontainers, and the containers go when

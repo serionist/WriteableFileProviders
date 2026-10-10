@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The gateway and the URL service, end to end on TestServer, over the in-memory reference provider. -->
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WriteableFileProviders.Testing\WriteableFileProviders.Testing.csproj" />
+    <ProjectReference Include="..\..\src\WriteableFileProviders.AspNetCore\WriteableFileProviders.AspNetCore.csproj" />
+  </ItemGroup>
+
+</Project>

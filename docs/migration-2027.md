@@ -112,6 +112,58 @@ The base class now enforces these on every provider:
 - **Unsupported operations:** they throw `NotSupportedException`, never `PlatformNotSupportedException`.
 - **Invalid path segments:** an `ArgumentException` for one names the parameter `path`.
 
+## Amazon S3 and MinIO
+
+Both providers now run on one implementation of the S3 protocol, on the AWS SDK for .NET v4 (AWSSDK.S3 4.x).
+WriteableFileProviders.Minio no longer depends on the Minio SDK, so Minio, Microsoft.Extensions 9 and System.Reactive
+leave your dependency graph; reference the Minio SDK yourself if you used its types. If you use AWSSDK.S3 directly,
+follow AWS's v3-to-v4 migration guide: response collections can be null, value types are nullable, checksums are on by
+default, and the obsolete `S3Region` short names (`US`, `EU`, `SFO`…) are gone.
+
+### Amazon S3
+
+| 2026 | 2027 | How to move |
+|---|---|---|
+| `ReadFileAsync(string versionId, params string[] absolutePathSegments)`, `EnumerateObjects(string[], bool)` (obsolete since the 2026.10 security patch) | Removed | `ReadFileVersionAsync(versionId, path)` and `EnumerateAsync(path, recursive: true)`, both relative to the root. |
+| `ReadFileVersionAsync(string versionId, params string[] pathSegments)` | `ReadFileVersionAsync(string? versionId, ProviderPath path, CancellationToken)` | A call with one path string compiles unchanged; pass several segments as `"a/b.txt"` or an array. |
+| `ReadFileAsync(string subpath)` on the concrete type | Removed | `ReadFileAsync(path)` of the interface, which a string converts to. |
+| Missing file: `AmazonS3Exception` (NoSuchKey) | `FileNotFoundException`, with the SDK's error inside | Catch `FileNotFoundException`. |
+| A folder: `Exists` false, `IsDirectory` true; `PhysicalPath` the key | `Exists` and `IsDirectory` true; `PhysicalPath` null | Use `IWriteableFileInfo.Path`. |
+| Move overwrote an existing destination | `FileExistsException`; it deletes exactly the source key | Delete the destination first if you meant to replace it. |
+| A missing bucket failed with the SDK's error | `InvalidOperationException` naming the bucket, unless `CreateBucketIfMissing` is set | Create the bucket, or set the option. |
+| One PUT per write, at most 5 GB, and the caller's stream was disposed | Multipart above 8 MiB (up to 5 TiB); the stream is left open | Dispose your stream yourself. |
+| A failed append could upload a half-appended file (F4) | An append is a rewrite with `If-Match`: it fails whole, and a concurrent write makes it throw `PreconditionFailedException` | Retry on `PreconditionFailedException`. |
+| Content type inferred from the key's extension | The `ContentType` you give, else `application/octet-stream`; an append keeps the file's type | Pass `UpdateFileOptions.ContentType` where you relied on the inference. |
+| Download URLs forced `Content-Type: application/octet-stream` | Read URLs serve the stored type unless `SignedUrlOptions.ContentType` says otherwise; create and write URLs are new | Set `ContentType` on the URL to keep the old header. |
+| A presigned URL lived as asked, whatever the credential | A credential that expires sooner, or a session token, needs `AllowShorterValidity` (D18) | Use long-term keys, or accept the shorter URL. |
+| The S3Region constructors stored `""` for us-east-1 and `"EU"` for eu-west-1 | They store `us-east-1` and `eu-west-1`, and the old values read as those regions | Nothing to do. |
+| A key with an empty segment, `..` or a backslash was listed | Left out of listings, since no path can name it | Rename such keys with another tool. |
+
+New: `ServiceUrl` and `ForcePathStyle` for S3-compatible servers, `UseDefaultCredentials` for the SDK's default
+credential chain, `CreateBucketIfMissing`, and a constructor that takes your own `IAmazonS3`.
+
+### MinIO
+
+| 2026 | 2027 | How to move |
+|---|---|---|
+| `UseSSL` false sent everything over plain HTTP to any host | Plain HTTP only toward a loopback host; any other host throws `ArgumentException` when the provider is built (D7) | Set `UseSSL`, or `AllowInsecureHttp` for a server you reach over plain HTTP on purpose. |
+| A missing bucket was created on the first write | `InvalidOperationException` naming the bucket, unless `CreateBucketIfMissing` is set | Set `CreateBucketIfMissing: true` to keep the old behaviour. |
+| Missing file: `ObjectNotFoundException`; missing bucket: `BucketNotFoundException` | `FileNotFoundException`; `InvalidOperationException` | Catch those. |
+| `ReadFileAsync` downloaded the whole file to a seekable temp file | A forward-only network stream | Use `OpenReadSeekableAsync` (ranged reads) or `CreateLocalFileStreamAsync` (a local copy) where you seek. |
+| Download URLs threw `NotSupportedException` | Presigned read, create and write URLs, up to 7 days | Nothing to do. |
+| Every file was stored as `application/octet-stream` | The `ContentType` you give is stored; without one, still `application/octet-stream` | Nothing to do. |
+| Move overwrote an existing destination | `FileExistsException`, checked before the copy (MinIO ignores `If-None-Match` on copies, so the check is not atomic) | Delete the destination first if you meant to replace it. |
+| The Minio SDK asked the server for the bucket's region | The provider asks once (`GetBucketLocation`), or takes the new `Region` option | Set `Region` for a server with a site region whose bucket does not exist yet. |
+
+**Finding the configurations D7 breaks:** search your configuration files and stores for `WriteableMinioFileProvider`
+entries whose `UseSSL` is `false` or absent and whose `HostAndPort` is not `localhost`, a `127.x.x.x` address or `[::1]`.
+Each needs `"UseSSL": true`, or `"AllowInsecureHttp": true` if plain HTTP is intended. `HostAndPort` still takes
+`host:port` only: a scheme, a path or a query is refused, as the Minio SDK refused it.
+
+`IfMatch`, `IfNotExists` and the protection of concurrent appends need a MinIO release with conditional writes; older
+servers ignore the headers. New: `AllowInsecureHttp`, `Region`, `CreateBucketIfMissing`, and a constructor that takes your
+own `IAmazonS3`.
+
 ## Stored configuration
 
 The shape is unchanged:

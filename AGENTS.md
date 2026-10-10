@@ -16,6 +16,7 @@ and what never to do.
 | `tests/WriteableFileProviders.Common.Tests/` | Common's tests: the conformance suite on the in-memory provider, unit tests, and the configuration-shape goldens. |
 | `tests/WriteableFileProviders.AspNetCore.Tests/` | The gateway and the URL service, end to end on TestServer over the in-memory provider. |
 | `tests/WriteableFileProviders.Tests/` | The provider tests from before the modernization; each provider's rewrite moves its tests to a project of its own on the conformance suite. |
+| `tests/WriteableFileProviders.<Provider>.Tests/` | A rewritten provider's tests: the conformance suite on its emulator or fake, its own cases, and a `Live` suite (see Tests). |
 | `docs/migration-2027.md` | What 2027.0.0 breaks and how to move over; each change of the release adds its part. |
 | `REVIEW.md` | The questions every review answers. |
 | `docs/plans/` | The plan of each non-trivial change, and the template (`docs/plans/README.md`). |
@@ -76,7 +77,16 @@ Run everything from the repo root, with a .NET 10 SDK (`global.json`).
 contract" in the modernization plan. A provider's test project derives a `[TestClass]` from it, says how to build the
 provider and what the store can do (real folders, case, signed URLs, the large-file size), and so runs every rule. It
 passes today against `InMemoryFileProvider` in `WriteableFileProviders.Common.Tests`; each provider joins it in its own
-step of #3.
+step of #3, in a test project of its own:
+
+- **Azure Blob**, `tests/WriteableFileProviders.AzureBlob.Tests`. On Azurite, which `Azurite` starts once per run through
+  Testcontainers (inconclusive without Docker, unless `WFP_REQUIRE_DOCKER=1`): `AzuriteConformanceTests`, the suite on
+  providers built from options; `AzuriteStrictConformanceTests`, the suite again over a container client whose pipeline
+  (`AzureHandler`) refuses what Azure refuses and Azurite allows (replacing an append blob, more blocks than the limit,
+  here lowered to 6); and `AzureBlobProviderTests`: 2026 append blobs, block restaging, races injected through the
+  pipeline, missing containers, signed URLs used over HTTP. Offline: `AzureBlobOptionsTests`, `SignedUrlTests`,
+  `AzureConfigurationShapeTests`. Live: `AzureBlobLiveTests`, only with `WFP_LIVE=1` and an account in the `WFP_AZURE_*`
+  variables or in `testsettings.json` next to the project (see `testsettings.sample.json` there).
 
 `WriteableFileProviders.AspNetCore.Tests` runs the gateway end to end on TestServer (`Microsoft.AspNetCore.TestHost`),
 with ephemeral Data Protection keys, over `InMemoryFileProvider` and a delegating provider that signs no URLs natively
@@ -91,13 +101,11 @@ regenerated.
 overwrite, append, move, delete, listing, local stream, download URL and 100 MB tests. Its classes fall in four groups:
 
 - **Unit tests**, no outside service: `SegmentValidationTests`, `PhysicalReadTests`, `AmazonS3PathTests`,
-  `BoxOptionsTests`, `BoxOfflineTests` (with a fake Box API), `SharePointPathTests` (with a fake Graph), and the
-  options tests in `AzureBlobProviderTests`.
+  `BoxOptionsTests`, `BoxOfflineTests` (with a fake Box API) and `SharePointPathTests` (with a fake Graph).
 - **Physical**, `PyhsicalFileProvider`: the shared suite on the local disk, under `PhysicalFileProvider_RootPath`, or a
   temp folder when it is not set.
 - **Emulator tests**: `Emulators` starts each emulator once per run through Testcontainers, and the containers go when
   the run ends. Without Docker they are inconclusive, not failed, unless `WFP_REQUIRE_DOCKER=1` (CI).
-  - Azure Blob against Azurite: `AzuriteFileProvider` and the rest of `AzureBlobProviderTests`.
   - MinIO against S3Mock: `MinioEndpointFileProvider` and `MinioProviderTests`, or another endpoint through the
     `WFP_MINIO_*` variables (`MinioTestEndpoint`).
   - S3: `AmazonS3LocalStackSuite`, `AmazonS3LocalStackRootSuite` and `AmazonS3ProviderTests`, against the S3-compatible

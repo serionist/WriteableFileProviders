@@ -512,7 +512,7 @@ Each step is an issue under #3, a branch `<issue>-<slug>`, and a PR that builds 
 | S3 Test platform and CI | #7 | #20 | MSTest 4 on Microsoft.Testing.Platform, Testcontainers fixtures, live suites tagged `Live`, the golden corpus of the stored configuration shape from the old code (JSON for six providers, configuration for Azure, S3, MinIO and Physical, Physical built at run time, the `Type` key rules, F78 on both paths), coverage collection and gate, `ci.yml`, the F68 assertion fixes. AGENTS.md's suite rule is unchanged (D21). F28 and F29 move to the conformance suite (S4), F56's remaining dead weight goes with TestBase (S5–S10). | F27 F30 F42 F68 | todo |
 | S4 Common 2027 | #8 | | The Common API and contract, `RangeReadStream`, signed URL types, the System.Text.Json serializer, DI, disposal, `LocalFileStream`, helpers, XML docs, the full conformance suite run against an in-memory reference provider in `WriteableFileProviders.Testing`, Common at 90%. Every provider moved mechanically onto the new base, so `main` keeps building: signature renames only, no behaviour change, and the PR lists per provider what verified it; AmazonS3, GCS, Box and SharePoint are "not verified until S7, S8, S9, S10", which run the full conformance suite including root protection and delete scope (P7). The old tests whose behaviour changes are updated and listed in the PR. One PR with two doors, the Common API and the configuration-shape serializer, both named in its title and description; splitting would keep Newtonsoft alive one step longer (P34). Docs (P11): `docs/migration-2027.md` starts here, Common's README, and AGENTS.md (the Testing project, the conformance suite, One-way doors extended to the 2027 Common surface). Shared files (`Directory.Packages.props`, Testing) change here or one step at a time. It also carries one unplanned harness change, e041292: the deep review's refuters probe in a scratch copy, never the checkout under review; its PR names it. | F4 F11 F12 F13 F14 F16 F17 F18 F19 F20 F21 F22 F28 F29 F31 F33 F34 F35 F36 F37 F38 F47 F48 F52 F53 F54 F57 F58 F59 F61 F69 F72 F74 F78 | in review |
 | S5 Physical | #9 | | The Physical row. Each provider step wires its own test project to the conformance suite, deletes its old TestBase class, raises its coverage floor, and updates its README, options docs and the migration ledger. | F3 F5 F17–F21 F53 F54 F74 F77 | todo |
-| S6 AzureBlob | #10 | | The AzureBlob row, with Azurite. | F3 F11 F15 F17–F21 F26 F40 F44 F53 F64 F70 F74 | todo |
+| S6 AzureBlob | #10 | | The AzureBlob row, with Azurite. The main-session decisions applied are in the progress log (2026-10-11, S6). | F3 F11 F15 F17–F21 F26 F40 F44 F53 F64 F70 F74 | in review (branch `10-azureblob`) |
 | S7 AmazonS3 and MinIO | #11 | | `S3Core`, the S3 and MinIO rows, with S3Mock. | F1 F2 F4 F10 F11 F17–F21 F24 F28 F38 F41 F45 F51 F53 F65 F73 F74 | todo |
 | S8 GoogleCloudStorage | #12 | | The GCS row, with fake-gcs-server. | F4 F11 F13 F17–F21 F28 F38 F41 F44 F53 F56 F63 F74 F75 | built on `12-gcs`, in review |
 | S9 SharePoint | #13 | | The SharePoint row, with the Graph fake; its live run is outstanding for the maintainers (D21). | F4 F6 F7 F8 F11 F13 F17–F21 F26 F39 F43 F49 F53 F62 F66 F70 F74 F77 | todo |
@@ -559,9 +559,11 @@ Covered under Design, Docs. AGENTS.md changes in S2 (layout, commands), in S3 (t
   validating. Mitigation: the test client sets `RequestChecksumCalculation = WHEN_REQUIRED` if needed. Signed URL tests
   check the signature parameters, not their validity. Accepted.
 - **Azure block-blob append:**
-  - The 50,000 committed-block limit is handled by a rewrite.
+  - The 50,000 committed-block limit is handled by restaging the content into fewer blocks on the server before the
+    append (S6).
   - A blob uploaded in one Put Blob has no block list, so its first append rewrites it.
-  - Covered by tests on Azurite.
+  - Covered by tests on Azurite, which enforces neither the block limit nor the append-blob type rules: S6's test
+    pipeline (`AzureHandler`) refuses those requests as Azure does, with the limit lowered.
 - **Serializer compatibility:** pinned by the golden corpus generated from the old code before the switch.
 - **Scope and time:** the work spans many PRs in one long session, and context compaction can lose detail. Mitigation:
   this file is the record, and it is updated after every step.
@@ -596,7 +598,7 @@ Status: `todo`, `done` (with the PR), `wontfix` (with the reason). F-numbers are
 |---|-------|------|--------|
 | F1 | S3 version read skips root and hides base overloads | S0, S7 | S0 done (#17); S7 removes the member |
 | F2 | S3 EnumerateObjects lists outside the root | S0, S7 | S0 done (#17); S7 removes the member |
-| F3 | Failed overwrite truncates on Physical and Azure | S5, S6 | todo |
+| F3 | Failed overwrite truncates on Physical and Azure | S5, S6 | S6 done (Azure: stage, then one conditional commit; conformance and an injected commit failure); S5 todo |
 | F4 | Append-by-rewrite five ways; S3/GCS upload half-appended files | S4, S7, S8 | S4 done (`AppendByRewriteAsync`: spools, then writes with `IfMatch` on the version read, and refuses a file without an ETag); S8 done (GCS appends through it, conditional on the generation); S7 moves S3 onto it |
 | F5 | Physical local stream writes in place; Skip does nothing | S5 | todo |
 | F6 | Box and SharePoint rewind the caller's stream | S9, S10 | todo |
@@ -604,22 +606,22 @@ Status: `todo`, `done` (with the PR), `wontfix` (with the reason). F-numbers are
 | F8 | SharePoint unbounded itemNotFound retry | S9 | todo |
 | F9 | Commented MinIO test, leaked key in ado history | S0 | done (#17); key rotation is the maintainers' |
 | F10 | MinIO plain HTTP by default | S7 | todo |
-| F11 | Download URL lifetime differs per provider | S4, S6–S11 | S4 done (validity rules, read URLs need the file); S8 done (GCS: V4 URLs live the validity rounded down to whole seconds, 1 s to 7 days, else `NotSupportedException`; `ExpiresOn` read from the URL); S11 done (the URL service falls back to the gateway on `NotSupportedException`); every provider gets a URL that lives as asked once S9 and S10 make SharePoint and Box throw per D18; S6, S7, S9, S10 per provider |
+| F11 | Download URL lifetime differs per provider | S4, S6–S11 | S4 done (validity rules, read URLs need the file); S6 done (Azure: ends exactly at the validity, 7-day maximum, a user delegation SAS never outlives its key, D18 for a key that would); S8 done (GCS: V4 URLs live the validity rounded down to whole seconds, 1 s to 7 days, else `NotSupportedException`; `ExpiresOn` read from the URL); S11 done (the URL service falls back to the gateway on `NotSupportedException`); every provider gets a URL that lives as asked once S9 and S10 make SharePoint and Box throw per D18; S7, S9, S10 per provider |
 | F12 | Download URL docs wrong | S4, S12 | S4 done (interface docs); S12 READMEs |
 | F13 | Sync-over-async, no ConfigureAwait, I/O in constructors | S4, S9, S10 | S4 done (ConfigureAwait, one sync helper in Common); S8 done (GCS: no I/O in the constructors; the client, Application Default Credentials and the bucket check on the first call, asynchronously); S9, S10 lazy init |
 | F14 | Local stream copies with sync CopyTo | S4 | done (S4): the local stream copies asynchronously |
-| F15 | AzureFileStream lacks async reads | S6 | todo |
+| F15 | AzureFileStream lacks async reads | S6 | done (S6): reads return the SDK's `DownloadStreamingAsync` stream; `AzureFileStream` is gone |
 | F16 | No CancellationToken | S4 | done (S4): every async member takes a token |
-| F17 | No ranged reads | S4, S5–S10 | S4 done (API, base default); S8 done (GCS: ranged media GET); S5–S7, S9, S10 native ranges |
-| F18 | Missing-file exception differs | S4, S5–S10 | S4 done (the base turns a store's not-found into `FileNotFoundException`; conformance tests); S8 done (GCS, the `GoogleApiException` as inner); S5–S7, S9, S10 per provider |
-| F19 | Move semantics differ | S4, S5–S10 | S4 done (the base checks the source and the destination; case-only renames on stores that ignore case); S8 done (GCS copies with `ifGenerationMatch=0`); S5–S7, S9, S10 per provider |
-| F20 | GetFileInfo on folders differs | S4, S5–S10 | S4 done (the contract and its conformance tests); S8 done (GCS); S5–S7, S9, S10 per provider. Box still reports a folder as missing; its offline test leaves that unchecked until S10 |
-| F21 | PhysicalPath means different things | S4, S5–S10 | S4 done (the contract and its conformance test); S8 done (GCS: null); S5–S7, S9, S10 per provider |
+| F17 | No ranged reads | S4, S5–S10 | S4 done (API, base default); S6 done (Azure: ranged download, `OpenReadAsync` seekable stream); S8 done (GCS: ranged media GET); S5, S7, S9, S10 native ranges |
+| F18 | Missing-file exception differs | S4, S5–S10 | S4 done (the base turns a store's not-found into `FileNotFoundException`; conformance tests); S6 done (Azure, conformance on Azurite); S8 done (GCS, the `GoogleApiException` as inner); S5, S7, S9, S10 per provider |
+| F19 | Move semantics differ | S4, S5–S10 | S4 done (the base checks the source and the destination; case-only renames on stores that ignore case); S6 done (Azure: server-side copy with `IfNoneMatch = *`, move deletes the source on its ETag); S8 done (GCS copies with `ifGenerationMatch=0`); S5, S7, S9, S10 per provider |
+| F20 | GetFileInfo on folders differs | S4, S5–S10 | S4 done (the contract and its conformance tests); S6 done (Azure); S8 done (GCS); S5, S7, S9, S10 per provider. Box still reports a folder as missing; its offline test leaves that unchecked until S10 |
+| F21 | PhysicalPath means different things | S4, S5–S10 | S4 done (the contract and its conformance test); S6 done (Azure: null); S8 done (GCS: null); S5, S7, S9, S10 per provider |
 | F22 | Naming rule vs protected camelCase members | S4 | done (S4): the protected members are PascalCase `...CoreAsync` |
 | F23 | net8.0 hard-coded, no Nullable | S2 | done (#19) |
 | F24 | AWS SDK v3 end of support | S7 | todo |
 | F25 | Box.V2.Core 5.8 outdated | S10 | todo |
-| F26 | Azure.Identity unused and deprecated | S6 | todo |
+| F26 | Azure.Identity unused and deprecated | S6 | done (S6): AzureBlob uses it (`UseDefaultAzureCredential`) at the one shared version, 1.21.0, which SharePoint also takes |
 | F27 | Coverage not configured or enforced | S3, S12 | todo |
 | F28 | Download URL test passes on NotSupported | S4 (suite), S7, S8 | S4 done (suite: `NotSupportedException` is asserted exactly where the fixture says so, never swallowed); S8 done (`GcsOptionsTests` checks `X-Goog-Expires`, `ExpiresOn` and the signed headers offline; `GcsClientConformanceTests` asserts `NotSupportedException` without a signer); S7 offline expiry tests |
 | F29 | No cleanup after failed live tests | S4 (suite) | done (S4): each conformance test works under its own root folder, deleted in `[TestCleanup]` whether it passed or failed |
@@ -633,11 +635,11 @@ Status: `todo`, `done` (with the PR), `wontfix` (with the reason). F-numbers are
 | F37 | LocalFileStream.DisposeAsync hides Stream's | S4 | done (S4): `LocalFileStream` overrides `DisposeAsync` |
 | F38 | Move deletes a prefix if the key vanished | S4, S7, S8 | S4 done (`DeleteFileCoreAsync`, and the conformance test `Move_RemovesExactlyTheSourceKey`); S8 done (GCS deletes exactly the copied generation); S7 todo |
 | F39 | SharePoint chunked upload fragile | S9 | todo |
-| F40 | Azure SAS starts now | S6 | todo |
+| F40 | Azure SAS starts now | S6 | done (S6): `StartsOn` is now − 15 minutes, which a "Block" SAS expiration policy also requires |
 | F41 | S3/GCS dispose the caller's stream | S7, S8 | S8 done (GCS uploads through a forward-only wrapper that never disposes it); S7 todo |
 | F42 | MSTest 3.6/VSTest dated | S3 | todo |
 | F43 | SharePoint empty folder lists as missing | S9 | todo |
-| F44 | Bucket auto-create differs | S6, S7, S8 | S8 done (GCS: `CreateBucketIfMissing`, default false; `InvalidOperationException` otherwise); S6, S7 todo |
+| F44 | Bucket auto-create differs | S6, S7, S8 | S6 done (Azure: `CreateContainerIfMissing`, default false; reads never create); S8 done (GCS: `CreateBucketIfMissing`, default false; `InvalidOperationException` otherwise); S7 todo |
 | F45 | MinIO download URL unsupported | S7 | todo |
 | F46 | .sln, no CPM | S2 | done (#19) |
 | F47 | Public LocalFileStream ctor bypasses root | S0, S4 | done: S0 (#17) checked it; S4 makes the constructor internal |
@@ -646,10 +648,10 @@ Status: `todo`, `done` (with the PR), `wontfix` (with the reason). F-numbers are
 | F50 | Common's Version 1.1.2 | S2 | done (#19) |
 | F51 | MinIO and S3 duplicate the protocol | S7 | todo |
 | F52 | Providers not disposable | S4 | done (S4) for the base; S5–S10 dispose their clients |
-| F53 | Root guard written seven times | S4 | S4 done (one resolution in the base); S8 done (GCS's own guard is gone); S5–S7, S9, S10 drop their own guards |
+| F53 | Root guard written seven times | S4 | S4 done (one resolution in the base); S6 done (Azure has no guard of its own); S8 done (GCS's own guard is gone); S5, S7, S9, S10 drop their own guards |
 | F54 | Seven identical Watch overrides | S4, S5 | S4 done (the seven overrides removed; the base `WatchCore` throws `NotSupportedException`); S5 Physical Watch |
 | F55 | UseLocalCommon switch | S2 | done (#19) |
-| F56 | Test-suite dead weight | S2 (runsettings, publish profile), S5–S10 (with TestBase) | in part; S8 done for GCS (its TestBase suite, its TestContext stub and its settings keys are gone) |
+| F56 | Test-suite dead weight | S2 (runsettings, publish profile), S5–S10 (with TestBase) | in part; S6 removed the Azure TestBase suites and settings; S8 done for GCS (its TestBase suite, its TestContext stub and its settings keys are gone) |
 | F57 | Contract cases missing from the shared suite | S4 | done (S4): the conformance suite |
 | F58 | Root and segment exceptions undocumented | S4 | done (S4): the interface documents them |
 | F59 | Interface docs copy-paste | S4 | done (S4): the interface docs are rewritten |
@@ -657,17 +659,17 @@ Status: `todo`, `done` (with the PR), `wontfix` (with the reason). F-numbers are
 | F61 | Serializer and options undocumented | S4, S12 | S4 done (serializer); S12 options docs |
 | F62 | SharePoint folder creation three ways | S9 | todo |
 | F63 | Whole-object download before read | S8, S9, S10 (S7 MinIO via S3Core) | S8 done (GCS reads stream); S7, S9, S10 todo |
-| F64 | AzureFileStream vs OpenReadAsync | S6 | todo |
+| F64 | AzureFileStream vs OpenReadAsync | S6 | done (S6): `OpenReadSeekableAsync` is `OpenReadAsync`, pinned to its ETag |
 | F65 | S3 single PutObject (5 GB) | S7 | todo |
 | F66 | SharePoint maps all errors to not-found | S9 | todo |
 | F67 | Box offset paging | S10 | todo |
 | F68 | Assertion bugs in the shared suite | S3 | todo |
 | F69 | FileInfo collides with System.IO.FileInfo | S4 | done (S4): `WriteableFileInfo` |
-| F70 | UploadResult and AzureFileStream public | S6, S9 | todo |
+| F70 | UploadResult and AzureFileStream public | S6, S9 | S6 done (`AzureFileStream` removed); S9 todo |
 | F71 | net10-only drops .NET 8 consumers | S2 (D2) | done (#19) |
 | F72 | Unused packages | S2, S4 | S2 part done (#19); S4 done (Newtonsoft removed from every project) |
 | F73 | Minio forces Extensions 9 and Reactive | S7 | todo |
-| F74 | Temp-file spool written nine times | S4 | S4 done (`SpoolToTempFileAsync`, `AppendByRewriteAsync`); S8 done (GCS spools only through `AppendByRewriteAsync`); S5–S7, S9, S10 use them |
+| F74 | Temp-file spool written nine times | S4 | S4 done (`SpoolToTempFileAsync`, `AppendByRewriteAsync`); S6 done (Azure appends spool through it); S8 done (GCS spools only through `AppendByRewriteAsync`); S5, S7, S9, S10 use them |
 | F75 | GCS has no emulator seam | S8 | done (S8): the `Endpoint` option, the `StorageClient` constructor, and the conformance suite on fake-gcs-server |
 | F76 | Package descriptions and READMEs | S12 | todo |
 | F77 | Dead code in providers | S5, S9, S10 | todo |
@@ -678,17 +680,17 @@ Status: `todo`, `done` (with the PR), `wontfix` (with the reason). F-numbers are
 
 | Feature (roadmap) | Step | Status |
 |---|---|---|
-| P1.1 Index-based reads: ranges and seekable streams, all seven | S4, S5–S10 | S4 done (API, defaults, conformance); S8 done (GCS); S5–S7, S9, S10 native |
-| P1.2 Signed URLs, read and write, all seven, and the gateway | S4, S6–S11 | S4 done (API, validity rules); S8 done (GCS V4: read, create, write); S11 done (the gateway and the URL service: read, create and write URLs for every provider); S6, S7, S9, S10 native |
+| P1.1 Index-based reads: ranges and seekable streams, all seven | S4, S5–S10 | S4 done (API, defaults, conformance); S6 done (Azure native); S8 done (GCS); S5, S7, S9, S10 native |
+| P1.2 Signed URLs, read and write, all seven, and the gateway | S4, S6–S11 | S4 done (API, validity rules); S6 done (Azure: service and user delegation SAS, read, create, write); S8 done (GCS V4: read, create, write); S11 done (the gateway and the URL service: read, create and write URLs for every provider); S7, S9, S10 native |
 | P1.3 Cancellation everywhere | S4 | done (S4) |
-| P1.4 Dependencies current | S2, S6–S10 | S8 done (Google.Cloud.Storage.V1 5.0.0); S6, S7, S9, S10 todo |
-| P2.5 Streaming writes without temp-file round trips where the SDK can | S5–S8 | S8 done (GCS uploads stream from the caller's stream); S5–S7 todo |
-| P2.6 ETags and conditional writes | S4, S5–S10 | S4 done (API, non-atomic default); S8 done (GCS: the generation, atomic); S5–S7, S9, S10 native |
-| P2.7 Content type on write and read | S4, S5–S10 | S4 done (API, hint); S8 done (GCS); S5–S7, S9, S10 |
-| P2.8 Async listing, recursive | S4, S5–S10 | S4 done (API, default walk); S8 done (GCS: paged prefix listing, the base's walk); S5–S7, S9, S10 |
+| P1.4 Dependencies current | S2, S6–S10 | S6 done (Azure.Storage.Blobs 12.30.1, Azure.Identity 1.21.0); S8 done (Google.Cloud.Storage.V1 5.0.0); S7, S9, S10 todo |
+| P2.5 Streaming writes without temp-file round trips where the SDK can | S5–S8 | S6 done (Azure overwrites stage blocks as they read; appends spool, to retry); S8 done (GCS uploads stream from the caller's stream); S5, S7 todo |
+| P2.6 ETags and conditional writes | S4, S5–S10 | S4 done (API, non-atomic default); S6 done (Azure, atomic); S8 done (GCS: the generation, atomic); S5, S7, S9, S10 native |
+| P2.7 Content type on write and read | S4, S5–S10 | S4 done (API, hint); S6 done (Azure); S8 done (GCS); S5, S7, S9, S10 |
+| P2.8 Async listing, recursive | S4, S5–S10 | S4 done (API, default walk); S6 done (Azure: one flat listing); S8 done (GCS: paged prefix listing, the base's walk); S5, S7, S9, S10 |
 | P2.9 Dependency injection | S4, S11 | S4 done (registration); S11 done (`AddWriteableFileProviderGateway`, `MapWriteableFileProviderGateway`, keyed providers resolved by name) |
-| P2.10 More credential options | S6, S7, S8 | S8 done (GCS: a given `StorageClient`, the `Endpoint`, lazy Application Default Credentials); S6, S7 todo |
-| P2.11 Server-side copy, GCS native move | S4, S5–S10 | S4 done (API, default); S8 done (GCS copies by rewrite; native move stays under Later, D16); S5–S7, S9, S10 native |
+| P2.10 More credential options | S6, S7, S8 | S6 done (`UseDefaultAzureCredential`, a `BlobContainerClient` constructor); S8 done (GCS: a given `StorageClient`, the `Endpoint`, lazy Application Default Credentials); S7 todo |
+| P2.11 Server-side copy, GCS native move | S4, S5–S10 | S4 done (API, default); S6 done (Azure Copy Blob); S8 done (GCS copies by rewrite; native move stays under Later, D16); S5, S7, S9, S10 native |
 | P2.12 Physical Watch | S5 | todo |
 
 ## Progress log
@@ -1053,6 +1055,52 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     default shell runs without `pipefail`, so a `jq` that failed in a masking pipeline went unnoticed and the step
     carried on unmasked.
 
+- **2026-10-11, S6 (#10):** AzureBlob on the 2027 contract, branch `10-azureblob`. Common is unchanged.
+  - **Writes (D5, D15, D19, F3):** an overwrite stages blocks while it reads the stream and commits them once, with the
+    caller's condition on that commit (`SupportsAtomicPreconditions`); no write uses Put Blob. An append spools its
+    content (`SpoolToTempFileAsync`), then commits the block list read plus the new blocks on `IfMatch`, retrying after a
+    concurrent change up to 5 times. A blob with no block list (one Put Blob), foreign block ids, or no room under the
+    50,000-block limit is first restaged on the server (Put Block From URL, under a read SAS or a user delegation SAS),
+    or through the client when the provider cannot sign one. Content type `application/octet-stream` unless given;
+    appends carry headers, metadata and a set tier. Page blobs are read-only (`NotSupportedException`).
+  - **Append blobs from 2026 (P30):** written through a temp blob under `.wfp-tmp/` in the provider root, deleted with
+    `IncludeSnapshots` on its ETag, copied, verified (`CopyId` and status), then the temp removed; a failure after the
+    delete keeps the temp and names its path. A copy of an append blob stays an append blob until its first write.
+  - **Reads (F15, F17, F64):** `DownloadStreamingAsync`; native ranges (416 and length 0 still check `IfMatch`);
+    `OpenReadSeekableAsync` is the SDK's `OpenReadAsync`, wrapped only to turn its 412/404 into
+    `PreconditionFailedException`/`FileNotFoundException`. `AzureFileStream` is gone (F70).
+  - **Listings:** recursive enumeration is one flat listing; `.wfp-` names and names the provider cannot address are
+    left out. ETags are normalized to the quoted form (a HEAD returns them quoted, a listing bare).
+  - **Moves and copies (F19, P19):** Copy Blob with `IfNoneMatch = *` and the source's ETag; a move deletes the source on
+    that ETag, and when it changed meanwhile removes the copy and throws `PreconditionFailedException` (a source deleted
+    meanwhile completes the move).
+  - **Signed URLs (F11, F40, D18, D24):** service SAS, or user delegation SAS (key cached, a refusal remembered for 10
+    minutes); `StartsOn` now − 15 minutes; Read, Create (`c`) and Write (`w`); a key that would expire first needs
+    `AllowShorterValidity`. Upload URLs refuse `ContentType` and `DownloadFileName`, which a SAS cannot bind (D24), so
+    the gateway takes over.
+  - **Containers (F44, P18):** a missing container throws `InvalidOperationException` from every member;
+    `CreateContainerIfMissing` lets writes and upload URLs create it.
+  - **Options:** `CreateContainerIfMissing` and `UseDefaultAzureCredential` are written to JSON only when true
+    (`[JsonIgnore(WhenWritingDefault)]`), so a configuration that uses neither keeps the 2026 shape and Common's shape
+    tests stand unchanged; a later provider step adding options can do the same. The D17 constructor takes a
+    `BlobContainerClient`. Azure.Identity stays at 1.21.0 (a facade over Azure.Core 1.60.0) as the line SharePoint
+    shares; Azure.Storage.Blobs is 12.30.1.
+  - **Main-session decisions applied:** the SAS start (F40); `IncludeSnapshots` for the conversion, and also for delete
+    and move, so a blob with snapshots can be deleted at all; the `.wfp-tmp/` prefix and hidden `.wfp-` entries; the
+    move rollback; the test-only pipeline for Azure's limits with internal limit settings; the two options.
+  - **Deviation from the Azure row:** "service SAS with no start time" became a start 15 minutes back (the decision);
+    the PublicAPI files are not added, as Common has none yet (S12).
+  - **Tests:** `tests/WriteableFileProviders.AzureBlob.Tests`, 232 tests. The conformance suite runs twice on Azurite:
+    from options, and over a client whose pipeline (`AzureHandler`) refuses what Azure refuses and Azurite allows, with
+    the block limit lowered to 6. No capability flag skips a rule (content types and signed URLs on). Mutation checks: a
+    Put Blob over an append blob fails the strict tests; dropping the ETag normalization fails the listing test. The
+    old Azure suites in `WriteableFileProviders.Tests` are deleted, with their Azurite fixture and settings.
+  - **Coverage:** AzureBlob 98.5% lines, 89.9% branches; floor 97/88.
+  - **Not verified without an account:** Azure's own refusals that the test pipeline emulates (the exact codes for a Put
+    Blob or Copy Blob onto an append blob, `BlockCountExceedsLimit`), Put Block From URL with the blob itself or an
+    append blob as the source, Get Block List leaving out the ETag of a blob with no blocks, the user delegation key
+    flow with a real Entra identity, and tags after a commit (not carried).
+
 ### For the maintainers
 
 What this session cannot do, kept current as the work goes on:
@@ -1116,6 +1164,10 @@ What this session cannot do, kept current as the work goes on:
 - [ ] Fill in the date in SECURITY.md until which 2026.10.10.x gets security fixes; it now says the maintainers will
   announce it there.
 - [ ] Run the live suites against your accounts before tagging `v2027.0.0`.
+- [ ] Azure (S6): run `AzureBlobLiveTests` with `WFP_LIVE=1`, once with a shared key and once with
+  `WFP_AZURE_USE_DEFAULT_CREDENTIAL=1` (a Storage Blob Data Contributor role at the account), and by hand: append to and
+  overwrite an append blob written by 2026.10.10.x, and append to a blob uploaded in one Put Blob. The progress log
+  (S6) lists what only a real account can confirm.
 - [ ] Unlist the 2018–2024 package versions on nuget.org, keeping `2026.10.10.x` listed for .NET 8 consumers.
 
 ## Plan review

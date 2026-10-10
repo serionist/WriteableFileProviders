@@ -185,3 +185,30 @@ before you try again. `GetFileInfoAsync` of a path that is not a file now lists 
 credential needs `storage.objects.list` for it, as for listings, copies and appends to a new file (it gets a 403
 otherwise). The new options, `Endpoint`, `AllowInsecureHttp` and `CreateBucketIfMissing`, are written to JSON only when
 set (D26), so a configuration that uses none of them keeps its 2026 shape.
+
+## Azure Blob Storage (WriteableFileProviders.AzureBlob)
+
+Azure.Storage.Blobs moves from 12.23 to 12.30. The package also references Azure.Identity 1.21.0, whose types now live
+in Azure.Core; the reference keeps an older Azure.Identity of yours from defining them twice. The configuration shape is
+unchanged; the two new options are written to JSON only when `true`.
+
+| 2026 | 2027 | How to move |
+|---|---|---|
+| Files are append blobs; an overwrite empties the blob, then appends, so a failed write truncates the file (F3) | Files are block blobs, staged and committed in one request: a failed write keeps the old content, and readers never see half of it | Nothing to do. |
+| A missing container is created by the first write or move; reads report it as missing files and empty listings | A missing container makes every member throw `InvalidOperationException`, naming the container (F44, P18) | Create the container, or set `CreateContainerIfMissing: true` to keep the old creation on the first write. Reads never create it. |
+| Reading a missing file throws `RequestFailedException` (404) | `FileNotFoundException`, with the SDK's error as `InnerException` (F18) | Catch `FileNotFoundException`. |
+| `ReadFileAsync` returns `AzureFileStream`, a public type that reports `Length` | The SDK's download stream, read forward only; `AzureFileStream` is gone (F15, F64, F70) | Take the length from `GetFileInfoAsync`, or use `OpenReadSeekableAsync`, a seekable stream that knows its length and reads ranges. |
+| `MoveAsync` onto an existing file replaces it | `FileExistsException`, destination unchanged (F19). A source that changes while it is moved is kept, the copy removed, and `PreconditionFailedException` thrown | Delete the destination first if you meant to replace it. |
+| `GetFileInfo` of a folder: not existing; of a missing path: `Length` 0; `PhysicalPath` is the blob name | A folder exists and is a directory; a missing path has `Length` -1; `PhysicalPath` is null; files carry `ETag` and `ContentType` (F20, F21) | Use `IWriteableFileInfo.Path` where you used `PhysicalPath`. |
+| A download URL starts now, and a validity over 7 days is cut to 7 days silently | It starts 15 minutes in the past (F40) and ends exactly at the validity; over 7 days throws `NotSupportedException` (F11); a URL for a missing file throws `FileNotFoundException` | Ask for at most 7 days, or use the gateway. |
+| Read URLs only, signed with the account key | Read, create and write URLs; with Microsoft Entra ID, user delegation SAS | See the README's "Signed URLs". |
+| Deleting a blob with snapshots fails | Delete, move and the append-blob conversion delete the blob's snapshots too | Copy snapshots you need elsewhere first. |
+| Options: shared key only | `UseDefaultAzureCredential` (Entra ID) and a constructor that takes a `BlobContainerClient` (D17), which the provider never disposes. `AccountKey` must be base64, and setting it together with `UseDefaultAzureCredential` throws | Fix a key that is not base64; it never worked. |
+
+**Append blobs already stored (P22, P30).** They stay readable. The first write or append to one converts it to a
+block blob: the new content goes to a temporary blob under `.wfp-tmp/` in the provider root, the append blob is deleted
+if it has not changed, and the temporary blob is copied to its name. The file is missing for a moment in between; if
+the copy fails, the exception names the temporary blob holding the content. A 2026.10.10.x provider cannot append to a
+block blob (`InvalidBlobType`), so a fleet that mixes the two lines must not append to shared files during the switch:
+upgrade every writer together. An upload SAS cannot replace an append blob either; write such a file once through the
+provider first.

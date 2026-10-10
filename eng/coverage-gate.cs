@@ -41,7 +41,7 @@ foreach (var report in reports)
 
 var failures = new List<string>();
 var raises = new List<string>();
-Console.WriteLine($"{"Assembly",-45} {"Lines",8} {"Floor",6} {"Branches",9} {"Floor",6}");
+Console.WriteLine($"{"Assembly",-45} {"Lines",9} {"Floor",6} {"Branches",10} {"Floor",6}");
 foreach (var assembly in assemblies)
 {
     if (!floors.TryGetValue(assembly, out var floor))
@@ -54,10 +54,10 @@ foreach (var assembly in assemblies)
         failures.Add($"{assembly} is in no coverage report: no test project references it");
         continue;
     }
-    Console.WriteLine($"{assembly,-45} {measured.Lines,7:F1}% {floor.Lines,5}% {measured.Branches,8:F1}% {floor.Branches,5}%");
+    Console.WriteLine($"{assembly,-45} {measured.Lines,8:F2}% {floor.Lines,5}% {measured.Branches,9:F2}% {floor.Branches,5}%");
     // A rate read back from the report can fall a hair under the whole percent it rounds to.
-    if (measured.Lines + 1e-9 < floor.Lines) failures.Add($"{assembly}: lines {measured.Lines:F1}% is below its floor of {floor.Lines}%");
-    if (measured.Branches + 1e-9 < floor.Branches) failures.Add($"{assembly}: branches {measured.Branches:F1}% is below its floor of {floor.Branches}%");
+    if (measured.Lines + 1e-9 < floor.Lines) failures.Add($"{assembly}: lines {measured.Lines:F2}% is below its floor of {floor.Lines}%");
+    if (measured.Branches + 1e-9 < floor.Branches) failures.Add($"{assembly}: branches {measured.Branches:F2}% is below its floor of {floor.Branches}%");
     if ((int)measured.Lines > floor.Lines || (int)measured.Branches > floor.Branches)
         raises.Add($"  \"{assembly}\": {{ \"lines\": {Math.Max(floor.Lines, (int)measured.Lines)}, \"branches\": {Math.Max(floor.Branches, (int)measured.Branches)} }}");
 }

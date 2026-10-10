@@ -83,7 +83,7 @@ agreement for a one-way door. D20 records how the two maintainers agree for this
 | D12 | READMEs | A root README and one per package, packed into the nupkg. |
 | D13 | How the work lands | Several issues and PRs under #3, which this session opens and merges itself without waiting for a maintainer; the maintainers review them afterwards (decided 2026-10-10, superseding "one single PR"). Each PR builds, passes its tests and has its `review-code` pass before merge. This is a scoped exception to finish-work steps 4 and 6 (the developer's look before review, and a maintainer marking the PR ready) for the #3 issues only; AGENTS.md is not amended. Every merged PR is listed for the maintainers' after-the-fact review under "For the maintainers". |
 | D14 | Scope | All findings, the P1 and P2 features, full unit tests, Testcontainers. P3 goes under Later. |
-| D15 | `IfMatch` guarantees | The precondition is atomic on Azure, S3, MinIO, GCS (generation), Box and SharePoint simple uploads. On Physical (synthesized ETag from length and last-write time) and on SharePoint upload sessions it is checked, not atomic, and the XML docs say so. `IfNotExists` is atomic everywhere it can be: on Physical it uses `File.Move(overwrite: false)`. Amended in S9 (2026-10-11, main-session decision): SharePoint declares `SupportsAtomicPreconditions = false`, "checked, not atomic", for simple uploads too, because Graph does not document `If-Match` on `PUT /content`. The provider still sends `If-Match` and the conflict behaviour `fail` with every upload; the maintainers' live run decides whether simple uploads become atomic (see "For the maintainers"). |
+| D15 | `IfMatch` guarantees | The precondition is atomic on Azure, S3, MinIO, GCS (generation), Box and SharePoint simple uploads. On Physical (synthesized ETag from length and last-write time) and on SharePoint upload sessions it is checked, not atomic, and the XML docs say so. `IfNotExists` is atomic everywhere it can be: on Physical it uses `File.Move(overwrite: false)`. Amended in S9 (2026-10-11, main-session decision): SharePoint declares `SupportsAtomicPreconditions = false`, "checked, not atomic", for simple uploads too, because Graph does not document `If-Match` on `PUT /content`. The provider still sends `If-Match` and the conflict behaviour `fail` with every upload; the maintainers' live run decides whether simple uploads become atomic (see "For the maintainers"). Amended in S10 (main-session decision, 2026-10-11): on Box, `IfMatch` (and the version an append rewrites, D19) is checked, not atomic, until the maintainers' live run confirms that Box matches the quoted `If-Match` the v10 SDK can only send (Box documents unquoted ETags); the provider's wire path is behind an internal switch, tested on the fake, and turning it on is one line. `IfNotExists` is atomic on Box (409 on a taken name). |
 | D16 | GCS move | Copy with `IfGenerationMatch = 0` (destination must not exist), then delete the source with its generation. fake-gcs-server has no native move; `MoveObject` goes under Later. |
 | D17 | Two P2 items kept | Public constructors that take a prebuilt SDK client (with the options) on every cloud provider, for managed identity, Aspire, custom retries and tests. A provider never disposes a client it was given; the caller owns it. SDK types in public signatures (these constructors, `S3Region` and `S3StorageClass` on the S3 options) are part of the contract, so an SDK major that changes them is a WriteableFileProviders major. SharePoint signs in with a client secret, a certificate (`ClientCertificateBase64` and `ClientCertificatePassword`), or managed identity / `DefaultAzureCredential` (`UseDefaultAzureCredential`). |
 | D18 | URLs with a lifetime set by the service | Requested validity V and fixed lifetime L. If V < L, `NotSupportedException`, so the gateway takes over. If V ≥ L, the URL is returned only with `AllowShorterValidity`, with `ExpiresOn` = now + L (Box) or null (SharePoint). S3 and MinIO: when the credential expires before now + V, or is a session credential with an unknown expiry, the URL counts as shorter than asked. |
@@ -520,7 +520,7 @@ Each step is an issue under #3, a branch `<issue>-<slug>`, and a PR that builds 
 | S7 AmazonS3 and MinIO | #11 | | `S3Core`, the S3 and MinIO rows, with S3Mock. | F1 F2 F4 F10 F11 F17–F21 F24 F28 F38 F41 F45 F51 F53 F65 F73 F74 | todo |
 | S8 GoogleCloudStorage | #12 | | The GCS row, with fake-gcs-server. | F4 F11 F13 F17–F21 F28 F38 F41 F44 F53 F56 F63 F74 F75 | built on `12-gcs`, in review |
 | S9 SharePoint | #13 | | The SharePoint row, with the Graph fake; its live run is outstanding for the maintainers (D21). | F4 F6 F7 F8 F11 F13 F17–F21 F26 F39 F43 F49 F53 F62 F66 F70 F74 F77 | in review (branch `13-sharepoint`; live suite not run) |
-| S10 Box | #14 | | The Box row, with the Box fake; its live run is outstanding for the maintainers (D21). | F4 F6 F11 F13 F17–F21 F25 F32 F53 F63 F67 F74 F77 | todo |
+| S10 Box | #14 | | The Box row, with the Box fake; its live run is outstanding for the maintainers (D21). | F4 F6 F11 F13 F17–F21 F25 F32 F53 F63 F67 F74 F77 | built on `14-box`, in review; live suite not run (D21) |
 | S11 AspNetCore gateway | #15 | | The new package, the URL service, endpoints, the gateway tests and defaults (D22, P13, P27); its README, migration entry and AGENTS.md entry; whether the token purpose string and URL shape are a one-way door (they are: tokens issued by one version must redeem on the next minor; recorded under One-way doors in AGENTS.md). | F11 | in review (branch `15-aspnetcore-gateway`) |
 | S12 Docs, CI, launch prep | #16 | | The root README, the migration guide's final pass, CONTRIBUTING, SECURITY, AGENTS.md and REVIEW.md, codeql, dependabot, `live.yml`, the release workflow, every floor at 90% or more, a check that no project sets `WfpLegacy`, the removal of the `[Obsolete]` 2026 helpers in Common (`GetRelativeSegments`, `IsRootPath`, `NormalizePem`, which Box and GCS take over), the PublicAPI files, and a final deep `review-code` of the whole repo. | F12 F76 | part 1 in review (#31, branch `16-repo-infra`: codeql, dependabot, `live.yml`, the release workflow, CONTRIBUTING, SECURITY, the issue forms); the rest todo |
 
@@ -603,35 +603,35 @@ Status: `todo`, `done` (with the PR), `wontfix` (with the reason). F-numbers are
 | F1 | S3 version read skips root and hides base overloads | S0, S7 | S0 done (#17); S7 removes the member |
 | F2 | S3 EnumerateObjects lists outside the root | S0, S7 | S0 done (#17); S7 removes the member |
 | F3 | Failed overwrite truncates on Physical and Azure | S5, S6 | S6 done (Azure: stage, then one conditional commit; conformance and an injected commit failure); S5 todo |
-| F4 | Append-by-rewrite five ways; S3/GCS upload half-appended files | S4, S7, S8 | S4 done (`AppendByRewriteAsync`: spools, then writes with `IfMatch` on the version read, and refuses a file without an ETag); S8 done (GCS appends through it, conditional on the generation); S9 done (SharePoint appends through it); S7 moves S3 onto it |
+| F4 | Append-by-rewrite five ways; S3/GCS upload half-appended files | S4, S7, S8 | S4 done (`AppendByRewriteAsync`: spools, then writes with `IfMatch` on the version read, and refuses a file without an ETag); S8 done (GCS appends through it, conditional on the generation); S9 done (SharePoint appends through it); S10 done for Box (`BoxUploadBuffer.CombineAsync` gone); S7 moves S3 onto it |
 | F5 | Physical local stream writes in place; Skip does nothing | S5 | todo |
-| F6 | Box and SharePoint rewind the caller's stream | S9, S10 | S9 done (SharePoint spools from the position and never seeks, rewinds or disposes the caller's stream); S10 todo |
+| F6 | Box and SharePoint rewind the caller's stream | S9, S10 | S9 done (SharePoint spools from the position and never seeks, rewinds or disposes the caller's stream); S10 done for Box (spooled from the position, never seeked; `Write_NeverSeeksTheCallersStream`) |
 | F7 | SharePoint strips WorkFolderPath from caller paths | S9 | done (S9): D7's fold, the P37 table test, a strict-prefix root refused at construction |
 | F8 | SharePoint unbounded itemNotFound retry | S9 | done (S9): parents are created once before the write, the provider retries no request, and Kiota never sees the caller's stream |
 | F9 | Commented MinIO test, leaked key in ado history | S0 | done (#17); key rotation is the maintainers' |
 | F10 | MinIO plain HTTP by default | S7 | todo |
-| F11 | Download URL lifetime differs per provider | S4, S6–S11 | S4 done (validity rules, read URLs need the file); S6 done (Azure: ends exactly at the validity, 7-day maximum, a user delegation SAS never outlives its key, D18 for a key that would); S8 done (GCS: V4 URLs live the validity rounded down to whole seconds, 1 s to 7 days, else `NotSupportedException`; `ExpiresOn` read from the URL); S9 done (SharePoint per D18); S11 done (the URL service falls back to the gateway on `NotSupportedException`); every provider gets a URL that lives as asked once S10 makes Box throw per D18; S7, S10 per provider |
+| F11 | Download URL lifetime differs per provider | S4, S6–S11 | S4 done (validity rules, read URLs need the file); S6 done (Azure: ends exactly at the validity, 7-day maximum, a user delegation SAS never outlives its key, D18 for a key that would); S8 done (GCS: V4 URLs live the validity rounded down to whole seconds, 1 s to 7 days, else `NotSupportedException`; `ExpiresOn` read from the URL); S9 done (SharePoint per D18); S11 done (the URL service falls back to the gateway on `NotSupportedException`); S10 done for Box (D18: under 15 minutes `NotSupportedException`, else only with `AllowShorterValidity`, `ExpiresOn` = now + 15 min), so the URL service gives Box URLs that live as asked; every provider gets a URL that lives as asked; S7 per provider |
 | F12 | Download URL docs wrong | S4, S12 | S4 done (interface docs); S12 READMEs |
-| F13 | Sync-over-async, no ConfigureAwait, I/O in constructors | S4, S9, S10 | S4 done (ConfigureAwait, one sync helper in Common); S8 done (GCS: no I/O in the constructors; the client, Application Default Credentials and the bucket check on the first call, asynchronously); S9 done (SharePoint looks up the site and library on first use, caching only a success); S10 lazy init |
+| F13 | Sync-over-async, no ConfigureAwait, I/O in constructors | S4, S9, S10 | S4 done (ConfigureAwait, one sync helper in Common); S8 done (GCS: no I/O in the constructors; the client, Application Default Credentials and the bucket check on the first call, asynchronously); S9 done (SharePoint looks up the site and library on first use, caching only a success); S10 done for Box (no network I/O in the constructor, sign-in on the first call) |
 | F14 | Local stream copies with sync CopyTo | S4 | done (S4): the local stream copies asynchronously |
 | F15 | AzureFileStream lacks async reads | S6 | done (S6): reads return the SDK's `DownloadStreamingAsync` stream; `AzureFileStream` is gone |
 | F16 | No CancellationToken | S4 | done (S4): every async member takes a token |
-| F17 | No ranged reads | S4, S5–S10 | S4 done (API, base default); S6 done (Azure: ranged download, `OpenReadAsync` seekable stream); S8 done (GCS: ranged media GET); S9 done (SharePoint: `Range` on the download URL, and a range the service ignores is cut); S5, S7, S10 native ranges |
-| F18 | Missing-file exception differs | S4, S5–S10 | S4 done (the base turns a store's not-found into `FileNotFoundException`; conformance tests); S6 done (Azure, conformance on Azurite); S8 done (GCS, the `GoogleApiException` as inner); S9 done (SharePoint); S5, S7, S10 per provider |
-| F19 | Move semantics differ | S4, S5–S10 | S4 done (the base checks the source and the destination; case-only renames on stores that ignore case); S6 done (Azure: server-side copy with `IfNoneMatch = *`, move deletes the source on its ETag); S8 done (GCS copies with `ifGenerationMatch=0`); S9 done (SharePoint: one `PATCH` with conflict behaviour `fail`, server-side copy); S5, S7, S10 per provider |
-| F20 | GetFileInfo on folders differs | S4, S5–S10 | S4 done (the contract and its conformance tests); S6 done (Azure); S8 done (GCS); S9 done (SharePoint: a folder's `Length` is -1); S5, S7, S10 per provider. Box still reports a folder as missing; its offline test leaves that unchecked until S10 |
-| F21 | PhysicalPath means different things | S4, S5–S10 | S4 done (the contract and its conformance test); S6 done (Azure: null); S8 done (GCS: null); S9 done (SharePoint: null); S5, S7, S10 per provider |
+| F17 | No ranged reads | S4, S5–S10 | S4 done (API, base default); S6 done (Azure: ranged download, `OpenReadAsync` seekable stream); S8 done (GCS: ranged media GET); S9 done (SharePoint: `Range` on the download URL, and a range the service ignores is cut); S10 done for Box (`Range` on the version's download URL); S5, S7 native ranges |
+| F18 | Missing-file exception differs | S4, S5–S10 | S4 done (the base turns a store's not-found into `FileNotFoundException`; conformance tests); S6 done (Azure, conformance on Azurite); S8 done (GCS, the `GoogleApiException` as inner); S9 done (SharePoint); S10 done for Box (a 404 after the path was found maps too); S5, S7 per provider |
+| F19 | Move semantics differ | S4, S5–S10 | S4 done (the base checks the source and the destination; case-only renames on stores that ignore case); S6 done (Azure: server-side copy with `IfNoneMatch = *`, move deletes the source on its ETag); S8 done (GCS copies with `ifGenerationMatch=0`); S9 done (SharePoint: one `PATCH` with conflict behaviour `fail`, server-side copy); S10 done for Box (files only, destination folders created, Box's 409 is `FileExistsException`); S5, S7 per provider |
+| F20 | GetFileInfo on folders differs | S4, S5–S10 | S4 done (the contract and its conformance tests); S6 done (Azure); S8 done (GCS); S9 done (SharePoint: a folder's `Length` is -1); S10 done for Box (a folder exists, `Length` -1; a missing path `Length` -1); S5, S7 per provider |
+| F21 | PhysicalPath means different things | S4, S5–S10 | S4 done (the contract and its conformance test); S6 done (Azure: null); S8 done (GCS: null); S9 done (SharePoint: null); S10 done for Box (null in info and listings); S5, S7 per provider |
 | F22 | Naming rule vs protected camelCase members | S4 | done (S4): the protected members are PascalCase `...CoreAsync` |
 | F23 | net8.0 hard-coded, no Nullable | S2 | done (#19) |
 | F24 | AWS SDK v3 end of support | S7 | todo |
-| F25 | Box.V2.Core 5.8 outdated | S10 | todo |
+| F25 | Box.V2.Core 5.8 outdated | S10 | done (S10): Box.V2.Core 10.19.0 (`Box.Sdk.Gen`), no Newtonsoft, no advisory |
 | F26 | Azure.Identity unused and deprecated | S6 | done (S6): AzureBlob uses it (`UseDefaultAzureCredential`) at the one shared version, 1.21.0, which SharePoint also takes |
 | F27 | Coverage not configured or enforced | S3, S12 | todo |
 | F28 | Download URL test passes on NotSupported | S4 (suite), S7, S8 | S4 done (suite: `NotSupportedException` is asserted exactly where the fixture says so, never swallowed); S8 done (`GcsOptionsTests` checks `X-Goog-Expires`, `ExpiresOn` and the signed headers offline; `GcsClientConformanceTests` asserts `NotSupportedException` without a signer); S7 offline expiry tests |
 | F29 | No cleanup after failed live tests | S4 (suite) | done (S4): each conformance test works under its own root folder, deleted in `[TestCleanup]` whether it passed or failed |
 | F30 | Configuration shape not pinned | S3 | todo |
 | F31 | LocalFileStream contract untested | S4 | done (S4): `LocalFileStreamTests` and the `LocalStream_*` conformance tests |
-| F32 | Box cannot be constructed offline | S4 (internal test constructor over the 5.8 SDK), S10 (public client constructor, lazy auth) | in part |
+| F32 | Box cannot be constructed offline | S4 (internal test constructor over the 5.8 SDK), S10 (public client constructor, lazy auth) | done (S10): lazy sign-in, the public `IBoxClient` constructor, and the whole suite offline against `FakeBox` (root protection, paging, case-insensitive match) |
 | F33 | Move/GetDownloadUrl throw AggregateException | S4 | done (S4): every sync form goes through the one helper, `WriteableFileProviderExtensions.Wait` |
 | F34 | LocalFileStream leaks temp stream on failed upload | S4 | done (S4): the local stream always disposes its temp file |
 | F35 | Additions must not break implementers | S4 (moot in a major; recorded) | done (S4): moot in the major; new members ship with defaults in the base |
@@ -652,31 +652,31 @@ Status: `todo`, `done` (with the PR), `wontfix` (with the reason). F-numbers are
 | F50 | Common's Version 1.1.2 | S2 | done (#19) |
 | F51 | MinIO and S3 duplicate the protocol | S7 | todo |
 | F52 | Providers not disposable | S4 | done (S4) for the base; S5–S10 dispose their clients |
-| F53 | Root guard written seven times | S4 | S4 done (one resolution in the base); S6 done (Azure has no guard of its own); S8 done (GCS's own guard is gone); S9 done (SharePoint's guard is gone); S5, S7, S10 drop their own guards |
+| F53 | Root guard written seven times | S4 | S4 done (one resolution in the base); S6 done (Azure has no guard of its own); S8 done (GCS's own guard is gone); S9 done (SharePoint's guard is gone); S10 done for Box (its guards are gone); S5, S7 drop their own guards |
 | F54 | Seven identical Watch overrides | S4, S5 | S4 done (the seven overrides removed; the base `WatchCore` throws `NotSupportedException`); S5 Physical Watch |
 | F55 | UseLocalCommon switch | S2 | done (#19) |
-| F56 | Test-suite dead weight | S2 (runsettings, publish profile), S5–S10 (with TestBase) | in part; S6 removed the Azure TestBase suites and settings; S8 done for GCS (its TestBase suite, its TestContext stub and its settings keys are gone); S9 done for SharePoint (its TestBase class, path tests and settings go) |
+| F56 | Test-suite dead weight | S2 (runsettings, publish profile), S5–S10 (with TestBase) | in part; S6 removed the Azure TestBase suites and settings; S8 done for GCS (its TestBase suite, its TestContext stub and its settings keys are gone); S9 done for SharePoint (its TestBase class, path tests and settings go); S10 done for Box (`BoxFileProvider`, `BoxOfflineTests`, `BoxOptionsTests` and the Box settings leave the old project) |
 | F57 | Contract cases missing from the shared suite | S4 | done (S4): the conformance suite |
 | F58 | Root and segment exceptions undocumented | S4 | done (S4): the interface documents them |
 | F59 | Interface docs copy-paste | S4 | done (S4): the interface docs are rewritten |
 | F60 | XML docs only for Common | S2 | done (#19) |
 | F61 | Serializer and options undocumented | S4, S12 | S4 done (serializer); S12 options docs |
 | F62 | SharePoint folder creation three ways | S9 | done (S9): one iterative creator with conflict behaviour `fail` |
-| F63 | Whole-object download before read | S8, S9, S10 (S7 MinIO via S3Core) | S8 done (GCS reads stream); S9 done (SharePoint streams from the download URL); S7, S10 todo |
+| F63 | Whole-object download before read | S8, S9, S10 (S7 MinIO via S3Core) | S8 done (GCS reads stream); S9 done (SharePoint streams from the download URL); S10 done for Box (reads stream the download); S7 todo |
 | F64 | AzureFileStream vs OpenReadAsync | S6 | done (S6): `OpenReadSeekableAsync` is `OpenReadAsync`, pinned to its ETag |
 | F65 | S3 single PutObject (5 GB) | S7 | todo |
 | F66 | SharePoint maps all errors to not-found | S9 | done (S9): only a 404 is missing; 401 and 403 throw `UnauthorizedAccessException`, the rest `IOException` |
-| F67 | Box offset paging | S10 | todo |
+| F67 | Box offset paging | S10 | done (S10): marker paging, 1000 a page |
 | F68 | Assertion bugs in the shared suite | S3 | todo |
 | F69 | FileInfo collides with System.IO.FileInfo | S4 | done (S4): `WriteableFileInfo` |
 | F70 | UploadResult and AzureFileStream public | S6, S9 | S6 done (`AzureFileStream` removed); S9 done (`UploadResult<T>` deleted) |
 | F71 | net10-only drops .NET 8 consumers | S2 (D2) | done (#19) |
 | F72 | Unused packages | S2, S4 | S2 part done (#19); S4 done (Newtonsoft removed from every project) |
 | F73 | Minio forces Extensions 9 and Reactive | S7 | todo |
-| F74 | Temp-file spool written nine times | S4 | S4 done (`SpoolToTempFileAsync`, `AppendByRewriteAsync`); S6 done (Azure appends spool through it); S8 done (GCS spools only through `AppendByRewriteAsync`); S9 done (SharePoint uses both); S5, S7, S10 use them |
+| F74 | Temp-file spool written nine times | S4 | S4 done (`SpoolToTempFileAsync`, `AppendByRewriteAsync`); S6 done (Azure appends spool through it); S8 done (GCS spools only through `AppendByRewriteAsync`); S9 done (SharePoint uses both); S10 done for Box (`BoxUploadBuffer` gone); S5, S7 use them |
 | F75 | GCS has no emulator seam | S8 | done (S8): the `Endpoint` option, the `StorageClient` constructor, and the conformance suite on fake-gcs-server |
 | F76 | Package descriptions and READMEs | S12 | todo |
-| F77 | Dead code in providers | S5, S9, S10 | S9 done (SharePoint rewritten); S5, S10 todo |
+| F77 | Dead code in providers | S5, S9, S10 | S9 done (SharePoint rewritten); S10 done for Box (the catch-all rethrows are gone); S5 todo |
 | F78 | S3 `StorageClassForNewFiles` is written as `{"Value":…}` and read back as `STANDARD`, and the configuration path never reads it at all (found in S3 by the golden corpus) | S4, S7 | done (S4): both forms read, the string is written, configuration converts it |
 | F79 | On Unix, Physical's `Options.RootDirectoryPath`, and so its `ToJson` output, carries the internal `root:` marker of an absolute path instead of the path (found by S3's first Linux CI run) | S5 | todo |
 
@@ -684,17 +684,17 @@ Status: `todo`, `done` (with the PR), `wontfix` (with the reason). F-numbers are
 
 | Feature (roadmap) | Step | Status |
 |---|---|---|
-| P1.1 Index-based reads: ranges and seekable streams, all seven | S4, S5–S10 | S4 done (API, defaults, conformance); S6 done (Azure native); S8 done (GCS); S9 done (SharePoint); S5, S7, S10 native |
-| P1.2 Signed URLs, read and write, all seven, and the gateway | S4, S6–S11 | S4 done (API, validity rules); S6 done (Azure: service and user delegation SAS, read, create, write); S8 done (GCS V4: read, create, write); S9 done (SharePoint: read only, D18); S11 done (the gateway and the URL service: read, create and write URLs for every provider); S7, S10 native |
+| P1.1 Index-based reads: ranges and seekable streams, all seven | S4, S5–S10 | S4 done (API, defaults, conformance); S6 done (Azure native); S8 done (GCS); S9 done (SharePoint); S10 Box native (pinned to the file version); S5, S7 native |
+| P1.2 Signed URLs, read and write, all seven, and the gateway | S4, S6–S11 | S4 done (API, validity rules); S6 done (Azure: service and user delegation SAS, read, create, write); S8 done (GCS V4: read, create, write); S9 done (SharePoint: read only, D18); S11 done (the gateway and the URL service: read, create and write URLs for every provider); S10 Box read URL under D18; S7 native |
 | P1.3 Cancellation everywhere | S4 | done (S4) |
-| P1.4 Dependencies current | S2, S6–S10 | S6 done (Azure.Storage.Blobs 12.30.1, Azure.Identity 1.21.0); S8 done (Google.Cloud.Storage.V1 5.0.0); S9 done (Microsoft.Graph 6.8.0, Graph.Core 4.0.1); S7, S10 todo |
+| P1.4 Dependencies current | S2, S6–S10 | S6 done (Azure.Storage.Blobs 12.30.1, Azure.Identity 1.21.0); S8 done (Google.Cloud.Storage.V1 5.0.0); S9 done (Microsoft.Graph 6.8.0, Graph.Core 4.0.1); S10 Box.V2.Core 10.19.0; S7 todo |
 | P2.5 Streaming writes without temp-file round trips where the SDK can | S5–S8 | S6 done (Azure overwrites stage blocks as they read; appends spool, to retry); S8 done (GCS uploads stream from the caller's stream); S5, S7 todo |
-| P2.6 ETags and conditional writes | S4, S5–S10 | S4 done (API, non-atomic default); S6 done (Azure, atomic); S8 done (GCS: the generation, atomic); S9 done (SharePoint: checked, and sent to the service; D15 as amended); S5, S7, S10 native |
-| P2.7 Content type on write and read | S4, S5–S10 | S4 done (API, hint); S6 done (Azure); S8 done (GCS); S9 done (SharePoint reports the service's type and ignores the hint); S5, S7, S10 |
-| P2.8 Async listing, recursive | S4, S5–S10 | S4 done (API, default walk); S6 done (Azure: one flat listing); S8 done (GCS: paged prefix listing, the base's walk); S9 done (SharePoint: paged children, the base's walk); S5, S7, S10 |
+| P2.6 ETags and conditional writes | S4, S5–S10 | S4 done (API, non-atomic default); S6 done (Azure, atomic); S8 done (GCS: the generation, atomic); S9 done (SharePoint: checked, and sent to the service; D15 as amended); S10 Box (`IfNotExists` atomic, `IfMatch` checked until the live run, D15); S5, S7 native |
+| P2.7 Content type on write and read | S4, S5–S10 | S4 done (API, hint); S6 done (Azure); S8 done (GCS); S9 done (SharePoint reports the service's type and ignores the hint); S10 Box keeps none (ignored, null); S5, S7, S10 |
+| P2.8 Async listing, recursive | S4, S5–S10 | S4 done (API, default walk); S6 done (Azure: one flat listing); S8 done (GCS: paged prefix listing, the base's walk); S9 done (SharePoint: paged children, the base's walk); S10 Box (marker paging, recursive by folder id); S5, S7, S10 |
 | P2.9 Dependency injection | S4, S11 | S4 done (registration); S11 done (`AddWriteableFileProviderGateway`, `MapWriteableFileProviderGateway`, keyed providers resolved by name) |
 | P2.10 More credential options | S6, S7, S8 | S6 done (`UseDefaultAzureCredential`, a `BlobContainerClient` constructor); S8 done (GCS: a given `StorageClient`, the `Endpoint`, lazy Application Default Credentials); S7 todo |
-| P2.11 Server-side copy, GCS native move | S4, S5–S10 | S4 done (API, default); S6 done (Azure Copy Blob); S8 done (GCS copies by rewrite; native move stays under Later, D16); S9 done (SharePoint: `/copy` and its monitor, move by `PATCH`); S5, S7, S10 native |
+| P2.11 Server-side copy, GCS native move | S4, S5–S10 | S4 done (API, default); S6 done (Azure Copy Blob); S8 done (GCS copies by rewrite; native move stays under Later, D16); S9 done (SharePoint: `/copy` and its monitor, move by `PATCH`); S10 Box (copy and move on the server); S5, S7 native |
 | P2.12 Physical Watch | S5 | todo |
 
 ## Progress log
@@ -1231,6 +1231,53 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
   - SharePoint.Tests runs 257 offline tests. Coverage on Windows: 99.76% of lines and 91.22% of branches; the floor
     stays 99/91.
 
+- **2026-10-11, S10 Box (#14):** built in a forked session on branch `14-box` (worktree `D:\workspaces\wfp-wt\14`).
+  - **Provider:** rewritten on `Box.V2.Core` 10.19.0 (`Box.Sdk.Gen`) and the 2027 base; builds strict (`WfpLegacy`
+    removed). The main-session decisions for S10 are applied: the fake behind a custom `INetworkClient`, ranged reads on
+    the version's download URL, uploads spooled to a temp file with no `FileContentType`, a provider-owned chunked loop,
+    folders that exist, marker paging, no path cache (D23), lazy sign-in.
+  - **D15 amended for Box** (the "All provider steps" decision): `SupportsAtomicPreconditions` is false, so `IfMatch` and
+    an append's version check are done just before the write. The wire path (quoted `If-Match` on version uploads and on
+    the commit) exists behind the internal `SendIfMatch` switch, and `BoxAtomicConformanceTests` runs the whole suite
+    with it on. `IfNotExists` is atomic either way (Box's 409).
+  - **Deviations and additions, each for a reason:**
+    - D17's constructor takes `IBoxClient` (which `BoxClient` implements, and `WithAsUserHeader` returns), not
+      `BoxClient`: it exposes every manager the provider uses, and the network session.
+    - Downloads go through the session's network client directly: `GET /files/{id}/content` without following the
+      redirect (the SDK's `DownloadFileAsync` drops `Range` on the redirect and hides a 202's `Retry-After`), then the
+      pre-authenticated URL, with `Range` and no credentials. A server that ignores `Range` is handled (the stream skips
+      to the offset); a 202 is waited on, up to 60 times.
+    - A chunked commit that answers 202 is asked again up to 60 times, a second apart; 409
+      `operation_blocked_temporary` is retried twice; a name taken or freed by a concurrent writer (409, 404) is
+      resolved once more, then the conditions are checked again.
+    - A name Box refuses (400 `item_name_invalid`, `item_name_too_long`) is an `ArgumentException` on `path`; a write
+      under a file is an `IOException` (was `InvalidOperationException`); a `RootFolderId` that does not exist or the app
+      cannot see is an `InvalidOperationException` everywhere, as P18 asks of a missing bucket.
+    - A case-only rename that Box refuses as a taken name goes through a temporary name (unverified on Box, item 4 of the
+      live checklist), and puts the old name back if the second rename fails.
+    - The recursive listing walks by folder id within one enumeration (not a cache: nothing outlives the call).
+    - The constructor reads the private key (no network), so a wrong key or passphrase fails there with an
+      `ArgumentException` that names neither; a missing credential names the option.
+    - `NormalizePem` moved into the provider as `NormalizePrivateKey` (internal), so S12 can remove Common's.
+    - No PublicAPI files, as in S4: S12 adds them.
+  - **Tests:** `tests/WriteableFileProviders.Box.Tests` (offline, no Docker): the conformance suite twice (as shipped,
+    through the options and the fake's token endpoint, which checks the JWT against the test key; and with a ready
+    client and `If-Match` on), and unit tests for sign-in, options and the stored shape (the Box goldens are linked from
+    Common.Tests and build a provider offline), paging, ranges, downloads, uploads, races, moves, deletes and signed URLs.
+    `FakeBox` is a stateful Box API (an `HttpMessageHandler`); `FakeNetworkClient` copies the SDK client's quirks
+    (rewinds request streams, validating headers, the redirect that drops `Range`, the retry strategy). Mutations of
+    marker paging, spooling, `If-Match`, folder info and version pinning each fail tests. The live suites
+    (`BoxLiveTests`, `BoxLiveAtomicTests`, `BoxLiveChecks`) were not run (D21); "For the maintainers" lists what they
+    confirm. Capability flags: real folders, case-insensitive, read URLs with a fixed 15-minute lifetime, no content
+    type; `DetectsConcurrentAppends` is false in `BoxConformanceTests` because the check is not atomic until the live
+    run (amended D15), and true in `BoxAtomicConformanceTests`.
+  - **Old tests:** `BoxFileProvider`, `BoxOfflineTests`, `BoxOptionsTests`, the Box settings and the Box project
+    reference leave `tests/WriteableFileProviders.Tests`.
+  - **Coverage:** Box 99.63% lines, 89.38% branches (Windows); floor 98/88.
+  - **Verified:** the solution builds; every non-Live test passes with `WFP_REQUIRE_DOCKER=1` (587, 31 skipped: the S3
+    suites without `AWS_ENDPOINT_URL_S3`, and the concurrent-append rule in `BoxConformanceTests`); the coverage gate
+    passes; the Box package packs with its README.
+
 ### For the maintainers
 
 What this session cannot do, kept current as the work goes on:
@@ -1252,6 +1299,23 @@ What this session cannot do, kept current as the work goes on:
     permission to create buckets;
   - a client with a customer-supplied encryption key reads its objects through the provider (the emulator ignores the
     key).
+- [ ] Box (S10): run `BoxLiveChecks`, `BoxLiveTests` and `BoxLiveAtomicTests` (AGENTS.md, Tests) against a Box app you
+  own, then empty its trash. What they confirm, first one first:
+  1. Box matches the quoted `If-Match` the SDK sends (`BoxLiveChecks.QuotedIfMatch_MatchesTheETag`, and
+     `BoxLiveAtomicTests` for the upload-session commit). If it does, turn `SendIfMatch` on by default in
+     `WriteableBoxFileProvider`, call `IfMatch` atomic in its docs, the README and D15, and drop
+     `DetectsConcurrentAppends => false` from `BoxConformanceTests`. If not, Box stays "checked, not atomic", or the
+     provider needs its own network client that sends the ETag unquoted (the Box notes, option C).
+  2. JWT sign-in works without `kid` in the header, also for an app with two public keys.
+  3. The download URL honours `Range` with 206, and a URL for a version serves that version after a newer one lands
+     (`BoxLiveChecks.DownloadUrl_HonoursRange_AndServesItsVersion`).
+  4. `PUT /files/{id}` answers a taken name with 409 `item_name_in_use`, and allows a case-only rename
+     (`BoxLiveChecks.Rename_OntoATakenName_Is409_AndACaseOnlyRenameWorks`; the provider falls back to a temporary name
+     when it does not).
+  5. `usemarker=True` is accepted, and the last page's `next_marker` is null, absent or empty
+     (`BoxLiveChecks.Listing_EndsItsMarkerPagesAsTheProviderExpects`).
+  6. The 100 MB conformance test passes: Box's chunked minimum, its part size, and how often a commit answers 202.
+  7. The download URL still lives 15 minutes.
 - [ ] Publish the S0 patch from the `release/2026.10` branch (it starts at S0's merge commit; `main` has moved to the
   2027 layout). Step 0 (P33): on that branch, run `AmazonS3ProviderTests`, at least
   `AbsolutePathMembers_ResolveUnderTheRootOnly`, against an S3 endpoint whose virtual-host bucket names resolve (your

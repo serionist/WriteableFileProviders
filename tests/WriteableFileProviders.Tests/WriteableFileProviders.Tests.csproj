@@ -18,7 +18,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\WriteableFileProviders.AmazonS3\WriteableFileProviders.AmazonS3.csproj" />
-    <ProjectReference Include="..\..\src\WriteableFileProviders.Box\WriteableFileProviders.Box.csproj" />
     <ProjectReference Include="..\..\src\WriteableFileProviders.Common\WriteableFileProviders.Common.csproj" />
     <ProjectReference Include="..\..\src\WriteableFileProviders.Minio\WriteableFileProviders.Minio.csproj" />
     <ProjectReference Include="..\..\src\WriteableFileProviders.Physical\WriteableFileProviders.Physical.csproj" />

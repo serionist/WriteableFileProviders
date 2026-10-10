@@ -111,8 +111,7 @@ regenerated.
 `TestBase`, in tests/WriteableFileProviders.Tests, is the older shared suite each provider still runs until then: create,
 overwrite, append, move, delete, listing, local stream, download URL and 100 MB tests. Its classes fall in four groups:
 
-- **Unit tests**, no outside service: `SegmentValidationTests`, `PhysicalReadTests`, `AmazonS3PathTests`,
-  `BoxOptionsTests` and `BoxOfflineTests` (with a fake Box API).
+- **Unit tests**, no outside service: `SegmentValidationTests`, `PhysicalReadTests` and `AmazonS3PathTests`.
 - **Physical**, `PyhsicalFileProvider`: the shared suite on the local disk, under `PhysicalFileProvider_RootPath`, or a
   temp folder when it is not set.
 - **Emulator tests**: `Emulators` starts each emulator once per run through Testcontainers, and the containers go when
@@ -150,8 +149,20 @@ overwrite, append, move, delete, listing, local stream, download URL and 100 MB 
   `Config.*.json` are hand-written inputs the 2026.10.10.x readers accept (JSON and configuration), which every later
   reader must accept too.
 
-A change to a provider runs that provider's emulator suite, or its live suite where there is no emulator (Box,
-SharePoint), and its PR says which ran, or that it did not run and why.
+**Box** has moved to its own project, `tests/WriteableFileProviders.Box.Tests`, and needs neither Docker nor an
+account. `BoxConformanceTests` (the provider as it ships, signing in through the fake's token endpoint) and
+`BoxAtomicConformanceTests` (a ready client, with the `If-Match` header on) run the conformance suite, and the unit
+tests run, against `FakeBox`: an in-memory Box API behind the SDK's network client (`FakeNetworkClient`; the SDK has
+no HttpClient seam). Its live suites, `BoxLiveTests`, `BoxLiveAtomicTests` and `BoxLiveChecks`, run only with
+`WFP_LIVE=1` and a Box app: `WFP_BOX_CONFIG_FILE` (the app's JSON configuration from Box's developer console) and
+optionally `WFP_BOX_ROOT_FOLDER_ID`, or a `testsettings.json` next to that project (from its
+`testsettings.sample.json`). Run them with
+`dotnet test --project tests/WriteableFileProviders.Box.Tests --filter "TestCategory=Live"`; Box keeps what they delete
+in its trash.
+
+A change to a provider runs that provider's emulator suite, or its live suite where there is no emulator
+(SharePoint), and its PR says which ran, or that it did not run and why. A change to Box runs its offline
+suite, and its PR says whether the live suite ran (D21).
 
 ## How a change lands
 

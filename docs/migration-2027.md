@@ -149,3 +149,30 @@ there is nothing to migrate; it is the way to keep handing out download links wh
   needs the same rules everywhere sets `PreferGateway`.
 
 The package README covers the options, the endpoints' status codes and headers, and how to keep tokens out of logs.
+
+## Google Cloud Storage
+
+`WriteableFileProviders.GoogleCloudStorage` moves to `Google.Cloud.Storage.V1` 5.0 (from 4.15). If you use that SDK
+directly, its 5.0 break is small: `UploadValidationException` and `UploadValidationMode.ThrowOnly` are gone, and uploads
+are validated by the server (`RejectAndThrow`) by default.
+
+| 2026 | 2027 | How to move |
+|---|---|---|
+| The constructor looked up Application Default Credentials synchronously, so it did network I/O and threw where there were none | The constructor reads the key only; the client is built, and Application Default Credentials looked up, on the first call | Nothing to do; a configuration without credentials fails on its first call instead of at construction. |
+| A key it could not read threw `FormatException`; a missing bucket name threw `ArgumentException` for `BucketName` | Both throw `ArgumentException` for `options`, as does an `Endpoint` that is not a root URL | Catch `ArgumentException`. |
+| Only the options constructor | Also `new WriteableGoogleCloudStorageFileProvider(StorageClient, options)`, which never disposes the client | For your own credentials, retries or HTTP handling. |
+| No way to reach another endpoint | `Endpoint`: a root URL, such as fake-gcs-server's `http://localhost:4443` or a Private Service Connect endpoint | Additive. |
+| A missing bucket: listings threw `GoogleApiException`, `GetFileInfo` said "not found", writes threw `GoogleApiException` | Every member throws `InvalidOperationException` naming the bucket; `CreateBucketIfMissing` (default false) creates it on the first call instead | Create the bucket, or set the option (with `ProjectId` when the key does not name the project). |
+| A missing file threw `GoogleApiException` 404 | `FileNotFoundException`, with the `GoogleApiException` as `InnerException` | Catch `FileNotFoundException`. |
+| `GetFileInfo` on a folder said it did not exist | A folder that holds objects exists and is a directory, with `Length` -1 | Check `IsDirectory`. |
+| `PhysicalPath` held the object's name | `PhysicalPath` is null; `IWriteableFileInfo.Path` is the path | Use `Path`. |
+| `ReadFile` downloaded the whole object to a temp file and returned it, seekable | It returns the download as it arrives: read forward, with `Length` when the server sends it | Use `OpenReadSeekableAsync` to seek, or `ReadRangeAsync` for a slice; both download only what is read. |
+| Move and copy overwrote an existing destination | They throw `FileExistsException` and leave it unchanged; a move deletes exactly the generation it copied, and throws `PreconditionFailedException` if the source was written meanwhile, keeping that write | Delete the destination first if you meant to replace it. |
+| An append whose source stream failed uploaded a half-appended file; a concurrent write could be lost | An append leaves the file unchanged when it fails, and throws `PreconditionFailedException` instead of losing a concurrent write | Retry the append on `PreconditionFailedException`. |
+| The caller's stream was disposed after a write | It is left open | Dispose it yourself. |
+| Read URLs only, with the stored name and type | Read, create (only if absent) and write URLs; a read URL can carry `DownloadFileName` and `ContentType` | See the package README for the headers an upload must send. |
+| A validity over seven days threw the SDK's `ArgumentOutOfRangeException`; a credential that could not sign threw `PlatformNotSupportedException`; a URL was signed for a missing file | Over seven days, or under one second, throws `NotSupportedException` (so the gateway can take over), and the validity is rounded down to whole seconds; a credential that cannot sign throws `NotSupportedException`; a read URL for a missing file throws `FileNotFoundException` | Catch `NotSupportedException`. |
+
+New: `ETag` is the object's generation, and `IfMatch` and `IfNotExists` are atomic; `ContentType` is stored
+(`application/octet-stream` when none is given, as in 2026) and reported. Listings leave out objects whose names no path
+can address, such as `a//b`.

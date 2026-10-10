@@ -85,8 +85,8 @@ regenerated.
 overwrite, append, move, delete, listing, local stream, download URL and 100 MB tests. Its classes fall in four groups:
 
 - **Unit tests**, no outside service: `SegmentValidationTests`, `PhysicalReadTests`, `AmazonS3PathTests`,
-  `BoxOptionsTests`, `BoxOfflineTests` (with a fake Box API), `GcsOptionsTests`, `SharePointPathTests` (with a fake
-  Graph), and the options tests in `AzureBlobProviderTests`.
+  `BoxOptionsTests`, `BoxOfflineTests` (with a fake Box API), `SharePointPathTests` (with a fake Graph), and the
+  options tests in `AzureBlobProviderTests`.
 - **Physical**, `PyhsicalFileProvider`: the shared suite on the local disk, under `PhysicalFileProvider_RootPath`, or a
   temp folder when it is not set.
 - **Emulator tests**: `Emulators` starts each emulator once per run through Testcontainers, and the containers go when
@@ -102,9 +102,18 @@ overwrite, append, move, delete, listing, local stream, download URL and 100 MB 
     a PowerShell window you close afterwards. With LocalStack, which needs a free auth token from localstack.cloud:
     `docker run -d --name localstack -p 4566:4566 -e LOCALSTACK_AUTH_TOKEN=<token> localstack/localstack`, then
     `docker exec localstack awslocal s3 mb s3://wfp-test`; the endpoint is `http://s3.localhost.localstack.cloud:4566`.
+  - Google Cloud Storage against fake-gcs-server, which `FakeGcs` starts the same way, in
+    `tests/WriteableFileProviders.GoogleCloudStorage.Tests`: the conformance suite twice (`GcsConformanceTests`
+    through the options, with a service account key generated for the run and the `Endpoint` option;
+    `GcsClientConformanceTests` over a `StorageClient` the test built, which cannot sign), and `GcsProviderTests` (the
+    missing bucket, bucket creation, signed URLs used for real, and races and server answers injected through the
+    client's HTTP seam). `GcsOptionsTests` there runs offline.
 - **Live suites**, `[TestCategory("Live")]`, which the filter above leaves out: the shared suite against a real
   account, with the credentials from `testsettings.json`. They fail without them. Run one only against an account you
-  own (`--filter "FullyQualifiedName~<Provider>FileProvider"`), and check it is clean afterwards.
+  own (`--filter "FullyQualifiedName~<Provider>FileProvider"`), and check it is clean afterwards. Google Cloud Storage's
+  (`GcsLiveConformanceTests`, and `GcsLiveAtomicityTests` for what the emulator does not enforce) run only with
+  `WFP_LIVE=1` and a bucket and service account key in `WFP_GCS_*` variables or a `testsettings.json` next to its test
+  assembly (see `GcsLive`); otherwise they are inconclusive.
 - **Configuration shape**: `ConfigurationShapeTests`, in WriteableFileProviders.Common.Tests, pins the one-way door with
   the files in `Serialization/Golden/`:
   `Writeable*.json` were written by the 2026.10.10.x serializer and are never regenerated; `Lenient.*.json` and
@@ -112,7 +121,7 @@ overwrite, append, move, delete, listing, local stream, download URL and 100 MB 
   reader must accept too.
 
 A change to a provider runs that provider's emulator suite, or its live suite where there is no emulator (Box,
-SharePoint, Google Cloud Storage), and its PR says which ran, or that it did not run and why.
+SharePoint), and its PR says which ran, or that it did not run and why.
 
 ## How a change lands
 

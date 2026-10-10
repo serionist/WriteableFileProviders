@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <None Remove="testsettings.json" />
+    <!-- Optional: a real account for the live suite (GcsLive*). Absent, it is inconclusive; nothing else needs it. -->
+    <Content Include="testsettings.json" Condition="Exists('testsettings.json')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Testcontainers.FakeGcsServer" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WriteableFileProviders.Testing\WriteableFileProviders.Testing.csproj" />
+    <ProjectReference Include="..\..\src\WriteableFileProviders.GoogleCloudStorage\WriteableFileProviders.GoogleCloudStorage.csproj" />
+  </ItemGroup>
+
+</Project>

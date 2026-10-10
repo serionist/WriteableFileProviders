@@ -46,12 +46,25 @@ public sealed class ConfigurationShapeTests
         AssertSameOptions(options, read);
     }
 
+    // Options 2027 adds (the plan's Compatibility section): the written shape carries them, at their defaults in Shapes, on
+    // top of the golden's keys, which must still match exactly.
+    private static readonly Dictionary<string, string[]> _additions = new(StringComparer.Ordinal)
+    {
+        ["WriteableGoogleCloudStorageFileProvider"] = ["Endpoint", "CreateBucketIfMissing"],
+    };
+
     [TestMethod]
     [DynamicData(nameof(Shapes))]
     public void WrittenShapeMatchesGoldenExceptStringConvertibles(string type, object options)
     {
         var written = JsonSerializer.SerializeToNode(options, options.GetType(), OptionsJson.Options)!.AsObject();
         written["Type"] = type;
+        foreach (var addition in _additions.GetValueOrDefault(type, []))
+        {
+            Assert.IsTrue(written.TryGetPropertyValue(addition, out var value), $"{addition} is written");
+            Assert.IsTrue(value is null || value.GetValueKind() == JsonValueKind.False, $"{addition} is at its default: {value}");
+            written.Remove(addition);
+        }
         var golden = GoldenNode(type + ".json");
         // The 2026 serializer wrote S3's storage class as {"Value":...} and could not read it back (F78); 2027 writes the
         // string, which is also what 2026 reads correctly.

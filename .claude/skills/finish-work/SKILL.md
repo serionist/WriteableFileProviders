@@ -24,7 +24,9 @@ work is complete. `main` takes PRs only; either maintainer merges (`AGENTS.md`, 
 3. **Commit:** a subject in the imperative that says what changed, a body that says why, `Refs #<n>`. No tool
    attribution of any kind.
 4. **The developer's look**, before the review, in a draft PR. Push the branch (`git push -u origin <branch>`) and open
-   it with `gh pr create --draft --title "<plain imperative sentence>" --body-file .local/pr-body.md`. The body follows
+   it with `gh pr create --draft --title "<plain imperative sentence>" --body-file .local/pr-body.md`. When the branch already
+   has a PR (an outside contributor's plan PR, from `start-work`), retitle it and replace its body instead:
+   `gh pr edit <n> --title "<plain imperative sentence>" --body-file .local/pr-body.md`. The body follows
    `.github/pull_request_template.md`; keep the body file in `.local/`, which git ignores. Say the draft is open and
    how to see all of it: the PR's Files changed tab, or `git diff origin/main...HEAD`. Wait for their go; their edits
    land as commits before the review starts.

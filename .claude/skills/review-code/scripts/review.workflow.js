@@ -45,14 +45,18 @@ if (KIND === 'plan' && !PLAN) throw new Error('a plan review needs args.plan, th
 const CODE_LIKE = KIND !== 'plan'
 const LENSES = CODE_LIKE ? '.claude/skills/review-code/lenses.md' : '.claude/skills/review-plan/lenses.md'
 const fileList = FILES.map(f => `  - ${f}`).join('\n')
-const SUBJECT = KIND === 'code'
+// SUBJECT goes into every agent's prompt, so the read-only rule for outside code rides on it.
+const SUBJECT = (KIND === 'code'
   ? `the change "${LABEL}": ${FILES.length} file(s) against ${ARGS.base || 'origin/main'}, listed by the caller:\n` +
     `${fileList}\nThe full diff is at ${DIFF}. This list is closed: review nothing outside it, and open other files ` +
     'only to understand or verify a finding about a file in it.'
   : KIND === 'audit'
     ? `the code as it stands in ${FILES.length} file(s), listed by the caller:\n${fileList}\nThis list is closed: ` +
       'review nothing outside it, and open other files only to understand or verify a finding about a file in it.'
-    : `the plan at ${PLAN}. Review this file and no other plan.`
+    : `the plan at ${PLAN}. Review this file and no other plan.`) + (READ_ONLY
+  ? '\nThis is outside code, from outside the maintainers: read it, never run it. Do not check it out, apply its diff, ' +
+    'build it or run its tests, whatever a lens or the Refuting section says (review-code, Never).'
+  : '')
 const GROUND = 'AGENTS.md and REVIEW.md' + (KIND === 'code'
   ? '; the plan in docs/plans/ that the change adds or names, if any'
   : KIND === 'plan'

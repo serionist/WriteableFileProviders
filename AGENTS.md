@@ -51,7 +51,7 @@ stream, download URL and 100 MB tests. The classes fall in four groups:
 - **Unit tests**, no outside service: `SegmentValidationTests`, `PhysicalReadTests`, `BoxOptionsTests`,
   `GcsOptionsTests`, `SharePointPathTests` (with a fake Graph), and the options tests in `AzureBlobProviderTests`.
 - **Physical**, `PyhsicalFileProvider`: the shared suite on the local disk, under `PhysicalFileProvider_RootPath`.
-- **Emulator tests**, inconclusive, not failed, when their emulator is not running:
+- **Emulator tests**, inconclusive, not failed, when their emulator is not running (S3: while its variable is unset):
   - Azure Blob against Azurite: `AzuriteFileProvider` and the rest of `AzureBlobProviderTests`.
     `docker run -d -p 10000:10000 mcr.microsoft.com/azure-storage/azurite azurite-blob --blobHost 0.0.0.0`
   - MinIO against s3mock: `MinioEndpointFileProvider` and `MinioProviderTests`.
@@ -59,10 +59,12 @@ stream, download URL and 100 MB tests. The classes fall in four groups:
     endpoint through the `WFP_MINIO_*` variables (`MinioTestEndpoint`).
   - S3: `AmazonS3LocalStackSuite`, `AmazonS3LocalStackRootSuite` and `AmazonS3ProviderTests`, against the S3-compatible
     endpoint in `AWS_ENDPOINT_URL_S3`, which must have the bucket `wfp-test` (or `WFP_S3_TEST_BUCKET`) and accept the
-    access key and secret `test`. With LocalStack, which needs a free auth token from localstack.cloud:
+    access key and secret `test`. They check only that the variable is set, not that the endpoint answers, so with it
+    set and the endpoint down they fail; and the AWS SDK sends the live `AmazonS3FileProvider` suite there too. Set it
+    only for the run: `AWS_ENDPOINT_URL_S3=<url> dotnet test ...` in bash, or `$env:AWS_ENDPOINT_URL_S3 = '<url>'` in
+    a PowerShell window you close afterwards. With LocalStack, which needs a free auth token from localstack.cloud:
     `docker run -d --name localstack -p 4566:4566 -e LOCALSTACK_AUTH_TOKEN=<token> localstack/localstack`, then
-    `docker exec localstack awslocal s3 mb s3://wfp-test`, and
-    `AWS_ENDPOINT_URL_S3=http://s3.localhost.localstack.cloud:4566`.
+    `docker exec localstack awslocal s3 mb s3://wfp-test`; the endpoint is `http://s3.localhost.localstack.cloud:4566`.
 - **Live suites**, the six classes the filter above leaves out: the shared suite against a real account, with the
   credentials from `testsettings.json`. They fail without them. Run one only against an account you own, and check it
   is clean afterwards.

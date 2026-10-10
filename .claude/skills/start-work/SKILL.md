@@ -27,10 +27,12 @@ it.
    - **The developer is a maintainer:** give the plan's path and the review's verdict, and ask them to approve it.
    - **The developer is not:** do steps 7 and 8 first, so the plan is the branch's only commit, push the branch to
      their fork, and open a draft PR titled `Plan: <title>` that links the issue. A maintainer approves it there; the
-     plan stays the file, and the PR is only where it is read.
+     plan stays the file, and the PR is where it is read. The PR then becomes the change's PR: the code lands on the
+     same branch, and `finish-work` gives it the change's title.
 
    Then set `status: approved`, `approved_by: <the approving maintainer's GitHub login>` and `approved_at: <date>` in
-   the plan's frontmatter, and commit that.
+   the plan's frontmatter. A maintainer's plan carries it into step 8's commit; a contributor commits it on top of
+   the plan commit and pushes.
 7. **Start the branch** `<issue>-<slug>` from `origin/main`, after `git fetch origin`. Ask where, as one question with
    a recommendation:
    - **a new branch** in this checkout (`git switch -c <branch> origin/main`): best when the checkout is clean and

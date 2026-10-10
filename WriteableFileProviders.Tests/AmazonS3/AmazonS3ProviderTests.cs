@@ -330,6 +330,39 @@ namespace WriteableFileProviders.Tests
         }
 
         [TestMethod]
+        public async Task AbsolutePathMembers_ResolveUnderTheRootOnly()
+        {
+            var rootDir = NewName("s3abs");
+            var outside = NewName("s3outside");
+            using var client = LocalStackS3.Client();
+            var provider = LocalStackS3.Provider(rootDir);
+            try
+            {
+                await provider.UpdateFileAsync(Content("inside"), UpdateFileMode.Overwrite, "dir", "file.txt");
+                await PutRaw(client, $"{outside}/secret.txt", "outside");
+
+                using (var reader = new StreamReader(await provider.ReadFileVersionAsync(null, "dir", "file.txt")))
+                    Assert.AreEqual("inside", await reader.ReadToEndAsync());
+#pragma warning disable CS0618 // the obsolete members are what this test pins
+                using (var reader = new StreamReader(await provider.ReadFileAsync(null, rootDir, "dir", "file.txt")))
+                    Assert.AreEqual("inside", await reader.ReadToEndAsync());
+                var listed = await provider.EnumerateObjects(new[] { rootDir, "dir" }, true);
+                Assert.AreEqual(1, listed.Count);
+                CollectionAssert.AreEqual(new[] { "dir", "file.txt" }, ((FileInfo)listed[0]).PathSegments);
+
+                await Assert.ThrowsExceptionAsync<ArgumentException>(() => provider.ReadFileAsync(null, outside, "secret.txt"));
+                await Assert.ThrowsExceptionAsync<ArgumentException>(() => provider.EnumerateObjects(new[] { outside }, true));
+#pragma warning restore CS0618
+                await Assert.ThrowsExceptionAsync<ArgumentException>(() => provider.ReadFileVersionAsync(null, "..", outside, "secret.txt"));
+            }
+            finally
+            {
+                await DeleteRaw(client, $"{rootDir}/");
+                await DeleteRaw(client, $"{outside}/");
+            }
+        }
+
+        [TestMethod]
         public async Task Delete_ProviderRootIsRefused()
         {
             var rootDir = NewName("s3guard");

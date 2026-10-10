@@ -1,5 +1,6 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -66,7 +67,8 @@ namespace WriteableFileProviders.AmazonS3
         /// Lists the objects under the given absolute segments: the provider root segments, then the path.
         /// </summary>
         /// <exception cref="ArgumentException">The segments do not start with the provider root, or a segment after it is not allowed.</exception>
-        [Obsolete("Use GetDirectoryContentsAsync. This member is removed in 2027.0.0.")]
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        [Obsolete("Use GetDirectoryContentsAsync for one level. This member is removed in 2027.0.0, which lists recursively through EnumerateAsync.")]
         public Task<List<IFileInfo>> EnumerateObjects(string[] absolutePathSegments, bool deep) =>
             enumerateObjects(checkAbsoluteSegments(absolutePathSegments, allowRoot: true), deep);
 
@@ -142,6 +144,7 @@ namespace WriteableFileProviders.AmazonS3
         /// overloads (through <see cref="IWriteableFileProvider"/>) for the current file.
         /// </remarks>
         /// <exception cref="ArgumentException">The segments do not start with the provider root, or a segment after it is not allowed.</exception>
+        [EditorBrowsable(EditorBrowsableState.Never)]
         [Obsolete("Use ReadFileVersionAsync for a version, or ReadFileAsync through IWriteableFileProvider. This member is removed in 2027.0.0.")]
         public Task<Stream> ReadFileAsync(string versionId, params string[] absolutePathSegments) =>
             readObjectAsync(versionId, checkAbsoluteSegments(absolutePathSegments, allowRoot: false));

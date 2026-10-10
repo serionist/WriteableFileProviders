@@ -39,10 +39,11 @@ namespace WriteableFileProviders.Tests
         [TestMethod]
         public async Task SinglePathOnTheConcreteTypeGoesThroughValidation()
         {
-            // Bound to the base overload: the '..' segment is refused before any request. The old binding read the
-            // empty key with the whole path as the version id.
+            // Bound to the base overload, so the '..' segment is refused by the path validation. The old binding took the
+            // whole path as a version id and an empty key, which the SDK refused with its own ArgumentException.
             var provider = Provider();
-            await Assert.ThrowsExceptionAsync<ArgumentException>(() => provider.ReadFileAsync("a/../b.txt"));
+            var e = await Assert.ThrowsExceptionAsync<ArgumentException>(() => provider.ReadFileAsync("a/../b.txt"));
+            Assert.AreEqual("pathSegments", e.ParamName);
         }
 
         [TestMethod]

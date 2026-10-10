@@ -48,8 +48,9 @@ Run everything from the repo root, with a .NET 10 SDK (`global.json`) and the .N
 `TestBase` is the shared suite: every provider runs the same create, overwrite, append, move, delete, listing, local
 stream, download URL and 100 MB tests. The classes fall in four groups:
 
-- **Unit tests**, no outside service: `SegmentValidationTests`, `PhysicalReadTests`, `BoxOptionsTests`,
-  `GcsOptionsTests`, `SharePointPathTests` (with a fake Graph), and the options tests in `AzureBlobProviderTests`.
+- **Unit tests**, no outside service: `SegmentValidationTests`, `LocalFileStreamCommitTests`, `PhysicalReadTests`,
+  `AmazonS3PathTests`, `BoxOptionsTests`, `GcsOptionsTests`, `SharePointPathTests` (with a fake Graph), and the options
+  tests in `AzureBlobProviderTests`.
 - **Physical**, `PyhsicalFileProvider`: the shared suite on the local disk, under `PhysicalFileProvider_RootPath`.
 - **Emulator tests**, inconclusive, not failed, when their emulator is not running (S3: while its variable is unset):
   - Azure Blob against Azurite: `AzuriteFileProvider` and the rest of `AzureBlobProviderTests`.

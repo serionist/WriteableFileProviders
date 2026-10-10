@@ -57,12 +57,34 @@ namespace WriteableFileProviders.AmazonS3
 
         protected override async Task<IDirectoryContents> getDirectoryContentsAsync(params string[] absolutePathSegments)
         {
-            var ret = await EnumerateObjects(absolutePathSegments, false);
+            var ret = await enumerateObjects(absolutePathSegments, false);
 
             return new DirectoryContents(ret.Any(), ret.ToArray());
         }
 
-        public async Task<List<IFileInfo>> EnumerateObjects(string[] absolutePathSegments, bool deep)
+        /// <summary>
+        /// Lists the objects under the given absolute segments: the provider root segments, then the path.
+        /// </summary>
+        /// <exception cref="ArgumentException">The segments do not start with the provider root, or a segment after it is not allowed.</exception>
+        [Obsolete("Use GetDirectoryContentsAsync. This member is removed in 2027.0.0.")]
+        public Task<List<IFileInfo>> EnumerateObjects(string[] absolutePathSegments, bool deep) =>
+            enumerateObjects(checkAbsoluteSegments(absolutePathSegments, allowRoot: true), deep);
+
+        // The public members that take absolute segments accept only the provider root followed by a valid path, so
+        // they cannot reach keys outside the root.
+        private string[] checkAbsoluteSegments(string[] absolutePathSegments, bool allowRoot)
+        {
+            var root = Options.RootDirectorySegments ?? new string[0];
+            var segments = absolutePathSegments ?? new string[0];
+            if (segments.Length < root.Length || !root.SequenceEqual(segments.Take(root.Length), StringComparer.Ordinal))
+                throw new ArgumentException("The path segments must start with the provider root segments.", nameof(absolutePathSegments));
+            var relative = validateSegments(segments.Skip(root.Length));
+            if (!allowRoot && relative.Length == 0)
+                throw new ArgumentException("The path must contain at least one segment.", nameof(absolutePathSegments));
+            return root.Concat(relative).ToArray();
+        }
+
+        private async Task<List<IFileInfo>> enumerateObjects(string[] absolutePathSegments, bool deep)
         {
             var ret = new List<IFileInfo>();
             var dirnames = new List<string>();
@@ -111,18 +133,42 @@ namespace WriteableFileProviders.AmazonS3
             throw new PlatformNotSupportedException("Watch is not supported in WriteableAmazonS3FileProvider");
         }
 
-        public async Task<Stream> ReadFileAsync(string versionId, params string[] absolutePathSegments)
-        {
+        /// <summary>
+        /// Reads a version of a file, given its absolute segments: the provider root segments, then the path.
+        /// </summary>
+        /// <remarks>
+        /// On a variable typed <see cref="WriteableAmazonS3FileProvider"/>, a call such as <c>ReadFileAsync("dir", "file.txt")</c>
+        /// binds to this member, not to the base overload. Use <see cref="ReadFileVersionAsync"/> for a version, and the base
+        /// overloads (through <see cref="IWriteableFileProvider"/>) for the current file.
+        /// </remarks>
+        /// <exception cref="ArgumentException">The segments do not start with the provider root, or a segment after it is not allowed.</exception>
+        [Obsolete("Use ReadFileVersionAsync for a version, or ReadFileAsync through IWriteableFileProvider. This member is removed in 2027.0.0.")]
+        public Task<Stream> ReadFileAsync(string versionId, params string[] absolutePathSegments) =>
+            readObjectAsync(versionId, checkAbsoluteSegments(absolutePathSegments, allowRoot: false));
 
+        /// <summary>Reads the file at the given path, relative to the provider root.</summary>
+        public new Task<Stream> ReadFileAsync(string subpath) => base.ReadFileAsync(subpath);
+
+        /// <summary>Reads a version of the file at the given path segments, relative to the provider root.</summary>
+        /// <param name="versionId">The S3 version id, or null or empty for the current version.</param>
+        /// <param name="pathSegments">The path segments, relative to the provider root.</param>
+        /// <exception cref="ArgumentException">A segment is not allowed, or the path is the provider root.</exception>
+        public Task<Stream> ReadFileVersionAsync(string versionId, params string[] pathSegments)
+        {
+            var relative = validateSegments(pathSegments);
+            if (relative.Length == 0)
+                throw new ArgumentException("The path must contain at least one segment.", nameof(pathSegments));
+            return readObjectAsync(versionId, (Options.RootDirectorySegments ?? new string[0]).Concat(relative).ToArray());
+        }
+
+        private async Task<Stream> readObjectAsync(string versionId, string[] absolutePathSegments)
+        {
             if (string.IsNullOrEmpty(versionId))
                 return (await Client.GetObjectAsync(Options.BucketName, path(absolutePathSegments))).ResponseStream;
             else
                 return (await Client.GetObjectAsync(Options.BucketName, path(absolutePathSegments), versionId)).ResponseStream;
         }
-        protected override async Task<Stream> readFileAsync(params string[] absolutePathSegments)
-        {
-            return await ReadFileAsync(null, absolutePathSegments);
-        }
+        protected override Task<Stream> readFileAsync(params string[] absolutePathSegments) => readObjectAsync(null, absolutePathSegments);
 
         protected override async Task updateFileAsync(Stream contents, UpdateFileMode mode, params string[] absolutePathSegments)
         {

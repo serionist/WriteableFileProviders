@@ -17,13 +17,14 @@ and what never to do.
 | `docs/reviews/` | Reports of whole-repo or whole-folder reviews. A change's own review goes in its PR. |
 | `.claude/skills/` | The work loop: `start-work`, `review-plan`, `review-code`, `finish-work`. |
 | `WriteableFileProviders.slnx` | The solution. |
-| `Directory.Build.props`, `Directory.Build.targets` | Settings every project shares; `src/` and `tests/` add their own (packaging; the test runner). The `.targets` file holds the strictness switch. |
+| `Directory.Build.props`, `Directory.Build.targets` | Settings every project shares; `src/` and `tests/` add their own (packaging; test project settings). The `.targets` file holds the strictness switch. |
 | `Directory.Packages.props` | Every package version, once (central package management). A `.csproj` names packages without versions. |
 | `global.json`, `nuget.config` | The SDK; the package source (nuget.org only). |
 
 Every project targets `net10.0`. A project still holding code from before the modernization (#3) sets
-`<WfpLegacy>true</WfpLegacy>`, which turns off nullable analysis, warnings as errors and the style checks in the build;
-its rewrite removes the flag. New code follows `.editorconfig` either way, and nothing reformats a file it does not
+`<WfpLegacy>true</WfpLegacy>`, which turns off nullable analysis, implicit usings, warnings as errors and the style
+checks in the build, lowers the analysis level to the minimum and silences missing-docs warnings; its rewrite removes the
+flag. New code follows `.editorconfig` either way, and nothing reformats a file it does not
 otherwise change.
 
 ## Build and test

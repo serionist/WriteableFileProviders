@@ -530,7 +530,9 @@ lands, not only in S12. The PublicAPI analyzer files are added per package as ea
 - **Every PR:** the full offline and emulator run with `WFP_REQUIRE_DOCKER=1` and no inconclusive emulator test (the
   S3 suites on `AWS_ENDPOINT_URL_S3` excepted until S7 moves them to S3Mock), the coverage gate, and a green `ci.yml`
   run on the head commit, linked from the PR until CI is a required check. Its description says which suites ran.
-- **Floors** in `eng/coverage.json` come from the CI Ubuntu run, re-baselined once from S3's first green run. A floor
+- **Floors** in `eng/coverage.json` are the whole-point floor of the lower of the CI Ubuntu figures and a local Windows
+  run, so the gate passes on both (Common measures about 3 points lower on Windows). They were re-baselined once from
+  S3's first green CI run. A floor
   only rises; a PR that lowers coverage adds tests rather than editing a floor.
 
 ## Docs
@@ -714,7 +716,9 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
   - S3 (#20):
     - Its first CI run found F79 (Physical's `root:` marker in the options on Unix), now pinned.
     - CI's Windows job runs every non-Live test without Docker, so the no-Docker path is exercised on every run.
-    - The coverage floors are re-baselined from the Linux run.
+    - The coverage floors are re-baselined from the first green CI run (run 38089480611) and a Windows run: Common
+      82/80, Physical 92/80, Minio 92/70, AzureBlob 78/64, GCS 24/14, SharePoint 20/15, AmazonS3 16/14, Box 8/0
+      (lines/branches).
 
 ### For the maintainers
 

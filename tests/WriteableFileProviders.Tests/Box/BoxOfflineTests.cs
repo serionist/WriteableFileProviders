@@ -191,6 +191,8 @@ namespace WriteableFileProviders.Tests
         [TestMethod]
         public async Task SignedUrl_IsBoxsDownloadUrl()
         {
+            // Today's behaviour on the 5.8 SDK; S10 replaces it with D18 (a 10-minute request is shorter than Box's fixed
+            // lifetime, so it becomes NotSupportedException, and the gateway takes over).
             var (provider, box) = createProvider();
             var id = box.AddFile("0", "a.txt", "x");
 

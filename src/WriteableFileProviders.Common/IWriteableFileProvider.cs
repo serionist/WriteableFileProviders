@@ -100,7 +100,9 @@ public interface IWriteableFileProvider : IFileProvider, IDisposable, IAsyncDisp
     Task<bool> DeleteAsync(ProviderPath path, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Moves a file. Missing parent folders of the destination are created; moving a file onto itself does nothing.
+    /// Moves a file. Missing parent folders of the destination are created; moving a file onto itself does nothing. On a
+    /// store that ignores case (Physical on Windows and macOS, Box, SharePoint), a move between two names that differ
+    /// only in case renames the file rather than finding the destination taken.
     /// </summary>
     /// <param name="source">The file to move.</param>
     /// <param name="destination">Where to move it.</param>

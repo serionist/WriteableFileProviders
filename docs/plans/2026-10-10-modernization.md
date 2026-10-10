@@ -623,7 +623,7 @@ Status: `todo`, `done` (with the PR), `wontfix` (with the reason). F-numbers are
 | F29 | No cleanup after failed live tests | S4 (suite) | done (S4): each conformance test works under its own root folder, deleted in `[TestCleanup]` whether it passed or failed |
 | F30 | Configuration shape not pinned | S3 | todo |
 | F31 | LocalFileStream contract untested | S4 | done (S4): `LocalFileStreamTests` and the `LocalStream_*` conformance tests |
-| F32 | Box cannot be constructed offline | S10 | todo |
+| F32 | Box cannot be constructed offline | S4 (internal test constructor over the 5.8 SDK), S10 (public client constructor, lazy auth) | in part |
 | F33 | Move/GetDownloadUrl throw AggregateException | S4 | done (S4): every sync form goes through the one helper, `WriteableFileProviderExtensions.Wait` |
 | F34 | LocalFileStream leaks temp stream on failed upload | S4 | done (S4): the local stream always disposes its temp file |
 | F35 | Additions must not break implementers | S4 (moot in a major; recorded) | done (S4): moot in the major; new members ship with defaults in the base |
@@ -790,6 +790,15 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     - Physical, MinIO (S3Mock) and Azure (Azurite) ran their suites with `WFP_REQUIRE_DOCKER=1`.
     - AmazonS3, GCS, Box and SharePoint are not verified until S7, S8, S9 and S10: their suites need an endpoint or
       an account. Only their offline tests ran.
+
+- **2026-10-11, S4 review:**
+  - Deep review round 1 of #23: 1 blocker, 5 majors, 18 minors, 2 nits, all fixed (f9aa55f, 0e2299b, 355b4ef).
+  - Round 2 verified them and found three minors (a failed case-only rename could hide the file, the move docs, and
+    the S10 handoff notes), fixed in the next commit.
+  - Carried to later steps: a test that GCS without a signer throws `NotSupportedException` lands with S8's seam
+    (round-1 F10). `BoxOfflineTests` asserts today's Box URL behaviour, which S10 replaces with D18's.
+  - Main-session decisions for S5–S10 are in `.local/briefs/decisions-s5-s10.md`; each step records the ones it
+    applies.
 
 ### For the maintainers
 

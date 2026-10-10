@@ -180,8 +180,9 @@ public abstract partial class WriteableFileProvider<TOptions>
     /// <summary>
     /// Moves a file whose source exists and whose destination does not, or that differs only in case on a store that
     /// ignores case (<see cref="IsCaseInsensitive"/>). The default copies with <see cref="CopyCoreAsync"/>, then deletes
-    /// the source with <see cref="DeleteFileCoreAsync"/>; a case-only rename goes through a temporary name next to the
-    /// source, which is left behind only if the move fails after the source is deleted.
+    /// the source with <see cref="DeleteFileCoreAsync"/>. A case-only rename goes through a temporary copy next to the
+    /// source: when a step fails, the file is put back under its old name and the temporary copy removed; only when
+    /// that also fails does the temporary copy stay, and the <see cref="IOException"/> thrown names it.
     /// </summary>
     /// <param name="source">The file to move.</param>
     /// <param name="destination">Where it goes.</param>
@@ -191,13 +192,70 @@ public abstract partial class WriteableFileProvider<TOptions>
         ArgumentNullException.ThrowIfNull(source);
         if (IsCaseOnlyRename(source, destination))
         {
-            var temp = source.Parent.Child($".{source.Name}.wfp-{Guid.NewGuid():N}.tmp");
-            await CopyCoreAsync(source, temp, cancellationToken).ConfigureAwait(false);
-            await DeleteFileCoreAsync(source, cancellationToken).ConfigureAwait(false);
-            source = temp;
+            await RenameCaseOnlyAsync(source, destination, cancellationToken).ConfigureAwait(false);
+            return;
         }
         await CopyCoreAsync(source, destination, cancellationToken).ConfigureAwait(false);
         await DeleteFileCoreAsync(source, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task RenameCaseOnlyAsync(ResolvedPath source, ResolvedPath destination, CancellationToken cancellationToken)
+    {
+        var temp = source.Parent.Child($".{source.Name}.wfp-{Guid.NewGuid():N}.tmp");
+        await CopyCoreAsync(source, temp, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await DeleteFileCoreAsync(source, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            // The source is still there: drop the temporary copy and report the original failure.
+            await TryDeleteFileAsync(temp).ConfigureAwait(false);
+            throw;
+        }
+
+        try
+        {
+            await CopyCoreAsync(temp, destination, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception failure)
+        {
+            // The source is gone: put the file back under its old name, or say where its content is.
+            try
+            {
+                await CopyCoreAsync(temp, source, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception restoreFailure)
+            {
+                throw new IOException(
+                    $"Renaming '{source}' to '{destination}' failed, and so did putting it back; its content is kept at '{temp}'.",
+                    new AggregateException(failure, restoreFailure));
+            }
+            await TryDeleteFileAsync(temp).ConfigureAwait(false);
+            throw;
+        }
+
+        try
+        {
+            await DeleteFileCoreAsync(temp, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception failure)
+        {
+            throw new IOException($"'{source}' was renamed to '{destination}', but its temporary copy '{temp}' could not be removed.", failure);
+        }
+    }
+
+    private async Task TryDeleteFileAsync(ResolvedPath path)
+    {
+        try
+        {
+            await DeleteFileCoreAsync(path, CancellationToken.None).ConfigureAwait(false);
+        }
+#pragma warning disable CA1031 // Best effort: the caller is already reporting the failure that matters.
+        catch (Exception)
+#pragma warning restore CA1031
+        {
+        }
     }
 
     /// <summary>

@@ -2,11 +2,16 @@
 
   <PropertyGroup>
     <PackageId>WriteableFileProviders.Physical</PackageId>
-    <Description>WriteableFileProviders for the local file system: a writeable IFileProvider over a folder on disk.</Description>
-    <WfpLegacy>true</WfpLegacy>
+    <Description>WriteableFileProviders for the local file system: a writeable IFileProvider over a folder on disk, with atomic writes, ranged reads and change notifications.</Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
   <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- PhysicalFilesWatcher, behind Watch. -->
     <PackageReference Include="Microsoft.Extensions.FileProviders.Physical" />
   </ItemGroup>
 

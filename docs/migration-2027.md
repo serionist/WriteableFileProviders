@@ -353,3 +353,19 @@ A file's `ETag` (new in 2027) is the id of its current Box file version, not Box
 for a file deleted and created again. `IfNotExists` is atomic on Box. `IfMatch` is checked just before the write, not atomically, until a live run confirms
 that Box matches the quoted ETag the SDK sends (D15 as amended in S10); appends are checked the same way (D19). Box
 keeps no content type, so `ContentType` is ignored on writes and null on reads.
+
+## Physical
+
+| 2026 | 2027 | How to move |
+|---|---|---|
+| An overwrite truncated the file first, so a write that failed left part of the new content (F3) | A write goes to a `.wfp-<guid>.tmp` file next to the target, then a rename puts it in place: the file has its old content or its new content, never a part. A failed write removes its temp file, and listings never show one | Nothing, unless you look at the folder another way: a process that dies mid-write can leave a `.wfp-*.tmp` file, which you can delete. A folder watcher sees a rename instead of a write in place. |
+| An append wrote in place | An append copies the file and the new bytes into the temp file, then renames: atomic, at the cost of a copy of the file | Files appended to very often, such as logs, pay a copy per append: append in batches. |
+| A replaced file stayed the same file, with its permissions, owner and Windows ACLs | The new content arrives as a new file. Its Unix permissions are copied from the file it replaces; its owner and Windows ACLs are those of a new file in that folder | Give permissions through the folder (inherited ACLs) rather than to single files. |
+| A local stream wrote to the file in place, so `SkipReUploadOnDispose` did nothing (F5) | A local stream is a temp copy committed atomically, as on every provider (see "Common: behaviour") | Nothing. |
+| Readers opened files with `FileShare.Read`, so a write or a delete failed while a file was read | Readers share the file with writers and deleters, and keep the content they opened. A delete goes ahead, and so does a write on Linux and macOS. On Windows, which does not rename over a file that is open, the write fails with `UnauthorizedAccessException` and the file keeps its content | On Windows, retry a write that meets an open reader, or dispose read streams sooner. |
+| `GetFileInfo` of a folder reported a missing path (F20); a missing path had a `PhysicalPath` | A folder exists, `IsDirectory`, `Length` -1, with its `PhysicalPath`; a missing path has none | Check `IsDirectory`. |
+| A missing file threw the BCL's `FileNotFoundException`, naming the path on disk | `FileNotFoundException` naming the path under the root, with the BCL's exception as `InnerException` | Read `FileName` as the provider path. |
+| Moving onto an existing file threw a plain `IOException` | `FileExistsException`, an `IOException`, and the destination is taken atomically | Catch `FileExistsException` if you told the cases apart. |
+| No ETags, conditions or ranges; `Watch` threw `PlatformNotSupportedException` | An `ETag` made from the last-write time and the length; `IfNotExists` (atomic) and `IfMatch` (checked just before the rename, not atomic); `ReadRangeAsync` through `RandomAccess`; `Watch` through `PhysicalFilesWatcher` | Every write now sets the file's last-write time itself: the current time, or one tick after the time of the file it replaces when the clock has not passed it, so that each write changes the ETag. |
+| On Linux and macOS, `Options.RootDirectoryPath`, and so `ToJson`, gave `root:/srv/files` (F79) | `/srv/files`. The `root:` form still reads, from JSON and from configuration, and `RootDirectorySegments` keeps its 2026 form | Code that stripped `root:` can stop. |
+| A root of `C:\` read back as `C:` | `C:\` | Nothing. |

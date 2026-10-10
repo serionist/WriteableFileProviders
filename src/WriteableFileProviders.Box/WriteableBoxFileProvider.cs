@@ -84,6 +84,15 @@ namespace WriteableFileProviders.Box
             Client = jwtAuth.AdminClient(accessToken);
         }
 
+        // For the offline tests: a client over a fake request handler, and a session that never needs refreshing.
+        internal WriteableBoxFileProvider(BoxFileProviderOptions options, BoxClient client) : base(options)
+        {
+            RootFolderId = options.RootFolderId ?? "0";
+            Client = client;
+            accessToken = "offline";
+            tokenExpirationTime = DateTime.MaxValue;
+        }
+
         internal static string normalizePrivateKey(string pem) => NormalizePem(pem);
 
         private async Task initializeOAuthSessionAsync()

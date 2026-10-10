@@ -74,8 +74,8 @@ step of #3.
 overwrite, append, move, delete, listing, local stream, download URL and 100 MB tests. Its classes fall in four groups:
 
 - **Unit tests**, no outside service: `SegmentValidationTests`, `PhysicalReadTests`, `AmazonS3PathTests`,
-  `BoxOptionsTests`, `GcsOptionsTests`, `SharePointPathTests` (with a fake Graph), and the options tests in
-  `AzureBlobProviderTests`.
+  `BoxOptionsTests`, `BoxOfflineTests` (with a fake Box API), `GcsOptionsTests`, `SharePointPathTests` (with a fake
+  Graph), and the options tests in `AzureBlobProviderTests`.
 - **Physical**, `PyhsicalFileProvider`: the shared suite on the local disk, under `PhysicalFileProvider_RootPath`, or a
   temp folder when it is not set.
 - **Emulator tests**: `Emulators` starts each emulator once per run through Testcontainers, and the containers go when

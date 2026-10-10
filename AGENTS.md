@@ -78,6 +78,8 @@ or keeps no version to pin; it needs no outside service. It covers every token r
 purpose, provider or access, `..` and out-of-root payloads), one-time tokens under concurrent `PUT`s, ranges and
 headers, the size cap and content type of uploads, the URL service's choice between native and gateway URLs, the
 options, and the app pipeline (HTTP logging, output caching, a fallback authorization policy).
+`GatewayTokenGoldenTests` pins the gateway's one-way door with tokens issued by a test-only key: they are never
+regenerated.
 
 `TestBase`, in tests/WriteableFileProviders.Tests, is the older shared suite each provider still runs until then: create,
 overwrite, append, move, delete, listing, local stream, download URL and 100 MB tests. Its classes fall in four groups:

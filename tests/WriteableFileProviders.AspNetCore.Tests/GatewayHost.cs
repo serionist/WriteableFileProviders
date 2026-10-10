@@ -39,6 +39,9 @@ internal sealed class GatewayHost : IAsyncDisposable
 
     public IWriteableFileProvider Provider(string name = "files") => Services.GetRequiredKeyedService<IWriteableFileProvider>(name);
 
+    /// <summary>The <c>files</c> provider, which counts the gateway's reads.</summary>
+    public DelegatingFileProvider Files => (DelegatingFileProvider)Provider();
+
     public static async Task<GatewayHost> StartAsync(
         Action<WriteableFileProviderGatewayOptions>? configure = null,
         Action<WebApplicationBuilder>? configureBuilder = null,
@@ -88,8 +91,8 @@ internal sealed class GatewayHost : IAsyncDisposable
             ContentType = contentType,
         })).Url;
 
-    /// <summary>The token segment of a gateway URL.</summary>
-    public static string TokenOf(Uri url) => url.Segments[2].TrimEnd('/');
+    /// <summary>The token segment of a gateway URL under <c>/files</c>, whatever path base comes before it.</summary>
+    public static string TokenOf(Uri url) => url.Segments[Array.IndexOf(url.Segments, "files/") + 1].TrimEnd('/');
 
     /// <summary>A gateway URL with the given token.</summary>
     public static Uri GatewayUrl(string token) => new(PublicBaseUri, $"files/{token}/x");

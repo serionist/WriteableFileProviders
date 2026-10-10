@@ -24,12 +24,15 @@ public static class WriteableFileProviderGatewayEndpointRouteBuilderExtensions
     /// descriptions. Add rate limiting, CORS or host filtering through the returned builder.
     /// </para>
     /// <para>
-    /// A download sends <c>Content-Disposition: attachment</c> with the token's file name, the token's content type (else
-    /// the stored one, else <c>application/octet-stream</c>), <c>X-Content-Type-Options: nosniff</c>,
-    /// <c>Referrer-Policy: no-referrer</c> and <c>Cache-Control: private, no-store</c>. Ranges and the <c>ETag</c> need a
-    /// provider that pins a version (<see cref="IWriteableFileProvider.OpenReadSeekableAsync"/>); a provider that keeps no
-    /// version of a file serves it whole. An upload answers 201 (Create) or 200 (Write); 412 when a Create finds the file;
-    /// 413 over <see cref="WriteableFileProviderGatewayOptions.MaxUploadBytes"/>; 415 when the <c>Content-Type</c> differs
+    /// Every response sends <c>Content-Security-Policy: default-src 'none'; sandbox</c>,
+    /// <c>X-Content-Type-Options: nosniff</c>, <c>Referrer-Policy: no-referrer</c> and
+    /// <c>Cache-Control: private, no-store</c>. A download sends <c>Content-Disposition: attachment</c> with the token's
+    /// file name, and the content type the read token names, else <c>application/octet-stream</c>: never a type the store
+    /// keeps that the token did not name. It reads the file with one pinned
+    /// <see cref="IWriteableFileProvider.ReadRangeAsync"/> per contiguous span (the whole file, or the HTTP range), with
+    /// <see cref="ReadOptions.IfMatch"/> on the <c>ETag</c> it read first; a file the store keeps no <c>ETag</c> for is
+    /// served whole, without ranges. An upload answers 201 (Create) or 200 (Write); 412 when a Create finds the file; 413
+    /// over <see cref="WriteableFileProviderGatewayOptions.MaxUploadBytes"/>; 415 when the <c>Content-Type</c> differs
     /// from the token's. Any problem with the token itself answers 404.
     /// </para>
     /// </remarks>

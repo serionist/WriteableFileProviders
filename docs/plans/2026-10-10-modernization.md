@@ -90,7 +90,7 @@ agreement for a one-way door. D20 records how the two maintainers agree for this
 | D19 | Concurrent appends | An append never silently loses a concurrent write, except on Physical and on SharePoint upload sessions, where the check is not atomic and the XML docs say so (round 2, P14; the conformance test for it runs only where the provider fixture declares the capability). Azure commits the block list with `IfMatch` on the ETag it read, re-reading and retrying a bounded number of times. `AppendByRewriteAsync` writes with `IfMatch` on the ETag or generation it read. A concurrent change it cannot absorb throws `PreconditionFailedException`. |
 | D20 | Maintainers' agreement for this release | @serionist's word is the maintainers' agreement for the decisions of #3, and @NemesLaszlo reviews the merged PRs afterwards with him (the maintainer's instruction, 2026-10-10). Posted on #3. |
 | D21 | Live suites stay per PR (round 2, P3) | AGENTS.md's rule is unchanged: a provider change runs its emulator suite, or its live suite where there is none, and its PR says which ran or that it did not and why. Box and SharePoint get offline fakes in S9 and S10, but their PRs still say "live suite not run"; their live runs are outstanding items for the maintainers. |
-| D22 | Gateway defaults (round 2, P13, P26) | Fail closed: `MaxValidity` defaults to 1 hour for Create and Write tokens (configurable, never above 7 days) and to 7 days for Read; Create and Write tokens are one-time by default; the default replay store is in memory and holds only on one instance, which the README and XML docs say (a scaled-out app registers a shared `IGatewayReplayStore` or turns one-time off explicitly); `MaxUploadBytes` defaults to 100 MiB. |
+| D22 | Gateway defaults (round 2, P13, P26) | Fail closed: `MaxValidity` defaults to 1 hour for Create and Write tokens (configurable, never above 7 days) and to 7 days for Read; Create and Write tokens are one-time by default; the default replay store is in memory and holds only on one instance, which the README and XML docs say (a scaled-out app registers a shared `IGatewayReplayStore` or turns one-time off explicitly); `MaxUploadBytes` defaults to 100 MiB. Added in the review of #24 (S11): these rules bind gateway URLs only (`SignedUrlKind.Gateway`); a provider's native upload URL can be reused until it expires and lives up to the provider's maximum (7 days), which S6–S8 treat as intended, and an app that wants the same upload rules everywhere sets `PreferGateway` (F1). A gateway download is served as the content type its read token names, else `application/octet-stream`, never a type the store keeps, and every gateway response carries `Content-Security-Policy: default-src 'none'; sandbox`; the README recommends a host name of its own for the gateway (F2, the maintainer's call: fail closed and harden). |
 | D23 | Smaller surface (round 2, P29, P31, P32, P40) | No Box path-to-id cache: every call resolves the path, as today. Serializer type resolution: the assemblies given, a built-in map from provider class names to their package assemblies, and one registration API, `WriteableFileProviderSerializer.Register<TProvider>()`; no scan of loaded assemblies. Extensions only keep old call shapes compiling. No internal GCS client seam: the tests use the public constructor. The dropped pieces are under Later. |
 | D24 | Content type and unsupported options (round 2, P16, P17) | `UpdateFileOptions.ContentType` is a hint: stored where the store keeps one, ignored elsewhere, and `IWriteableFileInfo.ContentType` is null where the store keeps none. An option a provider cannot honor throws `NotSupportedException`; on `GetSignedUrlAsync` that lets the gateway take over. A signed URL validity that is not positive throws `ArgumentOutOfRangeException`; one above what the provider can sign natively throws `NotSupportedException`, so the URL service falls back on every provider alike. |
 
@@ -602,7 +602,7 @@ Status: `todo`, `done` (with the PR), `wontfix` (with the reason). F-numbers are
 | F8 | SharePoint unbounded itemNotFound retry | S9 | todo |
 | F9 | Commented MinIO test, leaked key in ado history | S0 | done (#17); key rotation is the maintainers' |
 | F10 | MinIO plain HTTP by default | S7 | todo |
-| F11 | Download URL lifetime differs per provider | S4, S6–S11 | S4 done (validity rules, read URLs need the file); S11 done (the URL service falls back to the gateway on `NotSupportedException`, so every provider gets a URL that lives as asked); S6–S10 per provider |
+| F11 | Download URL lifetime differs per provider | S4, S6–S11 | S4 done (validity rules, read URLs need the file); S11 done (the URL service falls back to the gateway on `NotSupportedException`); every provider gets a URL that lives as asked once S9 and S10 make SharePoint and Box throw per D18; S6–S10 per provider |
 | F12 | Download URL docs wrong | S4, S12 | S4 done (interface docs); S12 READMEs |
 | F13 | Sync-over-async, no ConfigureAwait, I/O in constructors | S4, S9, S10 | S4 done (ConfigureAwait, one sync helper in Common); S8–S10 lazy init |
 | F14 | Local stream copies with sync CopyTo | S4 | done (S4): the local stream copies asynchronously |
@@ -820,11 +820,14 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
       `AllowShorterValidity` gets the maximum and its true `ExpiresOn`, as D18 has the providers do.
     - Every token problem answers 404, a replayed one-time token included. 412 for a Create that finds the file, 413
       over `MaxUploadBytes` (a declared `Content-Length` before the token is used; a chunked body cut off as read), 415
-      for a `Content-Type` that differs from the token's (exact, case-insensitive). A token without a content type
-      stores the request's. The one-time token is used up after the request's checks and before the body is read, so
-      concurrent `PUT`s cannot both write; a failed upload needs a new URL.
-    - A download is always `attachment`; the file name defaults to the path's name. A provider that cannot pin a
-      version (`OpenReadSeekableAsync` throws `NotSupportedException`) is served whole, without ranges or an `ETag`.
+      for a `Content-Type` that differs from the token's (exact, case-insensitive). The token's content type, or else
+      the request's, goes to the provider as the `UpdateFileOptions.ContentType` hint: stored where the store keeps
+      one, ignored elsewhere (D24). The one-time token is used up after the request's checks and before the body is
+      read, so concurrent `PUT`s cannot both write; a failed upload needs a new URL.
+    - A download is always `attachment`; the file name defaults to the path's name. Since review round 1 it is served
+      as the read token's content type or `application/octet-stream` (D22), and read with one `ReadRangeAsync` per
+      contiguous span, pinned with `IfMatch` on the `ETag` read first; a file without an `ETag` is served whole,
+      without ranges or an `ETag`.
     - The endpoints `AllowAnonymous` (a fallback authorization policy would break every URL), are excluded from output
       caching (a cached response would outlive its token) and from API descriptions. An `IHttpLoggingInterceptor`
       replaces the request path of gateway requests in `UseHttpLogging`; the README lists the other logs to redact
@@ -835,12 +838,50 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     delegating provider without native URLs: every case of the gateway's Tests bullet, plus the URL service's choice,
     DI, options validation and start-up failure, and the HTTP logging, output caching and fallback authorization
     pipelines. Key cases were checked to fail with their code reverted (the codec's access check, an atomic replay
-    store). The package measures 99.7% of lines and 97.9% of branches (Windows); its floor is 98/96.
+    store). The package measured 99.7% of lines and 97.9% of branches (Windows; Linux CI 100/97.9).
   - **Verified by:** the solution builds (warnings only in the `WfpLegacy` projects, as on `main`); every non-Live test
     with `WFP_REQUIRE_DOCKER=1` passes, the 30 `AWS_ENDPOINT_URL_S3` suites inconclusive as before S7; the coverage gate
     passes; `dotnet pack` puts the README in the package.
   - **Not done here:** PublicAPI files (no package has them yet; S12). A live check behind a real proxy and Kestrel's
     own body limit (TestServer has none; a test installs the feature and checks the gateway raises it).
+
+- **2026-10-11, S11 review round 1 (#24):** the deep review found 10 minors and 1 nit, no blocker or major
+  (`.local/review/15/r1/report.md`). All fixed in one commit:
+  - **F1** (native upload URLs differ from gateway ones): the README's "Which URL you get", the
+    `IWriteableFileUrlService` XML docs, the migration guide and D22 say the gateway's rules bind gateway URLs only,
+    and that `PreferGateway` gives one behaviour.
+  - **F2** (the uploader's content type served on the app's origin), the maintainer's call, fail closed and harden: a
+    download is served only as its read token's type, else `application/octet-stream`; every gateway response carries
+    `Content-Security-Policy: default-src 'none'; sandbox`; the README (a new "Serve it from a host of its own"
+    section, and a quick start on `files.example.com`) and the `PublicBaseUri` XML docs recommend a cookieless host of
+    its own; the README says an uploader's type is stored but never served back unless a read token names it. Tests:
+    a script uploaded as `text/javascript` is served as `application/octet-stream` under the CSP; a stored type is
+    never served; the CSP on downloads, uploads and 404s.
+  - **F3** (the new one-way door had no golden test): the purpose chain and the payload's access are spelled with
+    literals (`Read`, `Create`, `Write`), no longer through the enum's member names. `GatewayTokenGoldenTests` pins the
+    door: three tokens issued by the codec with a test-only Data Protection key (kept in the test, unencrypted, with
+    its expiry moved to 2126) redeem through the codec and the gateway; tokens built from literal JSON and the literal
+    purpose chain redeem; the codec writes exactly the literal JSON. Each of the review's three format breaks (a renamed
+    JSON key, the enum converter dropped, the access lowercased in the chain) fails all six tests.
+  - **F4**: `HttpLogging_UnderAPathBase_DoesNotLogTheToken`, with HTTP logging before and after `UsePathBase`; the
+    logging-first row fails if the interceptor checks only `Request.Path`.
+  - **F5**: the F11 tracker row now says Box and SharePoint join the gateway fallback in S9 and S10 (D18).
+  - **F6**: the floor is the whole-point floor of the lower measured figures minus 1, the rule the provider steps
+    (S5–S10) use for Linux and Windows variance. Measured after this round: 100% of lines, 98.97% of branches
+    (Windows), so the floor rises from 98/96 to 99/97.
+  - **F7** (each download fetched 1 MiB at a time): the gateway reads the file's info once, then serves through
+    `PinnedRangeStream`, which opens one `ReadRangeAsync` with `IfMatch` on that `ETag` from where the response starts
+    and keeps reading it while reads stay contiguous; a single HTTP range opens just that span. Measured with a
+    counting provider: a whole 3 MiB download is one store read (the 1 MiB seekable stream made one per MiB, so a
+    100 MiB file was a hundred sequential reads), a range is one read of exactly its span, and `HEAD` and 304 read
+    nothing.
+  - **F8**: the README and this log say the content type is a hint stored where the provider keeps one (D24).
+  - **F9**: the README quick start issues URLs from an authorized endpoint that checks the caller may read the report.
+  - **F10**: the test provider wraps every stream it returns and counts the open ones; the read tests assert each is
+    disposed when the response ends (whole file, ranges, `HEAD`, 304, a stale `If-Range`, a file that changed). Leaving
+    out `PinnedRangeStream`'s dispose fails six of them.
+  - **F11**: the test provider lost its unused `NativeUrls` switch and `AllowModifications` branch.
+  - Tests: 204 in `WriteableFileProviders.AspNetCore.Tests`.
 
 ### For the maintainers
 

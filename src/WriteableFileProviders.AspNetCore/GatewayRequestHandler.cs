@@ -18,7 +18,7 @@ internal sealed class GatewayRequestHandler(GatewayTokenCodec codec, IGatewayRep
 {
     private const string DefaultContentType = "application/octet-stream";
 
-    /// <summary>GET and HEAD: the file, with HTTP ranges where the provider can pin a version.</summary>
+    /// <summary>GET and HEAD: the file, with HTTP ranges where the provider keeps a version to pin.</summary>
     /// <param name="context">The request.</param>
     /// <param name="token">The token from the URL.</param>
     public async Task<IResult> ReadAsync(HttpContext context, string token)
@@ -32,55 +32,45 @@ internal sealed class GatewayRequestHandler(GatewayTokenCodec codec, IGatewayRep
         if (path.IsRoot)
             return Results.NotFound();
 
-        Stream stream;
-        bool pinned;
-        try
-        {
-            try
-            {
-                // A pinned seekable stream: ranges, and an IOException rather than mixed content if the file changes.
-                stream = await provider.OpenReadSeekableAsync(path, null, cancellationToken).ConfigureAwait(false);
-                pinned = true;
-            }
-            catch (NotSupportedException)
-            {
-                // The provider keeps no version of the file to pin: serve it whole, without ranges or an ETag.
-                stream = await provider.ReadFileAsync(path, cancellationToken).ConfigureAwait(false);
-                pinned = false;
-            }
-        }
-        catch (Exception e) when (e is FileNotFoundException or ArgumentException)
-        {
-            return Results.NotFound();
-        }
-
         IWriteableFileInfo info;
         try
         {
-            // Read after the stream is open: a pinned stream serves the bytes of this version or fails, so the ETag sent
-            // matches whatever body is sent.
             info = await provider.GetFileInfoAsync(path, cancellationToken).ConfigureAwait(false);
         }
-        catch
+        catch (ArgumentException)
         {
-            await stream.DisposeAsync().ConfigureAwait(false);
-            throw;
-        }
-        if (!info.Exists || info.IsDirectory)
-        {
-            await stream.DisposeAsync().ConfigureAwait(false);
             return Results.NotFound();
         }
+        if (!info.Exists || info.IsDirectory)
+            return Results.NotFound();
 
+        // Only the type the read token names, never one the store holds: an untyped upload URL let its holder choose that
+        // one, and serving it back would let them pick text/javascript or text/html on this origin.
+        var contentType = ValidContentType(read.Payload.ContentType) ?? DefaultContentType;
         // Content-Disposition: attachment, with the token's file name only, encoded per RFC 6266 by
         // ContentDispositionHeaderValue (an ASCII filename and a UTF-8 filename*).
-        return Results.Stream(
-            stream,
-            ValidContentType(read.Payload.ContentType) ?? ValidContentType(info.ContentType) ?? DefaultContentType,
-            fileDownloadName: string.IsNullOrEmpty(read.Payload.FileName) ? path.Name : read.Payload.FileName,
-            lastModified: info.LastModified == default ? null : info.LastModified,
-            entityTag: pinned ? EntityTag(info.ETag) : null,
-            enableRangeProcessing: pinned);
+        var fileName = string.IsNullOrEmpty(read.Payload.FileName) ? path.Name : read.Payload.FileName;
+        DateTimeOffset? lastModified = info.LastModified == default ? null : info.LastModified;
+
+        if (info.ETag is not { } version)
+        {
+            // The store keeps no version of the file, so nothing can pin a read: serve it whole, without ranges or an ETag.
+            Stream whole;
+            try
+            {
+                whole = await provider.ReadFileAsync(path, cancellationToken).ConfigureAwait(false);
+            }
+            catch (FileNotFoundException)
+            {
+                return Results.NotFound();
+            }
+            return Results.Stream(whole, contentType, fileName, lastModified, entityTag: null, enableRangeProcessing: false);
+        }
+
+        // One ranged read of the store per contiguous span, pinned to the version read above: the whole file or one HTTP
+        // range costs one request, and a file that changes meanwhile fails the response rather than mixing versions.
+        var stream = new PinnedRangeStream(provider, path, info.Length, version, RangeWindow(context.Request, info.Length));
+        return Results.Stream(stream, contentType, fileName, lastModified, EntityTag(version), enableRangeProcessing: true);
     }
 
     /// <summary>PUT: stores the body, creating the file only if absent (Create) or replacing it (Write).</summary>
@@ -140,6 +130,8 @@ internal sealed class GatewayRequestHandler(GatewayTokenCodec codec, IGatewayRep
 
     private static void SetSecurityHeaders(HttpResponse response)
     {
+        // A response is never a document: no script, style or plugin runs from it, even when a browser renders it.
+        response.Headers.ContentSecurityPolicy = "default-src 'none'; sandbox";
         response.Headers.XContentTypeOptions = "nosniff";
         response.Headers["Referrer-Policy"] = "no-referrer";
         response.Headers.CacheControl = "private, no-store";
@@ -159,6 +151,32 @@ internal sealed class GatewayRequestHandler(GatewayTokenCodec codec, IGatewayRep
         return requestContentType is null || MediaTypeHeaderValue.TryParse(requestContentType, out _)
             ? null
             : Results.StatusCode(StatusCodes.Status415UnsupportedMediaType);
+    }
+
+    /// <summary>
+    /// The span of the file a request's single <c>Range</c> asks for, as a hint for how far the first read reaches; null
+    /// when there is none, or several. ASP.NET Core decides what is served: a read outside the hint opens another range.
+    /// </summary>
+    /// <param name="request">The request.</param>
+    /// <param name="length">The file's length.</param>
+    internal static (long Start, long End)? RangeWindow(HttpRequest request, long length)
+    {
+        var range = request.GetTypedHeaders().Range;
+        if (range is null || !string.Equals(range.Unit.Value, "bytes", StringComparison.OrdinalIgnoreCase) || range.Ranges.Count != 1)
+            return null;
+        var item = range.Ranges.First();
+        long start, end;
+        if (item.From is { } from)
+        {
+            start = from;
+            end = Math.Min(item.To ?? length - 1, length - 1);
+        }
+        else
+        {
+            start = Math.Max(0, length - (item.To ?? 0));
+            end = length - 1;
+        }
+        return start <= end ? (start, end) : null;
     }
 
     private static string? ValidContentType(string? contentType) =>

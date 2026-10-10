@@ -31,6 +31,7 @@ public sealed class GatewayUploadTests
         Assert.AreEqual(HttpStatusCode.Created, response.StatusCode);
         Assert.AreEqual("fresh", await _host.ReadAsync("in/new.txt"));
         Assert.AreEqual("nosniff", response.Headers.GetValues("X-Content-Type-Options").Single());
+        Assert.AreEqual("default-src 'none'; sandbox", response.Headers.GetValues("Content-Security-Policy").Single());
     }
 
     [TestMethod]

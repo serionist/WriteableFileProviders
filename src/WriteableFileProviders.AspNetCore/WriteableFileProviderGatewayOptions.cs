@@ -16,11 +16,17 @@ public sealed class WriteableFileProviderGatewayOptions
     public static TimeSpan MaxValidityLimit { get; } = TimeSpan.FromDays(7);
 
     /// <summary>
-    /// Required: where the app is reachable from outside, such as <c>https://files.example.com/</c>, including any path
-    /// base the app runs under behind a proxy. Gateway URLs are built from it and never from the request's
-    /// <c>Host</c> header, so a forged header cannot redirect a URL. It must be absolute and <c>https</c>; plain
-    /// <c>http</c> is accepted only for a loopback host, or with <see cref="AllowInsecureHttp"/>.
+    /// Required: where the gateway is reachable from outside, including any path base the app runs under behind a
+    /// proxy. Gateway URLs are built from it and never from the request's <c>Host</c> header, so a forged header cannot
+    /// redirect a URL. It must be absolute and <c>https</c>; plain <c>http</c> is accepted only for a loopback host, or
+    /// with <see cref="AllowInsecureHttp"/>.
     /// </summary>
+    /// <remarks>
+    /// Use a host name of its own that the app's cookies are not sent to, such as <c>https://files.example.com/</c> beside
+    /// <c>https://app.example.com/</c> (cookies scoped to the app's host, not to <c>.example.com</c>): whatever a download
+    /// holds then never runs, or reads cookies, on the app's origin. The gateway's own headers (a sandboxing
+    /// <c>Content-Security-Policy</c>, <c>nosniff</c>, <c>attachment</c>) are the second line.
+    /// </remarks>
     public Uri? PublicBaseUri { get; set; }
 
     /// <summary>

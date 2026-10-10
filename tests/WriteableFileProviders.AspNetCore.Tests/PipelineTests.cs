@@ -42,6 +42,41 @@ public sealed class PipelineTests
     }
 
     [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task HttpLogging_UnderAPathBase_DoesNotLogTheToken(bool loggingFirst)
+    {
+        var logs = new CapturingLoggerProvider();
+        await using var host = await GatewayHost.StartAsync(
+            options => options.PublicBaseUri = new Uri("https://files.example.com/app"),
+            configureBuilder: builder =>
+            {
+                builder.Logging.AddProvider(logs);
+                builder.Logging.SetMinimumLevel(LogLevel.Information);
+                builder.Services.AddHttpLogging(options => options.LoggingFields = HttpLoggingFields.All);
+            },
+            configureApp: app =>
+            {
+                if (loggingFirst)
+                    app.UseHttpLogging();
+                app.UsePathBase("/app");
+                if (!loggingFirst)
+                    app.UseHttpLogging();
+            });
+        await host.WriteAsync("doc.txt", "content");
+        var url = await host.UrlAsync("doc.txt");
+        var token = GatewayHost.TokenOf(url);
+        Assert.IsTrue(url.AbsolutePath.StartsWith("/app/files/", StringComparison.Ordinal), url.ToString());
+
+        using (var response = await host.Client.GetAsync(url))
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+
+        var httpLogs = logs.Messages.Where(m => m.Category.StartsWith("Microsoft.AspNetCore.HttpLogging", StringComparison.Ordinal)).ToList();
+        Assert.IsTrue(httpLogs.Any(m => m.Text.Contains("/files/{token}/{fileName}", StringComparison.Ordinal)), string.Join(" | ", httpLogs.Select(m => m.Text)));
+        Assert.IsFalse(httpLogs.Any(m => m.Text.Contains(token[^20..], StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
     public async Task OutputCaching_DoesNotCacheTheGateway()
     {
         await using var host = await GatewayHost.StartAsync(

@@ -16,7 +16,7 @@ internal sealed record GatewayTokenPayload
 
     /// <summary>What the token allows.</summary>
     [JsonPropertyName("a")]
-    [JsonConverter(typeof(JsonStringEnumConverter<SignedUrlAccess>))]
+    [JsonConverter(typeof(GatewayAccessJsonConverter))]
     public required SignedUrlAccess Access { get; init; }
 
     /// <summary>A download's response content type, or the content type an upload must send and is stored with.</summary>
@@ -44,7 +44,11 @@ internal sealed record GatewayToken(string ProviderName, GatewayTokenPayload Pay
 /// chain is <see cref="Purpose"/>, the provider's name and the access. The first two parts are in the clear only to pick
 /// that protector: changing either one changes the purpose, so the payload no longer unprotects.
 /// </summary>
-/// <remarks>The format and the purpose chain are a one-way door: tokens issued by one version redeem on the next.</remarks>
+/// <remarks>
+/// The format, the payload's JSON and the purpose chain are a one-way door: tokens issued by one version redeem on the
+/// next. So the access is spelled with literals here (<c>Read</c>, <c>Create</c>, <c>Write</c>), never through the enum's
+/// member names, and a golden test pins all of it.
+/// </remarks>
 /// <param name="dataProtectionProvider">The app's Data Protection.</param>
 internal sealed class GatewayTokenCodec(IDataProtectionProvider dataProtectionProvider)
 {
@@ -59,9 +63,10 @@ internal sealed class GatewayTokenCodec(IDataProtectionProvider dataProtectionPr
     /// <param name="expiresOn">When the token stops working.</param>
     public string Protect(string providerName, GatewayTokenPayload payload, DateTimeOffset expiresOn)
     {
+        var code = AccessCode(payload.Access);
         var json = JsonSerializer.SerializeToUtf8Bytes(payload);
         var protectedPayload = Protector(providerName, payload.Access).Protect(json, expiresOn);
-        return string.Join('.', AccessCode(payload.Access), WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(providerName)),
+        return string.Join('.', code, WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(providerName)),
             WebEncoders.Base64UrlEncode(protectedPayload));
     }
 
@@ -112,8 +117,33 @@ internal sealed class GatewayTokenCodec(IDataProtectionProvider dataProtectionPr
             : null;
     }
 
+    /// <summary>The access as the token's purpose chain and payload spell it: <c>Read</c>, <c>Create</c>, <c>Write</c>.</summary>
+    /// <param name="access">The access.</param>
+    internal static string AccessName(SignedUrlAccess access) => access switch
+    {
+        SignedUrlAccess.Read => "Read",
+        SignedUrlAccess.Create => "Create",
+        SignedUrlAccess.Write => "Write",
+        _ => throw new ArgumentOutOfRangeException(nameof(access), access, "Unknown access."),
+    };
+
+    /// <summary>Reads an access spelled as <see cref="AccessName"/> spells it.</summary>
+    /// <param name="name">The name.</param>
+    /// <param name="access">The access.</param>
+    internal static bool TryParseAccessName(string? name, out SignedUrlAccess access)
+    {
+        (var known, access) = name switch
+        {
+            "Read" => (true, SignedUrlAccess.Read),
+            "Create" => (true, SignedUrlAccess.Create),
+            "Write" => (true, SignedUrlAccess.Write),
+            _ => (false, default),
+        };
+        return known;
+    }
+
     private ITimeLimitedDataProtector Protector(string providerName, SignedUrlAccess access) =>
-        dataProtectionProvider.CreateProtector(Purpose, providerName, access.ToString()).ToTimeLimitedDataProtector();
+        dataProtectionProvider.CreateProtector(Purpose, providerName, AccessName(access)).ToTimeLimitedDataProtector();
 
     private static string AccessCode(SignedUrlAccess access) => access switch
     {
@@ -133,5 +163,20 @@ internal sealed class GatewayTokenCodec(IDataProtectionProvider dataProtectionPr
             _ => (false, default),
         };
         return known;
+    }
+}
+
+/// <summary>Writes and reads the payload's access with <see cref="GatewayTokenCodec.AccessName"/>'s literals.</summary>
+internal sealed class GatewayAccessJsonConverter : JsonConverter<SignedUrlAccess>
+{
+    public override SignedUrlAccess Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        reader.TokenType == JsonTokenType.String && GatewayTokenCodec.TryParseAccessName(reader.GetString(), out var access)
+            ? access
+            : throw new JsonException("Unknown access.");
+
+    public override void Write(Utf8JsonWriter writer, SignedUrlAccess value, JsonSerializerOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(writer);
+        writer.WriteStringValue(GatewayTokenCodec.AccessName(value));
     }
 }

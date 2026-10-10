@@ -160,6 +160,19 @@ public sealed class GatewayTokenTests
     public void Read_Null_IsNull() => Assert.IsNull(Codec.Read(null));
 
     [TestMethod]
+    public void AccessNames_AreTheLiteralsOfTheFormat()
+    {
+        Assert.AreEqual("Read", GatewayTokenCodec.AccessName(SignedUrlAccess.Read));
+        Assert.AreEqual("Create", GatewayTokenCodec.AccessName(SignedUrlAccess.Create));
+        Assert.AreEqual("Write", GatewayTokenCodec.AccessName(SignedUrlAccess.Write));
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => GatewayTokenCodec.AccessName((SignedUrlAccess)42));
+        Assert.IsTrue(GatewayTokenCodec.TryParseAccessName("Create", out var create));
+        Assert.AreEqual(SignedUrlAccess.Create, create);
+        Assert.IsFalse(GatewayTokenCodec.TryParseAccessName("read", out _));
+        Assert.IsFalse(GatewayTokenCodec.TryParseAccessName(null, out _));
+    }
+
+    [TestMethod]
     public void Protect_UnknownAccess_Throws() =>
         Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => Codec.Protect("files", Payload((SignedUrlAccess)42, "doc.txt"), DateTimeOffset.UtcNow.AddMinutes(1)));
 
@@ -224,6 +237,8 @@ public sealed class GatewayTokenTests
         var url = token.Length == 0 ? new Uri(GatewayHost.PublicBaseUri, "files/") : GatewayHost.GatewayUrl(token);
         using var response = put ? await _host.PutAsync(url, "replaced") : await _host.Client.GetAsync(url);
         Assert.AreEqual(HttpStatusCode.NotFound, response.StatusCode, $"{(put ? "PUT" : "GET")} {token}");
+        if (token.Length > 0)
+            Assert.AreEqual("default-src 'none'; sandbox", response.Headers.GetValues("Content-Security-Policy").Single());
     }
 
     private static GatewayTokenPayload Payload(SignedUrlAccess access, params string[] path) =>

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace WriteableFileProviders.AspNetCore.Tests;
@@ -19,14 +20,15 @@ public sealed class GatewayReadTests
     [TestMethod]
     public async Task Get_ServesTheFile_WithTheSecurityHeaders()
     {
-        await _host.WriteAsync("docs/report.txt", "hello gateway", contentType: "text/plain");
-        var url = await _host.UrlAsync("docs/report.txt");
+        await _host.WriteAsync("docs/report.txt", "hello gateway");
+        var url = await _host.UrlAsync("docs/report.txt", contentType: "text/plain");
 
         using var response = await _host.Client.GetAsync(url);
 
         Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
         Assert.AreEqual("hello gateway", await response.Content.ReadAsStringAsync());
         Assert.AreEqual("text/plain", response.Content.Headers.ContentType?.MediaType);
+        Assert.AreEqual("default-src 'none'; sandbox", Single(response, "Content-Security-Policy"));
         Assert.AreEqual("nosniff", Single(response, "X-Content-Type-Options"));
         Assert.AreEqual("no-referrer", Single(response, "Referrer-Policy"));
         Assert.IsTrue(response.Headers.CacheControl is { Private: true, NoStore: true });
@@ -177,29 +179,32 @@ public sealed class GatewayReadTests
     }
 
     [TestMethod]
-    public async Task Get_ContentType_ComesFromTheTokenThenTheStoreThenADefault()
+    public async Task Get_ContentType_IsTheReadTokensOnly_NeverTheStoredOne()
     {
         await _host.WriteAsync("typed.bin", "x", contentType: "image/png");
-        await _host.WriteAsync("untyped.bin", "x");
 
         using (var fromToken = await _host.Client.GetAsync(await _host.UrlAsync("typed.bin", contentType: "application/pdf")))
             Assert.AreEqual("application/pdf", fromToken.Content.Headers.ContentType?.MediaType);
-        using (var fromStore = await _host.Client.GetAsync(await _host.UrlAsync("typed.bin")))
-            Assert.AreEqual("image/png", fromStore.Content.Headers.ContentType?.MediaType);
-        using var fallback = await _host.Client.GetAsync(await _host.UrlAsync("untyped.bin"));
-        Assert.AreEqual("application/octet-stream", fallback.Content.Headers.ContentType?.MediaType);
+        using var untyped = await _host.Client.GetAsync(await _host.UrlAsync("typed.bin"));
+        Assert.AreEqual("application/octet-stream", untyped.Content.Headers.ContentType?.MediaType);
     }
 
     [TestMethod]
-    public async Task Get_InvalidStoredContentType_FallsBackToTheDefault()
+    public async Task Get_AScriptAnUploaderTyped_IsServedInert()
     {
-        await _host.WriteAsync("odd.bin", "x", contentType: "not a media type");
+        // An untyped upload URL lets its holder choose the stored type; an untyped read URL never serves it back.
+        var upload = await _host.UrlAsync("x.js", SignedUrlAccess.Write);
+        using (var put = await _host.PutAsync(upload, "alert(1)", "text/javascript"))
+            Assert.AreEqual(HttpStatusCode.OK, put.StatusCode);
+        Assert.AreEqual("text/javascript", (await _host.Provider().GetFileInfoAsync("x.js")).ContentType);
 
-        using var response = await _host.Client.GetAsync(await _host.UrlAsync("odd.bin"));
+        using var response = await _host.Client.GetAsync(await _host.UrlAsync("x.js"));
 
-        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
         Assert.AreEqual("application/octet-stream", response.Content.Headers.ContentType?.MediaType);
+        Assert.AreEqual("default-src 'none'; sandbox", Single(response, "Content-Security-Policy"));
+        Assert.AreEqual("attachment", response.Content.Headers.ContentDisposition?.DispositionType);
     }
+
 
     [TestMethod]
     public async Task Get_FileDeletedAfterTheUrlWasIssued_Answers404()
@@ -254,6 +259,9 @@ public sealed class GatewayReadTests
         Assert.AreEqual(0, response.Headers.AcceptRanges.Count);
         Assert.IsNull(response.Headers.ETag);
         Assert.AreEqual("attachment", response.Content.Headers.ContentDisposition?.DispositionType);
+        Assert.AreEqual(1, host.Files.FileReads);
+        Assert.AreEqual(0, host.Files.RangeReads.Count);
+        Assert.IsTrue(await host.Files.AllStreamsDisposedAsync());
     }
 
     [TestMethod]
@@ -267,6 +275,96 @@ public sealed class GatewayReadTests
         using var response = await host.Client.GetAsync(url);
 
         Assert.AreEqual(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [TestMethod]
+    public async Task Get_WholeFile_IsOneReadOfTheStore_AndEveryStreamIsDisposed()
+    {
+        var data = Testing.TestStreams.Bytes(3 * 1024 * 1024 + 17);
+        await _host.Provider().UpdateFileAsync("large.bin", new MemoryStream(data));
+
+        using var response = await _host.Client.GetAsync(await _host.UrlAsync("large.bin"));
+
+        CollectionAssert.AreEqual(data, await response.Content.ReadAsByteArrayAsync());
+        // The 1 MiB seekable stream this replaced fetched one range per MiB: four here, a hundred for 100 MiB.
+        CollectionAssert.AreEqual(new (long, long?)[] { (0, data.Length) }, _host.Files.RangeReads.ToArray());
+        Assert.IsTrue(await _host.Files.AllStreamsDisposedAsync());
+    }
+
+    [TestMethod]
+    [DataRow(1_000_000L, 1_999_999L, 1_000_000L, 1_000_000L)]
+    [DataRow(2_000_000L, null, 2_000_000L, 1_145_728L)]
+    [DataRow(null, 500L, 3_145_228L, 500L)]
+    public async Task Get_Range_IsOneReadOfTheStore_ForJustThatSpan(long? from, long? to, long offset, long length)
+    {
+        await _host.Provider().UpdateFileAsync("large.bin", new MemoryStream(Testing.TestStreams.Bytes(3 * 1024 * 1024)));
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, await _host.UrlAsync("large.bin"));
+        request.Headers.Range = new RangeHeaderValue(from, to);
+        using var response = await _host.Client.SendAsync(request);
+
+        Assert.AreEqual(HttpStatusCode.PartialContent, response.StatusCode);
+        Assert.AreEqual(length, (await response.Content.ReadAsByteArrayAsync()).Length);
+        CollectionAssert.AreEqual(new (long, long?)[] { (offset, length) }, _host.Files.RangeReads.ToArray());
+        Assert.IsTrue(await _host.Files.AllStreamsDisposedAsync());
+    }
+
+    [TestMethod]
+    public async Task HeadAnd304AndIfRangeMismatch_ReadOnlyWhatTheyServe()
+    {
+        await _host.WriteAsync("doc.txt", "0123456789");
+        var url = await _host.UrlAsync("doc.txt");
+
+        using (var head = await _host.Client.SendAsync(new HttpRequestMessage(HttpMethod.Head, url)))
+            Assert.AreEqual(HttpStatusCode.OK, head.StatusCode);
+        Assert.AreEqual(0, _host.Files.RangeReads.Count);
+
+        EntityTagHeaderValue etag;
+        using (var first = await _host.Client.GetAsync(url))
+            etag = first.Headers.ETag!;
+        using (var conditional = new HttpRequestMessage(HttpMethod.Get, url))
+        {
+            conditional.Headers.IfNoneMatch.Add(etag);
+            using var notModified = await _host.Client.SendAsync(conditional);
+            Assert.AreEqual(HttpStatusCode.NotModified, notModified.StatusCode);
+        }
+        Assert.AreEqual(1, _host.Files.RangeReads.Count);
+
+        // A range whose If-Range no longer matches is served whole: the read reaches past the range's span.
+        using (var stale = new HttpRequestMessage(HttpMethod.Get, url))
+        {
+            stale.Headers.Range = new RangeHeaderValue(2, 4);
+            stale.Headers.IfRange = new RangeConditionHeaderValue("\"stale\"");
+            using var whole = await _host.Client.SendAsync(stale);
+            Assert.AreEqual(HttpStatusCode.OK, whole.StatusCode);
+            Assert.AreEqual("0123456789", await whole.Content.ReadAsStringAsync());
+        }
+        Assert.IsTrue(await _host.Files.AllStreamsDisposedAsync());
+    }
+
+    [TestMethod]
+    public async Task Get_ProviderThatCannotPin_FileGoneBeforeItIsRead_Answers404()
+    {
+        await using var host = await GatewayHost.StartAsync(canPin: false);
+        await host.WriteAsync("doc.txt", "x");
+        var url = await host.UrlAsync("doc.txt");
+        host.Files.AfterGetFileInfo = async () => await host.Provider().DeleteAsync("doc.txt");
+
+        using var response = await host.Client.GetAsync(url);
+
+        Assert.AreEqual(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [TestMethod]
+    public async Task Get_TokenWithoutAFileName_NamesTheDownloadAfterThePath()
+    {
+        await _host.WriteAsync("folder/named.txt", "x");
+        var codec = _host.Services.GetRequiredService<GatewayTokenCodec>();
+        var token = codec.Protect("files", new GatewayTokenPayload { Path = ["folder", "named.txt"], Access = SignedUrlAccess.Read, Id = "id" }, DateTimeOffset.UtcNow.AddMinutes(1));
+
+        using var response = await _host.Client.GetAsync(GatewayHost.GatewayUrl(token));
+
+        Assert.AreEqual("named.txt", response.Content.Headers.ContentDisposition?.FileNameStar);
     }
 
     [TestMethod]
@@ -285,29 +383,43 @@ public sealed class GatewayReadTests
     }
 
     [TestMethod]
-    public async Task Get_FileGoneBetweenOpenAndInfo_Answers404()
+    public async Task Get_StoreReportsTheFileMissing_Answers404_WithoutReading()
     {
         await _host.WriteAsync("doc.txt", "x");
         var url = await _host.UrlAsync("doc.txt");
-        var provider = (DelegatingFileProvider)_host.Provider();
-        provider.ReportMissing = true;
+        _host.Files.ReportMissing = true;
 
         using var response = await _host.Client.GetAsync(url);
 
         Assert.AreEqual(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.AreEqual(0, _host.Files.RangeReads.Count + _host.Files.FileReads);
     }
 
     [TestMethod]
-    public async Task Get_StoreFailsAfterOpen_FailsTheRequest()
+    public async Task Get_StoreFails_FailsTheRequest_WithoutReading()
     {
         await _host.WriteAsync("doc.txt", "x");
         var url = await _host.UrlAsync("doc.txt");
-        var provider = (DelegatingFileProvider)_host.Provider();
-        provider.GetFileInfoFailure = new IOException("The store is down.");
+        _host.Files.GetFileInfoFailure = new IOException("The store is down.");
 
         // TestServer hands an unhandled app exception to the client; a real server answers 500.
         var failure = await Assert.ThrowsAsync<Exception>(() => _host.Client.GetAsync(url));
         Assert.IsTrue(failure is IOException || failure.InnerException is IOException, failure.ToString());
+        Assert.AreEqual(0, _host.Files.RangeReads.Count + _host.Files.FileReads);
+    }
+
+    [TestMethod]
+    public async Task Get_FileChangedBeforeItIsRead_FailsRatherThanServingAnotherVersion()
+    {
+        await _host.WriteAsync("doc.txt", "first version");
+        var url = await _host.UrlAsync("doc.txt");
+        _host.Files.AfterGetFileInfo = () => _host.WriteAsync("doc.txt", "second, longer version");
+
+        // TestServer hands the failure to the client; a real server aborts the response.
+        var failure = await Assert.ThrowsAsync<Exception>(() => _host.Client.GetAsync(url));
+
+        Assert.IsTrue(failure is PreconditionFailedException || failure.InnerException is PreconditionFailedException, failure.ToString());
+        Assert.IsTrue(await _host.Files.AllStreamsDisposedAsync());
     }
 
     [TestMethod]

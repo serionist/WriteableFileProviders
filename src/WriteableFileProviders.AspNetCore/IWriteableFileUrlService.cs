@@ -15,6 +15,15 @@ public interface IWriteableFileUrlService
     /// <see cref="NotSupportedException"/> (no native URLs, not for this access, not for this long, not with a download
     /// name or content type), the gateway issues one instead (<see cref="SignedUrlKind.Gateway"/>).
     /// </summary>
+    /// <remarks>
+    /// The gateway's own rules bind only gateway URLs (<see cref="SignedUrlKind.Gateway"/>):
+    /// <see cref="WriteableFileProviderGatewayOptions.OneTimeUploadTokens"/>,
+    /// <see cref="WriteableFileProviderGatewayOptions.MaxReadValidity"/> and
+    /// <see cref="WriteableFileProviderGatewayOptions.MaxUploadValidity"/>. A native URL follows its provider: a native
+    /// upload URL can be used again until it expires (a Create URL fails once the file exists), and lives up to the
+    /// provider's own maximum (7 days). An app that needs the same upload rules on every provider sets
+    /// <see cref="WriteableFileProviderGatewayOptions.PreferGateway"/>.
+    /// </remarks>
     /// <param name="providerName">The name the provider is registered under (a keyed <see cref="IWriteableFileProvider"/>).</param>
     /// <param name="path">The file, relative to the provider's root.</param>
     /// <param name="options">

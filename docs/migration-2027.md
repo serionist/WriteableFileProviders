@@ -141,7 +141,11 @@ there is nothing to migrate; it is the way to keep handing out download links wh
 - **The gateway** (`AddWriteableFileProviderGateway`, `MapWriteableFileProviderGateway`) serves `GET`, `HEAD` (with
   HTTP ranges) and `PUT` on `{BasePath}/{token}/{fileName?}`. The token is an ASP.NET Core Data Protection payload, so
   an app on several instances shares its key ring, and one-time upload URLs need a shared `IGatewayReplayStore`.
-- **Defaults fail closed:** `PublicBaseUri` is required and gateway URLs never use the request's `Host`; download URLs
-  live at most 7 days and upload URLs 1 hour by default; upload URLs work once; uploads are capped at 100 MiB.
+- **Defaults fail closed:** `PublicBaseUri` is required and gateway URLs never use the request's `Host`; gateway
+  download URLs live at most 7 days and gateway upload URLs 1 hour by default; gateway upload URLs work once; uploads
+  are capped at 100 MiB; a download is served as the content type its read URL names, else
+  `application/octet-stream`, under a sandboxing `Content-Security-Policy`. These rules bind gateway URLs only: a
+  provider's native upload URL can be reused until it expires and lives up to the provider's maximum, so an app that
+  needs the same rules everywhere sets `PreferGateway`.
 
 The package README covers the options, the endpoints' status codes and headers, and how to keep tokens out of logs.

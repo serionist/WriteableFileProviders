@@ -5,15 +5,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Minio" Version="3.1.1" />
-
-    <!--To solve dependency vulnerability (Transitive packages)-->
-    <PackageReference Include="RestSharp" Version="112.1.0" />
-    
+    <PackageReference Include="Minio" Version="7.0.0" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="WriteableFileProviders.Common" Version="2024.2.7.1" />
+    <PackageReference Include="WriteableFileProviders.Common" Version="2026.10.10.4" Condition="'$(UseLocalCommon)' != 'true'" />
+    <ProjectReference Include="..\WriteableFileProviders.Common\WriteableFileProviders.Common.csproj" Condition="'$(UseLocalCommon)' == 'true'" />
   </ItemGroup>
 
 </Project>

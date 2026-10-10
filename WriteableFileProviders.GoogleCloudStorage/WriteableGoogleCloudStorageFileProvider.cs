@@ -23,6 +23,8 @@ namespace WriteableFileProviders.GoogleCloudStorage
     public class WriteableGoogleCloudStorageFileProvider : WriteableFileProvider<GoogleCloudStorageFileProviderOptions>
     {
         private const string DefaultContentType = "application/octet-stream";
+        private const int DeletePageSize = 1000;
+        private const int DeleteParallelism = 8;
         private readonly DateTime DefaultDateTime = new DateTime(1970, 1, 1, 0, 0, 0);
         private StorageClient Client { get; }
         private UrlSigner UrlSigner { get; }
@@ -56,7 +58,7 @@ namespace WriteableFileProviders.GoogleCloudStorage
                 var initializer = new ServiceAccountCredential.Initializer(Options.ClientEmail)
                 {
                     ProjectId = Options.ProjectId
-                }.FromPrivateKey(Options.PrivateKey);
+                }.FromPrivateKey(NormalizePem(Options.PrivateKey));
                 return GoogleCredential.FromServiceAccountCredential(new ServiceAccountCredential(initializer));
             }
             // 2. Whole service account key JSON as one string (e.g. from a secret store).
@@ -67,9 +69,14 @@ namespace WriteableFileProviders.GoogleCloudStorage
             return GoogleCredential.GetApplicationDefault();
         }
 
+        internal static string NormalizePem(string pem) => normalizePem(pem);
+
         protected override async Task<IFileInfo> getFileInfoAsync(params string[] absolutePathSegments)
         {
             var key = getPath(absolutePathSegments);
+            if (absolutePathSegments.Length == 0)
+                return new FileInfo(this, false, -1, key, "", DefaultDateTime, false,
+                    getRelativeSegments(absolutePathSegments));
             try
             {
                 var obj = await Client.GetObjectAsync(Options.BucketName, key);
@@ -96,6 +103,7 @@ namespace WriteableFileProviders.GoogleCloudStorage
                         // Skip a directory placeholder object (a key equal to the prefix itself).
                         if (obj.Name == prefix) continue;
                         var name = getFileName(obj.Name);
+                        if (string.IsNullOrEmpty(name)) continue;
                         ret.Add(new FileInfo(this, true, (long)(obj.Size ?? 0), obj.Name, name,
                             obj.UpdatedDateTimeOffset ?? DefaultDateTime, false,
                             getRelativeSegments(absolutePathSegments.Concat(new[] { name }).ToArray())));
@@ -104,7 +112,8 @@ namespace WriteableFileProviders.GoogleCloudStorage
                     foreach (var dir in page.Prefixes)
                     {
                         var name = getFileName(dir);
-                        ret.Add(new FileInfo(this, false, -1, dir.TrimEnd('/'), name, DefaultDateTime, true,
+                        if (string.IsNullOrEmpty(name)) continue;
+                        ret.Add(new FileInfo(this, true, -1, dir.TrimEnd('/'), name, DefaultDateTime, true,
                             getRelativeSegments(absolutePathSegments.Concat(new[] { name }).ToArray())));
                     }
             }
@@ -165,6 +174,8 @@ namespace WriteableFileProviders.GoogleCloudStorage
 
         protected override async Task<bool> deleteAsync(params string[] absolutePathSegments)
         {
+            if (absolutePathSegments.Length == 0 || absolutePathSegments.SequenceEqual(Options.RootDirectorySegments))
+                throw new InvalidOperationException("The provider root cannot be deleted or modified.");
             var info = await getFileInfoAsync(absolutePathSegments);
             if (info.Exists)
             {
@@ -172,16 +183,29 @@ namespace WriteableFileProviders.GoogleCloudStorage
                 return true;
             }
 
-            // Not a single file - treat as a directory and recursively delete everything under it.
+            // Not a single file - treat as a directory and delete everything under it, one page at a time.
             var prefix = getDirPrefix(absolutePathSegments);
-            var keys = new List<string>();
-            await foreach (var obj in Client.ListObjectsAsync(Options.BucketName, prefix))
-                keys.Add(obj.Name);
-            if (!keys.Any())
-                return false;
-            foreach (var key in keys)
-                await Client.DeleteObjectAsync(Options.BucketName, key);
-            return true;
+            var deleted = false;
+            var options = new ListObjectsOptions { PageSize = DeletePageSize };
+            await foreach (var page in Client.ListObjectsAsync(Options.BucketName, prefix, options).AsRawResponses())
+            {
+                if (page.Items == null || page.Items.Count == 0)
+                    continue;
+                await Parallel.ForEachAsync(page.Items,
+                    new ParallelOptions { MaxDegreeOfParallelism = DeleteParallelism },
+                    async (obj, ct) =>
+                    {
+                        try
+                        {
+                            await Client.DeleteObjectAsync(Options.BucketName, obj.Name, cancellationToken: ct);
+                        }
+                        catch (GoogleApiException ex) when (ex.HttpStatusCode == HttpStatusCode.NotFound)
+                        {
+                        }
+                    });
+                deleted = true;
+            }
+            return deleted;
         }
 
         protected override async Task<string> getDownloadUrl(string[] absolutePathSegments, TimeSpan validity)

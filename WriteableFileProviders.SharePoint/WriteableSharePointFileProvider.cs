@@ -39,6 +39,19 @@ namespace WriteableFileProviders.SharePoint
             DriveId = initializeDriveAsync().GetAwaiter().GetResult();
         }
 
+        internal WriteableSharePointFileProvider(SharePointFileProviderOptions options, GraphServiceClient graphClient, string driveId, string workFolderId)
+            : base(options)
+        {
+            GraphClient = graphClient;
+            DriveId = driveId;
+            WorkFolderId = workFolderId;
+        }
+
+        protected override bool isSegmentAllowed(string part)
+        {
+            return base.isSegmentAllowed(part) && part.IndexOf(':') < 0;
+        }
+
         private GraphServiceClient createGraphClient()
         {
             var credential = new ClientSecretCredential(
@@ -51,79 +64,18 @@ namespace WriteableFileProviders.SharePoint
             return graphClient;
         }
 
-        private string normalizeWorkFolderPath(string path)
+        private string normalizeWorkFolderPath(string path) => SharePointPaths.NormalizeWorkFolderPath(path);
+
+        private string getRelativePathFromAbsolute(string[] absolutePathSegments) =>
+            SharePointPaths.GetRelativePath(Options.WorkFolderPath, absolutePathSegments);
+
+        private string[] getRelativeSegmentsFromAbsolute(string[] absolutePathSegments) =>
+            SharePointPaths.StripWorkFolder(Options.WorkFolderPath, absolutePathSegments);
+
+        private void refuseProviderRoot(string[] absolutePathSegments)
         {
-            if (string.IsNullOrEmpty(path))
-                return path;
-            return path.Replace('\\', '/').Trim('/');
-        }
-
-        private string getRelativePathFromAbsolute(string[] absolutePathSegments)
-        {
-            if (string.IsNullOrEmpty(Options.WorkFolderPath))
-            {
-                // No work folder, use full path
-                return string.Join("/", absolutePathSegments);
-            }
-
-            // Strip work folder segments from the beginning
-            var workFolderSegments = normalizeWorkFolderPath(Options.WorkFolderPath)
-                .Split('/', StringSplitOptions.RemoveEmptyEntries);
-
-            if (absolutePathSegments.Length >= workFolderSegments.Length)
-            {
-                // Check if path starts with work folder
-                bool startsWithWorkFolder = true;
-                for (int i = 0; i < workFolderSegments.Length; i++)
-                {
-                    if (!absolutePathSegments[i].Equals(workFolderSegments[i], StringComparison.OrdinalIgnoreCase))
-                    {
-                        startsWithWorkFolder = false;
-                        break;
-                    }
-                }
-
-                if (startsWithWorkFolder)
-                {
-                    // Remove work folder segments, return the rest
-                    var relativeSegments = absolutePathSegments.Skip(workFolderSegments.Length).ToArray();
-                    return string.Join("/", relativeSegments);
-                }
-            }
-
-            // Path doesn't start with work folder, use as-is
-            return string.Join("/", absolutePathSegments);
-        }
-
-        private string[] getRelativeSegmentsFromAbsolute(string[] absolutePathSegments)
-        {
-            if (string.IsNullOrEmpty(Options.WorkFolderPath))
-            {
-                return absolutePathSegments;
-            }
-
-            var workFolderSegments = normalizeWorkFolderPath(Options.WorkFolderPath)
-                .Split('/', StringSplitOptions.RemoveEmptyEntries);
-
-            if (absolutePathSegments.Length >= workFolderSegments.Length)
-            {
-                bool startsWithWorkFolder = true;
-                for (int i = 0; i < workFolderSegments.Length; i++)
-                {
-                    if (!absolutePathSegments[i].Equals(workFolderSegments[i], StringComparison.OrdinalIgnoreCase))
-                    {
-                        startsWithWorkFolder = false;
-                        break;
-                    }
-                }
-
-                if (startsWithWorkFolder)
-                {
-                    return absolutePathSegments.Skip(workFolderSegments.Length).ToArray();
-                }
-            }
-
-            return absolutePathSegments;
+            if (SharePointPaths.IsProviderRoot(Options.WorkFolderPath, Options.RootDirectorySegments, absolutePathSegments))
+                throw new InvalidOperationException("The provider root cannot be deleted or modified.");
         }
 
         private async Task<string> initializeDriveAsync()
@@ -319,9 +271,10 @@ namespace WriteableFileProviders.SharePoint
             else
                 response = await getParentItemBuilder().ItemWithPath(relativePath).Children.GetAsync();
 
-            if (response?.Value != null)
-                items.AddRange(response.Value);
+            if (response?.Value == null)
+                return items;
 
+            // The iterator starts with the items of the given page, then follows the next links
             var pageIterator = PageIterator<DriveItem, DriveItemCollectionResponse>
                 .CreatePageIterator(GraphClient, response, (item) => {
                     items.Add(item);
@@ -349,7 +302,7 @@ namespace WriteableFileProviders.SharePoint
                     true,
                     item.Size ?? 0,
                     getPath(absolutePathSegments),
-                    absolutePathSegments.Last(),
+                    absolutePathSegments.LastOrDefault() ?? "",
                     item.LastModifiedDateTime ?? DefaultDateTime,
                     item.Folder != null,
                     getRelativeSegments(absolutePathSegments)
@@ -364,7 +317,7 @@ namespace WriteableFileProviders.SharePoint
                         false,
                         0,
                         getPath(absolutePathSegments),
-                        absolutePathSegments.Last(),
+                        absolutePathSegments.LastOrDefault() ?? "",
                         DefaultDateTime,
                         false,
                         getRelativeSegments(absolutePathSegments)
@@ -401,7 +354,7 @@ namespace WriteableFileProviders.SharePoint
             {
                 ret.Add(new FileInfo(
                     this,
-                    false,
+                    true,
                     -1,
                     dir.Name,
                     dir.Name,
@@ -433,9 +386,17 @@ namespace WriteableFileProviders.SharePoint
                     FileOptions.DeleteOnClose
                 );
 
-                using (contentStream)
+                try
                 {
-                    await contentStream.CopyToAsync(seekableFileStream);
+                    using (contentStream)
+                    {
+                        await contentStream.CopyToAsync(seekableFileStream);
+                    }
+                }
+                catch
+                {
+                    await seekableFileStream.DisposeAsync();
+                    throw;
                 }
                 seekableFileStream.Position = 0;
                 return seekableFileStream;
@@ -454,41 +415,44 @@ namespace WriteableFileProviders.SharePoint
             }
         }
 
-        private async Task<bool> ensureFolderPathExistsAsync(params string[] absolutePathSegments)
+        private async Task ensureFolderPathExistsAsync(string failureMessage, params string[] absolutePathSegments)
+        {
+            bool exists;
+            Exception error = null;
+            try
+            {
+                exists = await folderPathExistsOrCreatedAsync(absolutePathSegments);
+            }
+            catch (Exception ex)
+            {
+                exists = false;
+                error = ex;
+            }
+            if (!exists)
+                throw new InvalidOperationException(failureMessage, error);
+        }
+
+        private async Task<bool> folderPathExistsOrCreatedAsync(params string[] absolutePathSegments)
         {
             if (absolutePathSegments == null || absolutePathSegments.Length == 0)
             {
-                try
-                {
-                    var rootItem = await getParentItemBuilder().GetAsync();
-                    return rootItem != null;
-                }
-                catch (Exception)
-                {
-                    return false;
-                }
+                var rootItem = await getParentItemBuilder().GetAsync();
+                return rootItem != null;
             }
 
-            try
-            {
-                // Check if the full path already exists in SharePoint
-                var relativePath = getRelativePathFromAbsolute(absolutePathSegments);
-                var existingItem = await getFolderItemAsync(relativePath);
-                if (existingItem != null && existingItem.Folder != null)
-                    return true;
+            // Check if the full path already exists in SharePoint
+            var relativePath = getRelativePathFromAbsolute(absolutePathSegments);
+            var existingItem = await getFolderItemAsync(relativePath);
+            if (existingItem != null && existingItem.Folder != null)
+                return true;
 
-                // Path doesn't exist, create the folder hierarchy step by step
-                var relativeSegments = getRelativeSegmentsFromAbsolute(absolutePathSegments);
-                await createFolderHierarchyAsync(relativeSegments);
+            // Path doesn't exist, create the folder hierarchy step by step
+            var relativeSegments = getRelativeSegmentsFromAbsolute(absolutePathSegments);
+            await createFolderHierarchyAsync(relativeSegments);
 
-                // Verify the path was created successfully
-                var verificationItem = await getFolderItemAsync(relativePath);
-                return verificationItem != null && verificationItem.Folder != null;
-            }
-            catch (Exception)
-            {
-                return false;
-            }
+            // Verify the path was created successfully
+            var verificationItem = await getFolderItemAsync(relativePath);
+            return verificationItem != null && verificationItem.Folder != null;
         }
 
         private async Task<DriveItem> getFolderItemAsync(string path)
@@ -571,6 +535,7 @@ namespace WriteableFileProviders.SharePoint
 
         protected override async Task updateFileAsync(Stream contents, UpdateFileMode mode, params string[] absolutePathSegments)
         {
+            refuseProviderRoot(absolutePathSegments);
             var ownsBufferedStream = false;
             Stream bufferedIncomingStream = contents;
             try
@@ -585,7 +550,15 @@ namespace WriteableFileProviders.SharePoint
                         4096,
                         FileOptions.Asynchronous | FileOptions.DeleteOnClose);
 
-                    await contents.CopyToAsync(tempStream);
+                    try
+                    {
+                        await contents.CopyToAsync(tempStream);
+                    }
+                    catch
+                    {
+                        await tempStream.DisposeAsync();
+                        throw;
+                    }
                     tempStream.Position = 0;
 
                     bufferedIncomingStream = tempStream;
@@ -595,11 +568,7 @@ namespace WriteableFileProviders.SharePoint
                 if (absolutePathSegments.Length > 1)
                 {
                     var folderPath = absolutePathSegments.Take(absolutePathSegments.Length - 1).ToArray();
-                    var folderExists = await ensureFolderPathExistsAsync(folderPath);
-                    if (!folderExists)
-                    {
-                        throw new InvalidOperationException($"Failed to create folder path: {getPath(folderPath)}");
-                    }
+                    await ensureFolderPathExistsAsync($"Failed to create folder path: {getPath(folderPath)}", folderPath);
                 }
 
                 if (mode == UpdateFileMode.Append)
@@ -792,6 +761,7 @@ namespace WriteableFileProviders.SharePoint
 
         protected override async Task<bool> deleteAsync(params string[] absolutePathSegments)
         {
+            refuseProviderRoot(absolutePathSegments);
             try
             {
                 var relativePath = getRelativePathFromAbsolute(absolutePathSegments);
@@ -816,6 +786,8 @@ namespace WriteableFileProviders.SharePoint
                     throw new ArgumentException("Source path cannot be null or empty", nameof(oldSegments));
                 if (newSegments == null || newSegments.Length == 0)
                     throw new ArgumentException("Destination path cannot be null or empty", nameof(newSegments));
+                refuseProviderRoot(oldSegments);
+                refuseProviderRoot(newSegments);
 
                 var oldRelativePath = getRelativePathFromAbsolute(oldSegments);
                 var newFileName = newSegments.Last();
@@ -842,11 +814,7 @@ namespace WriteableFileProviders.SharePoint
                 if (newSegments.Length > 1)
                 {
                     var destinationFolderPath = newSegments.Take(newSegments.Length - 1).ToArray();
-                    var folderExists = await ensureFolderPathExistsAsync(destinationFolderPath);
-                    if (!folderExists)
-                    {
-                        throw new InvalidOperationException($"Failed to create destination folder path: {getPath(destinationFolderPath)}");
-                    }
+                    await ensureFolderPathExistsAsync($"Failed to create destination folder path: {getPath(destinationFolderPath)}", destinationFolderPath);
                 }
 
                 var moveRequest = new DriveItem

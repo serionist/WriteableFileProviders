@@ -11,9 +11,9 @@ using Newtonsoft.Json.Linq;
 
 namespace WriteableFileProviders.Physical
 {
+    /// <summary>Root containment is path based: symbolic links and junctions inside the root are followed.</summary>
     public class WriteablePhysicalFileProvider: WriteableFileProvider<PhysicalFileProviderOptions>
     {
-        private readonly PhysicalFileProvider _provider;
         private PhysicalFileProviderOptions O { get; }
         private readonly DateTime DefaultDateTime = new DateTime(1970, 1, 1, 0, 0, 0);
         public WriteablePhysicalFileProvider(string rootPath): this(new PhysicalFileProviderOptions(){ RootDirectoryPath = rootPath})
@@ -66,8 +66,9 @@ namespace WriteableFileProviders.Physical
         protected override async Task<Stream> readFileAsync(params string[] absolutePathSegments)
         {
             string p = path(absolutePathSegments);
-            Directory.CreateDirectory(Path.GetDirectoryName(p));
-            return new FileStream(p, FileMode.OpenOrCreate, FileAccess.Read);
+            if (!File.Exists(p))
+                throw new FileNotFoundException("The file does not exist.", p);
+            return new FileStream(p, FileMode.Open, FileAccess.Read, FileShare.Read);
         }
 
         protected override async Task updateFileAsync(Stream contents, UpdateFileMode mode, params string[] absolutePathSegments)
@@ -80,13 +81,18 @@ namespace WriteableFileProviders.Physical
 
         protected override Task move(string[] oldSegments, string[] newSegments)
         {
-            File.Move(path(oldSegments), path(newSegments));
+            var newPath = path(newSegments);
+            var oldPath = path(oldSegments);
+            Directory.CreateDirectory(Path.GetDirectoryName(newPath));
+            File.Move(oldPath, newPath);
             return Task.CompletedTask;
         }
 
         protected override async Task<bool> deleteAsync(params string[] absolutePathSegments)
         {
             var p = path(absolutePathSegments);
+            if (isRoot(p))
+                throw new InvalidOperationException("The provider root cannot be deleted or modified.");
             var ret = false;
             if (File.Exists(p))
             {
@@ -104,15 +110,44 @@ namespace WriteableFileProviders.Physical
         protected override async Task<LocalFileStream> createLocalFileStreamAsync(bool readOnly, params string[] absolutePathSegments)
         {
             var p = path(absolutePathSegments);
+            if (readOnly)
+            {
+                if (!File.Exists(p))
+                    throw new FileNotFoundException("The file does not exist.", p);
+                return new LocalFileStream(new FileStream(p, FileMode.Open, FileAccess.Read, FileShare.ReadWrite), this, true, absolutePathSegments);
+            }
             Directory.CreateDirectory(Path.GetDirectoryName(p));
-            return new LocalFileStream(new FileStream(p, FileMode.OpenOrCreate, readOnly? FileAccess.Read: FileAccess.ReadWrite, readOnly? FileShare.ReadWrite: FileShare.None),
-                this, readOnly, absolutePathSegments);
+            return new LocalFileStream(new FileStream(p, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None),
+                this, false, absolutePathSegments);
+        }
+
+        protected override bool isSegmentAllowed(string part)
+        {
+            return part.IndexOf(':') < 0;
         }
 
         private string path(string[] p)
         {
-            return string.Join(Path.DirectorySeparatorChar.ToString(), p).Replace("root:", "");
+            var full = fullPath(p);
+            var root = fullPath(O.RootDirectorySegments);
+            if (!string.Equals(full, root, PathComparison) &&
+                !full.StartsWith(Path.EndsInDirectorySeparator(root) ? root : root + Path.DirectorySeparatorChar, PathComparison))
+                throw new ArgumentException("The path resolves outside the provider root.");
+            return full;
         }
+
+        private static string fullPath(string[] p)
+        {
+            var joined = string.Join(Path.DirectorySeparatorChar.ToString(), p).Replace("root:", "");
+            return Path.TrimEndingDirectorySeparator(Path.GetFullPath(joined + Path.DirectorySeparatorChar));
+        }
+
+        private bool isRoot(string p)
+        {
+            return string.Equals(p, fullPath(O.RootDirectorySegments), PathComparison);
+        }
+
+        private static StringComparison PathComparison => OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
         internal static string[] getPathSegments(string p)
         {

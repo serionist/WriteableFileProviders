@@ -1,0 +1,40 @@
+{
+  "PhysicalFileProvider_RootPath": "",
+
+  "AzureBlobFileProvider_AccountName": "",
+  "AzureBlobFileProvider_AccountKey": "",
+  "AzureBlobFileProvider_ContainerName": "",
+  "AzureBlobFileProvider_RootPath": "",
+
+  "AmazonS3FileProvider_AccessKey": "",
+  "AmazonS3FileProvider_SecretKey": "",
+  "AmazonS3FileProvider_BucketName": "",
+  "AmazonS3FileProvider_BucketRegion": "",
+
+  "MinioProvider_HostAndPort": "",
+  "MinioProvider_AccessKey": "",
+  "MinioProvider_SecretKey": "",
+  "MinioProvider_BucketName": "",
+  "MinioProvider_RootPath": "",
+
+  "GoogleCloudStorageFileProvider_ProjectId": "",
+  "GoogleCloudStorageFileProvider_BucketName": "",
+  "GoogleCloudStorageFileProvider_ClientEmail": "",
+  "GoogleCloudStorageFileProvider_PrivateKey": "",
+  "GoogleCloudStorageFileProvider_RootPath": "",
+
+  "BoxFileProvider_ClientId": "",
+  "BoxFileProvider_ClientSecret": "",
+  "BoxFileProvider_EnterpriseId": "",
+  "BoxFileProvider_PublicKeyId": "",
+  "BoxFileProvider_PrivateKey": "",
+  "BoxFileProvider_Passphrase": "",
+  "BoxFileProvider_RootFolderId": "0",
+
+  "SharePointFileProvider_SiteUrl": "",
+  "SharePointFileProvider_DocumentLibraryName": "Documents",
+  "SharePointFileProvider_TenantId": "",
+  "SharePointFileProvider_ClientId": "",
+  "SharePointFileProvider_ClientSecret": "",
+  "SharePointFileProvider_WorkFolderPath": ""
+}

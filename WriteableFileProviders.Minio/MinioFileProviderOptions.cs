@@ -17,6 +17,9 @@ namespace WriteableFileProviders.Minio
         public MinioFileProviderOptions() { }
 
         public string HostAndPort { get; set; }
+        /// <summary>
+        /// Connects over HTTPS when true. Defaults to false for compatibility; set it to true in production.
+        /// </summary>
         public bool UseSSL { get; set; }
         public string AccessKey { get; set; }
         public string SecretKey { get; set; }

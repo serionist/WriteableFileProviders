@@ -1167,9 +1167,9 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
       append.
   - **The fake** (`GraphFake`, .local/research/graph-v6.md section 7) sits at the end of the SDK's own pipeline. For
     S10: its responses must carry `RequestMessage`, as a real handler's do, or the SDK's retry handler never retries.
-  - **Tests and coverage:** SharePoint.Tests runs 235 offline tests (68 in each fixture, 99 unit tests); all pass but
+  - **Tests and coverage:** SharePoint.Tests runs 236 offline tests (68 in each fixture, 100 unit tests); all pass but
     the two concurrent-append cases the flag skips. The full non-Live run (`WFP_REQUIRE_DOCKER=1`) passes. SharePoint
-    measures 99.87% of lines and 92.86% of branches on Windows; its floor is 98/91. Old SharePoint tests deleted:
+    measures 99.87% of lines and 92.71% of branches on Windows; its floor is 98/91. Old SharePoint tests deleted:
     `SharePointPathTests` (its colon and paging cases live on in the new tests; its work-folder cases pinned the 2026
     behaviour D7 removes) and the `SharePointFileProvider` TestBase suite, replaced by `SharePointLiveTests`.
 

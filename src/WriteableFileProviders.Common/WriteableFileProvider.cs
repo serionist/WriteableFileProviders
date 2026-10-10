@@ -1,465 +1,229 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Globalization;
-using System.IO;
-using System.Linq;
-using System.Reflection;
-using System.Text;
-using System.Threading.Tasks;
+using System.Runtime.CompilerServices;
+using System.Text.Json.Nodes;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Primitives;
-using Newtonsoft.Json.Linq;
 
-namespace WriteableFileProviders
+namespace WriteableFileProviders;
+
+/// <summary>
+/// The base class of every provider. Its public members validate the path, place it under the root, apply the contract
+/// every provider shares (<see cref="IWriteableFileProvider"/>), and call the protected <c>...CoreAsync</c> members a
+/// provider implements.
+/// </summary>
+/// <typeparam name="TOptions">The provider's options. Their property names are the configuration shape consumers store.</typeparam>
+/// <remarks>
+/// A provider needs a public constructor that takes only <typeparamref name="TOptions"/>, so
+/// <see cref="WriteableFileProviderSerializer"/> can build it from configuration, and it does no network I/O there.
+/// </remarks>
+/// <param name="options">The provider's options.</param>
+public abstract partial class WriteableFileProvider<TOptions>(TOptions options) : IWriteableFileProvider
+    where TOptions : FileProviderOptions, new()
 {
-    public abstract class WriteableFileProvider<T>:IWriteableFileProvider where T: FileProviderOptions, new()
+    private int _disposed;
+
+    /// <summary>The provider's options, as they were given.</summary>
+    public TOptions Options { get; } = options ?? throw new ArgumentNullException(nameof(options));
+
+    FileProviderOptions IWriteableFileProvider.Options => Options;
+
+    /// <summary>The clock for expiry times; the system clock unless a provider or a test sets another.</summary>
+    protected TimeProvider TimeProvider { get; set; } = TimeProvider.System;
+
+    /// <summary>
+    /// The provider as JSON, in the shape <see cref="WriteableFileProviderSerializer"/> reads back. Warning: it contains
+    /// the options' secrets (keys, passwords, tokens) and must never be logged.
+    /// </summary>
+    public JsonObject ToJson() => WriteableFileProviderSerializer.ToJson(this);
+
+    /// <inheritdoc />
+    public IFileInfo GetFileInfo(string subpath) => GetFileInfoAsync(subpath).GetAwaiter().GetResult();
+
+    /// <inheritdoc />
+    public IDirectoryContents GetDirectoryContents(string subpath) => GetDirectoryContentsAsync(subpath).GetAwaiter().GetResult();
+
+    /// <summary>Watches for changes.</summary>
+    /// <param name="filter">The files to watch, such as <c>**/*.json</c>.</param>
+    /// <exception cref="NotSupportedException">The provider cannot watch for changes.</exception>
+    public IChangeToken Watch(string filter) => WatchCore(filter);
+
+    /// <inheritdoc />
+    public async Task<IWriteableFileInfo> GetFileInfoAsync(ProviderPath path, CancellationToken cancellationToken = default)
     {
-        protected WriteableFileProvider(T options)
+        var resolved = Resolve(path);
+        if (resolved.IsRoot)
+            return WriteableFileInfo.Folder(this, ProviderPath.Root);
+        return await GetFileInfoCoreAsync(resolved, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<IDirectoryContents> GetDirectoryContentsAsync(ProviderPath path, CancellationToken cancellationToken = default)
+    {
+        var resolved = Resolve(path);
+        var entries = new List<IFileInfo>();
+        await foreach (var entry in EnumerateCoreAsync(resolved, cancellationToken).WithCancellation(cancellationToken).ConfigureAwait(false))
+            entries.Add(entry);
+        if (entries.Count > 0 || resolved.IsRoot)
+            return new DirectoryContents(true, entries);
+        return await FolderExistsCoreAsync(resolved, cancellationToken).ConfigureAwait(false)
+            ? new DirectoryContents(true, [])
+            : DirectoryContents.NotFound;
+    }
+
+    /// <inheritdoc />
+    public IAsyncEnumerable<IWriteableFileInfo> EnumerateAsync(ProviderPath path, bool recursive = false, CancellationToken cancellationToken = default)
+    {
+        var resolved = Resolve(path);
+        return EnumerateResolvedAsync(resolved, recursive, cancellationToken);
+    }
+
+    private async IAsyncEnumerable<IWriteableFileInfo> EnumerateResolvedAsync(ResolvedPath path, bool recursive, [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var source = recursive ? EnumerateRecursiveCoreAsync(path, cancellationToken) : EnumerateCoreAsync(path, cancellationToken);
+        await foreach (var entry in source.WithCancellation(cancellationToken).ConfigureAwait(false))
+            yield return entry;
+    }
+
+    /// <inheritdoc />
+    public async Task<Stream> ReadFileAsync(ProviderPath path, CancellationToken cancellationToken = default)
+    {
+        var resolved = ResolveReadable(path);
+        try
         {
-            Options = options;
+            return await ReadFileCoreAsync(resolved, cancellationToken).ConfigureAwait(false);
         }
-        public T Options { get; }
-        
-        /// <summary>
-        /// Serializes the provider options. Warning: the output contains secrets (keys, passwords, tokens) and must never be logged.
-        /// </summary>
-        public JObject ToJson()
+        catch (Exception e) when (e is not FileNotFoundException && IsNotFound(e))
         {
-            var ret = JObject.FromObject(Options);
-            ret["Type"] = this.GetType().Name;
-            return ret;
+            throw NotFound(resolved, e);
         }
+    }
 
-        private const string RootModificationMessage = "The provider root cannot be deleted or modified.";
-        private const string RootReadMessage = "The path must contain at least one segment.";
-        private const int MaxDecodeRounds = 4;
-        private static readonly char[] SegmentSeparators = { '/', '\\' };
-
-        private string[] getAbsoluteSegments(string[] pathSegments)
+    /// <inheritdoc />
+    public async Task<Stream> ReadRangeAsync(ProviderPath path, long offset, long? length, ReadOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(offset);
+        if (length < 0)
+            throw new ArgumentOutOfRangeException(nameof(length), length, "The length cannot be negative.");
+        var resolved = ResolveReadable(path);
+        try
         {
-            var parts = validateSegments(pathSegments);
-            foreach (var part in parts)
-                if (!isSegmentAllowed(part) || !decodedForms(part).All(isSegmentAllowed))
-                    throw invalidSegment(part);
-            return (Options.RootDirectorySegments ?? new string[0]).Concat(parts).ToArray();
+            return await ReadRangeCoreAsync(resolved, offset, length, options?.IfMatch, cancellationToken).ConfigureAwait(false);
         }
-
-        /// <summary>
-        /// Splits the caller's segments on '/' and '\' and validates every part. A part is rejected when it is empty or whitespace,
-        /// consists only of dots and spaces, contains a control character, or fails the same checks after any round of percent-decoding.
-        /// </summary>
-        /// <param name="segments">The caller's path segments (without the root segments)</param>
-        /// <returns>The validated parts</returns>
-        /// <exception cref="ArgumentException">A part is not allowed</exception>
-        protected static string[] validateSegments(IEnumerable<string> segments)
+        catch (Exception e) when (e is not FileNotFoundException && IsNotFound(e))
         {
-            var ret = new List<string>();
-            if (segments == null) return ret.ToArray();
-            foreach (var segment in segments)
-            {
-                foreach (var part in (segment ?? "").Split(SegmentSeparators))
-                {
-                    if (!isValidPart(part))
-                        throw invalidSegment(part);
-                    var decoded = decodedForms(part);
-                    if (decoded == null || !decoded.All(d => d.Split(SegmentSeparators).All(isValidPart)))
-                        throw invalidSegment(part);
-                    ret.Add(part);
-                }
-            }
-            return ret.ToArray();
+            throw NotFound(resolved, e);
         }
+    }
 
-        /// <summary>
-        /// Provider specific segment rule, applied to every validated part and to each of its percent-decoded forms.
-        /// </summary>
-        /// <param name="part">A single path segment</param>
-        /// <returns>False to reject the segment</returns>
-        protected virtual bool isSegmentAllowed(string part)
+    /// <inheritdoc />
+    public async Task<Stream> OpenReadSeekableAsync(ProviderPath path, SeekableReadOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        options ??= new SeekableReadOptions();
+        if (options.BufferSize <= 0)
+            throw new ArgumentOutOfRangeException(nameof(options), options.BufferSize, "The buffer size must be positive.");
+        var resolved = ResolveReadable(path);
+        try
         {
-            return true;
+            return await OpenReadSeekableCoreAsync(resolved, options, cancellationToken).ConfigureAwait(false);
         }
-
-        /// <summary>
-        /// Returns true when the absolute segments point to the provider root (no segments after the root segments)
-        /// </summary>
-        /// <param name="absolutePathSegments">The root segments followed by the relative segments</param>
-        protected bool isRootPath(string[] absolutePathSegments)
+        catch (Exception e) when (e is not FileNotFoundException && IsNotFound(e))
         {
-            return getRelativeSegments(absolutePathSegments ?? new string[0]).Length == 0;
+            throw NotFound(resolved, e);
         }
+    }
 
-        // The percent-decoded forms of the part, one per round, or null when it still changes after MaxDecodeRounds
-        private static List<string> decodedForms(string part)
+    /// <inheritdoc />
+    public async Task UpdateFileAsync(ProviderPath path, Stream contents, UpdateFileOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(contents);
+        options ??= UpdateFileOptions.Overwrite;
+        if (options.IfMatch is not null && options.IfNotExists)
+            throw new ArgumentException("IfMatch and IfNotExists cannot both be set.", nameof(options));
+        var resolved = ResolveModifiable(path);
+        await UpdateWithPreconditionsAsync(resolved, contents, options, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> DeleteAsync(ProviderPath path, CancellationToken cancellationToken = default)
+    {
+        var resolved = ResolveModifiable(path);
+        return await DeleteCoreAsync(resolved, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task MoveAsync(ProviderPath source, ProviderPath destination, CancellationToken cancellationToken = default)
+    {
+        var (from, to, same) = await PrepareTransferAsync(source, destination, move: true, cancellationToken).ConfigureAwait(false);
+        if (!same)
+            await MoveCoreAsync(from, to, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task CopyAsync(ProviderPath source, ProviderPath destination, CancellationToken cancellationToken = default)
+    {
+        var (from, to, _) = await PrepareTransferAsync(source, destination, move: false, cancellationToken).ConfigureAwait(false);
+        await CopyCoreAsync(from, to, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<LocalFileStream> CreateLocalFileStreamAsync(ProviderPath path, bool readOnly, CancellationToken cancellationToken = default)
+    {
+        var resolved = readOnly ? ResolveReadable(path) : ResolveModifiable(path);
+        return await CreateLocalFileStreamCoreAsync(resolved, readOnly, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<SignedUrl> GetSignedUrlAsync(ProviderPath path, SignedUrlOptions options, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        if (options.Validity <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(options), options.Validity, "The validity must be positive.");
+        var resolved = options.Permission == SignedUrlAccess.Read ? ResolveReadable(path) : ResolveModifiable(path);
+        if (!SupportsSignedUrl(options.Permission))
+            throw new NotSupportedException($"{GetType().Name} cannot issue a {options.Permission} URL.");
+        if (options.Validity > MaxSignedUrlValidity)
+            throw new NotSupportedException($"{GetType().Name} signs URLs that live at most {MaxSignedUrlValidity}; {options.Validity} was asked.");
+        if (options.Permission == SignedUrlAccess.Read)
         {
-            var ret = new List<string>();
-            var current = part;
-            for (var i = 0; i < MaxDecodeRounds; i++)
-            {
-                var decoded = Uri.UnescapeDataString(current);
-                if (decoded == current) return ret;
-                ret.Add(decoded);
-                current = decoded;
-            }
-            return Uri.UnescapeDataString(current) == current ? ret : null;
+            var info = await GetFileInfoCoreAsync(resolved, cancellationToken).ConfigureAwait(false);
+            if (!info.Exists || info.IsDirectory)
+                throw NotFound(resolved);
         }
+        return await GetSignedUrlCoreAsync(resolved, options, cancellationToken).ConfigureAwait(false);
+    }
 
-        private static bool isValidPart(string part)
-        {
-            if (string.IsNullOrWhiteSpace(part)) return false;
-            if (part.Trim(' ', '.').Length == 0) return false;
-            return !part.Any(char.IsControl);
-        }
+    /// <summary>Disposes the provider and the clients it owns.</summary>
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) == 0)
+            Dispose(true);
+        GC.SuppressFinalize(this);
+    }
 
-        private static ArgumentException invalidSegment(string part)
-        {
-            var name = new string((part ?? "").Select(c => char.IsControl(c) ? '?' : c).ToArray());
-            return new ArgumentException($"The path segment '{name}' is not allowed.", "pathSegments");
-        }
+    /// <summary>Disposes the provider and the clients it owns.</summary>
+    public async ValueTask DisposeAsync()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) == 0)
+            await DisposeAsyncCore().ConfigureAwait(false);
+        GC.SuppressFinalize(this);
+    }
 
-        private string[] getModifiableSegments(string[] pathSegments)
-        {
-            var ret = getAbsoluteSegments(pathSegments);
-            if (isRootPath(ret))
-                throw new InvalidOperationException(RootModificationMessage);
-            return ret;
-        }
-
-        private string[] getReadableSegments(string[] pathSegments)
-        {
-            var ret = getAbsoluteSegments(pathSegments);
-            if (isRootPath(ret))
-                throw new ArgumentException(RootReadMessage);
-            return ret;
-        }
-
-        protected abstract Task<IFileInfo> getFileInfoAsync(params string[] absolutePathSegments);
-        public async Task<IFileInfo> GetFileInfoAsync(params string[] pathSegments)
-        {
-            var absolutePathSegments = getAbsoluteSegments(pathSegments);
-            if (isRootPath(absolutePathSegments))
-                return new FileInfo(this, false, -1, "", "", new DateTimeOffset(1970, 1, 1, 0, 0, 0, TimeSpan.Zero), false, new string[0]);
-            return await getFileInfoAsync(absolutePathSegments);
-        }
-        public async Task<IFileInfo> GetFileInfoAsync(string subpath)
-        {
-            var normalizedPath = normalizePath(subpath);
-            return await GetFileInfoAsync(normalizedPath);
-        }
-        public IFileInfo GetFileInfo(params string[] pathSegments)
-        {
-            return RunTaskSerial(GetFileInfoAsync(pathSegments));
-        }
-        public IFileInfo GetFileInfo(string subpath)
-        {
-            var normalizedPath = normalizePath(subpath);
-            return GetFileInfo(normalizedPath);
-        }
-
-
-        protected abstract Task<IDirectoryContents> getDirectoryContentsAsync(params string[] absolutePathSegments);
-
-        public async Task<IDirectoryContents> GetDirectoryContentsAsync(params string[] pathSegments)
-        {
-            return await getDirectoryContentsAsync(getAbsoluteSegments(pathSegments));
-        }
-        public async Task<IDirectoryContents> GetDirectoryContentsAsync(string subpath)
-        {
-            var normalizedPath = normalizePath(subpath);
-            return await GetDirectoryContentsAsync(normalizedPath);
-        }
-        public IDirectoryContents GetDirectoryContents(params string[] pathSegments)
-        {
-            return RunTaskSerial(GetDirectoryContentsAsync(pathSegments));
-        }
-        public IDirectoryContents GetDirectoryContents(string subpath)
-        {
-            var normalizedPath = normalizePath(subpath);
-            return GetDirectoryContents(normalizedPath);
-        }
-
-
-        protected abstract Task<IChangeToken> watchAsync(string filter);
-        public IChangeToken Watch(string filter)
-        {
-            return RunTaskSerial(WatchAsync(filter));
-        }
-        public async Task<IChangeToken> WatchAsync(string filter)
-        {
-            return await watchAsync(filter);
-        }
-
-
-        protected abstract Task<Stream> readFileAsync(params string[] absolutePathSegments);
-
-        public async Task<Stream> ReadFileAsync(params string[] pathSegments)
-        {
-            return await readFileAsync(getReadableSegments(pathSegments));
-        }
-        public async Task<Stream> ReadFileAsync(string subpath)
-        {
-            var normalizedPath = normalizePath(subpath);
-            return await ReadFileAsync(normalizedPath);
-        }
-        public Stream ReadFile(string subpath)
-        {
-            var normalizedPath = normalizePath(subpath);
-            return ReadFile(normalizedPath);
-        }
-        public Stream ReadFile(params string[] pathSegments)
-        {
-            return RunTaskSerial(ReadFileAsync(pathSegments));
-        }
-
-        public async Task<Stream> ReadFileAsync(IFileInfo file)
-        {
-            return await ReadFileAsync(fileSegments(file));
-        }
-
-        public Stream ReadFile(IFileInfo file)
-        {
-            return ReadFile(fileSegments(file));
-        }
-
-
-        protected abstract Task updateFileAsync(Stream contents, UpdateFileMode mode, params string[] absolutePathSegments);
-
-        public async Task UpdateFileAsync(Stream contents, UpdateFileMode mode, params string[] pathSegments)
-        {
-            await updateFileAsync(contents, mode, getModifiableSegments(pathSegments));
-        }
-
-        public void UpdateFile(Stream contents, UpdateFileMode mode, IFileInfo file)
-        {
-            UpdateFile(contents, mode, fileSegments(file));
-        }
-
-        public async Task UpdateFileAsync(Stream contents, UpdateFileMode mode, IFileInfo file)
-        {
-            await UpdateFileAsync(contents, mode, fileSegments(file));
-        }
-
-        public async Task UpdateFileAsync(string subpath, UpdateFileMode mode, Stream contents)
-        {
-            var normalizedPath = normalizePath(subpath);
-            await UpdateFileAsync(contents, mode, normalizedPath);
-        }
-        public void UpdateFile(string subpath, UpdateFileMode mode, Stream contents)
-        {
-            var normalizedPath = normalizePath(subpath);
-            UpdateFile(contents, mode, normalizedPath);
-        }
-        public void UpdateFile(Stream contents, UpdateFileMode mode, params string[] pathSegments)
-        {
-            RunTaskSerial(UpdateFileAsync(contents, mode, pathSegments));
-        }
-
-
-        protected abstract Task<bool> deleteAsync(params string[] absolutePathSegments);
-
-        public async Task<bool> DeleteAsync(params string[] pathSegments)
-        {
-            return await deleteAsync(getModifiableSegments(pathSegments));
-        }
-
-        public bool Delete(IFileInfo fileOrDir)
-        {
-            return Delete(fileSegments(fileOrDir));
-        }
-
-        public async Task<bool> DeleteAsync(IFileInfo fileOrDir)
-        {
-            return await DeleteAsync(fileSegments(fileOrDir));
-        }
-
-        public bool Delete(string subpath)
-        {
-            var normalizedPath = normalizePath(subpath);
-            return Delete(normalizedPath);
-        }
-        public async Task<bool> DeleteAsync(string subpath)
-        {
-            var normalizedPath = normalizePath(subpath);
-            return await DeleteAsync(normalizedPath);
-        }
-        public bool Delete(params string[] pathSegments)
-        {
-            return RunTaskSerial(DeleteAsync(pathSegments));
-        }
-
-
-
-        public LocalFileStream CreateLocalFileStream(bool readOnly, string subpath)
-        {
-            var normalizedPath = normalizePath(subpath);
-            return CreateLocalFileStream(readOnly, normalizedPath);
-        }
-        public async Task<LocalFileStream> CreateLocalFileStreamAsync(bool readOnly, string subpath)
-        {
-            var normalizedPath = normalizePath(subpath);
-            return await CreateLocalFileStreamAsync(readOnly, normalizedPath);
-        }
-        public LocalFileStream CreateLocalFileStream(bool readOnly, params string[] pathSegments)
-        {
-            return RunTaskSerial(CreateLocalFileStreamAsync(readOnly, pathSegments));
-        }
-
-        public async Task<LocalFileStream> CreateLocalFileStreamAsync(bool readOnly, IFileInfo file)
-        {
-            return await CreateLocalFileStreamAsync(readOnly, fileSegments(file));
-        }
-
-        public LocalFileStream CreateLocalFileStream(bool readOnly, IFileInfo file)
-        {
-            return CreateLocalFileStream(readOnly, fileSegments(file));
-        }
-
-        /// <summary>
-        /// Returns the file contents as a local stream. A writeable stream uploads its contents when disposed,
-        /// also when it is disposed after an exception, so partially written content is uploaded.
-        /// </summary>
-        public virtual async Task<LocalFileStream> CreateLocalFileStreamAsync(bool readOnly, params string[] pathSegments)
-        {
-            return await createLocalFileStreamAsync(readOnly, readOnly ? getReadableSegments(pathSegments) : getModifiableSegments(pathSegments));
-
-        }
-        protected virtual async Task<LocalFileStream> createLocalFileStreamAsync(bool readOnly, params string[] absolutePathSegments)
-        {
-            var tempFileName = Path.GetTempFileName();
-            var tempStream = new FileStream(tempFileName, FileMode.Open, FileAccess.ReadWrite, FileShare.None, 4096, FileOptions.DeleteOnClose);
-            try
-            {
-                var f = await getFileInfoAsync(absolutePathSegments);
-                if (f.Exists)
-                    using (var fs = await readFileAsync(absolutePathSegments))
-                        fs.CopyTo(tempStream);
-                tempStream.Position = 0;
-                return new LocalFileStream(tempStream, this, readOnly, absolutePathSegments);
-            }
-            catch
-            {
-                tempStream?.Dispose();
-                throw;
-            }
-
-        }
-
-
-        /// <summary>
-        /// Uploads a writeable local stream to its target. The stream's constructor is public, so the target is checked
-        /// again here: the stream must belong to this provider, and its absolute segments must be the provider root
-        /// followed by a valid path that is not the root.
-        /// </summary>
-        /// <exception cref="InvalidOperationException">The stream belongs to another provider, or its target is the provider root.</exception>
-        /// <exception cref="ArgumentException">The target is not under the provider root, or a segment after the root is not allowed.</exception>
-        public virtual async Task OnLocalFileStreamDisposingAsync(LocalFileStream stream)
-        {
-            if (stream.ReadOnly) return;
-            if (!ReferenceEquals(stream.Provider, this))
-                throw new InvalidOperationException("The local file stream belongs to another provider.");
-            var target = getCommitSegments(stream.TargetFilePathSegments);
-            stream.Position = 0;
-            await updateFileAsync(stream, UpdateFileMode.Overwrite, target);
-        }
-
-        private string[] getCommitSegments(string[] absolutePathSegments)
-        {
-            var root = Options.RootDirectorySegments ?? new string[0];
-            var segments = absolutePathSegments ?? new string[0];
-            if (segments.Length < root.Length || !root.SequenceEqual(segments.Take(root.Length), StringComparer.Ordinal))
-                throw new ArgumentException("The local file stream's target is not under the provider root.", "stream");
-            return getModifiableSegments(segments.Skip(root.Length).ToArray());
-        }
-
-
-        protected string[] normalizePath(string p)
-        {
-            if (string.IsNullOrEmpty(p)) return new string[0];
-            var ret = p.Replace("\\", "/");
-            if (ret.StartsWith("/")) ret = ret.Substring(1);
-            return ret.Split(new []{'/'}, StringSplitOptions.RemoveEmptyEntries);
-
-        }
-
-        /// <summary>
-        /// Turns escaped newline sequences (a key pasted into an environment variable or a secret) into real newlines.
-        /// A PEM body never contains a backslash, so a valid key is returned unchanged.
-        /// </summary>
-        protected static string normalizePem(string pem) =>
-            string.IsNullOrEmpty(pem) || pem.IndexOf('\\') < 0
-                ? pem
-                : pem.Replace("\\r\\n", "\n").Replace("\\n", "\n").Replace("\\r", "\n");
-
-        protected string[] fileSegments(IFileInfo f)
-        {
-            if (f is FileInfo) return ((FileInfo) f).PathSegments;
-            return normalizePath(f.PhysicalPath);
-        }
-        protected string[] getRelativeSegments(string[] segments)
-        {
-            return segments.Skip(Options.RootDirectorySegments?.Length??0).ToArray();
-        }
-        protected T RunTaskSerial<T>(Task<T> t)
-        {
-            try
-            {
-                return t.Result;
-            }
-            catch (AggregateException e)
-            {
-                throw e.InnerExceptions.FirstOrDefault() ?? e;
-            }
-        }
-        protected void RunTaskSerial(Task t)
-        {
-            try
-            {
-                t.Wait();
-            }
-            catch (AggregateException e)
-            {
-                throw e.InnerExceptions.FirstOrDefault() ?? e;
-            }
-        }
-
-        protected abstract Task<string> getDownloadUrl(string[] absolutePathSegments, TimeSpan validity);
-
-        public string GetDownloadUrl(string[] pathSegments, TimeSpan validity) => GetDownloadUrlAsync(pathSegments, validity).Result;
-
-        public string GetDownloadUrl(string subpath, TimeSpan validity) => GetDownloadUrlAsync(subpath, validity).Result;
-
-        public string GetDownloadUrl(IFileInfo file, TimeSpan validity) => GetDownloadUrlAsync(file, validity).Result;
-
-        public Task<string> GetDownloadUrlAsync(string[] pathSegments, TimeSpan validity) 
-            => getDownloadUrl(getReadableSegments(pathSegments), validity);
-
-        public Task<string> GetDownloadUrlAsync(string subpath, TimeSpan validity) 
-            => GetDownloadUrlAsync(normalizePath(subpath), validity);
-
-        public Task<string> GetDownloadUrlAsync(IFileInfo file, TimeSpan validity) 
-            => getDownloadUrl(getReadableSegments(fileSegments(file)), validity);
-
-        protected abstract Task move(string[] oldSegments, string[] newSegments);
-        public void Move(string[] oldFileSegments, string[] newFileSegments)
-            => MoveAsync(oldFileSegments, newFileSegments).Wait();
-
-        public void Move(string oldPath, string newPath) =>
-            MoveAsync(oldPath, newPath).Wait();
-
-        public void Move(IFileInfo file, string[] newFileSegments) =>
-            MoveAsync(file, newFileSegments).Wait();
-        public Task MoveAsync(string oldPath, string newPath) =>
-            MoveAsync(normalizePath(oldPath), normalizePath(newPath));
-
-        public Task MoveAsync(IFileInfo file, string[] newFileSegments) =>
-            moveSegments(getModifiableSegments(fileSegments(file)), getModifiableSegments(newFileSegments));
-
-        public Task MoveAsync(string[] oldFileSegments, string[] newFileSegments) =>
-            moveSegments(getModifiableSegments(oldFileSegments), getModifiableSegments(newFileSegments));
-
-        private Task moveSegments(string[] oldSegments, string[] newSegments) =>
-            oldSegments.SequenceEqual(newSegments, StringComparer.Ordinal) ? Task.CompletedTask : move(oldSegments, newSegments);
-
-        
+    private async Task<(ResolvedPath From, ResolvedPath To, bool Same)> PrepareTransferAsync(
+        ProviderPath source, ProviderPath destination, bool move, CancellationToken cancellationToken)
+    {
+        var from = ResolveModifiable(source);
+        var to = ResolveModifiable(destination);
+        var info = await GetFileInfoCoreAsync(from, cancellationToken).ConfigureAwait(false);
+        if (!info.Exists || info.IsDirectory)
+            throw NotFound(from);
+        var same = from.Path == to.Path;
+        if (move && same)
+            return (from, to, true);
+        // On a store that ignores case, moving a file to a name that differs only in case is a rename: the destination
+        // "exists" because it is the source.
+        var caseOnlyRename = move && IsCaseInsensitive
+            && string.Equals(from.Path.ToString(), to.Path.ToString(), StringComparison.OrdinalIgnoreCase);
+        if (!caseOnlyRename && (await GetFileInfoCoreAsync(to, cancellationToken).ConfigureAwait(false)).Exists)
+            throw new FileExistsException($"The destination '{to}' already exists.");
+        return (from, to, false);
     }
 }

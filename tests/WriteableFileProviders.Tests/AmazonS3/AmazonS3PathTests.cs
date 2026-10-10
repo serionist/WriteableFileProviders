@@ -43,7 +43,7 @@ namespace WriteableFileProviders.Tests
             // whole path as a version id and an empty key, which the SDK refused with its own ArgumentException.
             var provider = Provider();
             var e = await Assert.ThrowsExactlyAsync<ArgumentException>(() => provider.ReadFileAsync("a/../b.txt"));
-            Assert.AreEqual("pathSegments", e.ParamName);
+            Assert.AreEqual("path", e.ParamName);
         }
 
         [TestMethod]

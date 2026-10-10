@@ -1,0 +1,157 @@
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+using WriteableFileProviders.Testing;
+
+namespace WriteableFileProviders.Common.Tests;
+
+[TestClass]
+public sealed class BaseClassTests
+{
+    private static StubProvider Stub(string? root = null) => new(new StubOptions { RootDirectoryPath = root });
+
+    [TestMethod]
+    public async Task StoreNotFoundErrors_BecomeFileNotFound()
+    {
+        using var provider = Stub();
+        var e = await Assert.ThrowsExactlyAsync<FileNotFoundException>(() => provider.ReadFileAsync("missing.txt"));
+        Assert.IsInstanceOfType<KeyNotFoundException>(e.InnerException);
+        Assert.AreEqual("missing.txt", e.FileName);
+        await Assert.ThrowsExactlyAsync<FileNotFoundException>(() => provider.ReadRangeAsync("missing.txt", 0, 1));
+        await Assert.ThrowsExactlyAsync<FileNotFoundException>(() => provider.ReadRangeAsync("missing.txt", 0, null, new ReadOptions { IfMatch = "e1" }));
+        await Assert.ThrowsExactlyAsync<FileNotFoundException>(() => provider.OpenReadSeekableAsync("missing.txt"));
+        await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => provider.ReadRangeAsync("file.txt", 0, null, new ReadOptions { IfMatch = "other" }));
+        await Assert.ThrowsExactlyAsync<ArgumentOutOfRangeException>(() => provider.OpenReadSeekableAsync("file.txt", new SeekableReadOptions { BufferSize = 0 }));
+    }
+
+    [TestMethod]
+    public async Task AtomicPreconditions_ReachTheProvider()
+    {
+        using var provider = Stub();
+        provider.AtomicPreconditions = true;
+        await provider.UpdateFileAsync("file.txt", TestStreams.Text("x"), new UpdateFileOptions { IfMatch = "anything" });
+        Assert.AreEqual("anything", provider.LastUpdate!.IfMatch);
+        provider.AtomicPreconditions = false;
+        await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => provider.UpdateFileAsync("file.txt", TestStreams.Text("x"), new UpdateFileOptions { IfMatch = "anything" }));
+        await Assert.ThrowsExactlyAsync<ArgumentNullException>(() => provider.UpdateFileAsync("file.txt", null!));
+    }
+
+    [TestMethod]
+    public async Task CaseInsensitiveStores_RenameAcrossCase()
+    {
+        using var provider = Stub();
+        // The stub sees only "file.txt" as existing; a case-only rename skips the destination check on such a store.
+        await provider.MoveAsync("dir/file.txt", "dir/FILE.TXT").ContinueWith(t => t.Exception?.InnerException is not FileExistsException
+            ? Task.CompletedTask
+            : throw new AssertFailedException("A case-only rename was refused"), TaskScheduler.Default).Unwrap();
+    }
+
+    [TestMethod]
+    public async Task Disposed_RefusesEveryCall()
+    {
+        var provider = Stub();
+        Assert.IsFalse(provider.Disposed);
+        await provider.DisposeAsync();
+        Assert.IsTrue(provider.Disposed);
+        provider.Dispose();
+        await Assert.ThrowsExactlyAsync<ObjectDisposedException>(() => provider.GetFileInfoAsync("file.txt"));
+        Assert.ThrowsExactly<ObjectDisposedException>(() => provider.EnumerateAsync(""));
+        var sync = Stub();
+        sync.Dispose();
+        Assert.IsTrue(sync.Disposed);
+    }
+
+    [TestMethod]
+    public async Task Helpers()
+    {
+        using var provider = Stub("tenant/a");
+        CollectionAssert.AreEqual(new[] { "x" }, provider.Relative(["tenant", "a", "x"]));
+        Assert.IsTrue(provider.IsRoot(["tenant", "a"]));
+        Assert.IsTrue(provider.IsRoot(null!));
+        Assert.IsFalse(provider.IsRoot(["tenant", "a", "x"]));
+        Assert.AreEqual(new ProviderPath("a", "b"), provider.ResolveForTest("a\\b"));
+        Assert.AreEqual("-----BEGIN-----\nAB\n-----END-----", StubProvider.Pem("-----BEGIN-----\\nAB\\r\\n-----END-----"));
+        Assert.AreEqual("plain", StubProvider.Pem("plain"));
+        Assert.IsNull(StubProvider.Pem(null));
+        await using (var spooled = await StubProvider.Spool(TestStreams.Text("spool")))
+        {
+            Assert.AreEqual(0, spooled.Position);
+            Assert.AreEqual(5, spooled.Length);
+        }
+        await provider.DeleteFile("file.txt");
+        Assert.IsFalse(await provider.FolderExists("file.txt"));
+        Assert.IsNotNull(provider.Watch("*"));
+        await Assert.ThrowsExactlyAsync<NotSupportedException>(() => provider.GetSignedUrlAsync("file.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1) }));
+    }
+
+    [TestMethod]
+    public void ResolvedPath_Members()
+    {
+        using var provider = new InMemoryFileProvider(new InMemoryFileProviderOptions { RootDirectoryPath = "r" });
+        var info = provider.GetFileInfo(new ProviderPath("a", "b.txt"));
+        Assert.AreEqual("b.txt", info.Name);
+        var resolved = new ResolvedPath(["r"], ["a", "b.txt"]);
+        CollectionAssert.AreEqual(new[] { "r", "a", "b.txt" }, resolved.AbsoluteSegments);
+        CollectionAssert.AreEqual(new[] { "a", "b.txt" }, resolved.RelativeSegments);
+        Assert.AreEqual("a", resolved.Parent.ToString());
+        Assert.AreEqual("a/b.txt/c", resolved.Child("c").ToString());
+        Assert.AreEqual("b.txt", resolved.Name);
+        var root = new ResolvedPath(["r"], []);
+        Assert.IsTrue(root.IsRoot);
+        Assert.AreSame(root, root.Parent);
+    }
+
+    [TestMethod]
+    public void Values()
+    {
+        Assert.IsNotNull(new PreconditionFailedException().Message);
+        Assert.AreEqual("m", new PreconditionFailedException("m").Message);
+        Assert.IsInstanceOfType<IOException>(new PreconditionFailedException("m", new InvalidOperationException()).InnerException is not null ? new PreconditionFailedException() : null);
+        Assert.IsNotNull(new FileExistsException().Message);
+        Assert.AreEqual("m", new FileExistsException("m").Message);
+        Assert.IsNotNull(new FileExistsException("m", new InvalidOperationException()).InnerException);
+        var url = new SignedUrl { Url = new Uri("https://example.test/f") };
+        Assert.AreEqual("https://example.test/f", url.ToString());
+        Assert.AreEqual("GET", url.Method);
+        Assert.AreEqual(SignedUrlKind.Presigned, url.Kind);
+        Assert.AreEqual(0, url.Headers.Count);
+        Assert.IsFalse(DirectoryContents.NotFound.Exists);
+        Assert.ThrowsExactly<ArgumentNullException>(() => new DirectoryContents(true, null!));
+        Assert.ThrowsExactly<ArgumentNullException>(() => new WriteableFileInfo(null!, "a", true, false, 1, DateTimeOffset.UtcNow));
+        System.Collections.IEnumerable untyped = new DirectoryContents(true, []);
+        Assert.IsFalse(untyped.GetEnumerator().MoveNext());
+        Assert.AreEqual("/", new FileProviderOptions { RootDirectorySegments = null }.RootDirectoryPath);
+        Assert.AreEqual(0, new FileProviderOptions { RootDirectoryPath = null }.RootDirectorySegments.Length);
+        Assert.AreEqual(UpdateFileMode.Append, UpdateFileOptions.Append.Mode);
+    }
+
+    [TestMethod]
+    public async Task DependencyInjection_RegistersKeyedSingletons()
+    {
+        var store = "di-" + Guid.NewGuid().ToString("N");
+        var services = new ServiceCollection();
+        services.AddWriteableFileProvider("memory", _ => new InMemoryFileProvider(new InMemoryFileProviderOptions { StoreName = store }));
+        services.AddWriteableFileProvider("physical", new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Type"] = "WriteablePhysicalFileProvider",
+            ["RootDirectoryPath"] = Path.Combine(Path.GetTempPath(), "wfp-di-" + Guid.NewGuid().ToString("N")),
+        }).Build());
+        await using (var container = services.BuildServiceProvider())
+        {
+            var memory = container.GetRequiredKeyedService<IWriteableFileProvider>("memory");
+            Assert.AreSame(memory, container.GetRequiredKeyedService<IWriteableFileProvider>("memory"));
+            Assert.IsInstanceOfType<InMemoryFileProvider>(memory);
+            Assert.AreEqual("WriteablePhysicalFileProvider", container.GetRequiredKeyedService<IWriteableFileProvider>("physical").GetType().Name);
+        }
+        InMemoryFileProvider.ClearStore(store);
+        Assert.ThrowsExactly<ArgumentNullException>(() => services.AddWriteableFileProvider("x", (IConfiguration)null!));
+        Assert.ThrowsExactly<ArgumentException>(() => services.AddWriteableFileProvider("", _ => null!));
+        Assert.ThrowsExactly<ArgumentNullException>(() => services.AddWriteableFileProvider("x", (Func<IServiceProvider, IWriteableFileProvider>)null!));
+        Assert.ThrowsExactly<ArgumentNullException>(() => ((IServiceCollection)null!).AddWriteableFileProvider("x", _ => null!));
+    }
+
+    [TestMethod]
+    public void Constructor_RefusesNullOptions() =>
+        Assert.ThrowsExactly<ArgumentNullException>(() => new StubProvider(null!));
+}

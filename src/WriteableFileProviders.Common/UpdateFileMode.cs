@@ -1,14 +1,11 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+namespace WriteableFileProviders;
 
-namespace WriteableFileProviders
+/// <summary>How <see cref="IWriteableFileProvider.UpdateFileAsync"/> writes the content.</summary>
+public enum UpdateFileMode
 {
-    public enum UpdateFileMode
-    {
-        Overwrite,
-        Append
-    }
+    /// <summary>Replace the file's content, or create the file.</summary>
+    Overwrite,
+
+    /// <summary>Add the content after the file's content, or create the file.</summary>
+    Append,
 }

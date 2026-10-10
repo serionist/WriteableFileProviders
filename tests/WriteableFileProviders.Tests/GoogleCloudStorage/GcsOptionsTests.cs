@@ -105,8 +105,9 @@ namespace WriteableFileProviders.Tests.GoogleCloudStorage
         private class Probe : WriteableGoogleCloudStorageFileProvider
         {
             public Probe(GoogleCloudStorageFileProviderOptions options) : base(options) { }
-            public Task<bool> DeleteAbsolute(params string[] absolutePathSegments) => deleteAsync(absolutePathSegments);
-            public Task<IFileInfo> FileInfoAbsolute(params string[] absolutePathSegments) => getFileInfoAsync(absolutePathSegments);
+            private ResolvedPath Raw(string[] absolute) => new ResolvedPath(Options.RootDirectorySegments, GetRelativeSegments(absolute));
+            public Task<bool> DeleteAbsolute(params string[] absolutePathSegments) => DeleteCoreAsync(Raw(absolutePathSegments), default);
+            public Task<IWriteableFileInfo> FileInfoAbsolute(params string[] absolutePathSegments) => GetFileInfoCoreAsync(Raw(absolutePathSegments), default);
         }
     }
 }

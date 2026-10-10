@@ -1,8 +1,10 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime;
+using System.Runtime.CompilerServices;
+using System.Threading;
 using System.Threading.Tasks;
 using Azure;
 using Azure.Storage;
@@ -10,8 +12,6 @@ using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using Azure.Storage.Blobs.Specialized;
 using Azure.Storage.Sas;
-using Microsoft.Extensions.FileProviders;
-using Microsoft.Extensions.Primitives;
 
 namespace WriteableFileProviders.AzureBlob
 {
@@ -63,34 +63,41 @@ namespace WriteableFileProviders.AzureBlob
             Container = ServiceClient.GetBlobContainerClient(Options.ContainerName);
         }
 
-        protected override async Task<IFileInfo> getFileInfoAsync(params string[] absolutePathSegments)
+        private WriteableFileInfo info(bool exists, long length, string physicalPath, DateTimeOffset lastModified, bool isDirectory, string[] relativeSegments) =>
+            new WriteableFileInfo(this, new ProviderPath(relativeSegments), exists, isDirectory, length, lastModified, physicalPath);
+
+        protected override async Task<IWriteableFileInfo> GetFileInfoCoreAsync(ResolvedPath resolved, CancellationToken cancellationToken)
         {
+            var absolutePathSegments = resolved.AbsoluteSegments;
             var path = getPath(absolutePathSegments);
-            var name = absolutePathSegments.LastOrDefault() ?? "";
             if (absolutePathSegments.Length == 0)
-                return new FileInfo(this, false, 0, path, name, DefaultDateTime, false, getRelativeSegments(absolutePathSegments));
+                return info(false, 0, path, DefaultDateTime, false, GetRelativeSegments(absolutePathSegments));
             try
             {
                 var file = Container.GetAppendBlobClient(path);
                 var properties = await file.GetPropertiesAsync();
-                return new FileInfo(this, true, properties.Value.ContentLength, path, name, properties.Value.LastModified, false, getRelativeSegments(absolutePathSegments));
+                return info(true, properties.Value.ContentLength, path, properties.Value.LastModified, false, GetRelativeSegments(absolutePathSegments));
             }
             catch(RequestFailedException ex) when (ex.ErrorCode == BlobErrorCode.BlobNotFound || ex.ErrorCode == BlobErrorCode.ContainerNotFound)
             {
-                return new FileInfo(this, false, 0, path, name, DefaultDateTime, false, getRelativeSegments(absolutePathSegments));
+                return info(false, 0, path, DefaultDateTime, false, GetRelativeSegments(absolutePathSegments));
             }
         }
 
-        protected override async Task<IDirectoryContents> getDirectoryContentsAsync(params string[] absolutePathSegments)
+        protected override async IAsyncEnumerable<IWriteableFileInfo> EnumerateCoreAsync(ResolvedPath resolved, [EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            foreach (var entry in await listAsync(resolved.AbsoluteSegments))
+                yield return entry;
+        }
+
+        private async Task<List<IWriteableFileInfo>> listAsync(string[] absolutePathSegments)
         {
             var prefix = getDirPrefix(absolutePathSegments);
-            var ret = new List<IFileInfo>();
-            var found = false;
+            var ret = new List<IWriteableFileInfo>();
             try
             {
                 await foreach (var item in Container.GetBlobsByHierarchyAsync(delimiter: "/", prefix: prefix))
                 {
-                    found = true;
                     if (item.IsPrefix)
                     {
                         var name = item.Prefix.Substring(prefix.Length);
@@ -98,40 +105,38 @@ namespace WriteableFileProviders.AzureBlob
                             name = name.Substring(0, name.Length - 1);
                         if (name.Length == 0 || name.Contains("/"))
                             continue;
-                        ret.Add(new FileInfo(this, true, -1, item.Prefix, name, DefaultDateTime, true,
-                            getRelativeSegments(absolutePathSegments.Concat(new[] { name }).ToArray())));
+                        ret.Add(info(true, -1, item.Prefix, DefaultDateTime, true,
+                            GetRelativeSegments(absolutePathSegments.Concat(new[] { name }).ToArray())));
                     }
                     else if (item.IsBlob)
                     {
                         var name = item.Blob.Name.Substring(prefix.Length);
                         if (name.Length == 0)
                             continue;
-                        ret.Add(new FileInfo(this, true, item.Blob.Properties.ContentLength ?? 0, item.Blob.Name, name,
+                        ret.Add(info(true, item.Blob.Properties.ContentLength ?? 0, item.Blob.Name,
                             item.Blob.Properties.LastModified ?? DefaultDateTime, false,
-                            getRelativeSegments(absolutePathSegments.Concat(new[] { name }).ToArray())));
+                            GetRelativeSegments(absolutePathSegments.Concat(new[] { name }).ToArray())));
                     }
                 }
             }
             catch (RequestFailedException ex) when (ex.ErrorCode == BlobErrorCode.ContainerNotFound)
             {
-                return new DirectoryContents(false, new IFileInfo[0]);
+                return new List<IWriteableFileInfo>();
             }
-            return new DirectoryContents(found, ret.ToArray());
+            return ret;
         }
 
-        protected override Task<IChangeToken> watchAsync(string filter)
+        protected override async Task<Stream> ReadFileCoreAsync(ResolvedPath resolved, CancellationToken cancellationToken)
         {
-            throw new PlatformNotSupportedException("Watch is not supported in WriteableAzureBlobFileProvider");
-        }
-
-        protected override async Task<Stream> readFileAsync(params string[] absolutePathSegments)
-        {
-            var file = Container.GetAppendBlobClient(getPath(absolutePathSegments));
+            var file = Container.GetAppendBlobClient(getPath(resolved.AbsoluteSegments));
             var download = await file.DownloadAsync();
             return new AzureFileStream(download.Value.Content, download.Value.ContentLength);
         }
 
-        protected override async Task updateFileAsync(Stream contents, UpdateFileMode mode, params string[] absolutePathSegments)
+        protected override Task UpdateFileCoreAsync(ResolvedPath resolved, Stream contents, UpdateFileOptions options, CancellationToken cancellationToken) =>
+            updateFileAsync(contents, options.Mode, resolved.AbsoluteSegments);
+
+        private async Task updateFileAsync(Stream contents, UpdateFileMode mode, string[] absolutePathSegments)
         {
             var file = Container.GetAppendBlobClient(getPath(absolutePathSegments));
             Stream str;
@@ -155,7 +160,10 @@ namespace WriteableFileProviders.AzureBlob
                 await contents.CopyToAsync(str);
         }
 
-        protected override async Task move(string[] oldSegments, string[] newSegments)
+        protected override Task MoveCoreAsync(ResolvedPath source, ResolvedPath destination, CancellationToken cancellationToken) =>
+            move(source.AbsoluteSegments, destination.AbsoluteSegments);
+
+        private async Task move(string[] oldSegments, string[] newSegments)
         {
             var oldFile = Container.GetAppendBlobClient(getPath(oldSegments));
             var newFile = Container.GetAppendBlobClient(getPath(newSegments));
@@ -227,8 +235,9 @@ namespace WriteableFileProviders.AzureBlob
         }
 
 
-        protected override async Task<bool> deleteAsync(params string[] absolutePathSegments)
+        protected override async Task<bool> DeleteCoreAsync(ResolvedPath resolved, CancellationToken cancellationToken)
         {
+            var absolutePathSegments = resolved.AbsoluteSegments;
             if (isProviderRoot(absolutePathSegments))
                 throw new InvalidOperationException("The provider root cannot be deleted or modified.");
             try
@@ -254,7 +263,15 @@ namespace WriteableFileProviders.AzureBlob
             }
         }
 
-        protected override Task<string> getDownloadUrl(string[] absolutePathSegments, TimeSpan validity)
+        protected override bool SupportsSignedUrl(SignedUrlAccess permission) => permission == SignedUrlAccess.Read;
+
+        protected override Task<SignedUrl> GetSignedUrlCoreAsync(ResolvedPath resolved, SignedUrlOptions options, CancellationToken cancellationToken)
+        {
+            var url = getDownloadUrl(resolved.AbsoluteSegments, options.Validity);
+            return Task.FromResult(new SignedUrl { Url = new Uri(url), ExpiresOn = DateTimeOffset.UtcNow.Add(options.Validity) });
+        }
+
+        private string getDownloadUrl(string[] absolutePathSegments, TimeSpan validity)
         {
             if (validity > MaxSasValidity)
                 validity = MaxSasValidity;
@@ -269,10 +286,10 @@ namespace WriteableFileProviders.AzureBlob
             if (file.Uri.Scheme == Uri.UriSchemeHttps)
                 builder.Protocol = SasProtocol.Https;
             builder.SetPermissions(BlobAccountSasPermissions.Read);
-            return Task.FromResult(new BlobUriBuilder(file.Uri)
+            return new BlobUriBuilder(file.Uri)
             {
                 Sas = builder.ToSasQueryParameters(Credential)
-            }.ToUri().ToString());
+            }.ToUri().ToString();
         }
 
 

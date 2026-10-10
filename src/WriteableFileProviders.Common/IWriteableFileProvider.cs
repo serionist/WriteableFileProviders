@@ -1,322 +1,145 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Text;
-using System.Threading.Tasks;
 using Microsoft.Extensions.FileProviders;
-using Microsoft.Extensions.Primitives;
-using Newtonsoft.Json.Linq;
 
-namespace WriteableFileProviders
+namespace WriteableFileProviders;
+
+/// <summary>
+/// A writeable <see cref="IFileProvider"/>: one storage backend (the local disk, Azure Blob Storage, Amazon S3, MinIO,
+/// Google Cloud Storage, Box, SharePoint) behind one API that means the same thing on every provider.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Every path is a <see cref="ProviderPath"/> relative to the provider's root (<see cref="FileProviderOptions"/>); nothing
+/// outside the root can be reached. A path segment that is empty, only dots and spaces, holds a control character, or
+/// becomes one of those when percent-decoded throws <see cref="ArgumentException"/>. The root itself cannot be written,
+/// deleted or moved (<see cref="InvalidOperationException"/>), nor read as a file (<see cref="ArgumentException"/>).
+/// </para>
+/// <para>
+/// A provider whose bucket or container does not exist throws <see cref="InvalidOperationException"/> from every member,
+/// naming it and the option that creates it; it never reports that as a missing path. An operation a provider cannot do
+/// throws <see cref="NotSupportedException"/>. The synchronous forms of the members are
+/// extension methods (<see cref="WriteableFileProviderExtensions"/>), except the three <see cref="IFileProvider"/> needs.
+/// </para>
+/// </remarks>
+public interface IWriteableFileProvider : IFileProvider, IDisposable, IAsyncDisposable
 {
-    public interface IWriteableFileProvider:IFileProvider
-    {
-        /// <summary>Locate a file at the given path.</summary>
-        /// <param name="subpath">Relative path that identifies the file.</param>
-        /// <returns>The file information. Caller must check Exists property.</returns>
-        Task<IFileInfo> GetFileInfoAsync(string subpath);
-        /// <summary>Locate a file at the given path.</summary>
-        /// <param name="subpath">Relative path that identifies the file.</param>
-        /// <returns>The file information. Caller must check Exists property.</returns>
-        IFileInfo GetFileInfo(params string[] pathSegments);
-        /// <summary>Locate a file at the given path.</summary>
-        /// <param name="subpath">Relative path that identifies the file.</param>
-        /// <returns>The file information. Caller must check Exists property.</returns>
-        /// <remarks>
-        /// For a directory, Physical, Azure Blob and GCS return Exists = false and IsDirectory = false, S3 and Box return
-        /// Exists = false and IsDirectory = true, Minio and SharePoint return Exists = true and IsDirectory = true.
-        /// </remarks>
-        Task<IFileInfo> GetFileInfoAsync(params string[] pathSegments);
-        /// <summary>Enumerate a directory at the given path, if any.</summary>
-        /// <param name="subpath">Relative path that identifies the directory.</param>
-        /// <returns>Returns the contents of the directory.</returns>
-        Task<IDirectoryContents> GetDirectoryContentsAsync(string subpath);
-        /// <summary>Enumerate a directory at the given path, if any.</summary>
-        /// <param name="subpath">Relative path that identifies the directory.</param>
-        /// <returns>Returns the contents of the directory.</returns>
-        IDirectoryContents GetDirectoryContents(params string[] pathSegments);
-        /// <summary>Enumerate a directory at the given path, if any.</summary>
-        /// <param name="subpath">Relative path that identifies the directory.</param>
-        /// <returns>Returns the contents of the directory.</returns>
-        /// <remarks>
-        /// Lists one level only. Directory entries have Exists = true, IsDirectory = true and Length = -1,
-        /// and on object stores (S3, Minio, GCS, Azure Blob) a placeholder LastModified.
-        /// </remarks>
-        Task<IDirectoryContents> GetDirectoryContentsAsync(params string[] pathSegments);
-        /// <summary>
-        /// Creates a <see cref="T:Microsoft.Extensions.Primitives.IChangeToken" /> for the specified <paramref name="filter" />.
-        /// </summary>
-        /// <param name="filter">Filter string used to determine what files or folders to monitor. Example: **/*.cs, *.*, subFolder/**/*.cshtml.</param>
-        /// <returns>An <see cref="T:Microsoft.Extensions.Primitives.IChangeToken" /> that is notified when a file matching <paramref name="filter" /> is added, modified or deleted.</returns>
-        Task<IChangeToken> WatchAsync(string filter);
-        /// <summary>
-        /// Reads the contents of a specified file. This is a read-only stream and can be a network stream.
-        /// Its recommended to write the contents to a temporary file to start using advanced stream operations
-        /// </summary>
-        /// <param name="subPath"></param>
-        /// <returns></returns>
-        Task<Stream> ReadFileAsync(string subpath);
-        /// <summary>
-        /// Reads the contents of a specified file. This a read-only stream and can be a network stream
-        ///  Its recommended to write the contents to a temporary file to start using advanced stream operations
-        /// </summary>
-        /// <param name="subPath"></param>
-        /// <returns></returns>
-        Stream ReadFile(string subpath);
-        /// <summary>
-        /// Reads the contents of a specified file. This a read-only stream and can be a network stream
-        ///  Its recommended to write the contents to a temporary file to start using advanced stream operations
-        /// </summary>
-        /// <param name="subPath"></param>
-        /// <returns></returns>
-        Task<Stream> ReadFileAsync(params string[] pathSegments);
-        /// <summary>
-        /// Reads the contents of a specified file. This a read-only stream and can be a network stream
-        ///  Its recommended to write the contents to a temporary file to start using advanced stream operations
-        /// </summary>
-        /// <param name="subPath"></param>
-        /// <returns></returns>
-        Stream ReadFile(params string[] pathSegments);
-        /// <summary>
-        /// Reads the contents of a specified file. This a read-only stream and can be a network stream
-        ///  Its recommended to write the contents to a temporary file to start using advanced stream operations
-        /// </summary>
-        /// <returns></returns>
-        Task<Stream> ReadFileAsync(IFileInfo file);
-        /// <summary>
-        /// Reads the contents of a specified file. This a read-only stream and can be a network stream
-        ///  Its recommended to write the contents to a temporary file to start using advanced stream operations
-        /// </summary>
-        /// <returns></returns>
-        Stream ReadFile(IFileInfo file);
-        /// <summary>
-        /// Updates a file with the specified contents
-        /// </summary>
-        /// <param name="subpath"></param>
-        /// <param name="contents"></param>
-        /// <returns></returns>
-        Task UpdateFileAsync(string subpath, UpdateFileMode mode, Stream contents);
-        /// <summary>
-        /// Updates a file with the specified contents
-        /// </summary>
-        /// <param name="subpath"></param>
-        /// <param name="contents"></param>
-        /// <returns></returns>
-        ///  /// <summary>
-        /// Updates a file with the specified contents
-        /// </summary>
-        /// <param name="subpath"></param>
-        /// <param name="contents"></param>
-        /// <returns></returns>
-        void UpdateFile(string subpath, UpdateFileMode mode, Stream contents);
-        /// <summary>
-        /// Updates a file with the specified contents
-        /// </summary>
-        /// <param name="subpath"></param>
-        /// <param name="contents"></param>
-        /// <returns></returns>
-        void UpdateFile(Stream contents, UpdateFileMode mode, params string[] pathSegments);
-        
-        /// <summary>
-        /// Updates a file with the specified contents
-        /// </summary>
-        /// <param name="subpath"></param>
-        /// <param name="contents"></param>
-        /// <returns></returns>
-        Task UpdateFileAsync(Stream contents, UpdateFileMode mode, params string[] pathSegments);
-        /// <summary>
-        /// Updates a file with the specified contents
-        /// </summary>
-        /// <param name="subpath"></param>
-        /// <param name="contents"></param>
-        /// <returns></returns>
-        void UpdateFile(Stream contents, UpdateFileMode mode, IFileInfo file);
-        /// <summary>
-        /// Updates a file with the specified contents
-        /// </summary>
-        /// <param name="subpath"></param>
-        /// <param name="contents"></param>
-        /// <returns></returns>
-        Task UpdateFileAsync(Stream contents, UpdateFileMode mode, IFileInfo file);
-        /// <summary>
-        /// Deletes a file or directory. The delete is recursive for directories
-        /// </summary>
-        /// <param name="subpath"></param>
-        /// <returns></returns>
-        bool Delete(string subpath);
-        /// <summary>
-        /// Deletes a file or directory. The delete is recursive for directories
-        /// </summary>
-        /// <param name="subpath"></param>
-        /// <returns></returns>
-        Task<bool> DeleteAsync(string subpath);
+    /// <summary>The provider's options, as they were given.</summary>
+    FileProviderOptions Options { get; }
 
-        /// <summary>
-        /// Deletes a file or directory. The delete is recursive for directories
-        /// </summary>
-        /// <param name="subpath"></param>
-        /// <returns></returns>
-        bool Delete(params string[] pathSegments);
-        /// <summary>
-        /// Deletes a file or directory. The delete is recursive for directories
-        /// </summary>
-        /// <param name="subpath"></param>
-        /// <returns></returns>
-        Task<bool> DeleteAsync(params string[] pathSegments);
-        /// <summary>
-        /// Deletes a file or directory. The delete is recursive for directories
-        /// </summary>
-        /// <param name="subpath"></param>
-        /// <returns></returns>
-        bool Delete(IFileInfo fileOrDir);
-        /// <summary>
-        /// Deletes a file or directory. The delete is recursive for directories
-        /// </summary>
-        /// <param name="subpath"></param>
-        /// <returns></returns>
-        Task<bool> DeleteAsync(IFileInfo fileOrDir);
-        /// <summary>
-        /// Return file contents as a local stream that can be written to. This will ensure the file is placed on the local filesystem (at least temporarily). Caller should dispose stream when complete, only then will the file be committed.
-        /// </summary>
-        /// <param name="readOnly">True to open a read only stream (no commit is done to the provider after file is closed)</param>
-        /// <param name="subpath">The path to the file</param>
-        /// <returns>The file stream</returns>
-        /// <exception cref="System.IO.FileNotFoundException">Read-only stream of a missing file on the physical provider. Other providers return an empty stream for a missing file.</exception>
-        Task<LocalFileStream> CreateLocalFileStreamAsync(bool readOnly, string subpath);
-        /// <summary>
-        /// Return file contents as a local stream that can be written to. This will ensure the file is placed on the local filesystem (at least temporarily). Caller should dispose stream when complete, only then will the file be committed.
-        /// </summary>
-        /// <param name="subpath">The path to the file</param>
-        ///  /// <param name="readOnly">True to open a read only stream (no commit is done to the provider after file is closed)</param>
-        /// <returns>The file stream</returns>
-        /// <exception cref="System.IO.FileNotFoundException">Read-only stream of a missing file on the physical provider. Other providers return an empty stream for a missing file.</exception>
-        LocalFileStream CreateLocalFileStream(bool readOnly, string subpath);
-        /// <summary>
-        /// Return file contents as a local stream that can be written to. This will ensure the file is placed on the local filesystem (at least temporarily). Caller should dispose stream when complete, only then will the file be committed.
-        /// </summary>
-        /// <param name="subpath">The path to the file</param>
-        ///  /// <param name="readOnly">True to open a read only stream (no commit is done to the provider after file is closed)</param>
-        /// <returns>The file stream</returns>
-        /// <exception cref="System.IO.FileNotFoundException">Read-only stream of a missing file on the physical provider. Other providers return an empty stream for a missing file.</exception>
-        Task<LocalFileStream> CreateLocalFileStreamAsync(bool readOnly, params string[] pathSegments);
-        /// <summary>
-        /// Return file contents as a local stream that can be written to. This will ensure the file is placed on the local filesystem (at least temporarily). Caller should dispose stream when complete, only then will the file be committed.
-        /// </summary>
-        /// <param name="subpath">The path to the file</param>
-        ///  /// <param name="readOnly">True to open a read only stream (no commit is done to the provider after file is closed)</param>
-        /// <returns>The file stream</returns>
-        /// <exception cref="System.IO.FileNotFoundException">Read-only stream of a missing file on the physical provider. Other providers return an empty stream for a missing file.</exception>
-        LocalFileStream CreateLocalFileStream(bool readOnly, params string[] pathSegments);
-        /// <summary>
-        /// Return file contents as a local stream that can be written to. This will ensure the file is placed on the local filesystem (at least temporarily). Caller should dispose stream when complete, only then will the file be committed.
-        /// </summary>
-        /// <param name="subpath">The path to the file</param>
-        ///  /// <param name="readOnly">True to open a read only stream (no commit is done to the provider after file is closed)</param>
-        /// <returns>The file stream</returns>
-        /// <exception cref="System.IO.FileNotFoundException">Read-only stream of a missing file on the physical provider. Other providers return an empty stream for a missing file.</exception>
-        Task<LocalFileStream> CreateLocalFileStreamAsync(bool readOnly, IFileInfo file);
-        /// <summary>
-        /// Return file contents as a local stream that can be written to. This will ensure the file is placed on the local filesystem (at least temporarily). Caller should dispose stream when complete, only then will the file be committed.
-        /// </summary>
-        /// <param name="subpath">The path to the file</param>
-        ///  /// <param name="readOnly">True to open a read only stream (no commit is done to the provider after file is closed)</param>
-        /// <returns>The file stream</returns>
-        /// <exception cref="System.IO.FileNotFoundException">Read-only stream of a missing file on the physical provider. Other providers return an empty stream for a missing file.</exception>
-        LocalFileStream CreateLocalFileStream(bool readOnly, IFileInfo file);
-        /// <summary>
-        /// The callback called when a local file stream is closed. Used to commit the contents of a local stream
-        /// </summary>
-        /// <param name="stream"></param>
-        /// <returns></returns>
-        /// <exception cref="System.InvalidOperationException">The stream belongs to another provider, or its target is the provider root.</exception>
-        /// <exception cref="System.ArgumentException">The stream's target is not under the provider root, or a segment after the root is not allowed.</exception>
-        Task OnLocalFileStreamDisposingAsync(LocalFileStream stream);
-        JObject ToJson();
+    /// <summary>Gets a file, a folder or a missing path.</summary>
+    /// <param name="path">The path.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    /// <returns>
+    /// A file: exists, not a directory, with its length. A folder: exists, a directory, length -1. A missing path: does not
+    /// exist, not a directory, length -1. The root is a folder.
+    /// </returns>
+    Task<IWriteableFileInfo> GetFileInfoAsync(ProviderPath path, CancellationToken cancellationToken = default);
 
-        /// <summary>
-        /// Generate a presigned URL that you can give to others so that they can retrieve an object.
-        /// </summary>
-        /// <param name="path"></param>
-        /// <param name="validity"></param>
-        /// <returns></returns>
-        string GetDownloadUrl(string[] pathSegments, TimeSpan validity);
-        /// <summary>
-        /// Generate a presigned URL that you can give to others so that they can retrieve an object.
-        /// </summary>
-        /// <param name="subpath"></param>
-        /// <param name="validity"></param>
-        /// <returns></returns>
-        string GetDownloadUrl(string subpath, TimeSpan validity);
-        /// <summary>
-        /// Generate a presigned URL that you can give to others so that they can retrieve an object.
-        /// </summary>
-        /// <param name="file"></param>
-        /// <param name="validity"></param>
-        /// <returns></returns>
-        string GetDownloadUrl(IFileInfo file, TimeSpan validity);
+    /// <summary>Lists one level of a folder.</summary>
+    /// <param name="path">The folder.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    /// <returns>The folder's entries; a missing folder lists as not existing and empty.</returns>
+    Task<IDirectoryContents> GetDirectoryContentsAsync(ProviderPath path, CancellationToken cancellationToken = default);
 
-        /// <summary>
-        /// Generate a presigned URL that you can give to others so that they can retrieve an object.
-        /// </summary>
-        /// <param name="path"></param>
-        /// <param name="validity"></param>
-        /// <returns></returns>
-        Task<string> GetDownloadUrlAsync(string[] pathSegments, TimeSpan validity);
-        /// <summary>
-        /// Generate a presigned URL that you can give to others so that they can retrieve an object.
-        /// </summary>
-        /// <param name="subpath"></param>
-        /// <param name="validity"></param>
-        /// <returns></returns>
-        Task<string> GetDownloadUrlAsync(string subpath, TimeSpan validity);
-        /// <summary>
-        /// Generate a presigned URL that you can give to others so that they can retrieve an object.
-        /// </summary>
-        /// <param name="file"></param>
-        /// <param name="validity"></param>
-        /// <returns></returns>
-        Task<string> GetDownloadUrlAsync(IFileInfo file, TimeSpan validity);
+    /// <summary>Streams the entries of a folder, one level or every level.</summary>
+    /// <param name="path">The folder.</param>
+    /// <param name="recursive">Whether to walk every level: each folder is yielded once, before its contents.</param>
+    /// <param name="cancellationToken">Cancels the enumeration.</param>
+    IAsyncEnumerable<IWriteableFileInfo> EnumerateAsync(ProviderPath path, bool recursive = false, CancellationToken cancellationToken = default);
 
-        /// <summary>
-        /// Moves a file from an old destination to a new one
-        /// </summary>
-        /// <param name="oldFileSegments"></param>
-        /// <param name="newFileSegments"></param>
-        /// <returns></returns>
-        void Move(string[] oldFileSegments, string[] newFileSegments);
+    /// <summary>Opens a file for reading. The stream may be a network stream that can only be read forward.</summary>
+    /// <param name="path">The file.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    /// <exception cref="FileNotFoundException">The file does not exist, or is a folder.</exception>
+    Task<Stream> ReadFileAsync(ProviderPath path, CancellationToken cancellationToken = default);
 
-        /// <summary>
-        /// Moves a file from an old destination to a new one
-        /// </summary>
-        /// <returns></returns>
-        void Move(string oldPath, string newPath);
+    /// <summary>Reads a byte range of a file.</summary>
+    /// <param name="path">The file.</param>
+    /// <param name="offset">The first byte to read.</param>
+    /// <param name="length">How many bytes to read, or null to read to the end.</param>
+    /// <param name="options">Conditions on the read.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    /// <returns>The bytes from <paramref name="offset"/>: empty past the end of the file, or when the length is 0.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">The offset or the length is negative.</exception>
+    /// <exception cref="FileNotFoundException">The file does not exist, or is a folder.</exception>
+    /// <exception cref="PreconditionFailedException">The file's version is not <see cref="ReadOptions.IfMatch"/>.</exception>
+    Task<Stream> ReadRangeAsync(ProviderPath path, long offset, long? length, ReadOptions? options = null, CancellationToken cancellationToken = default);
 
-        /// <summary>
-        /// Moves a file from an old destination to a new one
-        /// </summary>
-        /// <returns></returns>
-        void Move(IFileInfo file, string[] newFileSegments);
+    /// <summary>
+    /// Opens a file as a read-only stream that can seek: it knows its length, and fetches ranges as it is read.
+    /// </summary>
+    /// <param name="path">The file.</param>
+    /// <param name="options">How the stream reads.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    /// <exception cref="FileNotFoundException">The file does not exist, or is a folder.</exception>
+    Task<Stream> OpenReadSeekableAsync(ProviderPath path, SeekableReadOptions? options = null, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Writes a file: overwrites or appends, atomically, so a write that fails leaves the old content. Missing parent
+    /// folders are created.
+    /// </summary>
+    /// <param name="path">The file.</param>
+    /// <param name="contents">
+    /// The content: read from its current position to its end, and left open. Its position afterwards is not promised.
+    /// </param>
+    /// <param name="options">How to write; overwrite with no conditions by default.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    /// <exception cref="PreconditionFailedException">A condition in <paramref name="options"/> did not hold.</exception>
+    /// <exception cref="ArgumentException">Both <see cref="UpdateFileOptions.IfMatch"/> and <see cref="UpdateFileOptions.IfNotExists"/> are set.</exception>
+    /// <exception cref="InvalidOperationException">The path is the provider root.</exception>
+    Task UpdateFileAsync(ProviderPath path, Stream contents, UpdateFileOptions? options = null, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Deletes a file, or a folder with everything in it. A folder delete never touches a sibling that only shares its
+    /// name's prefix.
+    /// </summary>
+    /// <param name="path">The file or folder.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    /// <returns>True when something was deleted; false when the path did not exist.</returns>
+    /// <exception cref="InvalidOperationException">The path is the provider root.</exception>
+    Task<bool> DeleteAsync(ProviderPath path, CancellationToken cancellationToken = default);
 
-        /// <summary>
-        /// Moves a file from an old destination to a new one
-        /// </summary>
-        /// <param name="oldFileSegments"></param>
-        /// <param name="newFileSegments"></param>
-        /// <returns></returns>
-        Task MoveAsync(string[] oldFileSegments, string[] newFileSegments);
+    /// <summary>
+    /// Moves a file. Missing parent folders of the destination are created; moving a file onto itself does nothing.
+    /// </summary>
+    /// <param name="source">The file to move.</param>
+    /// <param name="destination">Where to move it.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    /// <exception cref="FileNotFoundException">The source does not exist, or is a folder.</exception>
+    /// <exception cref="FileExistsException">The destination exists; it is left unchanged.</exception>
+    Task MoveAsync(ProviderPath source, ProviderPath destination, CancellationToken cancellationToken = default);
 
-        /// <summary>
-        /// Moves a file from an old destination to a new one
-        /// </summary>
-        /// <returns></returns>
-        Task MoveAsync(string oldPath, string newPath);
+    /// <summary>Copies a file. Missing parent folders of the destination are created.</summary>
+    /// <param name="source">The file to copy.</param>
+    /// <param name="destination">Where to copy it.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    /// <exception cref="FileNotFoundException">The source does not exist, or is a folder.</exception>
+    /// <exception cref="FileExistsException">The destination exists; it is left unchanged.</exception>
+    Task CopyAsync(ProviderPath source, ProviderPath destination, CancellationToken cancellationToken = default);
 
-        /// <summary>
-        /// Moves a file from an old destination to a new one
-        /// </summary>
-        /// <returns></returns>
-        Task MoveAsync(IFileInfo file, string[] newFileSegments);
-    }
+    /// <summary>
+    /// Copies a file to a local temp file and opens it. A writeable stream uploads its content when it is disposed (or
+    /// when <see cref="LocalFileStream.CommitAsync"/> is called), once and atomically, unless
+    /// <see cref="LocalFileStream.SkipReUploadOnDispose"/> is set. A dispose after an exception uploads too, so partially
+    /// written content is uploaded; set <see cref="LocalFileStream.SkipReUploadOnDispose"/> to prevent that.
+    /// </summary>
+    /// <param name="path">The file. A writeable stream of a missing file starts empty.</param>
+    /// <param name="readOnly">Whether the stream is read-only and never uploads.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    /// <exception cref="FileNotFoundException">A read-only stream of a file that does not exist, or of a folder.</exception>
+    Task<LocalFileStream> CreateLocalFileStreamAsync(ProviderPath path, bool readOnly, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Issues a URL that lets its holder read or write one file for a limited time, without the provider's credentials.
+    /// </summary>
+    /// <param name="path">The file.</param>
+    /// <param name="options">What the URL allows and how long it lives.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    /// <exception cref="ArgumentOutOfRangeException">The validity is not positive.</exception>
+    /// <exception cref="FileNotFoundException">A read URL for a file that does not exist, or for a folder.</exception>
+    /// <exception cref="NotSupportedException">
+    /// The provider cannot issue such a URL natively: not for this permission, not for this long, not with an option it
+    /// cannot honour (such as <see cref="SignedUrlOptions.DownloadFileName"/>), or only one that lives shorter than asked.
+    /// WriteableFileProviders.AspNetCore issues a gateway URL instead.
+    /// </exception>
+    Task<SignedUrl> GetSignedUrlAsync(ProviderPath path, SignedUrlOptions options, CancellationToken cancellationToken = default);
 }

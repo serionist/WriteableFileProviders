@@ -88,11 +88,14 @@ dotnet_diagnostic.CA1822.severity = warning    # mark members static
 dotnet_diagnostic.CA1861.severity = warning    # constant array arguments become static readonly
 dotnet_diagnostic.CA1875.severity = warning    # Regex.Count over Matches().Count
 dotnet_diagnostic.CA2007.severity = warning    # ConfigureAwait(false): a library must not capture its caller's context
-dotnet_diagnostic.SYSLIB1045.severity = warning  # [GeneratedRegex]; relaxed for tests in tests/WriteableFileProviders.Tests/.editorconfig
+dotnet_diagnostic.SYSLIB1045.severity = warning  # [GeneratedRegex]; relaxed for tests in tests/.editorconfig
 
 # Off.
 # CA1859: IReadOnlyList, IReadOnlyDictionary and IReadOnlySet return types are an immutability contract.
 dotnet_diagnostic.CA1859.severity = none
+# CA1716: guards against names that are keywords in Visual Basic (readOnly, Shared); the library is for C# and F#, and
+# its public parameter names predate the rule.
+dotnet_diagnostic.CA1716.severity = none
 
 # --- Naming ---
 dotnet_naming_rule.interfaces_start_with_i.severity = warning

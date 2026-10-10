@@ -62,20 +62,6 @@
         "resolved": "10.0.3",
         "contentHash": "TV62UsrJZPX6gbt3c4WrtXh7bmaDIcMqf9uft1cc4L6gJXOU07hDGEh+bFQh/L2Az0R1WVOkiT66lFqS6G2NmA=="
       },
-      "Microsoft.Extensions.Configuration": {
-        "type": "Transitive",
-        "resolved": "10.0.12",
-        "contentHash": "e3IPP32CRNL031VZJAUTlCTG0YN7WFh4mN3fsSHTDQCJB+3+f0jGycv4fXk3rrftaY3B85XrQaj7sRthrOsavg==",
-        "dependencies": {
-          "Microsoft.Extensions.Configuration.Abstractions": "10.0.12",
-          "Microsoft.Extensions.Primitives": "10.0.12"
-        }
-      },
-      "Microsoft.Extensions.DependencyInjection.Abstractions": {
-        "type": "Transitive",
-        "resolved": "10.0.3",
-        "contentHash": "bwGMrRcAMWx2s/RDgja97p27rxSz2pEQW0+rX5cWAUWVETVJ/eyxGfjAl8vuG5a+lckWmPIE+vcuaZNVB5YDdw=="
-      },
       "Microsoft.Extensions.Diagnostics.Abstractions": {
         "type": "Transitive",
         "resolved": "10.0.3",
@@ -300,9 +286,8 @@
         "type": "Project",
         "dependencies": {
           "Microsoft.Extensions.Configuration.Abstractions": "[10.0.12, )",
-          "Microsoft.Extensions.Configuration.Binder": "[10.0.12, )",
-          "Microsoft.Extensions.FileProviders.Abstractions": "[10.0.12, )",
-          "Newtonsoft.Json": "[13.0.4, )"
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "[10.0.12, )",
+          "Microsoft.Extensions.FileProviders.Abstractions": "[10.0.12, )"
         }
       },
       "Microsoft.Extensions.Configuration.Abstractions": {
@@ -314,15 +299,11 @@
           "Microsoft.Extensions.Primitives": "10.0.12"
         }
       },
-      "Microsoft.Extensions.Configuration.Binder": {
+      "Microsoft.Extensions.DependencyInjection.Abstractions": {
         "type": "CentralTransitive",
         "requested": "[10.0.12, )",
         "resolved": "10.0.12",
-        "contentHash": "dAgIf1TOr8KLs+aBRIbXUZBjHoSH4rDG8+XkX/Q6AZwkQdMA0+yPDKTHsieeXdZDfpOpZVHzOnuAb5Z2nX3KsA==",
-        "dependencies": {
-          "Microsoft.Extensions.Configuration": "10.0.12",
-          "Microsoft.Extensions.Configuration.Abstractions": "10.0.12"
-        }
+        "contentHash": "9/qymSh7hVDMGTGwrLz8MRp5zRyXy9adGDOs4HwRdnLil3oZGYuWeZjbmHgCQ9BL1qBroVfgUK3U/nb61617Cw=="
       },
       "Microsoft.Extensions.FileProviders.Abstractions": {
         "type": "CentralTransitive",
@@ -332,12 +313,6 @@
         "dependencies": {
           "Microsoft.Extensions.Primitives": "10.0.12"
         }
-      },
-      "Newtonsoft.Json": {
-        "type": "CentralTransitive",
-        "requested": "[13.0.4, )",
-        "resolved": "13.0.4",
-        "contentHash": "pdgNNMai3zv51W5aq268sujXUyx7SNdE2bj1wZcWjAQrKMFZV260lbqYop1d2GM67JI1huLRwxo9ZqnfF/lC6A=="
       }
     }
   }

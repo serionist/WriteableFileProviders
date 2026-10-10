@@ -16,7 +16,7 @@ namespace WriteableFileProviders.Tests.Common
         private class SegmentProvider : WriteablePhysicalFileProvider
         {
             public SegmentProvider(string rootPath) : base(rootPath) { }
-            public static string[] Validate(params string[] segments) => validateSegments(segments);
+            public static string[] Validate(params string[] segments) => ValidateSegments(segments);
         }
 
         [TestInitialize]
@@ -49,9 +49,9 @@ namespace WriteableFileProviders.Tests.Common
         {
             await provider.UpdateFileAsync(Content(), UpdateFileMode.Overwrite, "a/b", "c.txt");
             Assert.IsTrue(File.Exists(Path.Combine(root, "a", "b", "c.txt")));
-            var info = (FileInfo)await provider.GetFileInfoAsync("a/b", "c.txt");
+            var info = (WriteableFileInfo)await provider.GetFileInfoAsync("a/b", "c.txt");
             Assert.IsTrue(info.Exists);
-            CollectionAssert.AreEqual(new[] { "a", "b", "c.txt" }, info.PathSegments);
+            CollectionAssert.AreEqual(new[] { "a", "b", "c.txt" }, info.Path.Segments.ToArray());
         }
 
         [DataTestMethod]

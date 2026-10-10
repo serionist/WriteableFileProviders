@@ -144,7 +144,7 @@ namespace WriteableFileProviders.Tests.Minio
             Assert.IsFalse(file.IsDirectory);
             Assert.AreEqual(3, file.Length);
             Assert.IsTrue(file.LastModified.Year > 1970);
-            CollectionAssert.AreEqual(new[] { "d", "f1.txt" }, ((FileInfo) file).PathSegments);
+            CollectionAssert.AreEqual(new[] { "d", "f1.txt" }, ((WriteableFileInfo) file).Path.Segments.ToArray());
             Assert.AreEqual("one", await read(p, file));
 
             foreach (var dir in entries.Where(e => e.Name.StartsWith("sub")))
@@ -152,15 +152,15 @@ namespace WriteableFileProviders.Tests.Minio
                 Assert.IsTrue(dir.Exists);
                 Assert.IsTrue(dir.IsDirectory);
                 Assert.AreEqual(1970, dir.LastModified.Year);
-                CollectionAssert.AreEqual(new[] { "d", dir.Name }, ((FileInfo) dir).PathSegments);
+                CollectionAssert.AreEqual(new[] { "d", dir.Name }, ((WriteableFileInfo) dir).Path.Segments.ToArray());
             }
 
-            var sub1Entry = (FileInfo) entries.Single(e => e.Name == "sub1");
-            var sub1 = (await p.GetDirectoryContentsAsync(sub1Entry.PathSegments)).ToList();
+            var sub1Entry = (WriteableFileInfo) entries.Single(e => e.Name == "sub1");
+            var sub1 = (await p.GetDirectoryContentsAsync(sub1Entry.Path.Segments.ToArray())).ToList();
             CollectionAssert.AreEquivalent(new[] { "a.txt", "deeper" }, sub1.Select(e => e.Name).ToArray());
             Assert.IsTrue(sub1.Single(e => e.Name == "deeper").IsDirectory);
 
-            var top = (await p.GetDirectoryContentsAsync()).ToList();
+            var top = (await p.GetDirectoryContentsAsync(ProviderPath.Root)).ToList();
             CollectionAssert.AreEquivalent(new[] { "d", "dx" }, top.Select(e => e.Name).ToArray());
             Assert.IsTrue(top.All(e => e.IsDirectory));
         }
@@ -294,7 +294,8 @@ namespace WriteableFileProviders.Tests.Minio
             using var client = MinioTestEndpoint.CreateClient();
 
             Assert.IsFalse((await p.GetFileInfoAsync("a.txt")).Exists);
-            Assert.IsFalse((await p.GetDirectoryContentsAsync("")).Exists);
+            // The provider root always lists as an existing folder since 2027; S7 makes a missing bucket throw.
+            Assert.AreEqual(0, (await p.GetDirectoryContentsAsync("")).Count());
             Assert.IsFalse((await p.GetDirectoryContentsAsync("d")).Exists);
             await Assert.ThrowsExactlyAsync<BucketNotFoundException>(() => p.ReadFileAsync("a.txt"));
             Assert.IsFalse(await p.DeleteAsync("a.txt"));
@@ -339,8 +340,9 @@ namespace WriteableFileProviders.Tests.Minio
         private class RootProbe : WriteableMinioFileProvider
         {
             public RootProbe(MinioFileProviderOptions options) : base(options) { }
+            private ResolvedPath Raw(string[] absolute) => new ResolvedPath(Options.RootDirectorySegments, GetRelativeSegments(absolute));
 
-            public Task<bool> DeleteAbsolute(params string[] absolutePathSegments) => deleteAsync(absolutePathSegments);
+            public Task<bool> DeleteAbsolute(params string[] absolutePathSegments) => DeleteCoreAsync(Raw(absolutePathSegments), default);
         }
     }
 }

@@ -1,13 +1,10 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.FileProviders;
-using Microsoft.Extensions.FileProviders.Internal;
-using Microsoft.Extensions.Primitives;
-using Newtonsoft.Json.Linq;
 
 namespace WriteableFileProviders.Physical
 {
@@ -18,7 +15,7 @@ namespace WriteableFileProviders.Physical
         private readonly DateTime DefaultDateTime = new DateTime(1970, 1, 1, 0, 0, 0);
         public WriteablePhysicalFileProvider(string rootPath): this(new PhysicalFileProviderOptions(){ RootDirectoryPath = rootPath})
         {
-           
+
         }
 
         public WriteablePhysicalFileProvider(PhysicalFileProviderOptions options) : base(options)
@@ -31,66 +28,61 @@ namespace WriteableFileProviders.Physical
             if (options.RootDirectoryPath.StartsWith(rootPrefix) || !Path.IsPathRooted(options.RootDirectoryPath))
                 options.RootDirectoryPath = Path.GetFullPath(options.RootDirectoryPath.Replace(rootPrefix, ""));
         }
-            
 
-        public override async Task OnLocalFileStreamDisposingAsync(LocalFileStream stream)
-        {
-            return;
-        }
+        private WriteableFileInfo info(bool exists, long length, string physicalPath, DateTimeOffset lastModified, bool isDirectory, string[] relativeSegments) =>
+            new WriteableFileInfo(this, new ProviderPath(relativeSegments), exists, isDirectory, length, lastModified, physicalPath);
 
-        protected override async Task<IFileInfo> getFileInfoAsync(params string[] absolutePathSegments)
+        protected override Task<IWriteableFileInfo> GetFileInfoCoreAsync(ResolvedPath resolved, CancellationToken cancellationToken)
         {
+            var absolutePathSegments = resolved.AbsoluteSegments;
             var f = new System.IO.FileInfo(path(absolutePathSegments));
-            return new FileInfo(this, f.Exists, f.Exists? f.Length:-1, f.FullName, f.Name, f.Exists? f.LastWriteTimeUtc:DefaultDateTime, false, getRelativeSegments(absolutePathSegments));
+            return Task.FromResult<IWriteableFileInfo>(info(f.Exists, f.Exists ? f.Length : -1, f.FullName, f.Exists ? f.LastWriteTimeUtc : DefaultDateTime, false, GetRelativeSegments(absolutePathSegments)));
         }
 
-        protected override async Task<IDirectoryContents> getDirectoryContentsAsync(params string[] absolutePathSegments)
+        protected override Task<bool> FolderExistsCoreAsync(ResolvedPath resolved, CancellationToken cancellationToken) =>
+            Task.FromResult(Directory.Exists(path(resolved.AbsoluteSegments)));
+
+        protected override async IAsyncEnumerable<IWriteableFileInfo> EnumerateCoreAsync(ResolvedPath resolved, [EnumeratorCancellation] CancellationToken cancellationToken)
         {
+            var absolutePathSegments = resolved.AbsoluteSegments;
             var dir = new DirectoryInfo(path(absolutePathSegments));
             if (!dir.Exists)
-                return new NotFoundDirectoryContents();
-            var ret = new List<IFileInfo>();
+                yield break;
             foreach (var d in dir.GetDirectories())
-                ret.Add(new FileInfo(this, true, -1, d.FullName, d.Name, d.LastWriteTimeUtc, true, getRelativeSegments(absolutePathSegments.Concat(new[] { d.Name }).ToArray())));
+                yield return info(true, -1, d.FullName, d.LastWriteTimeUtc, true, GetRelativeSegments(absolutePathSegments.Concat(new[] { d.Name }).ToArray()));
             foreach (var f in dir.GetFiles())
-                ret.Add(new FileInfo(this, true, f.Length, f.FullName, f.Name, f.LastWriteTimeUtc, false, getRelativeSegments(absolutePathSegments.Concat(new[] { f.Name }).ToArray())));
-            return new DirectoryContents(true, ret.ToArray());
-
+                yield return info(true, f.Length, f.FullName, f.LastWriteTimeUtc, false, GetRelativeSegments(absolutePathSegments.Concat(new[] { f.Name }).ToArray()));
+            await Task.CompletedTask;
         }
 
-        protected override async Task<IChangeToken> watchAsync(string filter)
+        protected override Task<Stream> ReadFileCoreAsync(ResolvedPath resolved, CancellationToken cancellationToken)
         {
-            throw new PlatformNotSupportedException("Watch is not supported in WriteablePhysicalFileProvider");
-        }
-
-        protected override async Task<Stream> readFileAsync(params string[] absolutePathSegments)
-        {
-            string p = path(absolutePathSegments);
+            string p = path(resolved.AbsoluteSegments);
             if (!File.Exists(p))
                 throw new FileNotFoundException("The file does not exist.", p);
-            return new FileStream(p, FileMode.Open, FileAccess.Read, FileShare.Read);
+            return Task.FromResult<Stream>(new FileStream(p, FileMode.Open, FileAccess.Read, FileShare.Read));
         }
 
-        protected override async Task updateFileAsync(Stream contents, UpdateFileMode mode, params string[] absolutePathSegments)
+        protected override async Task UpdateFileCoreAsync(ResolvedPath resolved, Stream contents, UpdateFileOptions options, CancellationToken cancellationToken)
         {
-            string p = path(absolutePathSegments);
+            string p = path(resolved.AbsoluteSegments);
             Directory.CreateDirectory(Path.GetDirectoryName(p));
-            await using var fs = new FileStream(p, mode == UpdateFileMode.Overwrite ? FileMode.Create: FileMode.Append, FileAccess.Write);
-            await contents.CopyToAsync(fs);
+            await using var fs = new FileStream(p, options.Mode == UpdateFileMode.Overwrite ? FileMode.Create: FileMode.Append, FileAccess.Write);
+            await contents.CopyToAsync(fs, cancellationToken);
         }
 
-        protected override Task move(string[] oldSegments, string[] newSegments)
+        protected override Task MoveCoreAsync(ResolvedPath source, ResolvedPath destination, CancellationToken cancellationToken)
         {
-            var newPath = path(newSegments);
-            var oldPath = path(oldSegments);
+            var newPath = path(destination.AbsoluteSegments);
+            var oldPath = path(source.AbsoluteSegments);
             Directory.CreateDirectory(Path.GetDirectoryName(newPath));
             File.Move(oldPath, newPath);
             return Task.CompletedTask;
         }
 
-        protected override async Task<bool> deleteAsync(params string[] absolutePathSegments)
+        protected override Task<bool> DeleteCoreAsync(ResolvedPath resolved, CancellationToken cancellationToken)
         {
-            var p = path(absolutePathSegments);
+            var p = path(resolved.AbsoluteSegments);
             if (isRoot(p))
                 throw new InvalidOperationException("The provider root cannot be deleted or modified.");
             var ret = false;
@@ -104,24 +96,10 @@ namespace WriteableFileProviders.Physical
                 Directory.Delete(p, true);
                 ret = true;
             }
-            return ret;
+            return Task.FromResult(ret);
         }
 
-        protected override async Task<LocalFileStream> createLocalFileStreamAsync(bool readOnly, params string[] absolutePathSegments)
-        {
-            var p = path(absolutePathSegments);
-            if (readOnly)
-            {
-                if (!File.Exists(p))
-                    throw new FileNotFoundException("The file does not exist.", p);
-                return new LocalFileStream(new FileStream(p, FileMode.Open, FileAccess.Read, FileShare.ReadWrite), this, true, absolutePathSegments);
-            }
-            Directory.CreateDirectory(Path.GetDirectoryName(p));
-            return new LocalFileStream(new FileStream(p, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None),
-                this, false, absolutePathSegments);
-        }
-
-        protected override bool isSegmentAllowed(string part)
+        protected override bool IsSegmentAllowed(string part)
         {
             return part.IndexOf(':') < 0;
         }
@@ -160,12 +138,5 @@ namespace WriteableFileProviders.Physical
             ret.AddRange(val.Split(new[] { '\\' }, StringSplitOptions.RemoveEmptyEntries));
             return ret.ToArray();
         }
-
-        protected override Task<string> getDownloadUrl(string[] absolutePathSegments, TimeSpan validity)
-        {
-            throw new NotSupportedException();
-        }
-
-       
     }
 }

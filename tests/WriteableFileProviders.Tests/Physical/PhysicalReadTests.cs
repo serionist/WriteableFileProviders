@@ -17,11 +17,18 @@ namespace WriteableFileProviders.Tests.Physical
         private class TestProvider : WriteablePhysicalFileProvider
         {
             public TestProvider(string rootPath) : base(rootPath) { }
+            private ResolvedPath Raw(string[] absolute) => new ResolvedPath(Options.RootDirectorySegments, GetRelativeSegments(absolute));
             public string[] Absolute(params string[] relative) => Options.RootDirectorySegments.Concat(relative).ToArray();
-            public Task<Stream> ReadAbsoluteAsync(params string[] absolute) => readFileAsync(absolute);
-            public Task<bool> DeleteAbsoluteAsync(params string[] absolute) => deleteAsync(absolute);
-            public Task UpdateAbsoluteAsync(Stream contents, params string[] absolute) => updateFileAsync(contents, UpdateFileMode.Overwrite, absolute);
-            public Task<IDirectoryContents> ListAbsoluteAsync(params string[] absolute) => getDirectoryContentsAsync(absolute);
+            public Task<Stream> ReadAbsoluteAsync(params string[] absolute) => ReadFileCoreAsync(Raw(absolute), default);
+            public Task<bool> DeleteAbsoluteAsync(params string[] absolute) => DeleteCoreAsync(Raw(absolute), default);
+            public Task UpdateAbsoluteAsync(Stream contents, params string[] absolute) => UpdateFileCoreAsync(Raw(absolute), contents, UpdateFileOptions.Overwrite, default);
+            public async Task<IDirectoryContents> ListAbsoluteAsync(params string[] absolute)
+            {
+                var entries = new System.Collections.Generic.List<Microsoft.Extensions.FileProviders.IFileInfo>();
+                await foreach (var entry in EnumerateCoreAsync(Raw(absolute), default))
+                    entries.Add(entry);
+                return new DirectoryContents(entries.Count > 0, entries);
+            }
         }
 
         [TestInitialize]

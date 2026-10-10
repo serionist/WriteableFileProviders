@@ -9,8 +9,6 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 
 namespace WriteableFileProviders.Tests
 {
@@ -21,7 +19,7 @@ namespace WriteableFileProviders.Tests
         {
             // testsettings.json is optional: only the live suites need what it holds.
             var path = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "testsettings.json");
-            Settings = File.Exists(path) ? JsonConvert.DeserializeObject<TestSettings>(File.ReadAllText(path)) : new TestSettings();
+            Settings = File.Exists(path) ? System.Text.Json.JsonSerializer.Deserialize<TestSettings>(File.ReadAllText(path)) : new TestSettings();
         }
         protected abstract IWriteableFileProvider GetProvider();
 

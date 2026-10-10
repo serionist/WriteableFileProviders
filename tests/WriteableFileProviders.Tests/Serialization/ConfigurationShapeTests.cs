@@ -144,12 +144,6 @@ namespace WriteableFileProviders.Tests.Serialization
             CollectionAssert.AreEquivalent(new[] { "RootDirectoryPath", "RootDirectorySegments", "Type" }, json.Properties().Select(p => p.Name).ToArray());
             Assert.AreEqual("WriteablePhysicalFileProvider", (string)json["Type"]);
             var read = WriteableFileProviderSerializer.FromJson(json, typeof(WriteablePhysicalFileProvider).Assembly);
-            if (OperatingSystem.IsWindows())
-                Assert.AreEqual(Path.GetFullPath(root), Path.GetFullPath(read.Options().RootDirectoryPath));
-            else
-                // F79: on Unix, ToJson writes the root's segments with the marker of an absolute path, and reading them back
-                // resolves the root against the working directory. Pinned until S5 fixes it.
-                Assert.AreNotEqual(Path.GetFullPath(root), Path.GetFullPath(read.Options().RootDirectoryPath));
 
             var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string>
             {
@@ -157,7 +151,16 @@ namespace WriteableFileProviders.Tests.Serialization
                 ["RootDirectoryPath"] = root,
             }).Build();
             var fromConfig = WriteableFileProviderSerializer.FromConfiguration(config, typeof(WriteablePhysicalFileProvider).Assembly);
-            Assert.AreEqual(Path.GetFullPath(root), Path.GetFullPath(fromConfig.Options().RootDirectoryPath));
+
+            foreach (var provider2 in new[] { provider, read, fromConfig })
+            {
+                if (OperatingSystem.IsWindows())
+                    Assert.AreEqual(Path.GetFullPath(root), Path.GetFullPath(provider2.Options().RootDirectoryPath));
+                else
+                    // F79: on Unix, RootDirectoryPath, and so ToJson, carries Physical's internal "root:" marker for an
+                    // absolute path instead of the path itself. Pinned until S5 fixes it.
+                    Assert.AreEqual("root:" + Path.GetFullPath(root), provider2.Options().RootDirectoryPath);
+            }
         }
 
         [TestMethod]

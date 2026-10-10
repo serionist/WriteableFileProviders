@@ -496,9 +496,9 @@ Each step is an issue under #3, a branch `<issue>-<slug>`, and a PR that builds 
 | Step | Issue | PR | Contents | Findings | Status |
 |------|-------|----|----------|----------|--------|
 | S0 Security patch | #4 | #17 | F1, F2: the S3 version read and the listing accept only the root followed by a valid path; `ReadFileVersionAsync(versionId, params string[] pathSegments)` is added, and the old members are `[Obsolete]` and `[EditorBrowsable(Never)]`. F47: the local stream commit checks the provider and the root. F9: the commented test goes. Current line, net8.0. Tests: offline refusals, the concrete-typed binding, F47 cases, and on LocalStack that valid paths still resolve under the root. Release notes for the maintainers are in "For the maintainers". | F1 F2 F47 F9 | done (aa265f5) |
-| S1 Record | #5 | | This plan, the review, the roadmap. | — | in progress |
-| S2 Build and layout | #6 | | `.slnx`, `src/` and `tests/`, both build-props files, lock files, net10.0, `ProjectReference` to Common, MinVer, unused packages dropped, `WfpLegacy` ratchet, LF renormalization; REVIEW.md, finish-work, `.editorconfig` and `.gitattributes` updated; the `-> warning` analyzer rules become warnings (legacy projects silence them). Pulled forward from S3, because worktrees have no `testsettings.json`: settings optional, the Physical suite on a temp folder, and `test.runsettings` and the publish profile deleted (part of F56). Old tests still run. No copyright line in the packages until D8 settles. | F23 F46 F50 F55 F60 F71 F72, F26 (one Azure.Identity version) | todo |
-| S3 Test platform and CI | #7 | | MSTest 4 on Microsoft.Testing.Platform, Testcontainers fixtures, live suites tagged `Live`, the golden corpus of the stored configuration shape from the old code (JSON for six providers, configuration for Azure, S3, MinIO and Physical, Physical built at run time, the `Type` key rules, F78 on both paths), coverage collection and gate, `ci.yml`, the F68 assertion fixes. AGENTS.md's suite rule is unchanged (D21). F28 and F29 move to the conformance suite (S4), F56's remaining dead weight goes with TestBase (S5–S10). | F27 F30 F42 F68 | todo |
+| S1 Record | #5 | #18 | This plan, the review, the roadmap. | — | done (b13ecda); round 2 applied in #21 |
+| S2 Build and layout | #6 | #19 | `.slnx`, `src/` and `tests/`, both build-props files, lock files, net10.0, `ProjectReference` to Common, MinVer, unused packages dropped, `WfpLegacy` ratchet, LF renormalization; REVIEW.md, finish-work, `.editorconfig` and `.gitattributes` updated; the `-> warning` analyzer rules become warnings (legacy projects silence them). Pulled forward from S3, because worktrees have no `testsettings.json`: settings optional, the Physical suite on a temp folder, and `test.runsettings` and the publish profile deleted (part of F56). Old tests still run. No copyright line in the packages until D8 settles. | F23 F46 F50 F55 F60 F71 F72, F26 (one Azure.Identity version) | done (7d83e44) |
+| S3 Test platform and CI | #7 | #20 | MSTest 4 on Microsoft.Testing.Platform, Testcontainers fixtures, live suites tagged `Live`, the golden corpus of the stored configuration shape from the old code (JSON for six providers, configuration for Azure, S3, MinIO and Physical, Physical built at run time, the `Type` key rules, F78 on both paths), coverage collection and gate, `ci.yml`, the F68 assertion fixes. AGENTS.md's suite rule is unchanged (D21). F28 and F29 move to the conformance suite (S4), F56's remaining dead weight goes with TestBase (S5–S10). | F27 F30 F42 F68 | todo |
 | S4 Common 2027 | #8 | | The Common API and contract, `RangeReadStream`, signed URL types, the System.Text.Json serializer, DI, disposal, `LocalFileStream`, helpers, XML docs, the full conformance suite run against an in-memory reference provider in `WriteableFileProviders.Testing`, Common at 90%. Every provider moved mechanically onto the new base, so `main` keeps building: signature renames only, no behaviour change, and the PR lists per provider what verified it; AmazonS3, GCS, Box and SharePoint are "not verified until S7, S8, S9, S10", which run the full conformance suite including root protection and delete scope (P7). The old tests whose behaviour changes are updated and listed in the PR. One PR with two doors, the Common API and the configuration-shape serializer, both named in its title and description; splitting would keep Newtonsoft alive one step longer (P34). Docs (P11): `docs/migration-2027.md` starts here, Common's README, and AGENTS.md (the Testing project, the conformance suite, One-way doors extended to the 2027 Common surface). Shared files (`Directory.Packages.props`, Testing) change here or one step at a time. | F11 F12 F13 F14 F16 F17 F22 F33 F34 F35 F36 F37 F47 F48 F52 F53 F57 F58 F59 F61 F69 F74 | todo |
 | S5 Physical | #9 | | The Physical row. Each provider step wires its own test project to the conformance suite, deletes its old TestBase class, raises its coverage floor, and updates its README, options docs and the migration ledger. | F3 F5 F17–F21 F53 F54 F74 F77 | todo |
 | S6 AzureBlob | #10 | | The AzureBlob row, with Azurite. | F3 F11 F15 F17–F21 F26 F40 F44 F53 F64 F70 F74 | todo |
@@ -604,7 +604,7 @@ Status: `todo`, `done` (with the PR), `wontfix` (with the reason). F-numbers are
 | F20 | GetFileInfo on folders differs | S4, S5–S10 | todo |
 | F21 | PhysicalPath means different things | S4, S5–S10 | todo |
 | F22 | Naming rule vs protected camelCase members | S4 | todo |
-| F23 | net8.0 hard-coded, no Nullable | S2 | todo |
+| F23 | net8.0 hard-coded, no Nullable | S2 | done (#19) |
 | F24 | AWS SDK v3 end of support | S7 | todo |
 | F25 | Box.V2.Core 5.8 outdated | S10 | todo |
 | F26 | Azure.Identity unused and deprecated | S6 | todo |
@@ -627,21 +627,21 @@ Status: `todo`, `done` (with the PR), `wontfix` (with the reason). F-numbers are
 | F43 | SharePoint empty folder lists as missing | S9 | todo |
 | F44 | Bucket auto-create differs | S6, S7, S8 | todo |
 | F45 | MinIO download URL unsupported | S7 | todo |
-| F46 | .sln, no CPM | S2 | todo |
+| F46 | .sln, no CPM | S2 | done (#19) |
 | F47 | Public LocalFileStream ctor bypasses root | S0, S4 | S0 done (#17); S4 makes the constructor internal |
 | F48 | JObject in the public API | S4 | todo |
 | F49 | Graph.Core 3.2.6 deprecated pin | S9 | todo |
-| F50 | Common's Version 1.1.2 | S2 | todo |
+| F50 | Common's Version 1.1.2 | S2 | done (#19) |
 | F51 | MinIO and S3 duplicate the protocol | S7 | todo |
 | F52 | Providers not disposable | S4 | todo |
 | F53 | Root guard written seven times | S4 | todo |
 | F54 | Seven identical Watch overrides | S4, S5 | todo |
-| F55 | UseLocalCommon switch | S2 | todo |
+| F55 | UseLocalCommon switch | S2 | done (#19) |
 | F56 | Test-suite dead weight | S2 (runsettings, publish profile), S5–S10 (with TestBase) | in part |
 | F57 | Contract cases missing from the shared suite | S4 | todo |
 | F58 | Root and segment exceptions undocumented | S4 | todo |
 | F59 | Interface docs copy-paste | S4 | todo |
-| F60 | XML docs only for Common | S2 | todo |
+| F60 | XML docs only for Common | S2 | done (#19) |
 | F61 | Serializer and options undocumented | S4, S12 | todo |
 | F62 | SharePoint folder creation three ways | S9 | todo |
 | F63 | Whole-object download before read | S8, S9, S10 (S7 MinIO via S3Core) | todo |
@@ -652,14 +652,15 @@ Status: `todo`, `done` (with the PR), `wontfix` (with the reason). F-numbers are
 | F68 | Assertion bugs in the shared suite | S3 | todo |
 | F69 | FileInfo collides with System.IO.FileInfo | S4 | todo |
 | F70 | UploadResult and AzureFileStream public | S6, S9 | todo |
-| F71 | net10-only drops .NET 8 consumers | S2 (D2) | todo |
-| F72 | Unused packages | S2, S4 | todo |
+| F71 | net10-only drops .NET 8 consumers | S2 (D2) | done (#19) |
+| F72 | Unused packages | S2, S4 | S2 part done (#19); Newtonsoft goes in S4 |
 | F73 | Minio forces Extensions 9 and Reactive | S7 | todo |
 | F74 | Temp-file spool written nine times | S4 | todo |
 | F75 | GCS has no emulator seam | S8 | todo |
 | F76 | Package descriptions and READMEs | S12 | todo |
 | F77 | Dead code in providers | S5, S9, S10 | todo |
 | F78 | S3 `StorageClassForNewFiles` is written as `{"Value":…}` and read back as `STANDARD`, and the configuration path never reads it at all (found in S3 by the golden corpus) | S4, S7 | todo |
+| F79 | On Unix, Physical's `Options.RootDirectoryPath`, and so its `ToJson` output, carries the internal `root:` marker of an absolute path instead of the path (found by S3's first Linux CI run) | S5 | todo |
 
 ## Feature tracker
 
@@ -708,6 +709,12 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     - S3 found F78.
   - Running long test suites in the foreground stalls the session (the maintainer stopped a 6-minute run). Run them in
     the background.
+  - S2 merged as #19 (7d83e44) after one review round. Plan review round 2 (deep) was applied in #21 (936a6ef). D15–D24
+    are posted on #3.
+  - S3 (#20):
+    - Its first CI run found F79 (Physical's `root:` marker in the options on Unix), now pinned.
+    - CI's Windows job runs every non-Live test without Docker, so the no-Docker path is exercised on every run.
+    - The coverage floors are re-baselined from the Linux run.
 
 ### For the maintainers
 

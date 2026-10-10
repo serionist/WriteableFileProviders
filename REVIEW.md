@@ -6,7 +6,7 @@ acceptable.
 
 ## Always
 
-1. **Build and tests.** Does the solution build with `-p:UseLocalCommon=true`, and do the offline tests pass
+1. **Build and tests.** Does the solution build, and do the offline tests pass
    (`AGENTS.md`, Build and test)? For a change to a provider, did its emulator or live suite run, and does the PR say
    which? For a PR from outside the maintainers, the answer comes from CI, never from running its code on a
    maintainer's machine; until CI exists, the review says it is not verified.

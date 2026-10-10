@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <WfpLegacy>true</WfpLegacy>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Remove="testsettings.json" />
+    <!-- Optional: real credentials for the live suites. Absent, those suites fail or are inconclusive; nothing else needs it. -->
+    <Content Include="testsettings.json" Condition="Exists('testsettings.json')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="MSTest.TestAdapter" />
+    <PackageReference Include="MSTest.TestFramework" />
+    <PackageReference Include="Newtonsoft.Json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\WriteableFileProviders.AmazonS3\WriteableFileProviders.AmazonS3.csproj" />
+    <ProjectReference Include="..\..\src\WriteableFileProviders.AzureBlob\WriteableFileProviders.AzureBlob.csproj" />
+    <ProjectReference Include="..\..\src\WriteableFileProviders.Box\WriteableFileProviders.Box.csproj" />
+    <ProjectReference Include="..\..\src\WriteableFileProviders.Common\WriteableFileProviders.Common.csproj" />
+    <ProjectReference Include="..\..\src\WriteableFileProviders.GoogleCloudStorage\WriteableFileProviders.GoogleCloudStorage.csproj" />
+    <ProjectReference Include="..\..\src\WriteableFileProviders.Minio\WriteableFileProviders.Minio.csproj" />
+    <ProjectReference Include="..\..\src\WriteableFileProviders.Physical\WriteableFileProviders.Physical.csproj" />
+    <ProjectReference Include="..\..\src\WriteableFileProviders.SharePoint\WriteableFileProviders.SharePoint.csproj" />
+  </ItemGroup>
+
+</Project>

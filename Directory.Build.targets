@@ -1,0 +1,26 @@
+<Project>
+
+  <!-- Strictness. Every project builds with nullable analysis, warnings as errors and the .editorconfig style enforced,
+       except a project that still holds code from before the modernization: it sets <WfpLegacy>true</WfpLegacy> until
+       its rewrite, and then removes it. This lives in the .targets file because a project's own properties are not yet
+       set when Directory.Build.props is read. -->
+
+  <PropertyGroup Condition="'$(WfpLegacy)' != 'true'">
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(WfpLegacy)' == 'true'">
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+    <AnalysisLevel>latest-minimum</AnalysisLevel>
+    <!-- Missing XML docs on legacy code; the rewrite documents every public member. -->
+    <NoWarn>$(NoWarn);CS1591;CS1572;CS1573;CS1574;CS1587</NoWarn>
+    <!-- Advisories stay visible as warnings while a legacy project still pins an old SDK. -->
+    <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1901;NU1902;NU1903;NU1904</WarningsNotAsErrors>
+  </PropertyGroup>
+
+</Project>

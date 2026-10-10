@@ -1,21 +1,37 @@
 <Project>
 
-  <!-- What every project shares lives here, once, never per .csproj. The modernization adds the target framework and
-       the strictness (Nullable, TreatWarningsAsErrors, EnforceCodeStyleInBuild) here when the code is ready for them. -->
+  <!-- What every project shares lives here, once, never per .csproj. Packaging lives in src/Directory.Build.props, the
+       test runner in tests/Directory.Build.props, and the strictness switch in Directory.Build.targets. -->
+
+  <PropertyGroup Label="Language">
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
 
   <PropertyGroup Label="Package metadata">
     <Authors>Soma Osvay</Authors>
+    <Copyright>Copyright (c) Soma Osvay and contributors</Copyright>
     <PackageProjectUrl>https://github.com/serionist/WriteableFileProviders</PackageProjectUrl>
     <RepositoryUrl>https://github.com/serionist/WriteableFileProviders.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
   </PropertyGroup>
 
-  <PropertyGroup Label="Package advisories">
-    <!-- Every package with a known advisory, direct or transitive, shows in the build. They are warnings until the
-         modernization makes warnings errors. -->
+  <PropertyGroup Label="Restore">
+    <!-- Every package with a known advisory, direct or transitive, shows in the build, and fails it once warnings are
+         errors. -->
     <NuGetAudit>true</NuGetAudit>
     <NuGetAuditMode>all</NuGetAuditMode>
     <NuGetAuditLevel>low</NuGetAuditLevel>
+    <!-- Lock files make every restore resolve the same graph; CI restores in locked mode and fails on drift. -->
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RestoreLockedMode Condition="'$(CI)' == 'true'">true</RestoreLockedMode>
+  </PropertyGroup>
+
+  <PropertyGroup Label="CI" Condition="'$(GITHUB_ACTIONS)' == 'true'">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
   </PropertyGroup>
 
 </Project>

@@ -14,8 +14,7 @@ work is complete. `main` takes PRs only; either maintainer merges (`AGENTS.md`, 
    public members, `AGENTS.md` when a path, a command or a rule changed, the plan when the work departs from it (say
    where and why in the plan).
 2. **Build and test**, from the repo root (`AGENTS.md`, Build and test):
-   - `dotnet build WriteableFileProviders.sln -p:UseLocalCommon=true`, with no new warnings in the files the change
-     touched;
+   - `dotnet build WriteableFileProviders.slnx`, with no new warnings in the files the change touched;
    - the offline tests;
    - for a changed provider, its emulator suite when the emulator can run here, and its live suite only when the
      developer says they have the account. Note which suites ran, and which could not and why.

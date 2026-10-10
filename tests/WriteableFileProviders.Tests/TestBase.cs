@@ -19,8 +19,9 @@ namespace WriteableFileProviders.Tests
         public TestSettings Settings { get; }
         protected TestBase(TestContext context)
         {
-            Settings = JsonConvert.DeserializeObject<TestSettings>(
-                File.ReadAllText(Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "testsettings.json")));
+            // testsettings.json is optional: only the live suites need what it holds.
+            var path = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "testsettings.json");
+            Settings = File.Exists(path) ? JsonConvert.DeserializeObject<TestSettings>(File.ReadAllText(path)) : new TestSettings();
         }
         protected abstract IWriteableFileProvider GetProvider();
 

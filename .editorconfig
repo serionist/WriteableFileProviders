@@ -16,12 +16,8 @@ indent_size = 4
 [*.{json,yml,yaml}]
 indent_size = 2
 
-[*.{csproj,props,targets,runsettings,pubxml}]
+[*.{csproj,props,targets,slnx,runsettings,xml}]
 indent_size = 2
-
-[*.sln]
-end_of_line = crlf
-indent_style = tab
 
 [*.md]
 # Two trailing spaces are a line break in markdown.

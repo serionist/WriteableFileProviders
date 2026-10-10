@@ -2,9 +2,6 @@
 # what an editor sees matches .editorconfig and what is committed.
 * text=auto eol=lf
 
-# Visual Studio rewrites solution files with CRLF on save; keeping them CRLF in the checkout avoids a diff on every save.
-*.sln    text eol=crlf
-
 # Windows batch files break with LF line endings (labels, goto); they stay CRLF.
 *.bat    text eol=crlf
 *.cmd    text eol=crlf

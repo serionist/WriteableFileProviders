@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -228,6 +228,8 @@ namespace WriteableFileProviders
         /// </summary>
         /// <param name="stream"></param>
         /// <returns></returns>
+        /// <exception cref="System.InvalidOperationException">The stream belongs to another provider, or its target is the provider root.</exception>
+        /// <exception cref="System.ArgumentException">The stream's target is not under the provider root, or a segment after the root is not allowed.</exception>
         Task OnLocalFileStreamDisposingAsync(LocalFileStream stream);
         JObject ToJson();
 

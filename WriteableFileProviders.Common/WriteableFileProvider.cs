@@ -345,11 +345,30 @@ namespace WriteableFileProviders
         }
 
 
+        /// <summary>
+        /// Uploads a writeable local stream to its target. The stream's constructor is public, so the target is checked
+        /// again here: the stream must belong to this provider, and its absolute segments must be the provider root
+        /// followed by a valid path that is not the root.
+        /// </summary>
+        /// <exception cref="InvalidOperationException">The stream belongs to another provider, or its target is the provider root.</exception>
+        /// <exception cref="ArgumentException">The target is not under the provider root, or a segment after the root is not allowed.</exception>
         public virtual async Task OnLocalFileStreamDisposingAsync(LocalFileStream stream)
         {
             if (stream.ReadOnly) return;
+            if (!ReferenceEquals(stream.Provider, this))
+                throw new InvalidOperationException("The local file stream belongs to another provider.");
+            var target = getCommitSegments(stream.TargetFilePathSegments);
             stream.Position = 0;
-            await updateFileAsync(stream, UpdateFileMode.Overwrite, stream.TargetFilePathSegments);
+            await updateFileAsync(stream, UpdateFileMode.Overwrite, target);
+        }
+
+        private string[] getCommitSegments(string[] absolutePathSegments)
+        {
+            var root = Options.RootDirectorySegments ?? new string[0];
+            var segments = absolutePathSegments ?? new string[0];
+            if (segments.Length < root.Length || !root.SequenceEqual(segments.Take(root.Length), StringComparer.Ordinal))
+                throw new ArgumentException("The local file stream's target is not under the provider root.", "stream");
+            return getModifiableSegments(segments.Skip(root.Length).ToArray());
         }
 
 

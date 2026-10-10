@@ -39,6 +39,9 @@ namespace WriteableFileProviders.Tests
 
         public static bool DockerRequired => Environment.GetEnvironmentVariable("WFP_REQUIRE_DOCKER") == "1";
 
+        /// <summary>Whether Azurite was started in this run; cleanup does nothing when it was not.</summary>
+        public static bool AzuriteStarted => azurite.IsValueCreated && azurite.Value.IsCompletedSuccessfully;
+
         /// <summary>The Azurite container: its blob endpoint is http://host:port/devstoreaccount1.</summary>
         public static AzuriteContainer Azurite => start(azurite, "Azurite");
 

@@ -30,7 +30,14 @@ namespace WriteableFileProviders.Tests.AzureBlob
             return new WriteableAzureBlobFileProvider(Options(containerName, rootDirectoryPath));
         }
 
-        public static AzureFileProviderOptions Options(string containerName, string rootDirectoryPath = null)
+        public static AzureFileProviderOptions Options(string containerName, string rootDirectoryPath = null) =>
+            Options(containerName, rootDirectoryPath, Url);
+
+        /// <summary>Options with a fixed, unreachable endpoint, for tests that never send a request: no Docker needed.</summary>
+        public static AzureFileProviderOptions OfflineOptions(string containerName) =>
+            Options(containerName, null, "127.0.0.1:10000/" + AccountName);
+
+        private static AzureFileProviderOptions Options(string containerName, string rootDirectoryPath, string url)
         {
             return new AzureFileProviderOptions
             {
@@ -38,7 +45,7 @@ namespace WriteableFileProviders.Tests.AzureBlob
                 AccountKey = AccountKey,
                 ContainerName = containerName,
                 Protocol = "http",
-                Url = Url,
+                Url = url,
                 RootDirectoryPath = rootDirectoryPath
             };
         }
@@ -51,6 +58,7 @@ namespace WriteableFileProviders.Tests.AzureBlob
 
         public static async Task DeleteContainer(string containerName)
         {
+            if (!Emulators.AzuriteStarted) return;
             await Container(containerName).DeleteIfExistsAsync();
         }
     }

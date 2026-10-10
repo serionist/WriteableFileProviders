@@ -35,6 +35,7 @@
   </ItemGroup>
 
   <ItemGroup Label="Tests">
+    <PackageVersion Include="Microsoft.Extensions.Configuration.Json" Version="10.0.12" />
     <PackageVersion Include="MSTest.Analyzers" Version="4.5.1" />
     <PackageVersion Include="MSTest.TestAdapter" Version="4.5.1" />
     <PackageVersion Include="MSTest.TestFramework" Version="4.5.1" />

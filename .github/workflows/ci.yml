@@ -13,7 +13,8 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Superseded PR runs are cancelled; every commit on main keeps its own result.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   DOTNET_NOLOGO: true

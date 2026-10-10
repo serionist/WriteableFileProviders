@@ -19,7 +19,10 @@ and what never to do.
 | `WriteableFileProviders.slnx` | The solution. |
 | `Directory.Build.props`, `Directory.Build.targets` | Settings every project shares; `src/` and `tests/` add their own (packaging; test project settings). The `.targets` file holds the strictness switch. |
 | `Directory.Packages.props` | Every package version, once (central package management). A `.csproj` names packages without versions. |
-| `global.json`, `nuget.config` | The SDK; the package source (nuget.org only). |
+| `global.json`, `nuget.config` | The SDK and the test runner; the package source (nuget.org only). |
+| `eng/` | `coverage-gate.cs`, the coverage gate, and `coverage.json`, the floor of each assembly. |
+| `tests/coverage.runsettings` | What the coverage run measures. |
+| `.github/workflows/` | CI (`ci.yml`). |
 
 Every project targets `net10.0`. A project still holding code from before the modernization (#3) sets
 `<WfpLegacy>true</WfpLegacy>`, which turns off nullable analysis, implicit usings, warnings as errors and the style
@@ -48,9 +51,9 @@ Run everything from the repo root, with a .NET 10 SDK (`global.json`).
   dotnet test --solution WriteableFileProviders.slnx --filter "TestCategory!=Live"
   ```
 
-- **Coverage:** the same run with `--coverage --coverage-output-format cobertura --coverage-settings
-  tests/coverage.runsettings --results-directory artifacts/TestResults`, then
-  `dotnet run eng/coverage-gate.cs -- artifacts/TestResults`. The gate fails when an assembly under `src/` falls below
+- **Coverage:** delete `artifacts/TestResults` (the gate keeps the best figure across every report it finds), run the
+  same tests with `--coverage --coverage-output-format cobertura --coverage-settings tests/coverage.runsettings
+  --results-directory artifacts/TestResults`, then `dotnet run eng/coverage-gate.cs -- artifacts/TestResults`. The gate fails when an assembly under `src/` falls below
   its floor in `eng/coverage.json`, and prints the floors that can rise. Raise them in the change that earns it; never
   lower one to pass. The goal is 90% of lines on every assembly.
 - **CI** (`.github/workflows/ci.yml`) runs the build, the tests with coverage, the gate and the pack on Linux, where
@@ -82,11 +85,13 @@ stream, download URL and 100 MB tests. The classes fall in four groups:
 - **Live suites**, `[TestCategory("Live")]`, which the filter above leaves out: the shared suite against a real
   account, with the credentials from `testsettings.json`. They fail without them. Run one only against an account you
   own (`--filter "FullyQualifiedName~<Provider>FileProvider"`), and check it is clean afterwards.
-- **Configuration shape**: `ConfigurationShapeTests` reads and writes the JSON in `Serialization/Golden/`, which the
-  2026.10.10.x serializer wrote. Those files pin the one-way door; they are never regenerated.
+- **Configuration shape**: `ConfigurationShapeTests` pins the one-way door with the files in `Serialization/Golden/`:
+  `Writeable*.json` were written by the 2026.10.10.x serializer and are never regenerated; `Lenient.*.json` and
+  `Config.*.json` are hand-written inputs the 2026.10.10.x readers accept (JSON and configuration), which every later
+  reader must accept too.
 
-A change to a provider runs that provider's emulator suite or offline fake, and its PR says which ran. The live suite of
-every changed provider runs before a release, against the maintainers' accounts.
+A change to a provider runs that provider's emulator suite, or its live suite where there is no emulator (Box,
+SharePoint, Google Cloud Storage), and its PR says which ran, or that it did not run and why.
 
 ## How a change lands
 

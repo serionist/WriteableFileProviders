@@ -15,10 +15,8 @@ using WriteableFileProviders.Minio;
 namespace WriteableFileProviders.Tests.Minio
 {
     /// <summary>
-    /// Endpoint for the Minio provider tests, read from WFP_MINIO_ENDPOINT, WFP_MINIO_ACCESS_KEY, WFP_MINIO_SECRET_KEY
-    /// and WFP_MINIO_BUCKET. The defaults match a local adobe/s3mock container
-    /// (docker run -d -p 9090:9090 -e COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS=wfp-test adobe/s3mock).
-    /// Tests are inconclusive when the endpoint is not reachable.
+    /// The MinIO test endpoint: S3Mock, started through Testcontainers (<see cref="Emulators"/>), unless WFP_MINIO_ENDPOINT
+    /// and the other WFP_MINIO_* variables point the tests at another S3-compatible server.
     /// </summary>
     internal static class MinioTestEndpoint
     {

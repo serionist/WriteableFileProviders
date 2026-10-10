@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using Amazon.S3;
+using Microsoft.Extensions.Configuration;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json.Linq;
 using WriteableFileProviders.AmazonS3;
@@ -11,10 +12,18 @@ using WriteableFileProviders.AzureBlob;
 using WriteableFileProviders.Box;
 using WriteableFileProviders.GoogleCloudStorage;
 using WriteableFileProviders.Minio;
+using WriteableFileProviders.Physical;
 using WriteableFileProviders.SharePoint;
 
 namespace WriteableFileProviders.Tests.Serialization
 {
+    internal static class ProviderOptionsExtensions
+    {
+        // IWriteableFileProvider exposes no Options; every provider derives from WriteableFileProvider<TOptions>.
+        public static FileProviderOptions Options(this IWriteableFileProvider provider) =>
+            (FileProviderOptions)provider.GetType().GetProperty("Options").GetValue(provider);
+    }
+
     /// <summary>
     /// Pins the configuration shape (AGENTS.md, one-way doors): the "Type" key and every options property name, as
     /// consumers have stored them. The files in Golden/ were written by the Newtonsoft-based serializer of the
@@ -90,9 +99,10 @@ namespace WriteableFileProviders.Tests.Serialization
         [TestMethod]
         public void LenientInputsReadLikeTheGolden()
         {
-            // Inputs consumers may have stored by hand: other casing, a quoted bool, a numeric id, the root as a path only
-            // or as segments only, unknown keys. The old serializer reads them; the new one must too.
-            var minio = (MinioFileProviderOptions)JObject.Parse(Golden("Lenient.Minio.json")).ToObject(typeof(MinioFileProviderOptions));
+            // Inputs consumers may have stored by hand: other casing of the property names and of the Type value, a quoted
+            // bool, a numeric id, the root as a path only or as segments only, unknown keys. The old serializer reads them;
+            // the new one must too. The Type key itself must be spelled "Type" for the old JSON reader (TypeKeyRules).
+            var minio = (MinioFileProviderOptions)WriteableFileProviderSerializer.FromJson(JObject.Parse(Golden("Lenient.Minio.json")), typeof(WriteableMinioFileProvider).Assembly).Options();
             Assert.IsTrue(minio.UseSSL);
             Assert.AreEqual("minio.example.net:9000", minio.HostAndPort);
             CollectionAssert.AreEqual(new[] { "root", "dir" }, minio.RootDirectorySegments);
@@ -101,6 +111,75 @@ namespace WriteableFileProviders.Tests.Serialization
             Assert.AreEqual("123456", box.EnterpriseId);
             Assert.AreEqual("0", box.RootFolderId);
             CollectionAssert.AreEqual(new[] { "a", "b" }, box.RootDirectorySegments);
+        }
+
+        private static IConfigurationSection ConfigSection(string file) =>
+            new ConfigurationBuilder().SetBasePath(Path.Combine(AppContext.BaseDirectory, "Serialization", "Golden")).AddJsonFile(file).Build().GetSection("Files");
+
+        [TestMethod]
+        public void ConfigurationGoldenBuildsTheSameOptions()
+        {
+            // The configuration path binds each scalar options property by name (GetValue), case-insensitively, from an
+            // appsettings section. Box, SharePoint and GCS construct only with live credentials today; their configuration
+            // shape is pinned in their steps, once their constructors stop doing I/O.
+            var azure = WriteableFileProviderSerializer.FromConfiguration(ConfigSection("Config.WriteableAzureBlobFileProvider.json"), typeof(WriteableAzureBlobFileProvider).Assembly).Options();
+            AssertSameOptions(Shapes.Single(s => (string)s[0] == "WriteableAzureBlobFileProvider")[1], azure);
+
+            var minio = WriteableFileProviderSerializer.FromConfiguration(ConfigSection("Config.WriteableMinioFileProvider.json"), typeof(WriteableMinioFileProvider).Assembly).Options();
+            AssertSameOptions(Shapes.Single(s => (string)s[0] == "WriteableMinioFileProvider")[1], minio);
+
+            var s3 = (AmazonS3FileProviderOptions)WriteableFileProviderSerializer.FromConfiguration(ConfigSection("Config.WriteableAmazonS3FileProvider.json"), typeof(WriteableAmazonS3FileProvider).Assembly).Options();
+            AssertSameOptions(Shapes.Single(s => (string)s[0] == "WriteableAmazonS3FileProvider")[1], s3, ignore: "StorageClassForNewFiles");
+            // F78 on the configuration path: GetValue cannot convert to S3StorageClass, so the storage class is always STANDARD.
+            Assert.AreEqual("STANDARD", s3.StorageClassForNewFiles.Value);
+        }
+
+        [TestMethod]
+        public void PhysicalShapeRoundTrips()
+        {
+            // Physical's root is an OS path, so its golden is built at run time: the same three keys on every OS.
+            var root = Path.Combine(Path.GetTempPath(), "wfp-shape-" + Guid.NewGuid().ToString("N"));
+            var provider = new WriteablePhysicalFileProvider(root);
+            var json = WriteableFileProviderSerializer.ToJson(provider);
+            CollectionAssert.AreEquivalent(new[] { "RootDirectoryPath", "RootDirectorySegments", "Type" }, json.Properties().Select(p => p.Name).ToArray());
+            Assert.AreEqual("WriteablePhysicalFileProvider", (string)json["Type"]);
+            var read = WriteableFileProviderSerializer.FromJson(json, typeof(WriteablePhysicalFileProvider).Assembly);
+            Assert.AreEqual(Path.GetFullPath(root), Path.GetFullPath(read.Options().RootDirectoryPath));
+
+            var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string>
+            {
+                ["Type"] = "WriteablePhysicalFileProvider",
+                ["RootDirectoryPath"] = root,
+            }).Build();
+            var fromConfig = WriteableFileProviderSerializer.FromConfiguration(config, typeof(WriteablePhysicalFileProvider).Assembly);
+            Assert.AreEqual(Path.GetFullPath(root), Path.GetFullPath(fromConfig.Options().RootDirectoryPath));
+        }
+
+        [TestMethod]
+        public void TypeKeyRules()
+        {
+            var assembly = typeof(WriteableMinioFileProvider).Assembly;
+            var golden = JObject.Parse(Golden("WriteableMinioFileProvider.json"));
+
+            // The Type value matches the class name case-insensitively.
+            var otherCase = (JObject)golden.DeepClone();
+            otherCase["Type"] = "WRITEABLEMINIOFILEPROVIDER";
+            Assert.IsInstanceOfType<WriteableMinioFileProvider>(WriteableFileProviderSerializer.FromJson(otherCase, assembly));
+
+            // A missing or unknown Type is refused.
+            var missing = (JObject)golden.DeepClone();
+            missing.Remove("Type");
+            Assert.ThrowsExactly<ArgumentException>(() => WriteableFileProviderSerializer.FromJson(missing, assembly));
+            var unknown = (JObject)golden.DeepClone();
+            unknown["Type"] = "NoSuchProvider";
+            Assert.ThrowsExactly<ArgumentException>(() => WriteableFileProviderSerializer.FromJson(unknown, assembly));
+
+            // The old JSON reader needs the key spelled "Type"; the configuration reader takes it in any casing
+            // (Config.WriteableMinioFileProvider.json spells it "type"). The 2027 reader may accept more, never less.
+            var lowerKey = (JObject)golden.DeepClone();
+            lowerKey.Remove("Type");
+            lowerKey["type"] = "WriteableMinioFileProvider";
+            Assert.ThrowsExactly<ArgumentException>(() => WriteableFileProviderSerializer.FromJson(lowerKey, assembly));
         }
 
         public static void AssertSameOptions(object expected, object actual, string ignore = null)

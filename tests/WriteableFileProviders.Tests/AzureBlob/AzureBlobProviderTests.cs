@@ -225,13 +225,13 @@ namespace WriteableFileProviders.Tests.AzureBlob
         {
             foreach (var protocol in new[] { null, "", "http", "https", "HTTPS" })
             {
-                var options = Azurite.Options("c");
+                var options = Azurite.OfflineOptions("c");
                 options.Protocol = protocol;
                 Assert.IsNotNull(new WriteableAzureBlobFileProvider(options), protocol);
             }
             foreach (var protocol in new[] { "ftp", "https://", "file", " http" })
             {
-                var options = Azurite.Options("c");
+                var options = Azurite.OfflineOptions("c");
                 options.Protocol = protocol;
                 Assert.ThrowsExactly<ArgumentException>(() => new WriteableAzureBlobFileProvider(options), protocol);
             }
@@ -240,7 +240,7 @@ namespace WriteableFileProviders.Tests.AzureBlob
         [TestMethod]
         public void Protocol_IsNotChangedOnTheOptions()
         {
-            var options = Azurite.Options("c");
+            var options = Azurite.OfflineOptions("c");
             options.Protocol = null;
             var provider = new WriteableAzureBlobFileProvider(options);
             Assert.IsNull(provider.Options.Protocol);
@@ -249,7 +249,7 @@ namespace WriteableFileProviders.Tests.AzureBlob
         [TestMethod]
         public async Task DownloadUrl_ValidityCappedAndHttpsOnly()
         {
-            var options = Azurite.Options("c");
+            var options = Azurite.OfflineOptions("c");
             options.Protocol = "https";
             options.Url = null;
             var provider = new WriteableAzureBlobFileProvider(options);
@@ -263,7 +263,7 @@ namespace WriteableFileProviders.Tests.AzureBlob
             query = HttpUtility.ParseQueryString(new Uri(await provider.GetDownloadUrlAsync("a/b.txt", TimeSpan.FromHours(1))).Query);
             Assert.IsTrue(DateTimeOffset.Parse(query["se"]) <= DateTimeOffset.UtcNow.AddHours(1).AddMinutes(1));
 
-            var http = new WriteableAzureBlobFileProvider(Azurite.Options("c"));
+            var http = new WriteableAzureBlobFileProvider(Azurite.OfflineOptions("c"));
             query = HttpUtility.ParseQueryString(new Uri(await http.GetDownloadUrlAsync("a/b.txt", TimeSpan.FromHours(1))).Query);
             Assert.IsNull(query["spr"]);
         }

@@ -1,5 +1,5 @@
 {
-  "type": "writeableminiofileprovider",
+  "Type": "writeableminiofileprovider",
   "hostAndPort": "minio.example.net:9000",
   "useSSL": "true",
   "accessKey": "test-access-key",

@@ -15,7 +15,8 @@ work is complete. `main` takes PRs only; either maintainer merges (`AGENTS.md`, 
    where and why in the plan).
 2. **Build and test**, from the repo root (`AGENTS.md`, Build and test):
    - `dotnet build WriteableFileProviders.slnx`, with no new warnings in the files the change touched;
-   - the offline tests;
+   - the tests (`TestCategory!=Live`) with `WFP_REQUIRE_DOCKER=1`, so no emulator suite is silently inconclusive, then
+     the coverage run and gate; after pushing, CI's result on the head commit;
    - for a changed provider, its emulator suite when the emulator can run here, and its live suite only when the
      developer says they have the account. Note which suites ran, and which could not and why.
 

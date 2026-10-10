@@ -1305,7 +1305,8 @@ What this session cannot do, kept current as the work goes on:
      `BoxLiveAtomicTests` for the upload-session commit). If it does, turn `SendIfMatch` on by default in
      `WriteableBoxFileProvider`, call `IfMatch` atomic in its docs, the README and D15, and drop
      `DetectsConcurrentAppends => false` from `BoxConformanceTests`. If not, Box stays "checked, not atomic", or the
-     provider needs its own network client that sends the ETag unquoted (the Box notes, option C).
+     provider needs its own network client that sends the ETag unquoted (option C of the S10 research notes,
+     `.local/research/box-v10.md`, on the machine of the session that wrote them).
   2. JWT sign-in works without `kid` in the header, also for an app with two public keys.
   3. The download URL honours `Range` with 206, and a URL for a version serves that version after a newer one lands
      (`BoxLiveChecks.DownloadUrl_HonoursRange_AndServesItsVersion`).

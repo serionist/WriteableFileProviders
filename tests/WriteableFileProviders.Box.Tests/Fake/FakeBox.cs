@@ -15,7 +15,7 @@ namespace WriteableFileProviders.Box.Tests.Fake;
 /// A Box account in memory, behind the Box API's URLs: the token endpoint (with the JWT assertion checked against the
 /// test key), folders and files with ETags and versions, marker paging, direct and chunked uploads, server-side moves and
 /// copies, the trash-free delete, and pre-authenticated download URLs that serve byte ranges of a pinned version. It
-/// answers the way the Box API does (docs/plans: the Box notes, section 7), so the provider's whole contract runs offline.
+/// answers the way the Box API reference and the SDK's behaviour describe, so the provider's whole contract runs offline.
 /// </summary>
 /// <remarks>Tests change its behaviour through the properties, and inject faults through <see cref="Intercept"/>.</remarks>
 internal sealed class FakeBox : HttpMessageHandler

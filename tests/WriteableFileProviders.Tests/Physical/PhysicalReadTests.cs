@@ -31,6 +31,26 @@ namespace WriteableFileProviders.Tests.Physical
             }
         }
 
+        [TestMethod]
+        public void Options_RootForms()
+        {
+            Assert.ThrowsExactly<ArgumentException>(() => new WriteablePhysicalFileProvider(""));
+            Assert.AreEqual(0, new PhysicalFileProviderOptions { RootDirectoryPath = "" }.RootDirectorySegments.Length);
+            Assert.AreEqual(0, new PhysicalFileProviderOptions { RootDirectoryPath = null }.RootDirectorySegments.Length);
+            CollectionAssert.AreEqual(new[] { "\\", "server", "share", "x" }, new PhysicalFileProviderOptions { RootDirectoryPath = @"\\server\share\x" }.RootDirectorySegments);
+            CollectionAssert.AreEqual(new[] { "root:", "abs", "path" }, new PhysicalFileProviderOptions { RootDirectoryPath = "/abs/path" }.RootDirectorySegments);
+
+            var relative = new WriteablePhysicalFileProvider("relative-root");
+            Assert.IsTrue(Path.IsPathRooted(relative.Options.RootDirectoryPath.Replace("root:", "")));
+        }
+
+        [TestMethod]
+        public async Task MissingFolder_ListsAsMissing()
+        {
+            Assert.IsFalse((await provider.GetDirectoryContentsAsync("missing")).Exists);
+            Assert.AreEqual(0, (await provider.ListAbsoluteAsync(provider.Absolute("missing"))).Count());
+        }
+
         [TestInitialize]
         public void Init()
         {

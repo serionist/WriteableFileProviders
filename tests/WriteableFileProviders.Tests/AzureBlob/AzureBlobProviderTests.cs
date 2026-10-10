@@ -97,7 +97,8 @@ namespace WriteableFileProviders.Tests.AzureBlob
             try
             {
                 var provider = Azurite.CreateProvider(container);
-                Assert.IsFalse((await provider.GetDirectoryContentsAsync("")).Exists);
+                // The provider root always lists as an existing folder since 2027; S6 makes a missing container throw.
+                Assert.AreEqual(0, (await provider.GetDirectoryContentsAsync("")).Count());
                 await Write(provider, "top.txt", "top");
                 await Write(provider, "folder/inner.txt", "inner");
 
@@ -137,10 +138,11 @@ namespace WriteableFileProviders.Tests.AzureBlob
             {
                 Assert.IsFalse((await provider.GetFileInfoAsync("missing.txt")).Exists);
                 Assert.IsFalse((await provider.GetDirectoryContentsAsync("dir")).Exists);
-                Assert.IsFalse((await provider.GetDirectoryContentsAsync("")).Exists);
+                Assert.AreEqual(0, (await provider.GetDirectoryContentsAsync("")).Count());
                 Assert.IsFalse(await provider.DeleteAsync("missing.txt"));
                 Assert.IsFalse(await provider.DeleteAsync("dir"));
-                Assert.IsNotNull(await provider.GetDownloadUrlAsync("missing.txt", TimeSpan.FromMinutes(5)));
+                // A read URL for a missing file throws since 2027 (the contract), where 2026 signed one.
+                await Assert.ThrowsExactlyAsync<FileNotFoundException>(() => provider.GetDownloadUrlAsync("missing.txt", TimeSpan.FromMinutes(5)));
                 var ex = await Assert.ThrowsExactlyAsync<RequestFailedException>(() => provider.ReadFileAsync("missing.txt"));
                 Assert.AreEqual(404, ex.Status);
 

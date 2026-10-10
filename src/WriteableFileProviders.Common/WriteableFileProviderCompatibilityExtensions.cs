@@ -142,6 +142,22 @@ public static class WriteableFileProviderCompatibilityExtensions
     /// <summary>Opens a local copy: the 2026 parameter order.</summary>
     /// <param name="provider">The provider.</param>
     /// <param name="readOnly">Whether the stream is read-only.</param>
+    /// <param name="subpath">The file, as a string path.</param>
+    [Obsolete("Use CreateLocalFileStreamAsync(path, readOnly): the path comes first.")]
+    public static Task<LocalFileStream> CreateLocalFileStreamAsync(this IWriteableFileProvider provider, bool readOnly, string subpath) =>
+        Required(provider).CreateLocalFileStreamAsync(subpath, readOnly);
+
+    /// <summary>Opens a local copy: the 2026 parameter order.</summary>
+    /// <param name="provider">The provider.</param>
+    /// <param name="readOnly">Whether the stream is read-only.</param>
+    /// <param name="subpath">The file, as a string path.</param>
+    [Obsolete("Use CreateLocalFileStream(path, readOnly): the path comes first.")]
+    public static LocalFileStream CreateLocalFileStream(this IWriteableFileProvider provider, bool readOnly, string subpath) =>
+        Required(provider).CreateLocalFileStream(subpath, readOnly);
+
+    /// <summary>Opens a local copy: the 2026 parameter order.</summary>
+    /// <param name="provider">The provider.</param>
+    /// <param name="readOnly">Whether the stream is read-only.</param>
     /// <param name="pathSegments">The file's segments.</param>
     [Obsolete("Use CreateLocalFileStreamAsync(path, readOnly): the path comes first.")]
     public static Task<LocalFileStream> CreateLocalFileStreamAsync(this IWriteableFileProvider provider, bool readOnly, params string[] pathSegments) =>

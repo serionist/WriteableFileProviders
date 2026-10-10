@@ -99,7 +99,7 @@ namespace WriteableFileProviders.GoogleCloudStorage
             return GoogleCredential.GetApplicationDefault();
         }
 
-        internal static string NormalizePem(string pem) => NormalizePem(pem);
+        internal static new string NormalizePem(string pem) => WriteableFileProvider<GoogleCloudStorageFileProviderOptions>.NormalizePem(pem);
 
         private async Task<IWriteableFileInfo> getFileInfoAsync(params string[] absolutePathSegments)
         {

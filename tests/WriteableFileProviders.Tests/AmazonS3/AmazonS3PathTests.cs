@@ -15,6 +15,28 @@ namespace WriteableFileProviders.Tests
         private static WriteableAmazonS3FileProvider Provider(string root = "tenantA") =>
             new WriteableAmazonS3FileProvider(new AmazonS3FileProviderOptions(root, "test", "test", "wfp-test", "us-east-1"));
 
+        private sealed class SignProbe : WriteableAmazonS3FileProvider
+        {
+            public SignProbe() : base(new AmazonS3FileProviderOptions("tenantA", "test", "test", "wfp-test", "us-east-1")) { }
+            public Task<SignedUrl> Sign(string path, TimeSpan validity) =>
+                GetSignedUrlCoreAsync(Resolve(path), new SignedUrlOptions { Validity = validity }, default);
+        }
+
+        [TestMethod]
+        public async Task ReadUrlsArePresignedOfflineUnderTheRoot()
+        {
+            // Presigning is local: the URL names the key under the root and expires when asked.
+            var url = await new SignProbe().Sign("dir/file.txt", TimeSpan.FromMinutes(5));
+            StringAssert.Contains(url.Url.AbsolutePath, "tenantA/dir/file.txt");
+            StringAssert.Contains(url.Url.Query, "Expires=");
+            Assert.IsNotNull(url.ExpiresOn);
+
+            // Through the public API, what S3 cannot sign is refused before any request.
+            var provider = Provider();
+            await Assert.ThrowsExactlyAsync<NotSupportedException>(() => provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Permission = SignedUrlAccess.Write }));
+            await Assert.ThrowsExactlyAsync<NotSupportedException>(() => provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromDays(8) }));
+        }
+
 #pragma warning disable CS0618 // the obsolete members are what these tests pin
         [TestMethod]
         public async Task VersionReadOutsideTheRootIsRefused()

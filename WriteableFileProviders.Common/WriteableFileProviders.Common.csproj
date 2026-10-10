@@ -4,11 +4,8 @@
     <TargetFramework>net8.0</TargetFramework>
     <RootNamespace>WriteableFileProviders</RootNamespace>
     <PackageId>WriteableFileProviders.Common</PackageId>
-    <Authors>Soma Osvay</Authors>
     <Product />
     <Description>Provides implementations of IFileProvider that are writeable.</Description>
-    <PackageProjectUrl>https://serionist.visualstudio.com/WriteableFileProviders</PackageProjectUrl>
-    <RepositoryUrl>https://serionist.visualstudio.com/_git/WriteableFileProviders</RepositoryUrl>
    <IncludeSource>True</IncludeSource>
     <IncludeSymbols>True</IncludeSymbols>
     <Version>1.1.2</Version>

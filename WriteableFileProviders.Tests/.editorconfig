@@ -1,0 +1,9 @@
+# Tests: relax the rules that clash with test idioms. Method names read Method_Scenario_Expected, async tests carry no
+# Async suffix, and MSTest runs on the test host's own context. Everything else is inherited from the root.
+[*.cs]
+dotnet_naming_rule.members_pascal.severity = none
+dotnet_naming_rule.async_suffix.severity = none
+dotnet_diagnostic.CA1707.severity = none
+dotnet_diagnostic.CA2007.severity = none
+# [GeneratedRegex] is a startup win in a library; in a test it is ceremony for one-shot assertions.
+dotnet_diagnostic.SYSLIB1045.severity = none

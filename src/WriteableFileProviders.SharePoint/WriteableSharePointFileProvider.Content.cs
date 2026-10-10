@@ -199,6 +199,8 @@ public sealed partial class WriteableSharePointFileProvider
             var retried = false;
             while (true)
             {
+                if (offset < 0 || offset >= total)
+                    throw new IOException($"{what} failed: the upload session expects byte {offset} of {total}.");
                 var count = (int)Math.Min(fragmentSize, total - offset);
                 content.Position = offset;
                 await content.ReadExactlyAsync(buffer.AsMemory(0, count), cancellationToken).ConfigureAwait(false);
@@ -292,9 +294,11 @@ public sealed partial class WriteableSharePointFileProvider
 
     private async Task CancelSessionAsync(Uri uploadUrl)
     {
+        // Not the caller's token: a cancelled write still cancels its session, but never waits long for it.
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         try
         {
-            using var response = await SendRawAsync(new RequestInformation { HttpMethod = Method.DELETE, URI = uploadUrl }, "Cancelling an upload", streamed: false, CancellationToken.None).ConfigureAwait(false);
+            using var response = await SendRawAsync(new RequestInformation { HttpMethod = Method.DELETE, URI = uploadUrl }, "Cancelling an upload", streamed: false, timeout.Token).ConfigureAwait(false);
         }
 #pragma warning disable CA1031 // Best effort: the session expires on its own, and the caller is already getting the failure that matters.
         catch (Exception)

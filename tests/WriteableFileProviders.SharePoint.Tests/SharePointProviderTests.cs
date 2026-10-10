@@ -367,6 +367,18 @@ public sealed class SharePointProviderTests
     }
 
     [TestMethod]
+    public async Task UploadSession_StatusPastTheEnd_EndsTheUpload()
+    {
+        var (provider, fake) = Create();
+        fake.FailNext(1, HttpStatusCode.InternalServerError, IsFragment);
+        fake.Intercept = r => r.Host == GraphFake.UploadHost && r.Method == "GET"
+            ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"nextExpectedRanges\":[\"700000-\"]}", Encoding.UTF8, "application/json") }
+            : null;
+        StringAssert.Contains((await Assert.ThrowsExactlyAsync<IOException>(() => provider.UpdateFileAsync("a.bin", new MemoryStream(TestStreams.Bytes(700_000))))).Message, "expects byte 700000");
+        Assert.AreEqual(0, fake.OpenSessions);
+    }
+
+    [TestMethod]
     public async Task UploadSession_UnexpectedAnswers_Fail()
     {
         var (noSession, _) = Create(configure: f => f.Intercept = r => r.Path.EndsWith("/createUploadSession", StringComparison.Ordinal)

@@ -574,7 +574,6 @@ Covered under Design, Docs. AGENTS.md changes in S2 (layout, commands), in S3 (t
 - **A Box path-to-id cache**, for latency on deep paths (D23).
 - **Convenience extensions** such as `ReadAllBytes`, `WriteAllText` and a sync `Copy` (D23).
 - **Scanning loaded assemblies** for provider types (D23).
-- **The harness:** `review.workflow.js` should tell refuters to probe in a scratch copy, never the working tree.
 - **Package validation baselines:** set them to `2027.0.0` after it ships, and keep the PublicAPI files from then on.
 
 ## Finding tracker

@@ -302,7 +302,9 @@ const refuteRules = `Follow the "Refuting" section of ${LENSES}. ` + (!CODE_LIKE
     ? 'Settle the finding by reading the code path and quoting it; a finding only running code could settle stays ' +
       `real, and your reason says it is unverified.${READ_ONLY_RULE}`
     : 'Demonstrate, do not assert: read the code path, and run the test or apply the change where that can run here ' +
-      '(AGENTS.md, Build and test). A refutation you could not check leaves the finding real.')
+      '(AGENTS.md, Build and test), always in a scratch copy of the checkout (a `git worktree add` or a copy under your ' +
+      'scratch directory), never in the checkout under review: other agents read it at the same time, and an edit ' +
+      'left behind would change what they review. A refutation you could not check leaves the finding real.')
 const soloThunks = solo.map(f => () =>
   agent(
     `Try to refute this ${f.sensitive ? 'sensitive ' : ''}${f.severity} finding of a WriteableFileProviders ${KIND} ` +

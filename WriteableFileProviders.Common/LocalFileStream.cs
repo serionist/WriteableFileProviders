@@ -7,6 +7,10 @@ using Microsoft.Extensions.FileProviders;
 
 namespace WriteableFileProviders
 {
+    /// <summary>
+    /// A local copy of a provider file. Unless read-only, the contents are uploaded to the provider when the stream is disposed,
+    /// including a dispose after an exception (partially written content is uploaded).
+    /// </summary>
     public class LocalFileStream : Stream
     {
         private Stream Stream { get; }
@@ -24,7 +28,9 @@ namespace WriteableFileProviders
 
         private bool disposeEventCalled = false;
         /// <summary>
-        /// Gracefully (async) disposes the stream, that will cause the provider to finalize it
+        /// Gracefully (async) disposes the stream, that will cause the provider to finalize it.
+        /// A writeable stream is uploaded also when it is disposed after an exception, so partially written content is uploaded;
+        /// set <see cref="SkipReUploadOnDispose"/> to prevent it.
         /// </summary>
         /// <returns></returns>
         public async Task DisposeAsync()

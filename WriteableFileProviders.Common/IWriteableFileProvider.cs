@@ -22,6 +22,10 @@ namespace WriteableFileProviders
         /// <summary>Locate a file at the given path.</summary>
         /// <param name="subpath">Relative path that identifies the file.</param>
         /// <returns>The file information. Caller must check Exists property.</returns>
+        /// <remarks>
+        /// For a directory, Physical, Azure Blob and GCS return Exists = false and IsDirectory = false, S3 and Box return
+        /// Exists = false and IsDirectory = true, Minio and SharePoint return Exists = true and IsDirectory = true.
+        /// </remarks>
         Task<IFileInfo> GetFileInfoAsync(params string[] pathSegments);
         /// <summary>Enumerate a directory at the given path, if any.</summary>
         /// <param name="subpath">Relative path that identifies the directory.</param>
@@ -34,6 +38,10 @@ namespace WriteableFileProviders
         /// <summary>Enumerate a directory at the given path, if any.</summary>
         /// <param name="subpath">Relative path that identifies the directory.</param>
         /// <returns>Returns the contents of the directory.</returns>
+        /// <remarks>
+        /// Lists one level only. Directory entries have Exists = true, IsDirectory = true and Length = -1,
+        /// and on object stores (S3, Minio, GCS, Azure Blob) a placeholder LastModified.
+        /// </remarks>
         Task<IDirectoryContents> GetDirectoryContentsAsync(params string[] pathSegments);
         /// <summary>
         /// Creates a <see cref="T:Microsoft.Extensions.Primitives.IChangeToken" /> for the specified <paramref name="filter" />.
@@ -173,7 +181,7 @@ namespace WriteableFileProviders
         /// <param name="readOnly">True to open a read only stream (no commit is done to the provider after file is closed)</param>
         /// <param name="subpath">The path to the file</param>
         /// <returns>The file stream</returns>
-        /// <exception cref="System.IO.FileNotFoundException"></exception>
+        /// <exception cref="System.IO.FileNotFoundException">Read-only stream of a missing file on the physical provider. Other providers return an empty stream for a missing file.</exception>
         Task<LocalFileStream> CreateLocalFileStreamAsync(bool readOnly, string subpath);
         /// <summary>
         /// Return file contents as a local stream that can be written to. This will ensure the file is placed on the local filesystem (at least temporarily). Caller should dispose stream when complete, only then will the file be committed.
@@ -181,7 +189,7 @@ namespace WriteableFileProviders
         /// <param name="subpath">The path to the file</param>
         ///  /// <param name="readOnly">True to open a read only stream (no commit is done to the provider after file is closed)</param>
         /// <returns>The file stream</returns>
-        /// <exception cref="System.IO.FileNotFoundException"></exception>
+        /// <exception cref="System.IO.FileNotFoundException">Read-only stream of a missing file on the physical provider. Other providers return an empty stream for a missing file.</exception>
         LocalFileStream CreateLocalFileStream(bool readOnly, string subpath);
         /// <summary>
         /// Return file contents as a local stream that can be written to. This will ensure the file is placed on the local filesystem (at least temporarily). Caller should dispose stream when complete, only then will the file be committed.
@@ -189,7 +197,7 @@ namespace WriteableFileProviders
         /// <param name="subpath">The path to the file</param>
         ///  /// <param name="readOnly">True to open a read only stream (no commit is done to the provider after file is closed)</param>
         /// <returns>The file stream</returns>
-        /// <exception cref="System.IO.FileNotFoundException"></exception>
+        /// <exception cref="System.IO.FileNotFoundException">Read-only stream of a missing file on the physical provider. Other providers return an empty stream for a missing file.</exception>
         Task<LocalFileStream> CreateLocalFileStreamAsync(bool readOnly, params string[] pathSegments);
         /// <summary>
         /// Return file contents as a local stream that can be written to. This will ensure the file is placed on the local filesystem (at least temporarily). Caller should dispose stream when complete, only then will the file be committed.
@@ -197,7 +205,7 @@ namespace WriteableFileProviders
         /// <param name="subpath">The path to the file</param>
         ///  /// <param name="readOnly">True to open a read only stream (no commit is done to the provider after file is closed)</param>
         /// <returns>The file stream</returns>
-        /// <exception cref="System.IO.FileNotFoundException"></exception>
+        /// <exception cref="System.IO.FileNotFoundException">Read-only stream of a missing file on the physical provider. Other providers return an empty stream for a missing file.</exception>
         LocalFileStream CreateLocalFileStream(bool readOnly, params string[] pathSegments);
         /// <summary>
         /// Return file contents as a local stream that can be written to. This will ensure the file is placed on the local filesystem (at least temporarily). Caller should dispose stream when complete, only then will the file be committed.
@@ -205,7 +213,7 @@ namespace WriteableFileProviders
         /// <param name="subpath">The path to the file</param>
         ///  /// <param name="readOnly">True to open a read only stream (no commit is done to the provider after file is closed)</param>
         /// <returns>The file stream</returns>
-        /// <exception cref="System.IO.FileNotFoundException"></exception>
+        /// <exception cref="System.IO.FileNotFoundException">Read-only stream of a missing file on the physical provider. Other providers return an empty stream for a missing file.</exception>
         Task<LocalFileStream> CreateLocalFileStreamAsync(bool readOnly, IFileInfo file);
         /// <summary>
         /// Return file contents as a local stream that can be written to. This will ensure the file is placed on the local filesystem (at least temporarily). Caller should dispose stream when complete, only then will the file be committed.
@@ -213,7 +221,7 @@ namespace WriteableFileProviders
         /// <param name="subpath">The path to the file</param>
         ///  /// <param name="readOnly">True to open a read only stream (no commit is done to the provider after file is closed)</param>
         /// <returns>The file stream</returns>
-        /// <exception cref="System.IO.FileNotFoundException"></exception>
+        /// <exception cref="System.IO.FileNotFoundException">Read-only stream of a missing file on the physical provider. Other providers return an empty stream for a missing file.</exception>
         LocalFileStream CreateLocalFileStream(bool readOnly, IFileInfo file);
         /// <summary>
         /// The callback called when a local file stream is closed. Used to commit the contents of a local stream

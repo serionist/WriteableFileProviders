@@ -61,6 +61,7 @@ public abstract partial class WriteableFileProvider<TOptions>
 
     /// <summary>The segments after the root segments of an absolute path.</summary>
     /// <param name="absoluteSegments">The root segments followed by the relative ones.</param>
+    [Obsolete("Removed before 2027.0.0: use ResolvedPath.RelativeSegments.")]
     protected string[] GetRelativeSegments(string[] absoluteSegments)
     {
         ArgumentNullException.ThrowIfNull(absoluteSegments);
@@ -69,6 +70,7 @@ public abstract partial class WriteableFileProvider<TOptions>
 
     /// <summary>Whether absolute segments point to the provider root (no segments after the root segments).</summary>
     /// <param name="absoluteSegments">The root segments followed by the relative ones.</param>
+    [Obsolete("Removed before 2027.0.0: use ResolvedPath.IsRoot.")]
     protected bool IsRootPath(string[] absoluteSegments) => GetRelativeSegments(absoluteSegments ?? []).Length == 0;
 
     /// <summary>
@@ -76,6 +78,7 @@ public abstract partial class WriteableFileProvider<TOptions>
     /// body never contains a backslash, so a valid key is returned unchanged.
     /// </summary>
     /// <param name="pem">The key.</param>
+    [Obsolete("Removed before 2027.0.0: it moves into the Box and Google Cloud Storage providers, its only users.")]
     protected static string? NormalizePem(string? pem) =>
         string.IsNullOrEmpty(pem) || !pem.Contains('\\', StringComparison.Ordinal)
             ? pem

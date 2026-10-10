@@ -39,6 +39,12 @@ public abstract class ProviderConformanceTests
     /// <param name="access">The access.</param>
     protected virtual bool SupportsSignedUrls(SignedUrlAccess access) => false;
 
+    /// <summary>
+    /// The lifetime the store gives every signed URL whatever was asked (Box, SharePoint; D18), or null where the URL
+    /// lives as long as asked.
+    /// </summary>
+    protected virtual TimeSpan? FixedSignedUrlLifetime => null;
+
     /// <summary>Whether the provider watches for changes.</summary>
     protected virtual bool SupportsWatch => false;
 
@@ -112,6 +118,13 @@ public abstract class ProviderConformanceTests
             return await reader.ReadToEndAsync();
         }
     }
+
+    /// <summary>Signed URL options the provider can honour: five minutes, or its fixed lifetime where it has one.</summary>
+    /// <param name="access">The access.</param>
+    protected SignedUrlOptions SignedUrlOptionsFor(SignedUrlAccess access) =>
+        FixedSignedUrlLifetime is { } lifetime
+            ? new SignedUrlOptions { Validity = lifetime, Permission = access, AllowShorterValidity = true }
+            : new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Permission = access };
 
     private static async Task<byte[]> Hash(Stream stream)
     {
@@ -626,6 +639,29 @@ public abstract class ProviderConformanceTests
         Assert.AreEqual("a", await Read("A.txt"));
         var names = (await Provider.GetDirectoryContentsAsync("")).Select(e => e.Name).ToList();
         CollectionAssert.AreEqual(new[] { "A.txt" }, names);
+        if (IsCaseInsensitive)
+            Assert.AreEqual("a", await Read("a.txt"), "On a store that ignores case, the old name finds the renamed file");
+        else
+            Assert.IsFalse((await Provider.GetFileInfoAsync("a.txt")).Exists);
+    }
+
+    [TestMethod]
+    public async Task Move_RemovesExactlyTheSourceKey()
+    {
+        await Write("a.txt", "a");
+        await Write("a.txt.bak", "backup");
+        await Provider.MoveAsync("a.txt", "b.txt");
+        Assert.AreEqual("a", await Read("b.txt"));
+        Assert.AreEqual("backup", await Read("a.txt.bak"));
+        Assert.IsFalse((await Provider.GetFileInfoAsync("a.txt")).Exists);
+        if (HasRealFolders)
+            return;
+        // On an object store a key and a "folder" of the same name can both exist: moving the key leaves the folder.
+        await Write("k", "key");
+        await Write("k/x.txt", "below");
+        await Provider.MoveAsync("k", "moved");
+        Assert.AreEqual("key", await Read("moved"));
+        Assert.AreEqual("below", await Read("k/x.txt"));
     }
 
     [TestMethod]
@@ -642,6 +678,15 @@ public abstract class ProviderConformanceTests
     [TestMethod]
     public async Task LocalStream_ReadOnlyOfAMissingFileThrows() =>
         await Assert.ThrowsAsync<FileNotFoundException>(() => Provider.CreateLocalFileStreamAsync("missing.txt", readOnly: true));
+
+    [TestMethod]
+    public async Task LocalStream_OfAFolderIsRefused()
+    {
+        await Write("dir/f.txt", "x");
+        await Assert.ThrowsExactlyAsync<FileNotFoundException>(() => Provider.CreateLocalFileStreamAsync("dir", readOnly: true));
+        await Assert.ThrowsAsync<IOException>(() => Provider.CreateLocalFileStreamAsync("dir", readOnly: false));
+        Assert.AreEqual("x", await Read("dir/f.txt"));
+    }
 
     [TestMethod]
     public async Task LocalStream_ReadOnlyCannotBeWrittenAndNeverUploads()
@@ -736,7 +781,7 @@ public abstract class ProviderConformanceTests
     public async Task SignedUrl_IsNativeOrNotSupported(SignedUrlAccess access)
     {
         await Write("f.txt", "x");
-        var options = new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Permission = access };
+        var options = SignedUrlOptionsFor(access);
         if (!SupportsSignedUrls(access))
         {
             await Assert.ThrowsExactlyAsync<NotSupportedException>(() => Provider.GetSignedUrlAsync("f.txt", options));
@@ -746,9 +791,48 @@ public abstract class ProviderConformanceTests
         var url = await Provider.GetSignedUrlAsync(access == SignedUrlAccess.Create ? "new.txt" : "f.txt", options);
         Assert.IsTrue(url.Url.IsAbsoluteUri);
         if (url.ExpiresOn is { } expires)
-            Assert.IsTrue(expires <= DateTimeOffset.UtcNow.AddMinutes(5).AddSeconds(5) && expires >= before, $"ExpiresOn {expires}");
+            Assert.IsTrue(expires <= DateTimeOffset.UtcNow.Add(options.Validity).AddSeconds(5) && expires >= before, $"ExpiresOn {expires}");
         Assert.AreEqual(access == SignedUrlAccess.Read ? "GET" : "PUT", url.Method);
-        await Assert.ThrowsExactlyAsync<NotSupportedException>(() => Provider.GetSignedUrlAsync("f.txt", options with { Validity = TimeSpan.FromDays(3650) }));
+        await Assert.ThrowsExactlyAsync<NotSupportedException>(() =>
+            Provider.GetSignedUrlAsync("f.txt", options with { Validity = TimeSpan.FromDays(3650), AllowShorterValidity = false }));
+    }
+
+    [TestMethod]
+    public async Task SignedUrl_ContentHeadersAreHonouredOrRefused()
+    {
+        await Write("f.txt", "x");
+        var read = SignedUrlOptionsFor(SignedUrlAccess.Read);
+        foreach (var (options, expected) in new[] { (read with { DownloadFileName = "report.csv" }, "report.csv"), (read with { ContentType = "text/csv" }, "text/csv") })
+        {
+            SignedUrl url;
+            try
+            {
+                url = await Provider.GetSignedUrlAsync("f.txt", options);
+            }
+            catch (NotSupportedException)
+            {
+                continue;
+            }
+            // A URL that ignored the option would serve the stored name and type: the URL itself must carry it.
+            StringAssert.Contains(Uri.UnescapeDataString(url.Url.Query), expected);
+        }
+    }
+
+    [TestMethod]
+    public async Task SignedUrl_ShorterThanAskedNeedsAllowShorterValidity()
+    {
+        if (FixedSignedUrlLifetime is not { } lifetime || !SupportsSignedUrls(SignedUrlAccess.Read))
+            return;
+        await Write("f.txt", "x");
+        var longer = new SignedUrlOptions { Validity = lifetime + TimeSpan.FromMinutes(1) };
+        await Assert.ThrowsExactlyAsync<NotSupportedException>(() => Provider.GetSignedUrlAsync("f.txt", longer));
+        var before = DateTimeOffset.UtcNow;
+        var url = await Provider.GetSignedUrlAsync("f.txt", longer with { AllowShorterValidity = true });
+        if (url.ExpiresOn is { } expires)
+            Assert.IsTrue(expires <= DateTimeOffset.UtcNow.Add(lifetime).AddSeconds(5) && expires >= before, $"ExpiresOn {expires}");
+        // A URL never outlives what was asked, so a validity shorter than the fixed lifetime is refused.
+        await Assert.ThrowsExactlyAsync<NotSupportedException>(() =>
+            Provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = lifetime / 2, AllowShorterValidity = true }));
     }
 
     [TestMethod]

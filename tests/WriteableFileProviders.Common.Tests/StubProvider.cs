@@ -70,17 +70,26 @@ public sealed class StubProvider(StubOptions options) : WriteableFileProvider<St
 
     public bool AtomicPreconditions { get; set; }
 
+    public bool SignedUrls { get; set; }
+
+    public string? ETag { get; set; } = "e1";
+
     protected override bool SupportsAtomicPreconditions => AtomicPreconditions;
 
-    protected override bool IsCaseInsensitive => true;
+    protected override bool SupportsSignedUrl(SignedUrlAccess permission) => SignedUrls;
 
     public ProviderPath ResolveForTest(ProviderPath path) => Resolve(path).Path;
 
+    // The 2026 helpers stay tested until S12 removes them.
+#pragma warning disable CS0618
     public string[] Relative(string[] absolute) => GetRelativeSegments(absolute);
 
     public bool IsRoot(string[] absolute) => IsRootPath(absolute);
 
     public static string? Pem(string? pem) => NormalizePem(pem);
+#pragma warning restore CS0618
+
+    public Task AppendByRewrite(string path, Stream contents) => AppendByRewriteAsync(Resolve(path), contents, UpdateFileOptions.Append, default);
 
     public static Task<FileStream> Spool(Stream source) => SpoolToTempFileAsync(source, default);
 
@@ -90,7 +99,7 @@ public sealed class StubProvider(StubOptions options) : WriteableFileProvider<St
 
     protected override Task<IWriteableFileInfo> GetFileInfoCoreAsync(ResolvedPath path, CancellationToken cancellationToken) =>
         Task.FromResult<IWriteableFileInfo>(path.Name == "file.txt"
-            ? new WriteableFileInfo(this, path.Path, true, false, 4, DateTimeOffset.UtcNow, etag: "e1")
+            ? new WriteableFileInfo(this, path.Path, true, false, 4, DateTimeOffset.UtcNow, etag: ETag)
             : WriteableFileInfo.Missing(this, path.Path));
 
     protected override async IAsyncEnumerable<IWriteableFileInfo> EnumerateCoreAsync(ResolvedPath path, [EnumeratorCancellation] CancellationToken cancellationToken)
@@ -113,6 +122,9 @@ public sealed class StubProvider(StubOptions options) : WriteableFileProvider<St
     protected override Task<bool> DeleteCoreAsync(ResolvedPath path, CancellationToken cancellationToken) => Task.FromResult(path.Name == "file.txt");
 
     protected override bool IsNotFound(Exception exception) => exception is KeyNotFoundException;
+
+    protected override Task<SignedUrl> GetSignedUrlCoreAsync(ResolvedPath path, SignedUrlOptions options, CancellationToken cancellationToken) =>
+        Task.FromResult(new SignedUrl { Url = new Uri("https://stub.test/" + path) });
 
     protected override IChangeToken WatchCore(string filter) => new CancellationChangeToken(CancellationToken.None);
 

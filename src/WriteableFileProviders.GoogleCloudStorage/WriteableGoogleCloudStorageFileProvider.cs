@@ -48,7 +48,8 @@ namespace WriteableFileProviders.GoogleCloudStorage
         protected override Task<bool> DeleteCoreAsync(ResolvedPath resolved, CancellationToken cancellationToken) =>
             deleteAsync(resolved.AbsoluteSegments);
 
-        protected override bool SupportsSignedUrl(SignedUrlAccess permission) => permission == SignedUrlAccess.Read;
+        // Only a credential that can sign issues URLs; without one the base class throws NotSupportedException.
+        protected override bool SupportsSignedUrl(SignedUrlAccess permission) => permission == SignedUrlAccess.Read && UrlSigner != null;
 
         protected override async Task<SignedUrl> GetSignedUrlCoreAsync(ResolvedPath resolved, SignedUrlOptions options, CancellationToken cancellationToken) =>
             new SignedUrl { Url = new Uri(await getDownloadUrl(resolved.AbsoluteSegments, options.Validity)), ExpiresOn = DateTimeOffset.UtcNow.Add(options.Validity), Kind = SignedUrlKind.Presigned };
@@ -237,7 +238,7 @@ namespace WriteableFileProviders.GoogleCloudStorage
         private async Task<string> getDownloadUrl(string[] absolutePathSegments, TimeSpan validity)
         {
             if (UrlSigner == null)
-                throw new PlatformNotSupportedException(
+                throw new NotSupportedException(
                     "Signed download URLs require a credential that can sign: either an inline service " +
                     "account key (CredentialsJson) or a Workload Identity / impersonated identity that " +
                     "holds the iam.serviceAccounts.signBlob permission.");

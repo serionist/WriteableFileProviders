@@ -17,7 +17,6 @@ public sealed class ProviderPathTests
         CollectionAssert.AreEqual(segments, ProviderPath.Parse(text).Segments.ToArray());
         ProviderPath converted = text;
         CollectionAssert.AreEqual(segments, converted.Segments.ToArray());
-        CollectionAssert.AreEqual(segments, ProviderPath.FromString(text).Segments.ToArray());
     }
 
     [TestMethod]
@@ -25,9 +24,8 @@ public sealed class ProviderPathTests
     {
         ProviderPath path = new[] { "a/b", "" };
         CollectionAssert.AreEqual(new[] { "a/b", "" }, path.Segments.ToArray());
-        Assert.AreEqual(path, ProviderPath.FromSegments(["a/b", ""]));
+        Assert.AreEqual(path, new ProviderPath(["a/b", ""]));
         Assert.IsTrue(new ProviderPath(null).IsRoot);
-        Assert.IsTrue(ProviderPath.FromSegments(null).IsRoot);
         Assert.IsTrue(ProviderPath.Parse(null).IsRoot);
     }
 

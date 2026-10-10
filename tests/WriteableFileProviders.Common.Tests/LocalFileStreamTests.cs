@@ -57,11 +57,15 @@ public sealed class LocalFileStreamTests
     {
         using var provider = Provider();
         var local = await provider.CreateLocalFileStreamAsync("folder/f.txt", readOnly: false);
+        var temp = local.TempFilePath;
+        Assert.IsNotNull(temp);
+        Assert.IsTrue(File.Exists(temp));
         await local.WriteAsync(Encoding.UTF8.GetBytes("x"));
         // A folder where the file should go makes the commit fail.
         await provider.UpdateFileAsync("folder/f.txt/inner.txt", TestStreams.Text("blocker"));
         await Assert.ThrowsAsync<IOException>(async () => await local.DisposeAsync());
         Assert.IsFalse(local.CanRead);
+        Assert.IsFalse(File.Exists(temp), "The temp file is deleted although the commit failed");
     }
 
     [TestMethod]

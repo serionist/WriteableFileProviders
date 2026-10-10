@@ -12,7 +12,11 @@ public abstract partial class WriteableFileProvider<TOptions>
     /// </summary>
     protected virtual bool SupportsAtomicPreconditions => false;
 
-    /// <summary>Whether the store treats names that differ only in case as the same name.</summary>
+    /// <summary>
+    /// Whether the store treats names that differ only in case as the same name. When true, moving a file to a name that
+    /// differs only in case is a rename: the base class skips the destination check, and the default
+    /// <see cref="MoveCoreAsync"/> goes through a temporary name.
+    /// </summary>
     protected virtual bool IsCaseInsensitive => false;
 
     /// <summary>
@@ -24,6 +28,14 @@ public abstract partial class WriteableFileProvider<TOptions>
     /// <summary>Whether the provider issues signed URLs with this permission natively.</summary>
     /// <param name="permission">The permission.</param>
     protected virtual bool SupportsSignedUrl(SignedUrlAccess permission) => false;
+
+    /// <summary>
+    /// Whether the provider honours <see cref="SignedUrlOptions.DownloadFileName"/> and
+    /// <see cref="SignedUrlOptions.ContentType"/> on a URL with this permission. When false (the default), a request that
+    /// sets either one throws <see cref="NotSupportedException"/>.
+    /// </summary>
+    /// <param name="permission">The permission.</param>
+    protected virtual bool SupportsSignedUrlContentHeaders(SignedUrlAccess permission) => false;
 
     /// <summary>Gets a file, a folder or a missing path; never called with the root.</summary>
     /// <param name="path">The path.</param>
@@ -108,7 +120,8 @@ public abstract partial class WriteableFileProvider<TOptions>
     /// <summary>
     /// Opens a seekable read-only stream. The default is a <see cref="RangeReadStream"/> over
     /// <see cref="ReadRangeCoreAsync"/>, pinned to the file's <see cref="IWriteableFileInfo.ETag"/> unless modifications
-    /// are allowed; a store with its own seekable stream overrides it.
+    /// are allowed; without an ETag a pinned read throws <see cref="NotSupportedException"/>. A store with its own
+    /// seekable stream overrides it.
     /// </summary>
     /// <param name="path">The file.</param>
     /// <param name="options">How the stream reads.</param>
@@ -119,6 +132,8 @@ public abstract partial class WriteableFileProvider<TOptions>
         var info = await GetFileInfoCoreAsync(path, cancellationToken).ConfigureAwait(false);
         if (!info.Exists || info.IsDirectory)
             throw NotFound(path);
+        if (!options.AllowModifications && info.ETag is null)
+            throw new NotSupportedException($"{GetType().Name} keeps no version of '{path}', so a read cannot be pinned to one; allow modifications to read it unpinned.");
         var pin = options.AllowModifications ? null : info.ETag;
         return new RangeReadStream(info.Length, (offset, count, token) => ReadRangeCoreAsync(path, offset, count, pin, token), options.BufferSize);
     }
@@ -163,14 +178,24 @@ public abstract partial class WriteableFileProvider<TOptions>
     }
 
     /// <summary>
-    /// Moves a file whose source exists and whose destination does not. The default copies with
-    /// <see cref="CopyCoreAsync"/>, then deletes the source with <see cref="DeleteFileCoreAsync"/>.
+    /// Moves a file whose source exists and whose destination does not, or that differs only in case on a store that
+    /// ignores case (<see cref="IsCaseInsensitive"/>). The default copies with <see cref="CopyCoreAsync"/>, then deletes
+    /// the source with <see cref="DeleteFileCoreAsync"/>; a case-only rename goes through a temporary name next to the
+    /// source, which is left behind only if the move fails after the source is deleted.
     /// </summary>
     /// <param name="source">The file to move.</param>
     /// <param name="destination">Where it goes.</param>
     /// <param name="cancellationToken">Cancels the call.</param>
     protected virtual async Task MoveCoreAsync(ResolvedPath source, ResolvedPath destination, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(source);
+        if (IsCaseOnlyRename(source, destination))
+        {
+            var temp = source.Parent.Child($".{source.Name}.wfp-{Guid.NewGuid():N}.tmp");
+            await CopyCoreAsync(source, temp, cancellationToken).ConfigureAwait(false);
+            await DeleteFileCoreAsync(source, cancellationToken).ConfigureAwait(false);
+            source = temp;
+        }
         await CopyCoreAsync(source, destination, cancellationToken).ConfigureAwait(false);
         await DeleteFileCoreAsync(source, cancellationToken).ConfigureAwait(false);
     }
@@ -189,7 +214,7 @@ public abstract partial class WriteableFileProvider<TOptions>
         {
             var info = await GetFileInfoCoreAsync(path, cancellationToken).ConfigureAwait(false);
             if (info.IsDirectory)
-                throw new IOException($"The path '{path}' is a folder.");
+                throw readOnly ? NotFound(path) : new IOException($"The path '{path}' is a folder.");
             if (info.Exists)
             {
                 var source = await ReadFileCoreAsync(path, cancellationToken).ConfigureAwait(false);
@@ -242,7 +267,9 @@ public abstract partial class WriteableFileProvider<TOptions>
     /// <summary>
     /// Appends by rewriting, for a store with no native append: the existing content and <paramref name="contents"/> are
     /// spooled to a temp file, which then replaces the file with <see cref="UpdateFileOptions.IfMatch"/> on the version
-    /// that was read, so a concurrent change throws <see cref="PreconditionFailedException"/> instead of being lost.
+    /// that was read, so a concurrent change throws <see cref="PreconditionFailedException"/> instead of being lost. It
+    /// needs the file's <see cref="IWriteableFileInfo.ETag"/>: an existing file without one throws
+    /// <see cref="NotSupportedException"/>.
     /// </summary>
     /// <param name="path">The file.</param>
     /// <param name="contents">The content to add.</param>
@@ -257,6 +284,8 @@ public abstract partial class WriteableFileProvider<TOptions>
             throw new PreconditionFailedException($"The file '{path}' already exists.");
         if (options.IfMatch is not null && !string.Equals(info.ETag, options.IfMatch, StringComparison.Ordinal))
             throw new PreconditionFailedException($"The file '{path}' changed: its version is no longer '{options.IfMatch}'.");
+        if (info.Exists && !info.IsDirectory && info.ETag is null)
+            throw new NotSupportedException($"{GetType().Name} keeps no version of '{path}', so an append could lose a concurrent write.");
         var temp = StreamUtilities.CreateTempFile();
         await using (temp.ConfigureAwait(false))
         {
@@ -306,6 +335,10 @@ public abstract partial class WriteableFileProvider<TOptions>
         ArgumentNullException.ThrowIfNull(path);
         return new FileNotFoundException($"The file '{path}' does not exist.", path.ToString(), innerException);
     }
+
+    private bool IsCaseOnlyRename(ResolvedPath from, ResolvedPath to) =>
+        IsCaseInsensitive && from.Path != to.Path
+        && string.Equals(from.Path.ToString(), to.Path.ToString(), StringComparison.OrdinalIgnoreCase);
 
     private async Task UpdateWithPreconditionsAsync(ResolvedPath path, Stream contents, UpdateFileOptions options, CancellationToken cancellationToken)
     {

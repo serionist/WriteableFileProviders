@@ -21,7 +21,7 @@ namespace WriteableFileProviders.GoogleCloudStorage
     ///      the recommended enterprise setup.
     ///
     /// Note: generating signed download URLs
-    /// (<see cref="WriteableGoogleCloudStorageFileProvider.GetDownloadUrl(string,System.TimeSpan)"/>)
+    /// (<see cref="IWriteableFileProvider.GetSignedUrlAsync"/>)
     /// requires a credential that can sign - a service account key (options 1/2) or a Workload
     /// Identity / impersonated identity holding the iam.serviceAccounts.signBlob permission.
     /// </summary>

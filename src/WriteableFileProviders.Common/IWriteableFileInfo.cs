@@ -16,8 +16,11 @@ public interface IWriteableFileInfo : IFileInfo
     /// <summary>The entry's path, relative to its provider's root.</summary>
     ProviderPath Path { get; }
 
-    /// <summary>The version of the file's content, for <see cref="UpdateFileOptions.IfMatch"/> and
-    /// <see cref="ReadOptions.IfMatch"/>; null for a folder, a missing path, or a store that keeps none.</summary>
+    /// <summary>
+    /// The version of the file's content, for <see cref="UpdateFileOptions.IfMatch"/> and
+    /// <see cref="ReadOptions.IfMatch"/>; null for a folder or a missing path. Every file has one: a pinned seekable read
+    /// or an append by rewrite of a file without one throws <see cref="NotSupportedException"/>.
+    /// </summary>
     string? ETag { get; }
 
     /// <summary>The file's content type, where the store keeps one; otherwise null.</summary>

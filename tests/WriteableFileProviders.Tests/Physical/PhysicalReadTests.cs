@@ -154,6 +154,17 @@ namespace WriteableFileProviders.Tests.Physical
         }
 
         [TestMethod]
+        public async Task CaseOnlyRename_Renames()
+        {
+            // On Windows and macOS the destination "exists" because it is the source; on every system the move renames.
+            await provider.UpdateFileAsync("a.txt", Content());
+            await provider.MoveAsync("a.txt", "A.txt");
+            CollectionAssert.AreEqual(new[] { "A.txt" }, Directory.GetFiles(root).Select(Path.GetFileName).ToArray());
+            using (var s = await provider.ReadFileAsync("A.txt"))
+                Assert.AreEqual(2, s.Length);
+        }
+
+        [TestMethod]
         public async Task DirectoryEntriesKeepFileSystemTimestamps()
         {
             await provider.UpdateFileAsync(Content(), UpdateFileMode.Overwrite, "ts", "sub", "file.txt");

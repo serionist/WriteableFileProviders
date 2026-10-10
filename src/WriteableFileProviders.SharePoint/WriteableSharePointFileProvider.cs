@@ -43,6 +43,9 @@ namespace WriteableFileProviders.SharePoint
         protected override Task<bool> DeleteCoreAsync(ResolvedPath resolved, CancellationToken cancellationToken) =>
             deleteAsync(resolved.AbsoluteSegments);
 
+        // SharePoint matches names without regard to case: a folder cannot hold "a.txt" and "A.txt".
+        protected override bool IsCaseInsensitive => true;
+
         protected override bool SupportsSignedUrl(SignedUrlAccess permission) => permission == SignedUrlAccess.Read;
 
         protected override async Task<SignedUrl> GetSignedUrlCoreAsync(ResolvedPath resolved, SignedUrlOptions options, CancellationToken cancellationToken) =>

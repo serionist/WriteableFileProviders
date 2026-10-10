@@ -65,7 +65,7 @@ public sealed class RangeReadStream : Stream
         if (_position >= Length || buffer.IsEmpty)
             return 0;
         if (!Holds(_position))
-            FillAsync(_position, CancellationToken.None).GetAwaiter().GetResult();
+            WriteableFileProviderExtensions.Wait(FillAsync(_position, CancellationToken.None));
         return CopyFromBuffer(buffer);
     }
 
@@ -135,6 +135,9 @@ public sealed class RangeReadStream : Stream
     {
         var count = (int)Math.Min(_bufferSize, Length - start);
         _buffer ??= new byte[(int)Math.Min(_bufferSize, Math.Max(1, Length))];
+        // The fetch writes into the buffer: until it succeeds, the buffer holds nothing, so a failed or cancelled fetch
+        // never leaves bytes of one range described as another.
+        _bufferCount = 0;
         var range = await _readRange(start, count, cancellationToken).ConfigureAwait(false);
         int read;
         await using (range.ConfigureAwait(false))

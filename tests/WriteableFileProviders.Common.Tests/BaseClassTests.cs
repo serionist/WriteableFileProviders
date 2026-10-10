@@ -38,13 +38,30 @@ public sealed class BaseClassTests
     }
 
     [TestMethod]
-    public async Task CaseInsensitiveStores_RenameAcrossCase()
+    public async Task SignedUrl_ContentHeadersNeedTheProvidersSupport()
     {
         using var provider = Stub();
-        // The stub sees only "file.txt" as existing; a case-only rename skips the destination check on such a store.
-        await provider.MoveAsync("dir/file.txt", "dir/FILE.TXT").ContinueWith(t => t.Exception?.InnerException is not FileExistsException
-            ? Task.CompletedTask
-            : throw new AssertFailedException("A case-only rename was refused"), TaskScheduler.Default).Unwrap();
+        provider.SignedUrls = true;
+        var options = new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1) };
+        Assert.AreEqual(new Uri("https://stub.test/file.txt"), (await provider.GetSignedUrlAsync("file.txt", options)).Url);
+        // A provider that has not said it honours them fails closed, so a URL never serves the stored name and type instead.
+        await Assert.ThrowsExactlyAsync<NotSupportedException>(() => provider.GetSignedUrlAsync("file.txt", options with { DownloadFileName = "a.csv" }));
+        await Assert.ThrowsExactlyAsync<NotSupportedException>(() => provider.GetSignedUrlAsync("file.txt", options with { ContentType = "text/csv" }));
+    }
+
+    [TestMethod]
+    public async Task FilesWithoutAnETag_RefusePinnedReadsAndAppendsByRewrite()
+    {
+        using var provider = Stub();
+        provider.ETag = null;
+        await Assert.ThrowsExactlyAsync<NotSupportedException>(() => provider.OpenReadSeekableAsync("file.txt"));
+        await using (var unpinned = await provider.OpenReadSeekableAsync("file.txt", new SeekableReadOptions { AllowModifications = true }))
+            Assert.AreEqual(4, unpinned.Length);
+        await Assert.ThrowsExactlyAsync<NotSupportedException>(() => provider.AppendByRewrite("file.txt", TestStreams.Text("more")));
+        Assert.IsNull(provider.LastUpdate, "Nothing was written");
+        provider.ETag = "e1";
+        await provider.AppendByRewrite("file.txt", TestStreams.Text("more"));
+        Assert.AreEqual("e1", provider.LastUpdate!.IfMatch);
     }
 
     [TestMethod]

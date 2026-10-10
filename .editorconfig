@@ -93,9 +93,6 @@ dotnet_diagnostic.SYSLIB1045.severity = warning  # [GeneratedRegex]; relaxed for
 # Off.
 # CA1859: IReadOnlyList, IReadOnlyDictionary and IReadOnlySet return types are an immutability contract.
 dotnet_diagnostic.CA1859.severity = none
-# CA1716: guards against names that are keywords in Visual Basic (readOnly, Shared); the library is for C# and F#, and
-# its public parameter names predate the rule.
-dotnet_diagnostic.CA1716.severity = none
 
 # --- Naming ---
 dotnet_naming_rule.interfaces_start_with_i.severity = warning

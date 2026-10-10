@@ -71,6 +71,9 @@ namespace WriteableFileProviders.Physical
             await contents.CopyToAsync(fs, cancellationToken);
         }
 
+        // NTFS and APFS match names without regard to case by default: a move from a.txt to A.txt is a rename.
+        protected override bool IsCaseInsensitive => OperatingSystem.IsWindows() || OperatingSystem.IsMacOS();
+
         protected override Task MoveCoreAsync(ResolvedPath source, ResolvedPath destination, CancellationToken cancellationToken)
         {
             var newPath = path(destination.AbsoluteSegments);

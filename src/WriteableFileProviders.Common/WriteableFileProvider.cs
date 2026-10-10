@@ -36,10 +36,10 @@ public abstract partial class WriteableFileProvider<TOptions>(TOptions options) 
     public JsonObject ToJson() => WriteableFileProviderSerializer.ToJson(this);
 
     /// <inheritdoc />
-    public IFileInfo GetFileInfo(string subpath) => GetFileInfoAsync(subpath).GetAwaiter().GetResult();
+    public IFileInfo GetFileInfo(string subpath) => WriteableFileProviderExtensions.Wait(GetFileInfoAsync(subpath));
 
     /// <inheritdoc />
-    public IDirectoryContents GetDirectoryContents(string subpath) => GetDirectoryContentsAsync(subpath).GetAwaiter().GetResult();
+    public IDirectoryContents GetDirectoryContents(string subpath) => WriteableFileProviderExtensions.Wait(GetDirectoryContentsAsync(subpath));
 
     /// <summary>Watches for changes.</summary>
     /// <param name="filter">The files to watch, such as <c>**/*.json</c>.</param>
@@ -180,6 +180,8 @@ public abstract partial class WriteableFileProvider<TOptions>(TOptions options) 
         var resolved = options.Permission == SignedUrlAccess.Read ? ResolveReadable(path) : ResolveModifiable(path);
         if (!SupportsSignedUrl(options.Permission))
             throw new NotSupportedException($"{GetType().Name} cannot issue a {options.Permission} URL.");
+        if ((options.DownloadFileName is not null || options.ContentType is not null) && !SupportsSignedUrlContentHeaders(options.Permission))
+            throw new NotSupportedException($"{GetType().Name} cannot set the download file name or the content type of a {options.Permission} URL.");
         if (options.Validity > MaxSignedUrlValidity)
             throw new NotSupportedException($"{GetType().Name} signs URLs that live at most {MaxSignedUrlValidity}; {options.Validity} was asked.");
         if (options.Permission == SignedUrlAccess.Read)
@@ -220,9 +222,7 @@ public abstract partial class WriteableFileProvider<TOptions>(TOptions options) 
             return (from, to, true);
         // On a store that ignores case, moving a file to a name that differs only in case is a rename: the destination
         // "exists" because it is the source.
-        var caseOnlyRename = move && IsCaseInsensitive
-            && string.Equals(from.Path.ToString(), to.Path.ToString(), StringComparison.OrdinalIgnoreCase);
-        if (!caseOnlyRename && (await GetFileInfoCoreAsync(to, cancellationToken).ConfigureAwait(false)).Exists)
+        if (!(move && IsCaseOnlyRename(from, to)) && (await GetFileInfoCoreAsync(to, cancellationToken).ConfigureAwait(false)).Exists)
             throw new FileExistsException($"The destination '{to}' already exists.");
         return (from, to, false);
     }

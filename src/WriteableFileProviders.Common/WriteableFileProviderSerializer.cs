@@ -159,7 +159,7 @@ public static class WriteableFileProviderSerializer
     /// <param name="typeName">The provider's class name.</param>
     /// <param name="searchInAssemblies">Assemblies to search first.</param>
     /// <exception cref="ArgumentException">The name is missing, unknown or ambiguous.</exception>
-    public static Type ResolveProviderType(string? typeName, params Assembly[] searchInAssemblies)
+    internal static Type ResolveProviderType(string? typeName, params Assembly[] searchInAssemblies)
     {
         if (string.IsNullOrEmpty(typeName))
             throw new ArgumentException("FileProvider cannot be parsed. 'Type' is not provided", nameof(typeName));

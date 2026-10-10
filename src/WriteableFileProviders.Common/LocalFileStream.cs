@@ -32,6 +32,9 @@ public sealed class LocalFileStream : Stream
     /// <summary>Whether the stream is read-only: it cannot be written, and never uploads.</summary>
     public bool ReadOnly { get; }
 
+    /// <summary>The local temp file's full name, for the tests.</summary>
+    internal string? TempFilePath => (_inner as FileStream)?.Name;
+
     /// <summary>When true, disposing the stream does not upload it.</summary>
     public bool SkipReUploadOnDispose { get; set; }
 
@@ -151,7 +154,7 @@ public sealed class LocalFileStream : Stream
             try
             {
                 if (_needsCommit && !SkipReUploadOnDispose)
-                    CommitCoreAsync(CancellationToken.None).GetAwaiter().GetResult();
+                    WriteableFileProviderExtensions.Wait(CommitCoreAsync(CancellationToken.None));
             }
             finally
             {

@@ -56,14 +56,6 @@ public readonly struct ProviderPath : IEquatable<ProviderPath>
     /// <param name="segments">The segments.</param>
     public static implicit operator ProviderPath(string[]? segments) => new(segments);
 
-    /// <summary>Creates a path from its segments; the same as the implicit conversion from an array.</summary>
-    /// <param name="segments">The segments.</param>
-    public static ProviderPath FromSegments(string[]? segments) => new(segments);
-
-    /// <summary>Converts a string path; the same as <see cref="Parse"/>.</summary>
-    /// <param name="path">The path.</param>
-    public static ProviderPath FromString(string? path) => Parse(path);
-
     /// <inheritdoc />
     public bool Equals(ProviderPath other) => Segments.SequenceEqual(other.Segments, StringComparer.Ordinal);
 

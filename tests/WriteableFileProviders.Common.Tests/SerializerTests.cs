@@ -1,3 +1,5 @@
+using System.Reflection;
+using System.Runtime.Loader;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Configuration;
@@ -172,6 +174,27 @@ public sealed class SerializerTests
     }
 
     [TestMethod]
+    public void Resolution_LoadsABuiltInPackageNobodyHasLoaded()
+    {
+        // A fresh load context has loaded nothing: resolving the Azure provider has to load its assembly by name.
+        var context = new IsolatedLoadContext();
+        try
+        {
+            var common = context.LoadFromAssemblyPath(typeof(WriteableFileProviderSerializer).Assembly.Location);
+            Assert.IsFalse(context.Assemblies.Any(a => a.GetName().Name == "WriteableFileProviders.AzureBlob"));
+            var resolve = common.GetType("WriteableFileProviders.WriteableFileProviderSerializer", throwOnError: true)!
+                .GetMethod("ResolveProviderType", BindingFlags.Static | BindingFlags.NonPublic)!;
+            var type = (Type)resolve.Invoke(null, ["WriteableAzureBlobFileProvider", Array.Empty<Assembly>()])!;
+            Assert.AreEqual("WriteableFileProviders.AzureBlob.WriteableAzureBlobFileProvider", type.FullName);
+            Assert.AreSame(context, AssemblyLoadContext.GetLoadContext(type.Assembly));
+        }
+        finally
+        {
+            context.Unload();
+        }
+    }
+
+    [TestMethod]
     public void Resolution_RefusesAmbiguousAndUnusableTypes()
     {
         Assert.ThrowsExactly<ArgumentException>(WriteableFileProviderSerializer.Register<IWriteableFileProvider>);
@@ -185,4 +208,13 @@ public sealed class SerializerTests
     [TestMethod]
     public void Construction_ErrorsComeThroughUnwrapped() =>
         Assert.ThrowsExactly<ArgumentException>(() => WriteableFileProviderSerializer.FromJson("""{"Type":"RefusingProvider"}""", _here));
+
+    private sealed class IsolatedLoadContext() : AssemblyLoadContext("wfp-isolated", isCollectible: true)
+    {
+        protected override Assembly? Load(AssemblyName assemblyName)
+        {
+            var path = Path.Combine(AppContext.BaseDirectory, assemblyName.Name + ".dll");
+            return File.Exists(path) ? LoadFromAssemblyPath(path) : null;
+        }
+    }
 }

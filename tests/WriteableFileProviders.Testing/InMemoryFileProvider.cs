@@ -8,26 +8,44 @@ public sealed class InMemoryFileProviderOptions : FileProviderOptions
 {
     /// <summary>The store to use: providers with the same name share their files.</summary>
     public string StoreName { get; set; } = "default";
+
+    /// <summary>
+    /// Whether names that differ only in case are the same name, as on Box, SharePoint and Windows. Set by the provider
+    /// that first opens the store.
+    /// </summary>
+    public bool CaseInsensitive { get; set; }
+
+    /// <summary>
+    /// A lifetime the store gives every signed URL whatever was asked, as Box and SharePoint do (D18); null to honour the
+    /// validity asked.
+    /// </summary>
+    public TimeSpan? FixedSignedUrlLifetime { get; set; }
 }
 
 /// <summary>
-/// The reference provider: files in memory, with real folders, ETags, content types and signed URLs, built on the base
-/// class's defaults (range reads, seekable reads, copy, move, append by rewrite). It passes the conformance suite, and
-/// shows what each <c>...CoreAsync</c> member owes the contract.
+/// The reference provider: files in memory, with real folders, ETags, content types and signed URLs (with their download
+/// file name and content type), built on the base class's defaults (range reads, seekable reads, copy, move, append by
+/// rewrite). It passes the conformance suite, and shows what each <c>...CoreAsync</c> member owes the contract.
 /// </summary>
 /// <param name="options">The options.</param>
 public sealed class InMemoryFileProvider(InMemoryFileProviderOptions options) : WriteableFileProvider<InMemoryFileProviderOptions>(options)
 {
     private static readonly ConcurrentDictionary<string, Store> _stores = new(StringComparer.Ordinal);
 
-    private Store Files => _stores.GetOrAdd(Options.StoreName, _ => new Store());
+    private Store Files => _stores.GetOrAdd(Options.StoreName, _ => new Store(Options.CaseInsensitive));
 
     /// <summary>Deletes every file of a store.</summary>
     /// <param name="storeName">The store.</param>
     public static void ClearStore(string storeName) => _stores.TryRemove(storeName, out _);
 
     /// <inheritdoc />
+    protected override bool IsCaseInsensitive => Files.Comparison == StringComparison.OrdinalIgnoreCase;
+
+    /// <inheritdoc />
     protected override bool SupportsSignedUrl(SignedUrlAccess permission) => true;
+
+    /// <inheritdoc />
+    protected override bool SupportsSignedUrlContentHeaders(SignedUrlAccess permission) => true;
 
     /// <inheritdoc />
     protected override Task<IWriteableFileInfo> GetFileInfoCoreAsync(ResolvedPath path, CancellationToken cancellationToken)
@@ -54,8 +72,8 @@ public sealed class InMemoryFileProvider(InMemoryFileProviderOptions options) : 
         {
             entries =
             [
-                .. Files.Folders.Where(f => IsChild(key, f)).Order(StringComparer.Ordinal).Select(f => WriteableFileInfo.Folder(this, path.Child(Name(f)).Path)),
-                .. Files.Entries.Where(e => IsChild(key, e.Key)).OrderBy(e => e.Key, StringComparer.Ordinal).Select(e => Info(path.Child(Name(e.Key)).Path, e.Value)),
+                .. Files.Folders.Where(f => IsChild(key, f, Files.Comparison)).Order(StringComparer.Ordinal).Select(f => WriteableFileInfo.Folder(this, path.Child(Name(f)).Path)),
+                .. Files.Entries.Where(e => IsChild(key, e.Key, Files.Comparison)).OrderBy(e => e.Key, StringComparer.Ordinal).Select(e => Info(path.Child(Name(e.Key)).Path, e.Value)),
             ];
         }
         foreach (var entry in entries)
@@ -115,8 +133,8 @@ public sealed class InMemoryFileProvider(InMemoryFileProviderOptions options) : 
             if (!Files.Folders.Remove(key))
                 return Task.FromResult(false);
             var prefix = key + "/";
-            Files.Folders.RemoveWhere(f => f.StartsWith(prefix, StringComparison.Ordinal));
-            foreach (var file in Files.Entries.Keys.Where(k => k.StartsWith(prefix, StringComparison.Ordinal)).ToList())
+            Files.Folders.RemoveWhere(f => f.StartsWith(prefix, Files.Comparison));
+            foreach (var file in Files.Entries.Keys.Where(k => k.StartsWith(prefix, Files.Comparison)).ToList())
                 Files.Entries.Remove(file);
             return Task.FromResult(true);
         }
@@ -126,11 +144,25 @@ public sealed class InMemoryFileProvider(InMemoryFileProviderOptions options) : 
     protected override Task<SignedUrl> GetSignedUrlCoreAsync(ResolvedPath path, SignedUrlOptions options, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
-        var expires = TimeProvider.GetUtcNow().Add(options.Validity);
-        var url = new Uri($"memory://{Uri.EscapeDataString(Options.StoreName)}/{Key(path)}?access={options.Permission}&expires={expires.ToUnixTimeSeconds()}");
+        var lifetime = options.Validity;
+        if (Options.FixedSignedUrlLifetime is { } fixedLifetime)
+        {
+            // D18: a URL never outlives what was asked, and lives shorter only when the caller accepts it.
+            if (options.Validity < fixedLifetime)
+                throw new NotSupportedException($"The store's URLs live {fixedLifetime}, longer than the {options.Validity} asked.");
+            if (!options.AllowShorterValidity)
+                throw new NotSupportedException($"The store's URLs live {fixedLifetime}, shorter than the {options.Validity} asked.");
+            lifetime = fixedLifetime;
+        }
+        var expires = TimeProvider.GetUtcNow().Add(lifetime);
+        var query = $"access={options.Permission}&expires={expires.ToUnixTimeSeconds()}";
+        if (options.DownloadFileName is not null)
+            query += "&filename=" + Uri.EscapeDataString(options.DownloadFileName);
+        if (options.ContentType is not null)
+            query += "&contentType=" + Uri.EscapeDataString(options.ContentType);
         return Task.FromResult(new SignedUrl
         {
-            Url = url,
+            Url = new Uri($"memory://{Uri.EscapeDataString(Options.StoreName)}/{Key(path)}?{query}"),
             Method = options.Permission == SignedUrlAccess.Read ? "GET" : "PUT",
             ExpiresOn = expires,
         });
@@ -140,19 +172,20 @@ public sealed class InMemoryFileProvider(InMemoryFileProviderOptions options) : 
 
     private static string Name(string key) => key[(key.LastIndexOf('/') + 1)..];
 
-    private static bool IsChild(string folderKey, string key) =>
+    private static bool IsChild(string folderKey, string key, StringComparison comparison) =>
         folderKey.Length == 0
             ? !key.Contains('/', StringComparison.Ordinal)
-            : key.Length > folderKey.Length + 1 && key.StartsWith(folderKey + "/", StringComparison.Ordinal)
+            : key.Length > folderKey.Length + 1 && key.StartsWith(folderKey + "/", comparison)
               && !key.AsSpan(folderKey.Length + 1).Contains('/');
 
     private WriteableFileInfo Info(ProviderPath path, Entry file) =>
         new(this, path, true, false, file.Data.Length, file.Modified, etag: file.ETag, contentType: file.ContentType);
 
-    private sealed class Store
+    private sealed class Store(bool caseInsensitive)
     {
-        public Dictionary<string, Entry> Entries { get; } = new(StringComparer.Ordinal);
-        public HashSet<string> Folders { get; } = new(StringComparer.Ordinal);
+        public StringComparison Comparison { get; } = caseInsensitive ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        public Dictionary<string, Entry> Entries { get; } = new(caseInsensitive ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+        public HashSet<string> Folders { get; } = new(caseInsensitive ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
     }
 
     private sealed record Entry(byte[] Data, DateTimeOffset Modified, string ETag, string? ContentType);

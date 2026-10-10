@@ -68,5 +68,5 @@ public sealed class WriteableFileInfo(
 
     /// <summary>Opens the file for reading; the same as <see cref="IWriteableFileProvider.ReadFileAsync"/>.</summary>
     /// <exception cref="FileNotFoundException">The file does not exist, or is a folder.</exception>
-    public Stream CreateReadStream() => Provider.ReadFileAsync(Path).GetAwaiter().GetResult();
+    public Stream CreateReadStream() => WriteableFileProviderExtensions.Wait(Provider.ReadFileAsync(Path));
 }

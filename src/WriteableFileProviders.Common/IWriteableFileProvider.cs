@@ -71,6 +71,7 @@ public interface IWriteableFileProvider : IFileProvider, IDisposable, IAsyncDisp
     /// <param name="options">How the stream reads.</param>
     /// <param name="cancellationToken">Cancels the call.</param>
     /// <exception cref="FileNotFoundException">The file does not exist, or is a folder.</exception>
+    /// <exception cref="NotSupportedException">The read is pinned and the file has no <see cref="IWriteableFileInfo.ETag"/>.</exception>
     Task<Stream> OpenReadSeekableAsync(ProviderPath path, SeekableReadOptions? options = null, CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -126,6 +127,7 @@ public interface IWriteableFileProvider : IFileProvider, IDisposable, IAsyncDisp
     /// <param name="readOnly">Whether the stream is read-only and never uploads.</param>
     /// <param name="cancellationToken">Cancels the call.</param>
     /// <exception cref="FileNotFoundException">A read-only stream of a file that does not exist, or of a folder.</exception>
+    /// <exception cref="IOException">A writeable stream of a folder.</exception>
     Task<LocalFileStream> CreateLocalFileStreamAsync(ProviderPath path, bool readOnly, CancellationToken cancellationToken = default);
 
     /// <summary>

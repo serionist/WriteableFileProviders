@@ -8,7 +8,8 @@ public sealed record SeekableReadOptions
 
     /// <summary>
     /// When false (the default), the stream pins the version it opened and throws <see cref="IOException"/> if the file
-    /// changes while it is read. When true, each fetch reads whatever the file holds then.
+    /// changes while it is read; a file with no <see cref="IWriteableFileInfo.ETag"/> cannot be pinned and throws
+    /// <see cref="NotSupportedException"/>. When true, each fetch reads whatever the file holds then.
     /// </summary>
     public bool AllowModifications { get; init; }
 }

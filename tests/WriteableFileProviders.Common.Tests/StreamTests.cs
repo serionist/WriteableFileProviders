@@ -67,6 +67,31 @@ public sealed class StreamTests
     }
 
     [TestMethod]
+    public async Task RangeReadStream_FailedFetchIsNeverServed()
+    {
+        // A buffer of 4 over 8 bytes. The second fetch writes two bytes into the buffer, then fails: reading the first
+        // range again refetches it instead of serving the half-written buffer.
+        byte[] data = [1, 2, 3, 4, 5, 6, 7, 8];
+        var fail = false;
+        await using var stream = new RangeReadStream(data.Length, (offset, count, _) => Task.FromResult<Stream>(fail
+            ? new FailingStream([99, 99])
+            : new MemoryStream(data[(int)offset..(int)(offset + count)])), 4);
+        var buffer = new byte[4];
+        Assert.AreEqual(4, await stream.ReadAsync(buffer));
+        fail = true;
+        await Assert.ThrowsAsync<IOException>(async () => await stream.ReadExactlyAsync(buffer));
+        fail = false;
+        stream.Position = 0;
+        Assert.AreEqual(4, await stream.ReadAsync(buffer));
+        CollectionAssert.AreEqual(new byte[] { 1, 2, 3, 4 }, buffer);
+        fail = true;
+        Assert.ThrowsExactly<IOException>(() => stream.ReadByte());
+        fail = false;
+        stream.Position = 1;
+        Assert.AreEqual(2, stream.ReadByte());
+    }
+
+    [TestMethod]
     public void RangeReadStream_CannotBeReadAfterDispose()
     {
         var stream = Over(_data);

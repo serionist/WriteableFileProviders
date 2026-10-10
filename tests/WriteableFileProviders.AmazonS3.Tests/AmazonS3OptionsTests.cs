@@ -106,6 +106,36 @@ public sealed class AmazonS3OptionsTests
     }
 
     [TestMethod]
+    public void NewOptions_AreWrittenOnlyWhenSet()
+    {
+        // D26: a configuration that uses none of the 2027 options keeps its 2026 shape.
+        string[] added = ["ServiceUrl", "ForcePathStyle", "UseDefaultCredentials", "CreateBucketIfMissing"];
+        using (var plain = new WriteableAmazonS3FileProvider(Valid()))
+        {
+            var json = plain.ToJson();
+            Assert.IsFalse(added.Any(json.ContainsKey), json.ToJsonString());
+        }
+        using var set = new WriteableAmazonS3FileProvider(new AmazonS3FileProviderOptions
+        {
+            BucketName = "bucket",
+            ServiceUrl = "http://localhost:9000",
+            ForcePathStyle = true,
+            UseDefaultCredentials = true,
+            CreateBucketIfMissing = true,
+        });
+        var written = set.ToJson();
+        Assert.IsTrue(added.All(written.ContainsKey), written.ToJsonString());
+        using var read = (WriteableAmazonS3FileProvider)WriteableFileProviderSerializer.FromJson(written);
+        Assert.AreEqual("http://localhost:9000", read.Options.ServiceUrl);
+        Assert.IsTrue(read.Options.ForcePathStyle && read.Options.UseDefaultCredentials && read.Options.CreateBucketIfMissing);
+    }
+
+    [TestMethod]
+    public void Provider_IsSealed() =>
+        // D25: a custom provider derives from WriteableFileProvider<TOptions>, not from a provider.
+        Assert.IsTrue(typeof(WriteableAmazonS3FileProvider).IsSealed);
+
+    [TestMethod]
     public void AttachmentDisposition_EncodesTheNameBothWays()
     {
         var value = System.Net.Http.Headers.ContentDispositionHeaderValue.Parse(S3Core.AttachmentDisposition("rép\"ort;\r\nx.csv"));

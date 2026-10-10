@@ -24,7 +24,7 @@ namespace WriteableFileProviders.AmazonS3;
 /// credential that signs them.
 /// </para>
 /// </remarks>
-public class WriteableAmazonS3FileProvider : WriteableFileProvider<AmazonS3FileProviderOptions>
+public sealed class WriteableAmazonS3FileProvider : WriteableFileProvider<AmazonS3FileProviderOptions>
 {
     private readonly S3Core _core;
 
@@ -156,10 +156,8 @@ public class WriteableAmazonS3FileProvider : WriteableFileProvider<AmazonS3FileP
     }
 
     // A listed name that the path validation would refuse, or would split into other segments, cannot be addressed.
-    private bool IsAddressable(string name)
+    private static bool IsAddressable(string name)
     {
-        if (!IsSegmentAllowed(name))
-            return false;
         try
         {
             return ValidateSegments([name]) is [var only] && only == name;

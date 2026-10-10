@@ -127,6 +127,7 @@ default, and the obsolete `S3Region` short names (`US`, `EU`, `SFO`…) are gone
 | `ReadFileAsync(string versionId, params string[] absolutePathSegments)`, `EnumerateObjects(string[], bool)` (obsolete since the 2026.10 security patch) | Removed | `ReadFileVersionAsync(versionId, path)` and `EnumerateAsync(path, recursive: true)`, both relative to the root. |
 | `ReadFileVersionAsync(string versionId, params string[] pathSegments)` | `ReadFileVersionAsync(string? versionId, ProviderPath path, CancellationToken)` | A call with one path string compiles unchanged; pass several segments as `"a/b.txt"` or an array. |
 | `ReadFileAsync(string subpath)` on the concrete type | Removed | `ReadFileAsync(path)` of the interface, which a string converts to. |
+| `WriteableAmazonS3FileProvider` could be derived from | It is `sealed` (D25) | Derive a custom provider from `WriteableFileProvider<TOptions>`, or wrap this one. |
 | Missing file: `AmazonS3Exception` (NoSuchKey) | `FileNotFoundException`, with the SDK's error inside | Catch `FileNotFoundException`. |
 | A folder: `Exists` false, `IsDirectory` true; `PhysicalPath` the key | `Exists` and `IsDirectory` true; `PhysicalPath` null | Use `IWriteableFileInfo.Path`. |
 | Move overwrote an existing destination | `FileExistsException`; it deletes exactly the source key | Delete the destination first if you meant to replace it. |
@@ -140,12 +141,14 @@ default, and the obsolete `S3Region` short names (`US`, `EU`, `SFO`…) are gone
 | A key with an empty segment, `..` or a backslash was listed | Left out of listings, since no path can name it | Rename such keys with another tool. |
 
 New: `ServiceUrl` and `ForcePathStyle` for S3-compatible servers, `UseDefaultCredentials` for the SDK's default
-credential chain, `CreateBucketIfMissing`, and a constructor that takes your own `IAmazonS3`.
+credential chain, `CreateBucketIfMissing`, and a constructor that takes your own `IAmazonS3`. The new options are written
+to JSON only when set (D26), so a configuration that uses none of them keeps its 2026 shape.
 
 ### MinIO
 
 | 2026 | 2027 | How to move |
 |---|---|---|
+| `WriteableMinioFileProvider` could be derived from | It is `sealed` (D25) | Derive a custom provider from `WriteableFileProvider<TOptions>`, or wrap this one. |
 | `UseSSL` false sent everything over plain HTTP to any host | Plain HTTP only toward a loopback host; any other host throws `ArgumentException` when the provider is built (D7) | Set `UseSSL`, or `AllowInsecureHttp` for a server you reach over plain HTTP on purpose. |
 | A missing bucket was created on the first write | `InvalidOperationException` naming the bucket, unless `CreateBucketIfMissing` is set | Set `CreateBucketIfMissing: true` to keep the old behaviour. |
 | Missing file: `ObjectNotFoundException`; missing bucket: `BucketNotFoundException` | `FileNotFoundException`; `InvalidOperationException` | Catch those. |
@@ -162,7 +165,7 @@ Each needs `"UseSSL": true`, or `"AllowInsecureHttp": true` if plain HTTP is int
 
 `IfMatch`, `IfNotExists` and the protection of concurrent appends need a MinIO release with conditional writes; older
 servers ignore the headers. New: `AllowInsecureHttp`, `Region`, `CreateBucketIfMissing`, and a constructor that takes your
-own `IAmazonS3`.
+own `IAmazonS3`. The new options are written to JSON only when set (D26).
 
 ## Stored configuration
 

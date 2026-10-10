@@ -23,7 +23,7 @@ namespace WriteableFileProviders.Minio;
 /// URLs live at most 7 days.
 /// </para>
 /// </remarks>
-public class WriteableMinioFileProvider : WriteableFileProvider<MinioFileProviderOptions>
+public sealed class WriteableMinioFileProvider : WriteableFileProvider<MinioFileProviderOptions>
 {
     private readonly S3Core _core;
 
@@ -130,10 +130,8 @@ public class WriteableMinioFileProvider : WriteableFileProvider<MinioFileProvide
     }
 
     // A listed name that the path validation would refuse, or would split into other segments, cannot be addressed.
-    private bool IsAddressable(string name)
+    private static bool IsAddressable(string name)
     {
-        if (!IsSegmentAllowed(name))
-            return false;
         try
         {
             return ValidateSegments([name]) is [var only] && only == name;

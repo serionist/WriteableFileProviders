@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace WriteableFileProviders.Minio;
 
 /// <summary>
@@ -50,12 +52,16 @@ public class MinioFileProviderOptions : FileProviderOptions
     /// network. Off by default, so a configuration that forgot <see cref="UseSSL"/> fails instead of sending files in
     /// clear text. New in 2027.0.0.
     /// </summary>
+    /// <remarks>Written to JSON only when set (D26), so a configuration that does not use it keeps the 2026 shape.</remarks>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool AllowInsecureHttp { get; set; }
 
     /// <summary>
     /// The server's region (<c>MINIO_SITE_REGION</c>), which signs every request. When empty, the provider asks the server
     /// for the bucket's region once, on first use. New in 2027.0.0.
     /// </summary>
+    /// <remarks>Written to JSON only when set (D26), so a configuration that does not use it keeps the 2026 shape.</remarks>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public string? Region { get; set; }
 
     /// <summary>
@@ -63,5 +69,7 @@ public class MinioFileProviderOptions : FileProviderOptions
     /// <see cref="InvalidOperationException"/> naming the bucket. New in 2027.0.0; until then the provider created a
     /// missing bucket on its first write.
     /// </summary>
+    /// <remarks>Written to JSON only when set (D26), so a configuration that does not use it keeps the 2026 shape.</remarks>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool CreateBucketIfMissing { get; set; }
 }

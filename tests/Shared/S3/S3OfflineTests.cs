@@ -7,8 +7,8 @@ namespace WriteableFileProviders.S3.Testing;
 
 /// <summary>
 /// What the S3 core does that a real server will not provoke, run through each provider over a fake S3 behind the SDK's
-/// HTTP layer: the part limit, a bucket created by someone else meanwhile, names a provider refuses, and a skewed SDK
-/// clock near the 7-day limit.
+/// HTTP layer: the part limit, a bucket created by someone else meanwhile, keys no path can name, and a skewed SDK clock
+/// near the 7-day limit.
 /// </summary>
 public abstract class S3OfflineTests
 {
@@ -17,8 +17,7 @@ public abstract class S3OfflineTests
     /// fake answers; it must be one where the SDK may sign with SigV2 past 7 days.
     /// </summary>
     /// <param name="createBucketIfMissing">The option of the same name.</param>
-    /// <param name="refuseSecrets">Whether the provider refuses segments that start with "secret".</param>
-    internal abstract IWriteableFileProvider CreateOffline(bool createBucketIfMissing = false, bool refuseSecrets = false);
+    internal abstract IWriteableFileProvider CreateOffline(bool createBucketIfMissing = false);
 
     /// <summary>The provider's core.</summary>
     /// <param name="provider">A provider of <see cref="CreateOffline"/>.</param>
@@ -28,9 +27,9 @@ public abstract class S3OfflineTests
     protected virtual string? ExpectedLocationConstraint => null;
 
     private (IWriteableFileProvider Provider, InterceptingHttpClientFactory Factory) Offline(Func<HttpRequestMessage, Task<HttpResponseMessage?>>? answer = null,
-        bool createBucketIfMissing = false, bool refuseSecrets = false)
+        bool createBucketIfMissing = false)
     {
-        var provider = CreateOffline(createBucketIfMissing, refuseSecrets);
+        var provider = CreateOffline(createBucketIfMissing);
         var factory = new InterceptingHttpClientFactory { Intercept = async r => (answer is null ? null : await answer(r)) ?? Existing(r) };
         CoreOf(provider).HttpClientFactory = factory;
         return (provider, factory);
@@ -87,11 +86,12 @@ public abstract class S3OfflineTests
     }
 
     [TestMethod]
-    public async Task Listing_SkipsNamesTheProviderRefuses()
+    public async Task Listing_SkipsKeysNoPathCanName()
     {
+        // A marker, names that decode to "..", hold a backslash or a control character (a tab), and an empty folder name.
         var (provider, _) = Offline(r => Task.FromResult(IsList(r)
-            ? ListResult(["root/a.txt", "root/secret.txt"], ["root/dir/", "root/secrets/"])
-            : null), refuseSecrets: true);
+            ? ListResult(["root/", "root/a.txt", "root/%2e%2e", @"root/a\b.txt", "root/x&#x9;y"], ["root/dir/", "root//", "root/%252e%252e/"])
+            : null));
         using (provider)
         {
             var names = (await provider.GetDirectoryContentsAsync("")).Select(e => e.Name).ToList();

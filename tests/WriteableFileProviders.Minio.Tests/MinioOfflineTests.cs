@@ -158,23 +158,13 @@ public sealed class MinioOfflineTests
 [TestClass]
 public sealed class MinioSharedOfflineTests : S3OfflineTests
 {
-    internal override IWriteableFileProvider CreateOffline(bool createBucketIfMissing = false, bool refuseSecrets = false)
-    {
-        var options = new MinioFileProviderOptions("root", "s3.test", "key", "secret", "bucket")
+    internal override IWriteableFileProvider CreateOffline(bool createBucketIfMissing = false) =>
+        new WriteableMinioFileProvider(new MinioFileProviderOptions("root", "s3.test", "key", "secret", "bucket")
         {
             AllowInsecureHttp = true,
             Region = "us-east-1",
             CreateBucketIfMissing = createBucketIfMissing,
-        };
-        return refuseSecrets ? new NoSecrets(options) : new WriteableMinioFileProvider(options);
-    }
+        });
 
     internal override S3.S3Core CoreOf(IWriteableFileProvider provider) => ((WriteableMinioFileProvider)provider).Core;
-
-    /// <summary>A provider that refuses some segments, as a subclass may.</summary>
-    /// <param name="options">The options.</param>
-    private sealed class NoSecrets(MinioFileProviderOptions options) : WriteableMinioFileProvider(options)
-    {
-        protected override bool IsSegmentAllowed(string part) => !part.StartsWith("secret", StringComparison.Ordinal);
-    }
 }

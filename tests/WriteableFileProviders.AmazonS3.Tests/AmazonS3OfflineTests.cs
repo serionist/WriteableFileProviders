@@ -275,18 +275,11 @@ public sealed class AmazonS3SharedOfflineTests : S3OfflineTests
     // The SDK sends eu-west-1 under its legacy location name, which S3 accepts.
     protected override string? ExpectedLocationConstraint => "EU";
 
-    internal override IWriteableFileProvider CreateOffline(bool createBucketIfMissing = false, bool refuseSecrets = false)
-    {
-        var options = new AmazonS3FileProviderOptions("root", "AKIDEXAMPLE", "secret", "bucket", "eu-west-1") { CreateBucketIfMissing = createBucketIfMissing };
-        return refuseSecrets ? new NoSecrets(options) : new WriteableAmazonS3FileProvider(options);
-    }
+    internal override IWriteableFileProvider CreateOffline(bool createBucketIfMissing = false) =>
+        new WriteableAmazonS3FileProvider(new AmazonS3FileProviderOptions("root", "AKIDEXAMPLE", "secret", "bucket", "eu-west-1")
+        {
+            CreateBucketIfMissing = createBucketIfMissing,
+        });
 
     internal override S3.S3Core CoreOf(IWriteableFileProvider provider) => ((WriteableAmazonS3FileProvider)provider).Core;
-
-    /// <summary>A provider that refuses some segments, as a subclass may.</summary>
-    /// <param name="options">The options.</param>
-    private sealed class NoSecrets(AmazonS3FileProviderOptions options) : WriteableAmazonS3FileProvider(options)
-    {
-        protected override bool IsSegmentAllowed(string part) => !part.StartsWith("secret", StringComparison.Ordinal);
-    }
 }

@@ -55,7 +55,8 @@ Or from configuration, with `WriteableFileProviderSerializer.FromConfiguration(s
 | `CreateBucketIfMissing` | Create the bucket on first use. Otherwise a missing bucket makes every member throw `InvalidOperationException`. New in 2027; until then the provider created it on its first write. |
 | `RootDirectoryPath` (or `RootDirectorySegments`) | The folder the provider is confined to; nothing outside it can be reached. |
 
-The options hold secrets: never log them, nor the output of `ToJson`.
+The options added in 2027 are written to JSON only when set, so a configuration that uses none of them keeps its
+2026 shape. The options hold secrets: never log them, nor the output of `ToJson`.
 
 ## Authentication
 

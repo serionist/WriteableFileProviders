@@ -83,6 +83,34 @@ public sealed class MinioOptionsTests
     }
 
     [TestMethod]
+    public void NewOptions_AreWrittenOnlyWhenSet()
+    {
+        // D26: a configuration that uses none of the 2027 options keeps its 2026 shape.
+        string[] added = ["AllowInsecureHttp", "Region", "CreateBucketIfMissing"];
+        using (var plain = new WriteableMinioFileProvider(Options("localhost:9000")))
+        {
+            var json = plain.ToJson();
+            Assert.IsFalse(added.Any(json.ContainsKey), json.ToJsonString());
+        }
+        using var set = new WriteableMinioFileProvider(new MinioFileProviderOptions("root", "minio.internal:9000", "key", "secret", "bucket")
+        {
+            AllowInsecureHttp = true,
+            Region = "eu-central-1",
+            CreateBucketIfMissing = true,
+        });
+        var written = set.ToJson();
+        Assert.IsTrue(added.All(written.ContainsKey), written.ToJsonString());
+        using var read = (WriteableMinioFileProvider)WriteableFileProviderSerializer.FromJson(written);
+        Assert.AreEqual("eu-central-1", read.Options.Region);
+        Assert.IsTrue(read.Options.AllowInsecureHttp && read.Options.CreateBucketIfMissing);
+    }
+
+    [TestMethod]
+    public void Provider_IsSealed() =>
+        // D25: a custom provider derives from WriteableFileProvider<TOptions>, not from a provider.
+        Assert.IsTrue(typeof(WriteableMinioFileProvider).IsSealed);
+
+    [TestMethod]
     public void Options_KeepTheirConstructorValues()
     {
         var options = new MinioFileProviderOptions("a/b", "host:1", "k", "s", "bucket");

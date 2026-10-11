@@ -1,4 +1,8 @@
+using System.ComponentModel;
+using System.Diagnostics;
 using System.Runtime.Versioning;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Text;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -219,7 +223,7 @@ public sealed class PhysicalProviderTests
         try
         {
             if (!PermissionsApply(Disk("f.txt")))
-                return;
+                Assert.Inconclusive("The tests run as root, whom file permissions do not stop.");
             await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(() => Write("f.txt", "new"));
             await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(() => Write("f.txt", "+more", UpdateFileOptions.Append));
             Assert.AreEqual("kept", await Read("f.txt"));
@@ -232,6 +236,136 @@ public sealed class PhysicalProviderTests
             else
                 File.SetUnixFileMode(Disk("f.txt"), UnixFileMode.UserRead | UnixFileMode.UserWrite);
         }
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    [SupportedOSPlatform("windows")]
+    public async Task Write_InAFolderWhereTheProcessMayNotCreateFilesIsRefusedNamingTheFile()
+    {
+        // The file itself can be written; its folder denies creating files, which the new content needs.
+        await Write("f.txt", "kept");
+        var folder = new DirectoryInfo(_root);
+        var deny = new FileSystemAccessRule(WindowsIdentity.GetCurrent().User!, FileSystemRights.CreateFiles, AccessControlType.Deny);
+        var security = folder.GetAccessControl();
+        security.AddAccessRule(deny);
+        folder.SetAccessControl(security);
+        try
+        {
+            var e = await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(() => Write("f.txt", "new"));
+            StringAssert.Contains(e.Message, "'f.txt'");
+            Assert.DoesNotContain(".wfp-", e.Message, "The message names the file, not the provider's temp file");
+        }
+        finally
+        {
+            security.RemoveAccessRule(deny);
+            folder.SetAccessControl(security);
+        }
+        Assert.AreEqual("kept", await Read("f.txt"));
+        Assert.IsEmpty(TempFiles());
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Linux | OperatingSystems.OSX)]
+    [UnsupportedOSPlatform("windows")]
+    public async Task Write_InAFolderTheProcessMayNotWriteIsRefusedNamingTheFile()
+    {
+        // The rename needs the folder: the new content is created there, next to the file, which itself can be written.
+        await Write("f.txt", "kept");
+        File.SetUnixFileMode(_root, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+        try
+        {
+            if (!PermissionsApply(Disk("new.txt")))
+                Assert.Inconclusive("The tests run as root, whom file permissions do not stop.");
+            var e = await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(() => Write("f.txt", "new"));
+            StringAssert.Contains(e.Message, "'f.txt'");
+            Assert.DoesNotContain(".wfp-", e.Message, "The message names the file, not the provider's temp file");
+        }
+        finally
+        {
+            File.SetUnixFileMode(_root, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+        Assert.AreEqual("kept", await Read("f.txt"));
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Linux | OperatingSystems.OSX)]
+    [UnsupportedOSPlatform("windows")]
+    public async Task Write_CreatesItsTempFileNoMoreReadableThanTheFileItReplaces()
+    {
+        // Created with the mode, not narrowed after: in between, another user could open it and read the new content.
+        var created = new List<UnixFileMode>();
+        _provider.Dispose();
+        _provider = new WriteablePhysicalFileProvider(_root) { TempCreated = temp => created.Add(File.GetUnixFileMode(temp)) };
+        const UnixFileMode secret = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+        await Write("f.txt", "old");
+        File.SetUnixFileMode(Disk("f.txt"), secret);
+        await Write("f.txt", "new");
+        await Write("f.txt", "+more", UpdateFileOptions.Append);
+        await _provider.CopyAsync("f.txt", "copy.txt");
+        Assert.HasCount(4, created);
+        foreach (var mode in created.Skip(1))
+            Assert.AreEqual(UnixFileMode.None, mode & ~secret, $"A temp file was created {mode}");
+        Assert.AreEqual(secret, File.GetUnixFileMode(Disk("copy.txt")));
+    }
+
+    [TestMethod]
+    [DataRow(UpdateFileMode.Overwrite)]
+    [DataRow(UpdateFileMode.Append)]
+    public async Task Write_OverALinkToNothingReplacesTheLink(UpdateFileMode mode)
+    {
+        Directory.CreateDirectory(_root);
+        try
+        {
+            File.CreateSymbolicLink(Disk("link.txt"), Disk("nowhere.txt"));
+        }
+        catch (Exception e) when (OperatingSystem.IsWindows() && e is IOException or UnauthorizedAccessException)
+        {
+            Assert.Inconclusive($"Creating a symbolic link on Windows needs Developer Mode or elevation: {e.Message}");
+        }
+        await _provider.UpdateFileAsync("link.txt", TestStreams.Text("new"), mode);
+        Assert.AreEqual("new", await Read("link.txt"));
+        Assert.IsNull(new FileInfo(Disk("link.txt")).LinkTarget, "The link is replaced by a file");
+        Assert.IsFalse(File.Exists(Disk("nowhere.txt")), "Its target is left as it was");
+        if (!OperatingSystem.IsWindows())
+            Assert.AreEqual(UnixFileMode.None, File.GetUnixFileMode(Disk("link.txt")) & UnixFileMode.OtherWrite, "Not the link's own mode");
+    }
+
+    [TestMethod]
+    public async Task Write_OverAnEmptyFileReplacesIt()
+    {
+        // An empty file is checked to be a regular file before it is replaced.
+        await Write("empty.txt", "");
+        await Write("empty.txt", "full");
+        Assert.AreEqual("full", await Read("empty.txt"));
+        await Write("empty2.txt", "");
+        await Write("empty2.txt", "+more", UpdateFileOptions.Append);
+        Assert.AreEqual("+more", await Read("empty2.txt"));
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Linux | OperatingSystems.OSX)]
+    public async Task Write_OverAFifoIsRefused()
+    {
+        // Opening a FIFO to write waits for a reader, forever: the provider refuses it without waiting.
+        Directory.CreateDirectory(_root);
+        try
+        {
+            using var mkfifo = Process.Start(new ProcessStartInfo("mkfifo", Disk("pipe")) { UseShellExecute = false })!;
+            await mkfifo.WaitForExitAsync();
+            if (mkfifo.ExitCode != 0)
+                Assert.Inconclusive($"mkfifo exited with {mkfifo.ExitCode}.");
+        }
+        catch (Win32Exception e)
+        {
+            Assert.Inconclusive($"mkfifo is not available: {e.Message}");
+        }
+        foreach (var options in new[] { UpdateFileOptions.Overwrite, UpdateFileOptions.Append })
+        {
+            var e = await Assert.ThrowsExactlyAsync<IOException>(() => _provider.UpdateFileAsync("pipe", TestStreams.Text("x"), options).WaitAsync(TimeSpan.FromSeconds(30)));
+            StringAssert.Contains(e.Message, "not a regular file");
+        }
+        Assert.IsEmpty(TempFiles());
     }
 
     // ----- Versions and preconditions -----

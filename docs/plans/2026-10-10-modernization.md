@@ -221,9 +221,10 @@ Every provider passes the same conformance tests for each of these rules:
     cleanup, and the suite checks no `.wfp-*.tmp` is left.
   - *Physical sharing (P20):* Physical opens readers with `FileShare.ReadWrite | FileShare.Delete`, so a delete can
     proceed, and a replace on Linux and macOS; Windows does not rename over a file that is open, so there a write to a
-    file being read fails with `UnauthorizedAccessException` and keeps its content. A Physical test (not a shared
-    conformance case, since what an open reader sees differs per store) writes while a read stream is open, with the
-    result expected per OS, and runs on Windows CI (S5).
+    file being read fails and keeps its content: with `UnauthorizedAccessException` when the reader shares writing, as
+    Physical's readers do, and with `IOException` when another process holds the file without sharing writes. A
+    Physical test (not a shared conformance case, since what an open reader sees differs per store) writes while a read
+    stream is open, with the result expected per OS, and runs on Windows CI (S5).
 - **Library code:**
   - Every await uses `ConfigureAwait(false)`.
   - Sync members go through one `GetAwaiter().GetResult()` helper (F13, F33).
@@ -1525,6 +1526,43 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     - `Common.Tests` on Linux: 217 passed.
     - The whole solution on Windows with `WFP_REQUIRE_DOCKER=1`: 473 tests, none failed. The 33 skipped are the two
       `AWS_ENDPOINT_URL_S3` suites and Physical's three.
+
+- **2026-10-11, S5 review round 2 (#26):** round 1 was verified, apart from one regression. Round 2 found 1 major
+  (N1) and 8 minors, all fixed in the next commit, after a rebase onto S11 (bce935c) and S8 (e1c4b52).
+  - **Rebase:** the trackers, the progress log and the migration guide carry both steps' notes. S8's
+    `FileInfo_AppendAndLocalStreamKeepTheContentType` returns early on Physical, which keeps no content type.
+  - **N1 (major, security):** round 1 created the temp file with the default mode and narrowed it afterwards, so
+    another local user could open it in between and read a private file's new content. The temp file is now created
+    with `UnixCreateMode` set to the mode it takes; the umask can only narrow that, and the exact bits follow on the
+    handle. An internal `TempCreated` hook lets `Write_CreatesItsTempFileNoMoreReadableThanTheFileItReplaces` read the
+    mode at creation. A mutation run in the Linux container showed it fails without the fix (the temp file was 0644).
+  - **N2:** a link to nothing at the path is replaced by a file, by an overwrite or an append, and the new file does not
+    take the link's mode.
+  - **N3 (decided: fail closed):** .NET 10 has no public file type (`SafeFileHandle.Type` comes in .NET 11), and opening
+    a FIFO to write waits forever. The check runs before anything else opens the file, an append's read included. An
+    empty target is opened to read and write, which does not wait even on a FIFO, and a handle that cannot seek throws
+    `IOException` ("not a regular file"). A file with content cannot be a FIFO, socket or device, so it keeps the write
+    probe. A device that seeks (`/dev/null`) passes as an empty file, which the docs say. `Write_OverAFifoIsRefused` runs
+    `mkfifo`.
+  - **N4:** on Windows a write fails with `UnauthorizedAccessException` when the reader shares writing, and with
+    `IOException` when another process holds the file without sharing writes. The README, the XML remarks, the
+    migration row and P20 say so.
+  - **N5:** a file in a folder the process may not write is refused with `UnauthorizedAccessException`, which names the
+    file and no longer the temp file; tests cover Unix (chmod) and Windows (a deny ACL on creating files). A mount
+    point (single-file bind mount, `subPath`) gets `IOException`, documented.
+  - **N6:** the stamped time steps without bound on coarse file systems, documented; "up to 2 seconds" is gone.
+  - **N7:** a copy takes its source's exact bits, whatever the umask, as `File.Copy` does, documented.
+  - **N8:** the read-only test is inconclusive, with its reason, when run as root.
+  - **N9:** the README's Watch bullet is wrapped and reworded, and the class remarks fit in 120 columns.
+  - **Floor:** per the Tests "Floors" rule (the lower of Linux and Windows, minus one). Linux, in the container: 100%
+    lines, 97.8% branches. Windows: 99.4% lines, 94.2% branches. So the floor is 98/93, a rise over main's 98/86. Round 1
+    set 99/96 without the margin.
+  - **Tests:**
+    - Physical on Windows: 140 tests; 134 passed, 6 skipped (the concurrent-append case and five Unix-only tests).
+    - Physical on Linux: 139 tests (it skips the Windows-only ACL test); 138 passed, 1 inconclusive (the concurrent
+      append).
+    - The whole solution on Windows with `WFP_REQUIRE_DOCKER=1`: 920 tests, none failed. The 36 skipped are the
+      `AWS_ENDPOINT_URL_S3` suites and Physical's six.
 
 ### For the maintainers
 

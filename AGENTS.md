@@ -90,8 +90,10 @@ provider and what the store can do (real folders, case, signed URLs, the large-f
 around), and so runs every rule. Where the fixture can reach the store past the provider, it also stores files under
 names the provider refuses (`StoreRawFileAsync`), so the suite checks that listings leave them out and everything listed
 reads back (D27). Every fixture builds a provider at a root with a dot segment and expects `ArgumentException`, except
-where the root is a folder of the disk (`ChecksItsRoot`, false for Physical); a fixture that can make its store throw
-whatever it is given (`CreateProviderThatFails`; the in-memory one does) runs the error contract's cases (D29).
+where the root is a folder of the disk (`ChecksItsRoot`, false for Physical). The error contract's cases (D29) run on
+a provider whose store throws whatever it is given (`CreateProviderThatFails`): the in-memory fixtures and every
+emulator or offline provider fixture wire it, through a seam of their SDK; a fixture without it (Physical's, the live
+suites) reports those cases inconclusive.
 `InMemoryFileProvider`, the reference provider, passes it in `WriteableFileProviders.Common.Tests`.
 
 Each package has a test project of its own, `tests/WriteableFileProviders.<Package>.Tests`:

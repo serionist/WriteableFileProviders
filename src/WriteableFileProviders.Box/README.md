@@ -27,11 +27,12 @@ The provider signs in as a Box app's service account, with server authentication
 
 Sign-in happens on the first call that needs Box: building the provider does no network I/O (it reads the private key,
 so a wrong key or passphrase fails there). Box's access tokens last an hour; when Box answers 401, the SDK fetches a new
-one and retries. A sign-in Box refuses throws the SDK's `BoxApiException` without the token request, which held the
-client secret.
+one and retries. A sign-in Box refuses throws the SDK's `BoxApiException`, without the token request it sent.
 
 To sign in another way (OAuth, a developer token, as-user calls), to use a proxy or custom retries, build the Box client
-yourself and pass it in; the provider never disposes it, and its authentication's errors are its own:
+yourself and pass it in. The provider never disposes it; it uses a `BoxClient` through a copy that shares its
+authentication and session settings, so its errors carry no credentials (see Errors), and any other `IBoxClient` as it
+is:
 
 ```csharp
 using Box.Sdk.Gen;
@@ -111,6 +112,9 @@ await files.MoveAsync("reports/2026.csv", "archive/2026.csv");         // one se
   they were pinned to, and throw `PreconditionFailedException` once the file has changed. A failed download throws
   `FileNotFoundException` or `IOException` with its HTTP status only: the download URL is a credential, so no error
   carries it.
+- **Errors:** the SDK's `BoxApiException` keeps the request it sent, with the access token in its `Authorization`
+  header and, for a token request, the client secret in its body. Every `BoxApiException` the provider throws, or wraps
+  in another exception, has them removed; Box's status, code and message stay.
 - **Move and copy** are single server-side calls; they refuse an existing destination with `FileExistsException`.
 - **Delete** moves the file or folder (recursively) to the Box trash, where Box keeps it until it is purged.
 - **Watch** is not supported.

@@ -92,7 +92,7 @@ public sealed class BoxReadTests
         Assert.AreEqual("0", box.ETagOf(again));
 
         stream.Position = 6;
-        await Assert.ThrowsAsync<IOException>(async () => await stream.ReadExactlyAsync(buffer));
+        await Assert.ThrowsExactlyAsync<PreconditionFailedException>(async () => await stream.ReadExactlyAsync(buffer));
     }
 
     [TestMethod]
@@ -271,12 +271,12 @@ public sealed class BoxReadTests
         provider.PollDelay = TimeSpan.FromMilliseconds(20);
         provider.NotReadyTimeout = TimeSpan.FromMilliseconds(200);
 
-        var watch = System.Diagnostics.Stopwatch.StartNew();
         var e = await Assert.ThrowsExactlyAsync<IOException>(() => provider.ReadFileAsync("a.txt"));
 
         StringAssert.Contains(e.Message, "ready");
-        Assert.IsTrue(watch.Elapsed < TimeSpan.FromSeconds(10), $"Waited {watch.Elapsed}");
-        Assert.IsTrue(box.Requests.Count(r => r.Path.EndsWith("/content", StringComparison.Ordinal)) is >= 2 and <= 11);
+        // Each wait is at least the poll delay, so a 200 ms budget allows ten at most, however fast or slow the machine.
+        var asked = box.Requests.Count(r => r.Path.EndsWith("/content", StringComparison.Ordinal));
+        Assert.IsTrue(asked is >= 1 and <= 11, $"Asked {asked} times");
     }
 
     [TestMethod]

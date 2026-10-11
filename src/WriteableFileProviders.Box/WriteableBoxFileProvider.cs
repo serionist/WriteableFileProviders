@@ -46,6 +46,11 @@ namespace WriteableFileProviders.Box;
 /// which is a credential.
 /// </para>
 /// <para>
+/// <b>Errors.</b> A <see cref="BoxApiException"/> the provider throws, or wraps in another exception, carries Box's
+/// status, code and message, and the request without its body, its <c>Authorization</c> header or other credentials: the
+/// SDK keeps them in its errors, and a token request's body holds the client secret.
+/// </para>
+/// <para>
 /// <b>Waits.</b> Box can answer that a file just uploaded is not ready to download yet, or that a large upload is still
 /// being processed. The provider waits as Box asks and tries again: up to two minutes for a download, and two minutes
 /// plus two more for every whole GiB for an upload; then it throws <see cref="IOException"/>.
@@ -74,8 +79,7 @@ public sealed partial class WriteableBoxFileProvider : WriteableFileProvider<Box
     /// <summary>
     /// Creates a provider that signs in with the app's JWT credentials in <paramref name="options"/>, on its first call.
     /// It does no network I/O here; it reads the private key, so a key or passphrase that is wrong fails now. A sign-in
-    /// that Box refuses throws the SDK's <see cref="BoxApiException"/> without the request it sent, which held the client
-    /// secret.
+    /// that Box refuses throws the SDK's <see cref="BoxApiException"/>, without the request it sent.
     /// </summary>
     /// <param name="options">The credentials and the root folder.</param>
     /// <exception cref="ArgumentNullException"><paramref name="options"/> is null.</exception>
@@ -88,8 +92,9 @@ public sealed partial class WriteableBoxFileProvider : WriteableFileProvider<Box
     /// <summary>
     /// Creates a provider over a ready Box client, such as one built with another authentication, a proxy, custom retries
     /// or as-user headers. Only <see cref="BoxFileProviderOptions.RootFolderId"/> and the root folder are read from
-    /// <paramref name="options"/>. The provider never disposes the client: the caller owns it, and the errors of its
-    /// authentication are the client's own.
+    /// <paramref name="options"/>. The provider never disposes the client: the caller owns it. A <see cref="BoxClient"/>
+    /// is used through a copy that shares its authentication and its session's settings, with the session's network
+    /// client wrapped so the errors carry no credentials; any other <see cref="IBoxClient"/> is used as it is.
     /// </summary>
     /// <param name="options">The root folder.</param>
     /// <param name="client">The Box client, such as a <see cref="BoxClient"/>.</param>
@@ -97,7 +102,10 @@ public sealed partial class WriteableBoxFileProvider : WriteableFileProvider<Box
     public WriteableBoxFileProvider(BoxFileProviderOptions options, IBoxClient client)
         : base(options)
     {
-        _client = client ?? throw new ArgumentNullException(nameof(client));
+        ArgumentNullException.ThrowIfNull(client);
+        _client = client.GetType() == typeof(BoxClient) && client.NetworkSession.NetworkClient is not RedactingNetworkClient
+            ? new BoxClient(client.Auth, client.NetworkSession.WithNetworkClient(new RedactingNetworkClient(client.NetworkSession.NetworkClient)))
+            : client;
         _rootFolderId = string.IsNullOrWhiteSpace(Options.RootFolderId) ? "0" : Options.RootFolderId;
     }
 
@@ -349,7 +357,7 @@ public sealed partial class WriteableBoxFileProvider : WriteableFileProvider<Box
         {
             throw new ArgumentException("The Box PrivateKey cannot be read: it must be a PEM private key, and Passphrase must be its passphrase.", nameof(options), e);
         }
-        return new BoxClient(new RedactedAuthentication(new BoxJwtAuth(config)), networkSession);
+        return new BoxClient(new BoxJwtAuth(config), networkSession);
     }
 
     private IWriteableFileInfo EntryInfo(ResolvedPath path, Entry entry) =>

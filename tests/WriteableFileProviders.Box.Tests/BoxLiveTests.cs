@@ -144,8 +144,22 @@ public sealed class BoxLiveChecks
             var body = new CreateFileUploadSessionCommitRequestBody(parts);
             var whole = "sha=" + Convert.ToBase64String(SHA1.HashData(content));
 
-            var refused = await Assert.ThrowsExactlyAsync<BoxApiException>(() =>
-                Client.ChunkedUploads.CreateFileUploadSessionCommitAsync(session.Id!, body, new CreateFileUploadSessionCommitHeaders(whole) { IfMatch = stale }));
+            // Box may answer 202 while it processes the parts: ask again until it answers.
+            BoxApiException? refused = null;
+            for (var attempt = 0; attempt < 60 && refused is null; attempt++)
+            {
+                try
+                {
+                    var stalely = await Client.ChunkedUploads.CreateFileUploadSessionCommitAsync(session.Id!, body, new CreateFileUploadSessionCommitHeaders(whole) { IfMatch = stale });
+                    Assert.IsNull(stalely, "A stale quoted ETag committed the upload");
+                    await Task.Delay(TimeSpan.FromSeconds(1));
+                }
+                catch (BoxApiException e)
+                {
+                    refused = e;
+                }
+            }
+            Assert.IsNotNull(refused, "Box was still processing the parts after a minute");
             Assert.AreEqual(412, refused.ResponseInfo.StatusCode, "A stale quoted ETag is refused at the commit");
 
             Files? committed = null;
@@ -159,7 +173,14 @@ public sealed class BoxLiveChecks
         }
         catch
         {
-            await Client.ChunkedUploads.DeleteFileUploadSessionByIdAsync(session.Id!);
+            // Best effort: the session expires anyway.
+            try
+            {
+                await Client.ChunkedUploads.DeleteFileUploadSessionByIdAsync(session.Id!);
+            }
+            catch (BoxSdkException)
+            {
+            }
             throw;
         }
     }

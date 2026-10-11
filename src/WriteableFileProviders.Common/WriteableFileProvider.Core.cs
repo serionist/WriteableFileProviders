@@ -201,7 +201,8 @@ public abstract partial class WriteableFileProvider<TOptions>
 
     private async Task RenameCaseOnlyAsync(ResolvedPath source, ResolvedPath destination, CancellationToken cancellationToken)
     {
-        var temp = source.Parent.Child($".{source.Name}.wfp-{Guid.NewGuid():N}.tmp");
+        // Short whatever the file's name, so it fits a store's name limit (255 characters on most) whenever the name does.
+        var temp = source.Parent.Child($".wfp-{Guid.NewGuid():N}.tmp");
         await CopyCoreAsync(source, temp, cancellationToken).ConfigureAwait(false);
         try
         {

@@ -144,24 +144,6 @@ public sealed class BoxOptionsTests
     }
 
     [TestMethod]
-    public async Task RedactedAuthentication_PassesEveryCallThrough()
-    {
-        var box = new FakeBox();
-        var session = TestCredentials.Session(box);
-        var config = new JwtConfig(_credentials.ClientId, _credentials.ClientSecret, _credentials.PublicKeyId, _credentials.EncryptedPrivateKeyPem, _credentials.Passphrase)
-        {
-            EnterpriseId = _credentials.EnterpriseId,
-        };
-        var auth = new RedactedAuthentication(new BoxJwtAuth(config));
-
-        Assert.AreEqual("token-1", (await auth.RetrieveTokenAsync(session)).AccessTokenField);
-        Assert.AreEqual("token-2", (await auth.RefreshTokenAsync(session)).AccessTokenField);
-        // The fake has no revoke endpoint and takes no downscoping: both are refused, and redacted.
-        AssertCarriesNoCredential(await Assert.ThrowsExactlyAsync<BoxApiException>(() => auth.RevokeTokenAsync(session)));
-        AssertCarriesNoCredential(await Assert.ThrowsExactlyAsync<BoxApiException>(() => auth.DownscopeTokenAsync(["item_preview"], networkSession: session)));
-    }
-
-    [TestMethod]
     public async Task ReadyClient_IsUsedAsItIs_AndOutlivesTheProvider()
     {
         var box = new FakeBox();
@@ -228,9 +210,7 @@ public sealed class BoxOptionsTests
     private static void AssertCarriesNoCredential(BoxApiException e)
     {
         Assert.IsNull(e.RequestInfo.Body);
-        var printed = e.ToString();
-        foreach (var secret in new[] { _credentials.ClientSecret, "wrong-secret", "assertion", "client_secret" })
-            Assert.IsFalse(printed.Contains(secret, StringComparison.Ordinal), secret);
+        CredentialAssert.CarriesNone(e);
     }
 
     private static async Task<string> ReadAsync(IWriteableFileProvider provider, string path)

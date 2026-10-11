@@ -42,7 +42,7 @@ public sealed class WriteableAmazonS3FileProvider : WriteableFileProvider<Amazon
     /// never disposed by the provider. The options give the bucket, the root, the storage class and
     /// <see cref="AmazonS3FileProviderOptions.CreateBucketIfMissing"/>; their credentials, region and endpoint are not
     /// used. The provider cannot see when the client's credentials expire, so its presigned URLs need
-    /// <see cref="SignedUrlOptions.AllowShorterValidity"/> (D18).
+    /// <see cref="SignedUrlOptions.AllowShorterValidity"/>.
     /// </summary>
     /// <param name="options">The options.</param>
     /// <param name="client">The client.</param>

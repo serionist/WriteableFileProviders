@@ -107,7 +107,7 @@ public sealed class AmazonS3FileProviderOptions : FileProviderOptions
     /// The endpoint of an S3-compatible server, such as <c>http://localhost:9000</c>, instead of AWS. Requests then carry
     /// checksums only where S3 requires them, and presigned URLs use the endpoint's scheme. New in 2027.0.0.
     /// </summary>
-    /// <remarks>Written to JSON only when set (D26), so a configuration that does not use it keeps the 2026 shape.</remarks>
+    /// <remarks>Written to JSON only when set, so a configuration that does not use it keeps the 2026 shape.</remarks>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
 #pragma warning disable CA1056 // Configuration binds strings; the provider checks it is an absolute http or https URI.
     public string? ServiceUrl { get; set; }
@@ -117,7 +117,7 @@ public sealed class AmazonS3FileProviderOptions : FileProviderOptions
     /// Addresses the bucket in the path (<c>host/bucket/key</c>) rather than in the host name (<c>bucket.host/key</c>), as
     /// most S3-compatible servers need. New in 2027.0.0.
     /// </summary>
-    /// <remarks>Written to JSON only when set (D26), so a configuration that does not use it keeps the 2026 shape.</remarks>
+    /// <remarks>Written to JSON only when set, so a configuration that does not use it keeps the 2026 shape.</remarks>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool ForcePathStyle { get; set; }
 
@@ -126,7 +126,7 @@ public sealed class AmazonS3FileProviderOptions : FileProviderOptions
     /// instance metadata), resolved on first use, instead of <see cref="AccessKey"/> or <see cref="IsAnonymus"/>. Cannot
     /// be combined with <see cref="AccessKey"/>. New in 2027.0.0.
     /// </summary>
-    /// <remarks>Written to JSON only when set (D26), so a configuration that does not use it keeps the 2026 shape.</remarks>
+    /// <remarks>Written to JSON only when set, so a configuration that does not use it keeps the 2026 shape.</remarks>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool UseDefaultCredentials { get; set; }
 
@@ -134,7 +134,7 @@ public sealed class AmazonS3FileProviderOptions : FileProviderOptions
     /// Creates the bucket on first use when it does not exist. When false (the default), every member throws
     /// <see cref="InvalidOperationException"/> naming the bucket. New in 2027.0.0.
     /// </summary>
-    /// <remarks>Written to JSON only when set (D26), so a configuration that does not use it keeps the 2026 shape.</remarks>
+    /// <remarks>Written to JSON only when set, so a configuration that does not use it keeps the 2026 shape.</remarks>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool CreateBucketIfMissing { get; set; }
 

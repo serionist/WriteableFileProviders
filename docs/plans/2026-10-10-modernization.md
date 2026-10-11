@@ -1418,8 +1418,9 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
   - **F9** A copy in parts (over 5 GiB) carries the source's Content-Type, -Encoding, -Disposition, Cache-Control and
     user metadata (offline test).
   - The core's static tests moved to `tests/Shared/S3/S3CoreTests.cs`, so both assemblies run them.
-  - **Floors** from this Windows run, the whole-point floor of each figure: AmazonS3 lines 98 / branches 92, Minio
-    99 / 91. CI on PR #30 reports Linux; the lower of the two is the floor.
+  - **Floors** from this Windows run (AmazonS3 98.3% / 92.6%, Minio 99.2% / 91.3%), by the rule under Tests (the
+    whole-point floor, minus one): AmazonS3 97/91, Minio 98/90. CI on PR #30 reports Linux; the lower of the two counts.
+  - Plan ids (D18, D26) are out of the public XML docs and the migration guide's S3 and MinIO section.
 
 ### For the maintainers
 

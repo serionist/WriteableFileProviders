@@ -14,7 +14,7 @@ internal sealed partial class S3Core
     /// Presigns a GET (read) or PUT (create, write) URL. The caller checked that the credentials can sign
     /// (<see cref="CanPresign"/>), the validity (positive, at most <see cref="MaxPresignValidity"/>) and, for a read, that
     /// the file exists. A URL never outlives the credential that
-    /// signs it (D18): when that credential expires first, or its expiry cannot be known (a session token, a client the
+    /// signs it: when that credential expires first, or its expiry cannot be known (a session token, a client the
     /// caller gave), the URL is shorter than asked and is issued only with
     /// <see cref="SignedUrlOptions.AllowShorterValidity"/>.
     /// </summary>

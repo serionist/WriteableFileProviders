@@ -2381,7 +2381,14 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
   - **AGENTS.md, REVIEW.md, CONTRIBUTING.md, SECURITY.md:** the guide, the runbook, the assets and the changelog in
     "Where things are"; a change consumers notice adds a line to `CHANGELOG.md`; the versioning links point to
     `docs/guide/versioning.md`.
-  - **Verified:** VERIFIED_PLACEHOLDER
+  - **Verified** (rebased onto `a435930`, #43 and #44 merged): the solution builds strict in Release; `dotnet pack` and
+    `eng/package-check.cs` pass for the untagged prerelease (`2027.0.0-alpha.0.116`) and for a stable pack
+    (`2027.0.0`, through `MinVerVersionOverride`), every package with its README, `icon.png`, the MIT expression, the
+    copyright and the new tags; every non-Live test on Windows with `WFP_REQUIRE_DOCKER=1`: 2609, none failed, 15 skipped.
+    Every C# block of the README, the guide and the package READMEs (41) compiles against this branch in a scratch
+    project, the blocks with their own `using`s with nothing else imported; the release-notes extraction was run on
+    the changelog with gawk and mawk; the move-to-shipped script was run on this branch and the packages built with it.
+    No code changed, so the coverage gate was not re-run.
 
 ### For the maintainers
 

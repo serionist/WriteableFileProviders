@@ -36,7 +36,7 @@ public sealed partial class WriteableAzureBlobFileProvider
     }
 
     // A commit by another writer drops the blocks this one staged and has not committed (Azure keeps only the blocks a
-    // commit lists), so this commit then fails with InvalidBlockList. Content that fits in one block is still in memory
+    // commit lists), so this commit then fails with InvalidBlockList. Content of one block or less is still in memory
     // and is staged again; a longer stream was read once and cannot be.
     private async Task OverwriteAsync(ResolvedPath path, Stream contents, UpdateFileOptions options, CancellationToken cancellationToken)
     {
@@ -63,7 +63,12 @@ public sealed partial class WriteableAzureBlobFileProvider
                 ids.Add(id);
             }
             if (more)
+            {
                 await StageRestAsync(blob, contents, blockSize, ids, TooManyBlocks, cancellationToken).ConfigureAwait(false);
+                // The stream ended with its first block: all of it is in memory, and can be staged again.
+                if (ids.Count == 1)
+                    more = false;
+            }
 
             try
             {

@@ -112,7 +112,10 @@ public sealed partial class WriteableAzureBlobFileProvider : WriteableFileProvid
     /// <summary>The largest range one server-side block copy (Put Block From URL) takes: 100 MiB.</summary>
     internal long CopyRangeSize { get; set; } = 100L << 20;
 
-    /// <summary>How many times an append or a replace reads the file again after a concurrent change.</summary>
+    /// <summary>
+    /// How many times an append, a replace or a copy reads the file again after a concurrent change, and how many times an
+    /// overwrite of one block stages it again after another writer's commit dropped it.
+    /// </summary>
     internal int MaxAttempts { get; set; } = 5;
 
     /// <summary>How often a pending server-side copy is polled.</summary>
@@ -128,7 +131,7 @@ public sealed partial class WriteableAzureBlobFileProvider : WriteableFileProvid
         set => Interlocked.Exchange(ref _serverCopyRefusedUntil, value.UtcTicks);
     }
 
-    /// <summary>The clock for signed URL times, for the tests.</summary>
+    /// <summary>The clock for signed URL times and for how long a refusal is remembered, for the tests.</summary>
     internal TimeProvider Clock
     {
         get => TimeProvider;
@@ -448,7 +451,10 @@ public sealed partial class WriteableAzureBlobFileProvider : WriteableFileProvid
     private string ProviderPathOf(BlobBaseClient blob) =>
         Options.RootDirectorySegments.Length == 0 ? blob.Name : blob.Name[(string.Join('/', Options.RootDirectorySegments).Length + 1)..];
 
-    /// <summary>Deletes exactly the one blob at <paramref name="path"/>, as a move does: a test's way in.</summary>
+    /// <summary>
+    /// Deletes exactly the one blob at <paramref name="path"/> through <see cref="DeleteFileCoreAsync"/>, the hook the base
+    /// class's own moves use: a test's way in, as the class is sealed.
+    /// </summary>
     internal Task DeleteFileForTestsAsync(ProviderPath path) => DeleteFileCoreAsync(Resolve(path), CancellationToken.None);
 
     private WriteableFileInfo FileInfo(ProviderPath path, long length, DateTimeOffset lastModified, ETag etag, string? contentType) =>

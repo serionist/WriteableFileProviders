@@ -44,6 +44,17 @@ public sealed partial class AzureBlobProviderTests
     }
 
     [TestMethod]
+    public async Task Overwrite_OfExactlyOneBlockStagesAgainWhenAnotherCommitDroppedIt()
+    {
+        using var provider = Provider();
+        provider.BlockSize = 4;
+        await Write(provider, "f.txt", "old");
+        Before(r => IsCommit(r) && AzureHandler.BlobName(r) == Name("f.txt"), () => CompetingCommit("f.txt", "theirs"));
+        await Write(provider, "f.txt", "mine");
+        Assert.AreEqual("mine", await ReadRaw("f.txt"), "A stream that ends with its first block is all in memory");
+    }
+
+    [TestMethod]
     public async Task Overwrite_OfManyBlocksStoresNothingWhenAnotherCommitDroppedThem()
     {
         using var provider = Provider();
@@ -115,9 +126,14 @@ public sealed partial class AzureBlobProviderTests
     [TestMethod]
     public async Task CopyOverABlockBlobThatIsCancelled_IsAbortedAndNeverDeleted()
     {
-        using var provider = await OverwriteRacingABlockBlob(_ => CopyResponse(HttpStatusCode.OK, "pending"));
+        // Cancelled at the first poll after the copy started, so a slow runner cannot cancel before the copy.
+        using var cancel = new CancellationTokenSource();
+        using var provider = await OverwriteRacingABlockBlob(_ =>
+        {
+            cancel.Cancel();
+            return CopyResponse(HttpStatusCode.OK, "pending");
+        });
         provider.CopyPollInterval = TimeSpan.FromMilliseconds(20);
-        using var cancel = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
         var e = await Assert.ThrowsAsync<OperationCanceledException>(() => provider.UpdateFileAsync("legacy.txt", Testing.TestStreams.Text("mine"), cancellationToken: cancel.Token));
         _handler.Intercept = null;
         var temp = (await TempBlobs()).Single()[(_root.Length + 1)..];
@@ -306,6 +322,30 @@ public sealed partial class AzureBlobProviderTests
         using var provider = Provider();
         await Write(provider, "src.txt", "v1");
         _handler.Intercept = r => r.Method == HttpMethod.Delete && AzureHandler.BlobName(r) == Name("src.txt") ? AzureHandler.Error(HttpStatusCode.NotFound, "BlobNotFound") : null;
+        await provider.MoveAsync("src.txt", "dst.txt");
+        Assert.AreEqual("v1", await ReadRaw("dst.txt"));
+    }
+
+    [TestMethod]
+    public async Task Move_OfALeasedSourceIsRefusedAndUndone()
+    {
+        using var provider = Provider();
+        await Write(provider, "src.txt", "v1");
+        var lease = _raw.GetBlobClient(Name("src.txt")).GetBlobLeaseClient();
+        await lease.AcquireAsync(TimeSpan.FromSeconds(60));
+        try
+        {
+            var e = await Assert.ThrowsExactlyAsync<IOException>(() => provider.MoveAsync("src.txt", "dst.txt"));
+            StringAssert.Contains(e.Message, "Azure refused to delete 'src.txt'");
+            StringAssert.Contains(e.Message, "was removed");
+            Assert.IsInstanceOfType<RequestFailedException>(e.InnerException);
+            Assert.AreEqual("v1", await ReadRaw("src.txt"));
+            Assert.IsFalse((await provider.GetFileInfoAsync("dst.txt")).Exists, "The copy was undone, so the move can be tried again");
+        }
+        finally
+        {
+            await lease.ReleaseAsync();
+        }
         await provider.MoveAsync("src.txt", "dst.txt");
         Assert.AreEqual("v1", await ReadRaw("dst.txt"));
     }

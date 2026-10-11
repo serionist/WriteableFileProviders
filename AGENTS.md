@@ -87,8 +87,9 @@ step of #3, in a test project of its own:
   (`AzureHandler`) refuses what Azure refuses and Azurite allows (replacing an append blob, more blocks than the limit,
   here lowered to 6); and `AzureBlobProviderTests`: 2026 append blobs, block restaging, races injected through the
   pipeline, missing containers, signed URLs used over HTTP. Offline: `AzureBlobOptionsTests`, `SignedUrlTests`,
-  `AzureConfigurationShapeTests`. Live: `AzureBlobLiveTests`, only with `WFP_LIVE=1` and an account in the `WFP_AZURE_*`
-  variables or in `testsettings.json` next to the project (see `testsettings.sample.json` there).
+  `AzureConfigurationShapeTests`. Live: `AzureBlobLiveTests`, only with `WFP_LIVE=1` (inconclusive without it) and an
+  account in the `WFP_AZURE_*` variables or in `testsettings.json` next to the project (see `testsettings.sample.json`
+  there).
 
 `WriteableFileProviders.AspNetCore.Tests` runs the gateway end to end on TestServer (`Microsoft.AspNetCore.TestHost`),
 with ephemeral Data Protection keys, over `InMemoryFileProvider` and a delegating provider that signs no URLs natively
@@ -130,7 +131,9 @@ overwrite, append, move, delete, listing, local stream, download URL and 100 MB 
   `GoogleCloudStorage`), and check it is clean afterwards. Google Cloud Storage's (`GcsLiveConformanceTests`, and
   `GcsLiveAtomicityTests` for what the emulator does not enforce) run only with `WFP_LIVE=1` and a bucket and service
   account key in `WFP_GCS_*` variables or a `testsettings.json` next to its test assembly (see `GcsLive`); otherwise
-  they are inconclusive.
+  they are inconclusive. Azure Blob's (`AzureBlobLiveTests`) runs only with `WFP_LIVE=1`, and is inconclusive without
+  it; with it, it needs an account in the `WFP_AZURE_*` variables or a `testsettings.json` next to its project, and
+  fails without one.
 - **Configuration shape**: `ConfigurationShapeTests`, in WriteableFileProviders.Common.Tests, pins the one-way door with
   the files in `Serialization/Golden/`:
   `Writeable*.json` were written by the 2026.10.10.x serializer and are never regenerated; `Lenient.*.json` and

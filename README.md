@@ -187,7 +187,7 @@ What differs is what each store can do. Every cell below comes from the provider
 |---|---|---|---|---|---|---|
 | Physical | Atomic: temp file, then rename | Checked / atomic | Rewrite through a temp file; a concurrent change is checked, not atomically | Native | Ranges, the ETag checked on each fetch | Not kept |
 | Azure Blob | Atomic: staged blocks, one commit | Atomic / atomic | Native: the block list is recommitted on the ETag read; atomic | Native | The SDK's stream, pinned to the ETag | Kept |
-| Amazon S3 | Atomic: one PUT, or multipart above 8 MiB | Atomic on AWS; checked, then sent, on an S3-compatible server | Rewrite with `If-Match`; atomic on AWS | Native | Ranged GETs, pinned with `If-Match` | Kept |
+| Amazon S3 | Atomic: one PUT, or multipart above 8 MiB | Atomic on AWS (no `ServiceUrl`); checked, then sent, toward any named endpoint | Rewrite with `If-Match`; atomic on AWS (no `ServiceUrl`) | Native | Ranged GETs, pinned with `If-Match` | Kept |
 | MinIO | Atomic: one PUT, or multipart above 8 MiB | Checked, then sent for the server to enforce | Rewrite with `If-Match`, checked first | Native | Ranged GETs, pinned with `If-Match` | Kept |
 | Google Cloud Storage | Atomic: resumable upload | Atomic / atomic (generation) | Rewrite on the generation read; atomic | Native | Ranged GETs, pinned to the generation | Kept |
 | Box | Atomic: Box keeps a new version once the upload completes | Checked / atomic | Rewrite on the version read; checked, not atomically | Native, on the version's download URL | Ranges of the pinned file version | Not kept |

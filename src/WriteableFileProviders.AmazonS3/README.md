@@ -51,10 +51,11 @@ var files = new WriteableAmazonS3FileProvider(new AmazonS3FileProviderOptions { 
 ```
 
 With a client, the credentials and `ForcePathStyle` are the client's; the options give the bucket, the root, the
-storage class and `CreateBucketIfMissing`, and, when set, `ServiceUrl` (outside AWS, the provider then treats the store
-as an S3-compatible server) and `BucketRegion` (where `CreateBucketIfMissing` creates the bucket on AWS). A client
-whose own `ServiceURL` names a host outside AWS counts as an S3-compatible server too. The provider class is sealed: to
-change what it does, wrap it, or derive your own provider from `WriteableFileProvider<TOptions>`.
+storage class and `CreateBucketIfMissing`, and, when set, `ServiceUrl` (the provider then checks conditions itself
+before a write, as it does toward any endpoint named, and, unless the endpoint is one of S3's own host names, sends no
+requester-pays header) and `BucketRegion` (where `CreateBucketIfMissing` creates the bucket on S3). A client whose own
+`ServiceURL` is set is treated the same way. The provider class is sealed: to change what it does, wrap it, or derive
+your own provider from `WriteableFileProvider<TOptions>`.
 
 ## Configuration
 
@@ -66,7 +67,7 @@ change what it does, wrap it, or derive your own provider from `WriteableFilePro
 | `IsAnonymus` | Unsigned requests, for a public bucket (the spelling is kept for stored configurations). The constructors without a key set it. |
 | `UseDefaultCredentials` | The AWS SDK's default credential chain: environment variables, profiles, web identity, ECS, EC2 instance metadata, resolved on first use. Takes precedence over `IsAnonymus`; cannot be combined with `AccessKey`. New in 2027. |
 | `StorageClassForNewFiles` | The storage class of new files and copies, by name (`STANDARD_IA`); `STANDARD` by default. The 2026 object form `{"Value":"STANDARD_IA"}` still reads from JSON; in a configuration file, give the name as a string. |
-| `ServiceUrl` | An S3-compatible server instead of AWS, such as `http://localhost:9000`. Requests then send checksums only where S3 requires them, and presigned URLs keep the endpoint's scheme. An endpoint of AWS's own (a host ending in `.amazonaws.com` or `.amazonaws.com.cn`, such as a VPC, FIPS or dual-stack endpoint) still counts as AWS. New in 2027. |
+| `ServiceUrl` | An S3-compatible server instead of AWS, such as `http://localhost:9000`. Requests then send checksums only where S3 requires them, presigned URLs keep the endpoint's scheme, and the provider checks conditions before a write as well as sending them. An endpoint that is one of S3's own host names (under `amazonaws.com` or `amazonaws.com.cn`, with a label `s3`, such as `s3.eu-west-1.amazonaws.com`, a dual-stack or a VPC endpoint) still accepts requester-pays charges and gives a bucket it creates its region; the legacy dashed names (`s3-eu-west-1`, `s3-external-1`, `s3-fips`) and any other host under `amazonaws.com` (a load balancer, an instance, API Gateway) do not. New in 2027. |
 | `ForcePathStyle` | Address the bucket in the path (`host/bucket/key`), as most S3-compatible servers need. New in 2027. |
 | `CreateBucketIfMissing` | Create the bucket on first use. Otherwise a missing bucket makes every member throw `InvalidOperationException`. New in 2027. |
 | `RootDirectoryPath` (or `RootDirectorySegments`) | The folder the provider is confined to; nothing outside it can be reached. |
@@ -91,10 +92,10 @@ configuration with none of them is refused when the provider is built. For anyth
   10,000 × 8 MiB (about 78 GiB) for a stream that knows its length, and past the first 1,000 parts (about 7.8 GiB) for
   one that does not. S3 replaces a file only once all of it arrived, so a failed write leaves the old content. The
   caller's stream is read from its position and never seeked, rewound or disposed.
-- **Conditions:** `IfMatch` and `IfNotExists` go to S3 with the write, which AWS checks atomically. Toward an
-  S3-compatible server (a `ServiceUrl` outside AWS), which may ignore some of them, the provider also checks them
-  first, which is not atomic. An append rewrites the file with `If-Match` on the version it read, so a concurrent
-  write is not lost: the append throws `PreconditionFailedException` instead.
+- **Conditions:** `IfMatch` and `IfNotExists` go to S3 with the write, which AWS checks atomically. Toward any
+  endpoint named by `ServiceUrl` or a client's `ServiceURL`, which may be a server that ignores some of them, the
+  provider also checks them first, which is not atomic. An append rewrites the file with `If-Match` on the version it
+  read, so a concurrent write is not lost: the append throws `PreconditionFailedException` instead.
 - **Content type:** every write stores the type given, or `application/octet-stream` without one; an append and a local
   stream's commit keep the file's type when none is given.
 - **Copy and move** happen on the server. As on every provider, the destination is first checked not to exist; the
@@ -103,8 +104,8 @@ configuration with none of them is refused when the provider is built. For anyth
   control, expiry and metadata (not tags). A move deletes exactly the source key, with `If-Match` on the version it
   copied. A source deleted meanwhile completes the move. A source changed meanwhile undoes it: the copy is deleted with
   `If-Match` on its own version, and the move throws `PreconditionFailedException`; a copy that another writer has
-  replaced meanwhile is left as it is, and the exception says so. Atomic on AWS; elsewhere each version is also checked
-  just before its delete.
+  replaced meanwhile is left as it is, and the exception says so. Atomic on AWS without a `ServiceUrl`; toward a named
+  endpoint each version is also checked just before its delete.
 - **Reads** stream from S3. `ReadRangeAsync` is a ranged GET, sent with `If-Match` when `ReadOptions.IfMatch` is set.
   `OpenReadSeekableAsync` reads ranged GETs pinned with `If-Match` to the version it opened, unless
   `AllowModifications` is set.
@@ -134,10 +135,12 @@ gateway URL instead.
 - Copies over 5 GiB take one request per part, plus two.
 - A missing bucket throws `InvalidOperationException` naming the bucket and `CreateBucketIfMissing`. The bucket is
   checked once, on first use; a bucket deleted later is reported by the next call that finds it gone.
-- Off AWS (a `ServiceUrl`, or a client's `ServiceURL`, whose host is not `s3.amazonaws.com` and does not end in
-  `.amazonaws.com` or `.amazonaws.com.cn`), conditions are checked first and then sent, atomic only where the server
-  enforces them; requests do not accept requester-pays charges, and a bucket the provider creates gets no location. An
-  endpoint of AWS's own, such as a VPC, FIPS or dual-stack endpoint, still counts as AWS.
+- Toward an endpoint named by `ServiceUrl` or a client's `ServiceURL`, conditions are checked first and then sent,
+  atomic only where the server enforces them; this holds for S3's own host names too, since a name under
+  `amazonaws.com` may front another server. Unless the endpoint is one of S3's own host names (under `amazonaws.com` or
+  `amazonaws.com.cn`, with a label `s3`; not the legacy dashed `s3-` names), requests also do not accept requester-pays
+  charges, and the provider gives a bucket it creates no location (the AWS SDK may still add one it reads from a host
+  under `amazonaws.com`).
 - The SDK's configured endpoints (`AWS_ENDPOINT_URL_S3`) redirect a provider without `ServiceUrl`, as they do every AWS
   client. Such a provider still counts as AWS: it leaves conditions to the endpoint, which must then enforce them as AWS
   does. Point at another server with `ServiceUrl` instead.

@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>WriteableFileProviders.AspNetCore</PackageId>
+    <Description>WriteableFileProviders for ASP.NET Core: a signed-URL gateway that serves and accepts files for any IWriteableFileProvider, and a URL service that issues a provider's native signed URL or a gateway URL.</Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WriteableFileProviders.Common\WriteableFileProviders.Common.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="WriteableFileProviders.AspNetCore.Tests" />
+  </ItemGroup>
+
+</Project>

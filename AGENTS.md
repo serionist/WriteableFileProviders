@@ -11,8 +11,10 @@ and what never to do.
 |------|------|
 | `src/WriteableFileProviders.Common/` | `IWriteableFileProvider`; `WriteableFileProvider<TOptions>`, the base class every provider derives from; `FileProviderOptions` (the root folder); `LocalFileStream`; `WriteableFileProviderSerializer`, which builds a provider from configuration or JSON. Package `WriteableFileProviders.Common`. |
 | `src/WriteableFileProviders.<Provider>/` | One provider each: `Physical`, `AzureBlob`, `AmazonS3`, `Minio`, `Box`, `SharePoint`, `GoogleCloudStorage`. Package `WriteableFileProviders.<Provider>`. |
+| `src/WriteableFileProviders.AspNetCore/` | The signed-URL gateway for ASP.NET Core: `IWriteableFileUrlService` (a provider's native URL, else a gateway URL), the `GET`/`HEAD`/`PUT` endpoints on Data Protection tokens, and the one-time token store. Package `WriteableFileProviders.AspNetCore`. |
 | `tests/WriteableFileProviders.Testing/` | Shared test code: `ProviderConformanceTests`, the contract every provider passes, and `InMemoryFileProvider`, the reference provider that passes it. |
 | `tests/WriteableFileProviders.Common.Tests/` | Common's tests: the conformance suite on the in-memory provider, unit tests, and the configuration-shape goldens. |
+| `tests/WriteableFileProviders.AspNetCore.Tests/` | The gateway and the URL service, end to end on TestServer over the in-memory provider. |
 | `tests/WriteableFileProviders.Tests/` | The provider tests from before the modernization; each provider's rewrite moves its tests to a project of its own on the conformance suite. |
 | `docs/migration-2027.md` | What 2027.0.0 breaks and how to move over; each change of the release adds its part. |
 | `REVIEW.md` | The questions every review answers. |
@@ -69,6 +71,15 @@ contract" in the modernization plan. A provider's test project derives a `[TestC
 provider and what the store can do (real folders, case, signed URLs, the large-file size), and so runs every rule. It
 passes today against `InMemoryFileProvider` in `WriteableFileProviders.Common.Tests`; each provider joins it in its own
 step of #3.
+
+`WriteableFileProviders.AspNetCore.Tests` runs the gateway end to end on TestServer (`Microsoft.AspNetCore.TestHost`),
+with ephemeral Data Protection keys, over `InMemoryFileProvider` and a delegating provider that signs no URLs natively
+or keeps no version to pin; it needs no outside service. It covers every token refusal (tampered, expired, wrong
+purpose, provider or access, `..` and out-of-root payloads), one-time tokens under concurrent `PUT`s, ranges and
+headers, the size cap and content type of uploads, the URL service's choice between native and gateway URLs, the
+options, and the app pipeline (HTTP logging, output caching, a fallback authorization policy).
+`GatewayTokenGoldenTests` pins the gateway's one-way door with tokens issued by a test-only key: they are never
+regenerated.
 
 `TestBase`, in tests/WriteableFileProviders.Tests, is the older shared suite each provider still runs until then: create,
 overwrite, append, move, delete, listing, local stream, download URL and 100 MB tests. Its classes fall in four groups:
@@ -151,6 +162,9 @@ agree in its issue.
   names of its options class, from configuration or JSON (System.Text.Json since 2027.0.0). Consumers keep that in
   configuration files and databases, so renaming a provider class, an options property or the `Type` key breaks what
   they stored. Every later reader reads what an earlier version wrote (the goldens pin it); the reverse is not promised.
+- **The gateway's URLs:** the token format and its Data Protection purpose chain (`WriteableFileProviders.Gateway.v1`,
+  the provider name, the access) and the URL shape `{BasePath}/{token}/{fileName?}`. A URL issued by one version
+  redeems on the next; a new format gets a new purpose version and the old one keeps redeeming.
 - **One meaning across providers:** a member does the same thing on every provider. A provider that cannot do something
   says so with an exception, the same way the others do, never by doing something else.
 

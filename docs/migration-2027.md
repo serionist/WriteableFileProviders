@@ -127,3 +127,25 @@ the two versions once 2027 has written it.
 A `Type` is found among the assemblies passed in, then this library's own providers (their assembly is loaded when
 needed), then types registered with `WriteableFileProviderSerializer.Register<TProvider>()`. Loaded assemblies are no
 longer searched, so a third-party provider must be registered or its assembly passed in.
+
+## New package: WriteableFileProviders.AspNetCore
+
+2027.0.0 adds `WriteableFileProviders.AspNetCore`, for ASP.NET Core apps on .NET 10. Nothing in 2026 maps onto it, so
+there is nothing to migrate; it is the way to keep handing out download links where a provider's own URLs changed:
+
+- **`IWriteableFileUrlService.GetSignedUrlAsync(providerName, path, options)`** asks the keyed provider for its native
+  URL and, when the provider throws `NotSupportedException`, issues a URL of the app's own gateway instead. A provider
+  throws it when it cannot sign the URL asked for: Physical signs none, and Box and SharePoint sign only download URLs
+  whose lifetime their service sets. So the service gives a 2026 caller of `GetDownloadUrl` a URL that does what was
+  asked on every provider.
+- **The gateway** (`AddWriteableFileProviderGateway`, `MapWriteableFileProviderGateway`) serves `GET`, `HEAD` (with
+  HTTP ranges) and `PUT` on `{BasePath}/{token}/{fileName?}`. The token is an ASP.NET Core Data Protection payload, so
+  an app on several instances shares its key ring, and one-time upload URLs need a shared `IGatewayReplayStore`.
+- **Defaults fail closed:** `PublicBaseUri` is required and gateway URLs never use the request's `Host`; gateway
+  download URLs live at most 7 days and gateway upload URLs 1 hour by default; gateway upload URLs work once; uploads
+  are capped at 100 MiB; a download is served as the content type its read URL names, else
+  `application/octet-stream`, under a sandboxing `Content-Security-Policy`. These rules bind gateway URLs only: a
+  provider's native upload URL can be reused until it expires and lives up to the provider's maximum, so an app that
+  needs the same rules everywhere sets `PreferGateway`.
+
+The package README covers the options, the endpoints' status codes and headers, and how to keep tokens out of logs.

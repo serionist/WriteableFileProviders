@@ -16,10 +16,12 @@
     <Project Path="src/WriteableFileProviders.GoogleCloudStorage/WriteableFileProviders.GoogleCloudStorage.csproj" />
     <Project Path="src/WriteableFileProviders.Box/WriteableFileProviders.Box.csproj" />
     <Project Path="src/WriteableFileProviders.SharePoint/WriteableFileProviders.SharePoint.csproj" />
+    <Project Path="src/WriteableFileProviders.AspNetCore/WriteableFileProviders.AspNetCore.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/WriteableFileProviders.Testing/WriteableFileProviders.Testing.csproj" />
     <Project Path="tests/WriteableFileProviders.Common.Tests/WriteableFileProviders.Common.Tests.csproj" />
     <Project Path="tests/WriteableFileProviders.Tests/WriteableFileProviders.Tests.csproj" />
+    <Project Path="tests/WriteableFileProviders.AspNetCore.Tests/WriteableFileProviders.AspNetCore.Tests.csproj" />
   </Folder>
 </Solution>

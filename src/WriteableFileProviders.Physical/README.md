@@ -62,15 +62,26 @@ for this provider instead.
   `.wfp-<guid>.tmp` next to the target, then rename it over the target, so the file has its old content or its new
   content, never a part. A failed write removes its temp file; listings never show one (a crash can leave one behind,
   which you can delete). An append copies the file and the new bytes into the temp file, so it costs a copy of the file.
-- **Permissions.** A replaced file keeps its Unix permissions. On Windows it takes the permissions the folder gives a new
-  file, since the content arrives as a new file.
-- **ETags** are made from the last-write time and the length. Each write through the provider sets a later last-write
-  time, so it changes the ETag. A change by another program that keeps the length within the file system's time
-  resolution (two seconds on FAT) may not.
-- **Conditions.** `IfNotExists` is atomic: the name is taken with an exclusive create and the rename then fills it, so a
-  new file exists empty for that moment. `IfMatch` is checked just before the rename, which is not atomic: another
-  process can change the file in between. An append checks the same way that the file is still the version it copied,
-  and throws `PreconditionFailedException` if not.
+- **Replacing by rename** puts a new file at the path, so:
+  - a file the process may not write (read-only, or another user's) is refused with `UnauthorizedAccessException` and
+    keeps its content, on every system, as in 2026;
+  - on Linux and macOS the new file takes the permission bits of the file it replaces, and a copy those of its source,
+    before any content is written; the setuid, setgid and sticky bits, access control lists and extended attributes are
+    not carried over;
+  - on Windows the new file takes the permissions the folder gives a new file, not the replaced file's own;
+  - other hard links to the file keep the old content, and a symbolic link at the path is replaced by a file, its target
+    left as it was.
+- **ETags** are made from the last-write time and the length. Each write through the provider stamps a last-write time
+  later than the file it replaces, reading it back and stepping forward (up to 2 seconds) where the file system stores
+  times coarsely (FAT, exFAT, HFS+), so it changes the ETag. A change by another program that keeps the length within
+  the file system's time resolution may not.
+- **Conditions.** `IfMatch` is checked just before the rename, which is not atomic: another process can change the file
+  in between. An append checks the same way that the file is still the version it copied, and throws
+  `PreconditionFailedException` if not.
+- **New names are taken atomically.** `IfNotExists`, an append to a missing file, and the destination of a move or a
+  copy never replace a file that is there. Windows renames without replacing. Linux and macOS, where .NET checks the name
+  and then renames, take the name with an exclusive create and rename onto it, so the file exists empty for that moment:
+  a watcher sees it, and a process that dies there leaves an empty file behind.
 - **Reading while writing.** Readers share the file with writers and deleters and keep the content they opened. A delete
   goes ahead while a file is read. So does a write on Linux and macOS; on Windows, which does not rename over a file that
   is open, a write to a file being read fails with `UnauthorizedAccessException` and the file keeps its content.
@@ -79,11 +90,14 @@ for this provider instead.
 - **Names** are matched without regard to case on Windows and macOS (a move from `a.txt` to `A.txt` renames the file),
   and with regard to case on Linux. A `:` in a name is refused. Content types are not kept.
 - **The root.** Every path stays under the root folder, checked on the path: symbolic links and junctions inside the
-  root are followed wherever they point.
-- **Watch** goes through `PhysicalFilesWatcher`, as ASP.NET Core's `PhysicalFileProvider` does: the filter is a glob
-  relative to the root, dot-prefixed, hidden and system files are not watched (the provider's temp files among them),
-  and a write fires when its rename puts the new content in place. The first `Watch` creates the root folder if it is
-  missing. It relies on file system events, which some network and container-mounted folders do not deliver.
+  root are followed wherever they point. A recursive listing lists a linked folder but does not walk into it, since it
+  can lead outside the root or back into it without end.
+- **Watch** works as ASP.NET Core's `PhysicalFileProvider` does, through `PhysicalFilesWatcher`: the filter is a glob
+  relative to the root, leading `/` and `\` are ignored (so `/a.txt` is `a.txt`), and a filter that is null, names a
+  drive, leads above the root or holds a character no file name can never fires. Dot-prefixed, hidden and system files are not watched (the provider's temp
+  files among them), and a write fires when its rename puts the new content in place. The first `Watch` creates the root
+  folder if it is missing. It relies on file system events, which some network and container-mounted folders do not
+  deliver; set `DOTNET_USE_POLLING_FILE_WATCHER` to `1` or `true` to poll instead.
 
 See [the migration guide](https://github.com/serionist/WriteableFileProviders/blob/main/docs/migration-2027.md) for
 what changed from 2026.

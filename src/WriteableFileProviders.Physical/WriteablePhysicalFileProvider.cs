@@ -1,4 +1,5 @@
 using System.Globalization;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.FileProviders.Physical;
 using Microsoft.Extensions.Primitives;
 using Microsoft.Win32.SafeHandles;
@@ -11,18 +12,30 @@ namespace WriteableFileProviders.Physical;
 /// <b>Writes are atomic.</b> An overwrite, an append, a copy and a local stream's commit write a temp file named
 /// <c>.wfp-&lt;guid&gt;.tmp</c> in the target's folder, then rename it over the target: the file has its old content or
 /// its new content, never a part. A write that fails removes its temp file; listings never show one. An append copies the
-/// file and the new bytes into the temp file. A replaced file keeps its Unix permissions, and its temp file is never
-/// readable by more users than the file it replaces; on Windows it takes the permissions the folder gives a new file.
+/// file and the new bytes into the temp file.
+/// </para>
+/// <para>
+/// <b>Replacing by rename</b> makes the new content a new file at the path. A file the process may not write, read-only
+/// or another user's, is refused with <see cref="UnauthorizedAccessException"/> and keeps its content, on every system.
+/// On Linux and macOS the new file takes the replaced file's permission bits (not setuid, setgid or sticky), and a copy
+/// takes its source's, before any content is written; access control lists and extended attributes are not carried over,
+/// nor, on Windows, the replaced file's own permissions. Other hard links to the file keep the old content, and a symbolic
+/// link at the path is replaced by a file, its target left as it was.
 /// </para>
 /// <para>
 /// <b>Versions.</b> A file's <see cref="IWriteableFileInfo.ETag"/> is made from its last-write time and its length. Each
-/// write through the provider sets a last-write time later than the one it replaces, so it changes the ETag; a change by
-/// another program that keeps the length within the file system's time resolution may not.
-/// <see cref="UpdateFileOptions.IfMatch"/> is checked just before the rename, which is not atomic: another process can
-/// change the file between the check and the rename. <see cref="UpdateFileOptions.IfNotExists"/> is atomic, and so is the
-/// destination of a move or a copy: the name is taken with an exclusive create, which fails when anything is there, and a
-/// rename then fills it, so the file exists empty for that moment. An append that finds the file changed since it read it
-/// throws <see cref="PreconditionFailedException"/>, with the same window as <see cref="UpdateFileOptions.IfMatch"/>.
+/// write through the provider stamps a last-write time later than the one it replaces, read back from the file system and
+/// stepped forward up to 2 seconds where it stores times coarsely, so it changes the ETag. A change by another program
+/// that keeps the length within the file system's time resolution may not. <see cref="UpdateFileOptions.IfMatch"/> is
+/// checked just before the rename, which is not atomic: another process can change the file between the check and the
+/// rename. An append that finds the file changed since it read it throws <see cref="PreconditionFailedException"/>, with
+/// the same window.
+/// </para>
+/// <para>
+/// <b>New names are taken atomically:</b> <see cref="UpdateFileOptions.IfNotExists"/>, an append to a missing file, and
+/// the destination of a move or a copy never replace a file that is there. Windows renames without replacing. Linux and
+/// macOS, where .NET checks the name and then renames, take the name with an exclusive create and rename onto it, so the
+/// file exists empty for that moment: a watcher sees it, and a process that dies there leaves an empty file.
 /// </para>
 /// <para>
 /// <b>Reads</b> share the file with writers and deleters, and keep the content they opened. A delete goes ahead while a
@@ -34,14 +47,15 @@ namespace WriteableFileProviders.Physical;
 /// <para>
 /// <b>Names</b> are matched without regard to case on Windows and macOS, so a move between names that differ only in
 /// case renames the file, and with regard to case elsewhere. A <c>:</c> is not allowed in a name. Containment in the root
-/// is checked on the path: symbolic links and junctions inside the root are followed.
+/// is checked on the path: symbolic links and junctions inside the root are followed, except that a recursive listing
+/// lists a linked folder without walking into it.
 /// </para>
 /// <para>
 /// <b>Not native:</b> signed URLs (WriteableFileProviders.AspNetCore issues gateway URLs) and content types (a given
 /// <see cref="UpdateFileOptions.ContentType"/> is not kept).
 /// </para>
 /// </remarks>
-public class WriteablePhysicalFileProvider : WriteableFileProvider<PhysicalFileProviderOptions>
+public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<PhysicalFileProviderOptions>
 {
     private const string TempPrefix = ".wfp-";
     private const string TempSuffix = ".tmp";
@@ -50,13 +64,26 @@ public class WriteablePhysicalFileProvider : WriteableFileProvider<PhysicalFileP
     // Readers let writers replace and delete the file they read.
     private const FileShare ReadShare = FileShare.ReadWrite | FileShare.Delete;
 
+    // The permission bits a new file takes: not setuid, setgid or sticky, which writing a file clears.
+    private const UnixFileMode Permissions =
+        UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+        UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute |
+        UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute;
+
+    private static readonly char[] _separators = ['/', '\\'];
+
     // Every entry, hidden and system ones included, as 2026 listed them.
     private static readonly EnumerationOptions _listing = new() { AttributesToSkip = 0, IgnoreInaccessible = false };
+
+    // How far past the replaced file's time a write may stamp its own, for file systems that store times coarsely:
+    // NTFS, ext4 and APFS keep 100 ns or finer, exFAT 10 ms, HFS+ 1 s, FAT 2 s.
+    private static readonly TimeSpan[] _stampSteps =
+        [TimeSpan.FromTicks(1), TimeSpan.FromMilliseconds(1), TimeSpan.FromMilliseconds(10), TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2)];
 
     private readonly string _root;
     private readonly string _rootPrefix;
     private readonly Lock _watchLock = new();
-    private PhysicalFilesWatcher? _watcher;
+    private PhysicalFileProvider? _watcher;
     private bool _disposed;
 
     /// <summary>Creates a provider over a folder.</summary>
@@ -84,8 +111,18 @@ public class WriteablePhysicalFileProvider : WriteableFileProvider<PhysicalFileP
         _rootPrefix = Path.EndsInDirectorySeparator(_root) ? _root : _root + Path.DirectorySeparatorChar;
     }
 
+    // The choices that differ by system, settable so the tests run both on each.
+    internal bool IgnoresCase { get; init; } = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS();
+
+    internal bool RenamesWithoutReplacing { get; init; } = OperatingSystem.IsWindows();
+
+    internal TimeProvider Clock
+    {
+        init => TimeProvider = value;
+    }
+
     /// <summary>True on Windows and macOS, whose file systems match names without regard to case by default.</summary>
-    protected override bool IsCaseInsensitive => OperatingSystem.IsWindows() || OperatingSystem.IsMacOS();
+    protected override bool IsCaseInsensitive => IgnoresCase;
 
     /// <summary>
     /// True: <see cref="UpdateFileCoreAsync"/> checks the conditions itself. <see cref="UpdateFileOptions.IfNotExists"/>
@@ -107,7 +144,15 @@ public class WriteablePhysicalFileProvider : WriteableFileProvider<PhysicalFileP
 
     /// <inheritdoc />
     protected override IAsyncEnumerable<IWriteableFileInfo> EnumerateCoreAsync(ResolvedPath path, CancellationToken cancellationToken) =>
-        Enumerate(path, cancellationToken).ToAsyncEnumerable();
+        Entries(path, cancellationToken).Select(e => e.Entry).ToAsyncEnumerable();
+
+    /// <summary>
+    /// Walks every level, each folder before its contents. A linked folder (a symbolic link or a junction) is listed but
+    /// not walked: it can lead outside the root, or back into it without end.
+    /// </summary>
+    /// <inheritdoc />
+    protected override IAsyncEnumerable<IWriteableFileInfo> EnumerateRecursiveCoreAsync(ResolvedPath path, CancellationToken cancellationToken) =>
+        EnumerateRecursive(path, cancellationToken).ToAsyncEnumerable();
 
     /// <inheritdoc />
     protected override Task<bool> FolderExistsCoreAsync(ResolvedPath path, CancellationToken cancellationToken) =>
@@ -160,7 +205,7 @@ public class WriteablePhysicalFileProvider : WriteableFileProvider<PhysicalFileP
             {
                 var version = VersionOf(existing);
                 CheckPreconditions(path, options, version);
-                await CommitAsync(path, target, version, mustBeNew: false, async (output, token) =>
+                await CommitAsync(path, target, version, mustBeNew: false, modeOf: null, async (output, token) =>
                 {
                     await source.CopyToAsync(output, token).ConfigureAwait(false);
                     // Closed before the rename: Windows does not rename over a file that is open, by this handle or any.
@@ -173,7 +218,7 @@ public class WriteablePhysicalFileProvider : WriteableFileProvider<PhysicalFileP
         CheckPreconditions(path, options, VersionOf(new FileInfo(target)));
         // An append to a missing file creates it, and fails rather than replace one that appears meanwhile.
         var mustBeNew = options.IfNotExists || options.Mode == UpdateFileMode.Append;
-        await CommitAsync(path, target, options.IfMatch, mustBeNew, contents.CopyToAsync, cancellationToken).ConfigureAwait(false);
+        await CommitAsync(path, target, options.IfMatch, mustBeNew, modeOf: null, contents.CopyToAsync, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -200,7 +245,7 @@ public class WriteablePhysicalFileProvider : WriteableFileProvider<PhysicalFileP
         Directory.CreateDirectory(Path.GetDirectoryName(to)!);
         try
         {
-            if (IsCaseInsensitive && string.Equals(from, to, StringComparison.OrdinalIgnoreCase))
+            if (IgnoresCase && string.Equals(from, to, StringComparison.OrdinalIgnoreCase))
                 File.Move(from, to, overwrite: false); // A case-only rename: the "destination" is the source itself.
             else
                 RenameToNew(from, to, e => new FileExistsException($"The destination '{destination}' already exists.", e));
@@ -212,39 +257,51 @@ public class WriteablePhysicalFileProvider : WriteableFileProvider<PhysicalFileP
         return Task.CompletedTask;
     }
 
-    /// <summary>Copies through the same atomic create as a write with <see cref="UpdateFileOptions.IfNotExists"/>.</summary>
+    /// <summary>
+    /// Copies through the same atomic create as a write with <see cref="UpdateFileOptions.IfNotExists"/>; on Linux and
+    /// macOS the copy takes the source's permission bits before any content is written.
+    /// </summary>
     /// <inheritdoc />
     protected override async Task CopyCoreAsync(ResolvedPath source, ResolvedPath destination, CancellationToken cancellationToken)
     {
-        try
+        cancellationToken.ThrowIfCancellationRequested();
+        var from = FullPath(source);
+        var input = new FileStream(OpenRead(source, from), FileAccess.Read, BufferSize, isAsync: true);
+        await using (input.ConfigureAwait(false))
         {
-            await base.CopyCoreAsync(source, destination, cancellationToken).ConfigureAwait(false);
-        }
-        catch (PreconditionFailedException e)
-        {
-            throw new FileExistsException($"The destination '{destination}' already exists.", e);
+            try
+            {
+                await CommitAsync(destination, FullPath(destination), expected: null, mustBeNew: true, new FileInfo(from), input.CopyToAsync, cancellationToken).ConfigureAwait(false);
+            }
+            catch (PreconditionFailedException e)
+            {
+                throw new FileExistsException($"The destination '{destination}' already exists.", e);
+            }
         }
     }
 
     /// <summary>
-    /// Watches the root through <see cref="PhysicalFilesWatcher"/>, as <c>PhysicalFileProvider</c> does: the filter is a
-    /// glob relative to the root, and an absolute filter or one that leaves the root never fires. Dot-prefixed, hidden and
-    /// system files are not watched, which keeps the provider's own temp files out; a write fires the token when its
-    /// rename puts the new content in place. The first call creates the root folder if it is missing.
+    /// Watches the root as ASP.NET Core's <see cref="PhysicalFileProvider"/> does, through <see cref="PhysicalFilesWatcher"/>:
+    /// the filter is a glob relative to the root, and leading <c>/</c> and <c>\</c> are ignored, so <c>/a.txt</c> is
+    /// <c>a.txt</c>. A filter that is null, holds a character no file name can, names a drive or leaves the root never
+    /// fires. Dot-prefixed, hidden and system files are not watched, which keeps the provider's own temp files out; a
+    /// write fires when its rename puts the new content in place. <c>DOTNET_USE_POLLING_FILE_WATCHER</c> set to
+    /// <c>1</c> or <c>true</c> polls instead of relying on file system events. The first call creates the root folder if
+    /// it is missing.
     /// </summary>
     /// <inheritdoc />
     protected override IChangeToken WatchCore(string filter)
     {
-        ArgumentNullException.ThrowIfNull(filter);
         lock (_watchLock)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             if (_watcher is null)
             {
                 Directory.CreateDirectory(_root);
-                _watcher = new PhysicalFilesWatcher(_rootPrefix, new FileSystemWatcher(_root), pollForChanges: false, ExclusionFilters.Sensitive);
+                _watcher = new PhysicalFileProvider(_root, ExclusionFilters.Sensitive);
             }
-            return _watcher.CreateFileChangeToken(filter);
+            // PhysicalFileProvider ignores only this system's separators; a backslash separates on every system here.
+            return _watcher.Watch(filter?.TrimStart(_separators)!);
         }
     }
 
@@ -266,6 +323,23 @@ public class WriteablePhysicalFileProvider : WriteableFileProvider<PhysicalFileP
         base.Dispose(disposing);
     }
 
+    /// <summary>
+    /// Stamps a write's last-write time: now, or later than the replaced file's time as the file system stores it, trying
+    /// each step past it until the stored time is later. Where none is, the ETag may repeat.
+    /// </summary>
+    /// <param name="replaced">The replaced file's time, as stored; long ago when there is none.</param>
+    /// <param name="now">The current time.</param>
+    /// <param name="store">Sets the time on the file and returns it as the file system stored it.</param>
+    internal static void Stamp(DateTime replaced, DateTime now, Func<DateTime, DateTime> store)
+    {
+        foreach (var step in _stampSteps)
+        {
+            var later = replaced + step;
+            if (store(later > now ? later : now) > replaced)
+                return;
+        }
+    }
+
     // The path on disk; outside the root is refused, although validated segments cannot get there.
     private string FullPath(ResolvedPath path)
     {
@@ -277,7 +351,7 @@ public class WriteablePhysicalFileProvider : WriteableFileProvider<PhysicalFileP
             : throw new ArgumentException($"The path '{path}' resolves outside the provider root.", nameof(path));
     }
 
-    private IEnumerable<IWriteableFileInfo> Enumerate(ResolvedPath path, CancellationToken cancellationToken)
+    private IEnumerable<(IWriteableFileInfo Entry, FileSystemInfo Info)> Entries(ResolvedPath path, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var folder = new DirectoryInfo(FullPath(path));
@@ -289,47 +363,67 @@ public class WriteablePhysicalFileProvider : WriteableFileProvider<PhysicalFileP
             if (entry is FileInfo file)
             {
                 if (!IsTempFile(file.Name))
-                    yield return FileEntry(path.Child(file.Name).Path, file);
+                    yield return (FileEntry(path.Child(file.Name).Path, file), file);
             }
             else
             {
-                yield return FolderEntry(path.Child(entry.Name).Path, entry);
+                yield return (FolderEntry(path.Child(entry.Name).Path, entry), entry);
             }
         }
     }
 
+    private IEnumerable<IWriteableFileInfo> EnumerateRecursive(ResolvedPath path, CancellationToken cancellationToken)
+    {
+        var folders = new Queue<ResolvedPath>();
+        folders.Enqueue(path);
+        while (folders.TryDequeue(out var folder))
+        {
+            foreach (var (entry, info) in Entries(folder, cancellationToken))
+            {
+                yield return entry;
+                if (entry.IsDirectory && !IsLink(info))
+                    folders.Enqueue(folder.Child(info.Name));
+            }
+        }
+    }
+
+    // A symbolic link or a junction; other reparse points, such as cloud placeholders, are folders like any other.
+    private static bool IsLink(FileSystemInfo info) =>
+        (info.Attributes & FileAttributes.ReparsePoint) != 0 && info.LinkTarget is not null;
+
     // Writes the content to a temp file next to the target, then renames it over the target. 'expected' is the version the
-    // target must still have just before the rename (checked, not atomic); 'mustBeNew' renames only onto a free name (atomic).
-    private async Task CommitAsync(ResolvedPath path, string target, string? expected, bool mustBeNew,
+    // target must still have just before the rename (checked, not atomic); 'mustBeNew' renames only onto a free name
+    // (atomic); a new file takes the permission bits of 'modeOf', the file it copies.
+    private async Task CommitAsync(ResolvedPath path, string target, string? expected, bool mustBeNew, FileInfo? modeOf,
         Func<Stream, CancellationToken, Task> write, CancellationToken cancellationToken)
     {
+        var replaced = new FileInfo(target);
+        // A file the process may not write is refused before anything is written, as 2026 did and as the rename does on
+        // Windows; on Linux and macOS a rename needs only the folder's permission. A new name replaces nothing.
+        if (!mustBeNew && replaced.Exists)
+            File.OpenHandle(target, FileMode.Open, FileAccess.Write, ReadShare).Dispose();
         var folder = Path.GetDirectoryName(target)!;
         Directory.CreateDirectory(folder);
         var temp = Path.Join(folder, TempPrefix + Guid.NewGuid().ToString("N") + TempSuffix);
-        var create = new FileStreamOptions
-        {
-            Mode = FileMode.CreateNew,
-            Access = FileAccess.Write,
-            Share = FileShare.Read,
-            BufferSize = BufferSize,
-            Options = FileOptions.Asynchronous,
-        };
-        // While it is written, the new content is readable by no more users than the file it replaces (the umask can only
-        // narrow the mode); the exact mode follows before the rename.
-        var replaced = new FileInfo(target);
-        if (replaced.Exists && !OperatingSystem.IsWindows())
-            create.UnixCreateMode = replaced.UnixFileMode;
         try
         {
-            var output = new FileStream(temp, create);
+            var output = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.Read, BufferSize, FileOptions.Asynchronous);
             await using (output.ConfigureAwait(false))
+            {
+                // Before any content: the new content is readable by no more users than the file it replaces or copies.
+                var like = replaced.Exists ? replaced : modeOf;
+                if (like is not null && !OperatingSystem.IsWindows())
+                    File.SetUnixFileMode(output.SafeFileHandle, like.UnixFileMode & Permissions);
                 await write(output, cancellationToken).ConfigureAwait(false);
+            }
             var current = new FileInfo(target);
             if (expected is not null && VersionOf(current) != expected)
                 throw Changed(path, expected);
-            File.SetLastWriteTimeUtc(temp, NextWriteTime(current.LastWriteTimeUtc));
-            if (current.Exists && !OperatingSystem.IsWindows())
-                File.SetUnixFileMode(temp, current.UnixFileMode);
+            Stamp(current.LastWriteTimeUtc, TimeProvider.GetUtcNow().UtcDateTime, time =>
+            {
+                File.SetLastWriteTimeUtc(temp, time);
+                return File.GetLastWriteTimeUtc(temp);
+            });
             if (mustBeNew)
                 RenameToNew(temp, target, e => AlreadyExists(path, e));
             else
@@ -342,11 +436,36 @@ public class WriteablePhysicalFileProvider : WriteableFileProvider<PhysicalFileP
         }
     }
 
-    // The current time, or a tick after the replaced file's when the clock has not passed it: every write changes the ETag.
-    private DateTime NextWriteTime(DateTime replaced)
+    // Puts 'source' at 'target' only if nothing is there. Windows renames without replacing, atomically. On Linux and
+    // macOS, .NET checks the name and then renames, so a file created in between would be replaced: an exclusive create
+    // takes the name instead, failing when anything has it, and the rename replaces that empty file.
+    private void RenameToNew(string source, string target, Func<IOException, IOException> exists)
     {
-        var now = TimeProvider.GetUtcNow().UtcDateTime;
-        return replaced < now ? now : replaced.AddTicks(1);
+        try
+        {
+            if (RenamesWithoutReplacing)
+            {
+                File.Move(source, target, overwrite: false);
+                return;
+            }
+            new FileStream(target, FileMode.CreateNew, FileAccess.Write, FileShare.None).Dispose();
+        }
+        catch (IOException e) when (e is not FileNotFoundException && Path.Exists(target))
+        {
+            throw exists(e);
+        }
+        try
+        {
+            File.Move(source, target, overwrite: true);
+        }
+        catch
+        {
+            // Give the name back, unless something has filled it since.
+            var placeholder = new FileInfo(target);
+            if (placeholder.Exists && placeholder.Length == 0)
+                DeleteQuietly(target);
+            throw;
+        }
     }
 
     private static string ETag(DateTime lastWriteTimeUtc, long length) =>
@@ -396,33 +515,6 @@ public class WriteablePhysicalFileProvider : WriteableFileProvider<PhysicalFileP
             throw AlreadyExists(path);
         if (options.IfMatch is not null && options.IfMatch != version)
             throw Changed(path, options.IfMatch);
-    }
-
-    // Puts 'source' at 'target' only if nothing is there. An exclusive create takes the name, failing when anything has it,
-    // and the rename replaces that empty file. File.Move without overwrite would not do: on Linux and macOS, .NET checks the
-    // name and then renames, and a file created in between is replaced.
-    private static void RenameToNew(string source, string target, Func<IOException, IOException> exists)
-    {
-        try
-        {
-            new FileStream(target, FileMode.CreateNew, FileAccess.Write, FileShare.None).Dispose();
-        }
-        catch (IOException e) when (Path.Exists(target))
-        {
-            throw exists(e);
-        }
-        try
-        {
-            File.Move(source, target, overwrite: true);
-        }
-        catch
-        {
-            // Give the name back, unless something has filled it since.
-            var placeholder = new FileInfo(target);
-            if (placeholder.Exists && placeholder.Length == 0)
-                DeleteQuietly(target);
-            throw;
-        }
     }
 
     private static void DeleteQuietly(string fullPath)

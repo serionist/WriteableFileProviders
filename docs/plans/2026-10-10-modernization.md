@@ -83,7 +83,7 @@ agreement for a one-way door. D20 records how the two maintainers agree for this
 | D12 | READMEs | A root README and one per package, packed into the nupkg. |
 | D13 | How the work lands | Several issues and PRs under #3, which this session opens and merges itself without waiting for a maintainer; the maintainers review them afterwards (decided 2026-10-10, superseding "one single PR"). Each PR builds, passes its tests and has its `review-code` pass before merge. This is a scoped exception to finish-work steps 4 and 6 (the developer's look before review, and a maintainer marking the PR ready) for the #3 issues only; AGENTS.md is not amended. Every merged PR is listed for the maintainers' after-the-fact review under "For the maintainers". |
 | D14 | Scope | All findings, the P1 and P2 features, full unit tests, Testcontainers. P3 goes under Later. |
-| D15 | `IfMatch` guarantees | The precondition is atomic on Azure, S3 on AWS, GCS (generation), Box and SharePoint simple uploads. On MinIO and any other S3-compatible server (`ServiceUrl`), which may ignore a condition, the provider checks it first, which is not atomic, and still sends the header for the server to enforce where it can (S7 review, round 1). On Physical (synthesized ETag from length and last-write time) and on SharePoint upload sessions it is checked, not atomic, and the XML docs say so. `IfNotExists` is atomic everywhere it can be: on Physical an exclusive create (`FileMode.CreateNew`) takes the name and a rename fills it, because `File.Move(overwrite: false)` checks and then renames on Linux and macOS in .NET 10 (found in S5). Amended in S9 (2026-10-11, main-session decision): SharePoint declares `SupportsAtomicPreconditions = false`, "checked, not atomic", for simple uploads too, because Graph does not document `If-Match` on `PUT /content`. The provider still sends `If-Match` and the conflict behaviour `fail` with every upload; the maintainers' live run decides whether simple uploads become atomic (see "For the maintainers"). Amended in S10 (main-session decision, 2026-10-11): on Box, `IfMatch` (and the version an append rewrites, D19) is checked, not atomic, until the maintainers' live run confirms that Box matches the quoted `If-Match` the v10 SDK can only send (Box documents unquoted ETags); the provider's wire path is behind an internal switch, tested on the fake, and turning it on is one line. `IfNotExists` is atomic on Box (409 on a taken name). |
+| D15 | `IfMatch` guarantees | The precondition is atomic on Azure, S3 on AWS, GCS (generation), Box and SharePoint simple uploads. On MinIO and any other S3-compatible server (`ServiceUrl`), which may ignore a condition, the provider checks it first, which is not atomic, and still sends the header for the server to enforce where it can (S7 review, round 1). On Physical (synthesized ETag from length and last-write time) and on SharePoint upload sessions it is checked, not atomic, and the XML docs say so. `IfNotExists` is atomic everywhere it can be: on Physical, Windows renames with `File.Move(overwrite: false)`, which refuses an existing file; on Linux and macOS, where .NET 10's `File.Move(overwrite: false)` checks and then renames (found in S5), an exclusive create (`FileMode.CreateNew`) takes the name and a rename fills it. Amended in S9 (2026-10-11, main-session decision): SharePoint declares `SupportsAtomicPreconditions = false`, "checked, not atomic", for simple uploads too, because Graph does not document `If-Match` on `PUT /content`. The provider still sends `If-Match` and the conflict behaviour `fail` with every upload; the maintainers' live run decides whether simple uploads become atomic (see "For the maintainers"). Amended in S10 (main-session decision, 2026-10-11): on Box, `IfMatch` (and the version an append rewrites, D19) is checked, not atomic, until the maintainers' live run confirms that Box matches the quoted `If-Match` the v10 SDK can only send (Box documents unquoted ETags); the provider's wire path is behind an internal switch, tested on the fake, and turning it on is one line. `IfNotExists` is atomic on Box (409 on a taken name). |
 | D16 | GCS move | Copy with `IfGenerationMatch = 0` (destination must not exist), then delete the source with its generation. fake-gcs-server has no native move; `MoveObject` goes under Later. |
 | D17 | Two P2 items kept | Public constructors that take a prebuilt SDK client (with the options) on every cloud provider, for managed identity, Aspire, custom retries and tests. A provider never disposes a client it was given; the caller owns it. SDK types in public signatures (these constructors, `S3Region` and `S3StorageClass` on the S3 options) are part of the contract, so an SDK major that changes them is a WriteableFileProviders major. SharePoint signs in with a client secret, a certificate (`ClientCertificateBase64` and `ClientCertificatePassword`), or managed identity / `DefaultAzureCredential` (`UseDefaultAzureCredential`). |
 | D18 | URLs with a lifetime set by the service | Requested validity V and fixed lifetime L. If V < L, `NotSupportedException`, so the gateway takes over. If V ≥ L, the URL is returned only with `AllowShorterValidity`, with `ExpiresOn` = now + L (Box) or null (SharePoint). S3 and MinIO: when the credential expires before now + V, or is a session credential with an unknown expiry, the URL counts as shorter than asked. |
@@ -209,17 +209,21 @@ Every provider passes the same conformance tests for each of these rules:
     fake-gcs-server.
   - *Move and copy destination check (P19):* Azure copies with `IfNoneMatch = *`; S3 and MinIO copy with
     `If-None-Match: *` (verified on S3Mock in S7, else "checked, not atomic"); GCS uses `IfGenerationMatch = 0`; Box and
-    SharePoint use conflict "fail"; Physical takes the destination with an exclusive create and renames onto it (D15).
+    SharePoint use conflict "fail"; Physical uses `File.Move(overwrite: false)` on Windows and, on Linux and macOS, takes the destination with an exclusive create and renames onto it (D15).
   - *Large files (P6):* write, overwrite, append and local-stream edit of a large file keep their content, and a failed
     large write leaves the old content. The suite's default size is 100 MB; a fixture can lower the provider's threshold
     so the test crosses S3 and MinIO multipart, Azure staged blocks, SharePoint upload sessions, Box chunked upload and
     GCS resumable upload.
   - *Temp files (P28, P38):* temp files are owner-only on Unix (`UnixCreateMode = UserRead | UserWrite`) and
-    `DeleteOnClose`; a Unix-only test checks the mode. Fixtures create a unique folder per class and delete it in class
+    `DeleteOnClose`; a Unix-only test checks the mode. Physical's temp file next to the target cannot be either, since it
+    becomes the file: before any content is written it takes the permission bits of the file it replaces or copies, so
+    it is never readable by more users than that file (S5). Fixtures create a unique folder per class and delete it in class
     cleanup, and the suite checks no `.wfp-*.tmp` is left.
-  - *Physical sharing (P20):* Physical opens readers with `FileShare.ReadWrite | FileShare.Delete`, so a replace can
-    proceed; a conformance case writes while a read stream is open, with the result expected per OS, and runs on Windows
-    CI.
+  - *Physical sharing (P20):* Physical opens readers with `FileShare.ReadWrite | FileShare.Delete`, so a delete can
+    proceed, and a replace on Linux and macOS; Windows does not rename over a file that is open, so there a write to a
+    file being read fails with `UnauthorizedAccessException` and keeps its content. A Physical test (not a shared
+    conformance case, since what an open reader sees differs per store) writes while a read stream is open, with the
+    result expected per OS, and runs on Windows CI (S5).
 - **Library code:**
   - Every await uses `ConfigureAwait(false)`.
   - Sync members go through one `GetAwaiter().GetResult()` helper (F13, F33).
@@ -515,7 +519,7 @@ Each step is an issue under #3, a branch `<issue>-<slug>`, and a PR that builds 
 | S2 Build and layout | #6 | #19 | `.slnx`, `src/` and `tests/`, both build-props files, lock files, net10.0, `ProjectReference` to Common, MinVer, unused packages dropped, `WfpLegacy` ratchet, LF renormalization; REVIEW.md, finish-work, `.editorconfig` and `.gitattributes` updated; the `-> warning` analyzer rules become warnings (legacy projects silence them). Pulled forward from S3, because worktrees have no `testsettings.json`: settings optional, the Physical suite on a temp folder, and `test.runsettings` and the publish profile deleted (part of F56). Old tests still run. No copyright line in the packages until D8 settles. | F23 F46 F50 F55 F60 F71 F72, F26 (one Azure.Identity version) | done (7d83e44) |
 | S3 Test platform and CI | #7 | #20 | MSTest 4 on Microsoft.Testing.Platform, Testcontainers fixtures, live suites tagged `Live`, the golden corpus of the stored configuration shape from the old code (JSON for six providers, configuration for Azure, S3, MinIO and Physical, Physical built at run time, the `Type` key rules, F78 on both paths), coverage collection and gate, `ci.yml`, the F68 assertion fixes. AGENTS.md's suite rule is unchanged (D21). F28 and F29 move to the conformance suite (S4), F56's remaining dead weight goes with TestBase (S5–S10). | F27 F30 F42 F68 | todo |
 | S4 Common 2027 | #8 | | The Common API and contract, `RangeReadStream`, signed URL types, the System.Text.Json serializer, DI, disposal, `LocalFileStream`, helpers, XML docs, the full conformance suite run against an in-memory reference provider in `WriteableFileProviders.Testing`, Common at 90%. Every provider moved mechanically onto the new base, so `main` keeps building: signature renames only, no behaviour change, and the PR lists per provider what verified it; AmazonS3, GCS, Box and SharePoint are "not verified until S7, S8, S9, S10", which run the full conformance suite including root protection and delete scope (P7). The old tests whose behaviour changes are updated and listed in the PR. One PR with two doors, the Common API and the configuration-shape serializer, both named in its title and description; splitting would keep Newtonsoft alive one step longer (P34). Docs (P11): `docs/migration-2027.md` starts here, Common's README, and AGENTS.md (the Testing project, the conformance suite, One-way doors extended to the 2027 Common surface). Shared files (`Directory.Packages.props`, Testing) change here or one step at a time. It also carries one unplanned harness change, e041292: the deep review's refuters probe in a scratch copy, never the checkout under review; its PR names it. | F4 F11 F12 F13 F14 F16 F17 F18 F19 F20 F21 F22 F28 F29 F31 F33 F34 F35 F36 F37 F38 F47 F48 F52 F53 F54 F57 F58 F59 F61 F69 F72 F74 F78 | in review |
-| S5 Physical | #9 | | The Physical row. Each provider step wires its own test project to the conformance suite, deletes its old TestBase class, raises its coverage floor, and updates its README, options docs and the migration ledger. Capability flag: `DetectsConcurrentAppends` is false, because the version check before the rename is not atomic (D15, D19); a Physical test pins that it catches a change made while the append copies. | F3 F5 F17–F21 F53 F54 F56 F74 F77 F79 | done (branch `9-physical`) |
+| S5 Physical | #9 | | The Physical row. Each provider step wires its own test project to the conformance suite, deletes its old TestBase class, raises its coverage floor, and updates its README, options docs and the migration ledger. Capability flag: `DetectsConcurrentAppends` is false, because the version check before the rename is not atomic (D15, D19); a Physical test pins that it catches a change made while the append copies. | F3 F5 F17–F21 F53 F54 F56 F74 F77 F79 | in review (#26) |
 | S6 AzureBlob | #10 | | The AzureBlob row, with Azurite. The main-session decisions applied are in the progress log (2026-10-11, S6). | F3 F11 F15 F17–F21 F26 F40 F44 F53 F64 F70 F74 | in review (branch `10-azureblob`) |
 | S7 AmazonS3 and MinIO | #11 | | `S3Core`, the S3 and MinIO rows, with S3Mock and MinIO. The core is shared source (`src/Shared/S3`) compiled into both packages: neither package depends on the other, and MinIO's has no Minio SDK. Capability flags on S3Mock 5.2.3, one per bug: `FailedLargeWriteKeepsOldContent` false (an aborted multipart upload deletes the existing object) and `SupportsLargeConditionalWrites` false (a multipart completion with the right `If-Match` answers 404); MinIO runs both cases fully. From the main session: both providers are `sealed` (D25), and their new options are written to JSON only when set (D26), so the golden written-shape test is unchanged. | F1 F2 F4 F10 F11 F17–F21 F24 F28 F38 F41 F44 F45 F51 F53 F56 F63 F65 F73 F74 F78 | built on `11-s3-minio`, PR to open |
 | S8 GoogleCloudStorage | #12 | | The GCS row, with fake-gcs-server. | F4 F11 F13 F17–F21 F28 F38 F41 F44 F53 F56 F63 F74 F75 | built on `12-gcs`, in review |
@@ -1454,10 +1458,11 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     still read.
   - **Deviations, and why:**
     - **D15 and P19, the atomic create:** in .NET 10, `File.Move(overwrite: false)` is not atomic on Linux and macOS: it
-      lstats the destination, then renames (`File.CreateHardLink`, which would allow link-then-unlink, arrives in .NET 11).
-      `IfNotExists`, an append to a missing file, and the destination of a move or a copy take the name with an exclusive
-      create (`FileMode.CreateNew`), then a rename fills it, so the file exists empty for that moment. D15 and the P19
-      line say so.
+      lstats the destination, then renames. A hard-link API, which would allow link-then-unlink, is only a .NET 11
+      proposal (`FileInfo.CreateAsHardLink`, under review), not confirmed to ship. There, `IfNotExists`, an append to a
+      missing file, and the destination of a move or a copy take the name with an exclusive create (`FileMode.CreateNew`),
+      then a rename fills it, so the file exists empty for that moment. On Windows, `File.Move(overwrite: false)` refuses
+      an existing file atomically and is used as it is (review round 1). D15 and the P19 line say so.
     - **P20 on Windows:** `File.Move` over a file that is open fails with access denied, even with `FileShare.Delete`, so
       a write to a file being read fails with `UnauthorizedAccessException` and keeps the content. Linux and macOS
       replace the file, and the reader keeps its version. `File.Replace` goes past open readers on Windows, but without a
@@ -1485,9 +1490,41 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     - The whole solution on Windows with `WFP_REQUIRE_DOCKER=1` (Azurite and S3Mock running): 457 tests, none failed. The
       32 skipped are the two `AWS_ENDPOINT_URL_S3` suites, excepted until S7, and Physical's two.
   - **Coverage:** Physical at 100% lines and 97.1% branches on Linux, and 99.3% lines and 94.1% branches on Windows; the
-    floor is 98/93. The partial branches are the OS checks and the race-only paths.
+    floor was 98/93 (99/96 after review round 1). The partial branches are the OS checks and the race-only paths.
   - **Not verified:** macOS, which no CI runs. There, a case-only rename relies on .NET's same-inode rename in
     `File.Move`. The live suite did not run: it needs a folder you name.
+
+- **2026-10-11, S5 review round 1 (#26):** needs-fixes (2 majors, 6 minors, 1 nit), all fixed in the next commit.
+  - **F1 (major):** a copy took the default mode on Unix. It now takes its source's permission bits before any content is
+    written. A test checks the copy of a 0600 file, and a mutation run showed it fails without the fix.
+  - **F2 (major):** on Unix the rename replaced files the process may not write. A file it cannot open for writing is now
+    refused with `UnauthorizedAccessException` and keeps its content, as in 2026 and as Windows refuses the rename, so
+    the two systems agree. The copied mode is masked to 0777, so no setuid, setgid or sticky bit is carried over. A test
+    on both systems covers it, also checked by mutation.
+  - **F3:** each write reads its stamped time back and steps it forward (1 tick, 1 ms, 10 ms, 1 s, 2 s) until it is
+    later than the replaced file's time, for file systems that store times coarsely. `Stamp` is tested with simulated
+    resolutions.
+  - **F4 (the owner's call):** Windows uses `File.Move(overwrite: false)`, with no placeholder. Linux and macOS keep the
+    exclusive-create placeholder, documented with its crash leftover (an empty file) and the watcher event. Internal
+    settings let the tests run both ways on each system.
+  - **F5:** `Watch` goes through an inner `PhysicalFileProvider`, so invalid filters and `DOTNET_USE_POLLING_FILE_WATCHER`
+    behave as in ASP.NET Core. Leading `/` and `\` are trimmed on every system.
+  - **F6:** a recursive listing lists a linked folder (a symbolic link or a junction) but does not walk into it.
+  - **F7:** the README and the migration guide say what replacing by rename means: hard links keep the old content, a
+    symbolic link at the path is replaced by a file, ACLs and extended attributes are not carried over, and a file the
+    process may not write is refused.
+  - **F8:** the floor is the whole-point floor of the lower of the Linux figures (100% lines, 97.6% branches) and the
+    Windows figures (99.7%, 96.0%): 99/96.
+  - **F9:** the P20 and P28 bullets and the hard-link wording are corrected inline, and the S5 row says "in review (#26)".
+  - **D25:** `WriteablePhysicalFileProvider` is sealed, and the migration guide says so. The tests reach its protected
+    members by reflection, and its per-system settings through `InternalsVisibleTo`.
+  - **D26:** Physical adds no options, so it writes nothing new to JSON.
+  - **Tests:**
+    - Physical on Windows: 132 tests; 129 passed, 3 skipped (concurrent append, two Unix-only tests).
+    - Physical on Linux (container, non-root user): 131 passed, 1 inconclusive (concurrent append).
+    - `Common.Tests` on Linux: 217 passed.
+    - The whole solution on Windows with `WFP_REQUIRE_DOCKER=1`: 473 tests, none failed. The 33 skipped are the two
+      `AWS_ENDPOINT_URL_S3` suites and Physical's three.
 
 ### For the maintainers
 

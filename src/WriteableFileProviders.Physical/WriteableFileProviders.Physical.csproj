@@ -11,12 +11,17 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- PhysicalFilesWatcher, behind Watch. -->
+    <!-- PhysicalFileProvider and its PhysicalFilesWatcher, behind Watch. -->
     <PackageReference Include="Microsoft.Extensions.FileProviders.Physical" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\WriteableFileProviders.Common\WriteableFileProviders.Common.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The tests set the choices that differ by OS (IgnoresCase, RenamesWithoutReplacing) and the clock. -->
+    <InternalsVisibleTo Include="WriteableFileProviders.Physical.Tests" />
   </ItemGroup>
 
 </Project>

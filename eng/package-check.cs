@@ -4,9 +4,10 @@
 //
 // Every package releases together, at one version (D2). release.yml runs this on what it packed before anything is
 // pushed: a .nupkg and a .snupkg for every project under src/, nothing else, each at <version> (the tag's version), and
-// every dependency of one of our packages on another at that same version as its lowest, so a provider never pulls in
-// another release's Common. It fails on a missing or extra package, another version, a package other than Common that
-// does not depend on Common, or a dependency on a WriteableFileProviders package whose lowest version is not <version>.
+// every dependency of one of our packages on another exactly [<version>, <next major>.0.0) (src/Directory.Build.targets),
+// so a provider never pulls in another release's Common, and a consumer who mixes majors gets a restore warning. It
+// fails on a missing or extra package, another version, a package other than Common that does not depend on Common, or a
+// dependency on a WriteableFileProviders package with another range.
 using System.IO.Compression;
 using System.Xml.Linq;
 
@@ -19,6 +20,13 @@ var folder = args[0];
 var version = args[1];
 const string Prefix = "WriteableFileProviders.";
 const string Common = "WriteableFileProviders.Common";
+if (!int.TryParse(version.Split('.')[0], out var major))
+{
+    Console.Error.WriteLine($"'{version}' is not a version: its major is not a number.");
+    return 2;
+}
+// Our packages depend on each other from this version up to the next major, which they never load against.
+var expectedRange = $"[{version}, {major + 1}.0.0)";
 
 var repoRoot = FindRepoRoot(Directory.GetCurrentDirectory());
 var projects = Directory.GetDirectories(Path.Combine(repoRoot, "src")).Select(Path.GetFileName).OfType<string>()
@@ -51,8 +59,8 @@ foreach (var file in packages.Order(StringComparer.Ordinal))
     foreach (var (dependency, range) in dependencies)
     {
         Console.WriteLine($"  depends on {dependency} {range}");
-        if (!string.Equals(LowestVersion(range), version, StringComparison.OrdinalIgnoreCase))
-            failures.Add($"{id} depends on {dependency} {range}, whose lowest version is not {version}");
+        if (!string.Equals(Normalized(range), expectedRange, StringComparison.OrdinalIgnoreCase))
+            failures.Add($"{id} depends on {dependency} {range}, not {expectedRange}");
     }
     if (id != Common && !dependencies.Any(d => d.Id == Common))
         failures.Add($"{id} does not depend on {Common}");
@@ -84,18 +92,9 @@ static string Value(XElement metadata, string name) =>
     metadata.Elements().FirstOrDefault(e => e.Name.LocalName == name)?.Value
         ?? throw new InvalidDataException($"the nuspec has no {name}");
 
-// A NuGet version range's lowest version: "1.0" or "[1.0, 2.0)" give 1.0; an exclusive "(1.0, …" or a range with no
-// lowest version gives null, which never matches.
-static string? LowestVersion(string range)
-{
-    range = range.Trim();
-    if (range.Length == 0 || range[0] == '(')
-        return null;
-    if (range[0] != '[')
-        return range;
-    var end = range.IndexOfAny([',', ']']);
-    return end > 1 ? range[1..end].Trim() : null;
-}
+// A NuGet version range written with one space after its comma and none elsewhere, as NuGet writes it.
+static string Normalized(string range) =>
+    string.Join(", ", range.Replace(" ", "", StringComparison.Ordinal).Split(','));
 
 static string FindRepoRoot(string from)
 {

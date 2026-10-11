@@ -1,0 +1,22 @@
+<Project>
+
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.targets', '$(MSBuildThisFileDirectory)../'))" />
+
+  <!-- Every package releases at one version, and a package of one major does not load against Common of another: its
+       types are not there. So a packed dependency on one of our packages is bounded above by the next major,
+       [V, NextMajor.0.0), and mixing majors gives a restore warning (NU1608) instead of a failure at run time. NuGet
+       packs a project reference as >= V and has no setting for an upper bound (NuGet/Home#5556), so this rewrites the
+       version it read from each referenced project before the nuspec is written. eng/package-check.cs checks the
+       result. -->
+  <Target Name="WfpBoundProjectReferenceVersions" AfterTargets="_GetProjectReferenceVersions"
+          Condition="'$(MinVerMajor)' != ''">
+    <PropertyGroup>
+      <_WfpNextMajor>$([MSBuild]::Add($(MinVerMajor), 1))</_WfpNextMajor>
+    </PropertyGroup>
+    <ItemGroup>
+      <_ProjectReferencesWithVersions Update="@(_ProjectReferencesWithVersions)"
+                                      ProjectVersion="[%(ProjectVersion), $(_WfpNextMajor).0.0)" />
+    </ItemGroup>
+  </Target>
+
+</Project>

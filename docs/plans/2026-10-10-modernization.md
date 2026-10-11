@@ -1119,6 +1119,8 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
       server copy is remembered for 10 minutes, not for good; the move rollback says whether the copy was removed;
       AGENTS.md names the Azure live suite's settings.
     - D25: `WriteableAzureBlobFileProvider` is sealed. D26: the two options keep `WhenWritingDefault`.
+    - After the rebase onto S11: 253 Azure tests; checked also with S8's pending Common change applied (its
+      content-type conformance test passes on both Azurite fixtures). Coverage 99.2% lines, 91.1% branches; floor 98/90.
 
 ### For the maintainers
 

@@ -168,6 +168,9 @@ public sealed partial class AzureBlobProviderTests
         StringAssert.Contains(e.Message, "'f.txt'");
         Assert.AreEqual("keep", await ReadRaw("f.txt"));
 
+        using (var atTheContainer = new WriteableAzureBlobFileProvider(Azurite.Container(_containerName)))
+            StringAssert.Contains((await Assert.ThrowsExactlyAsync<IOException>(() => atTheContainer.DeleteAsync(Name("f.txt")))).Message, $"'{Name("f.txt")}'");
+
         await Write(provider, "d/a.txt", "a");
         await Write(provider, "d/b.txt", "b");
         await _raw.GetBlobClient(Name("d/b.txt")).CreateSnapshotAsync();
@@ -213,6 +216,98 @@ public sealed partial class AzureBlobProviderTests
         await Append(provider, "f.txt", "mine;");
         Assert.AreEqual("mine;", await ReadRaw("f.txt"));
         Assert.AreEqual(BlobType.Block, (await _raw.GetBlobClient(Name("f.txt")).GetPropertiesAsync()).Value.BlobType);
+    }
+
+    [TestMethod]
+    public async Task Overwrite_WithAConditionWhoseBlocksWereDroppedFailsIt()
+    {
+        using var provider = Provider();
+        _handler.Intercept = r => IsCommit(r) && AzureHandler.BlobName(r) == Name("f.txt") ? AzureHandler.Error(HttpStatusCode.BadRequest, "InvalidBlockList") : null;
+        await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => Write(provider, "f.txt", "mine", new UpdateFileOptions { IfNotExists = true }));
+    }
+
+    [TestMethod]
+    public async Task Append_WhoseCommitLostItsBlocksTriesAgain()
+    {
+        using var provider = Provider();
+        await Write(provider, "f.txt", "start;");
+        var commits = 0;
+        _handler.Intercept = r => IsCommit(r) && AzureHandler.BlobName(r) == Name("f.txt") && ++commits == 1
+            ? AzureHandler.Error(HttpStatusCode.BadRequest, "InvalidBlockList")
+            : null;
+        await Append(provider, "f.txt", "mine;");
+        Assert.AreEqual("start;mine;", await ReadRaw("f.txt"));
+        Assert.AreEqual(2, commits);
+    }
+
+    [TestMethod]
+    public async Task Append_TooLargeForTheBlockLimitWritesNothing()
+    {
+        using var provider = Provider();
+        provider.BlockSize = 1;
+        provider.MaxBlockSize = 2;
+        provider.MaxCommittedBlocks = 2;
+        var e = await Assert.ThrowsExactlyAsync<IOException>(() => Append(provider, "f.txt", "0123456789"));
+        StringAssert.Contains(e.Message, "need more than 2 blocks");
+        Assert.IsFalse((await provider.GetFileInfoAsync("f.txt")).Exists);
+    }
+
+    [TestMethod]
+    public async Task Append_IfNotExistsLosesTheRaceToAnotherCreator()
+    {
+        using var provider = Provider();
+        Before(r => IsCommit(r) && AzureHandler.BlobName(r) == Name("f.txt"), () => RawUpload("f.txt", "theirs;"));
+        await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() =>
+            provider.UpdateFileAsync("f.txt", Testing.TestStreams.Text("mine;"), new UpdateFileOptions { Mode = UpdateFileMode.Append, IfNotExists = true }));
+        Assert.AreEqual("theirs;", await ReadRaw("f.txt"));
+    }
+
+    [TestMethod]
+    public async Task LegacyAppendBlob_ChangedWhileItsContentIsRestagedIsReadAgain()
+    {
+        var legacy = await LegacyAppendBlob("legacy.txt", "old;");
+        using var provider = Provider();
+        Before(r => AzureHandler.Comp(r) == "block" && AzureHandler.IsCopy(r), () => legacy.AppendBlock(new MemoryStream(Encoding.UTF8.GetBytes("theirs;"))));
+        await Append(provider, "legacy.txt", "mine;");
+        Assert.AreEqual("old;theirs;mine;", await ReadRaw("legacy.txt"));
+        Assert.AreEqual(0, (await TempBlobs()).Count);
+    }
+
+    [TestMethod]
+    public async Task LegacyAppendBlob_RecreatedAfterItsDeleteKeepsTheNamedTempBlob()
+    {
+        await LegacyAppendBlob("legacy.txt", "old;");
+        using var provider = Provider();
+        Before(r => AzureHandler.IsCopy(r) && AzureHandler.BlobName(r) == Name("legacy.txt"), () => RawUpload("legacy.txt", "theirs;"));
+        var e = await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => Append(provider, "legacy.txt", "mine;"));
+        var temp = (await TempBlobs()).Single()[(_root.Length + 1)..];
+        StringAssert.Contains(e.Message, temp);
+        Assert.AreEqual("old;mine;", await Read(provider, temp));
+        Assert.AreEqual("theirs;", await ReadRaw("legacy.txt"));
+    }
+
+    [TestMethod]
+    public async Task LegacyAppendBlob_OverwriteThatKeepsLosingKeepsTheNamedTempBlob()
+    {
+        await LegacyAppendBlob("legacy.txt", "old");
+        using var provider = Provider();
+        provider.MaxAttempts = 2;
+        _handler.Intercept = r => AzureHandler.IsCopy(r) && AzureHandler.BlobName(r) == Name("legacy.txt") ? AzureHandler.Error(HttpStatusCode.PreconditionFailed, "ConditionNotMet") : null;
+        var e = await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => Write(provider, "legacy.txt", "mine"));
+        _handler.Intercept = null;
+        var temp = (await TempBlobs()).Single()[(_root.Length + 1)..];
+        StringAssert.Contains(e.Message, temp);
+        Assert.AreEqual("mine", await Read(provider, temp));
+    }
+
+    [TestMethod]
+    public async Task Move_OfASourceAlreadyGoneIsComplete()
+    {
+        using var provider = Provider();
+        await Write(provider, "src.txt", "v1");
+        _handler.Intercept = r => r.Method == HttpMethod.Delete && AzureHandler.BlobName(r) == Name("src.txt") ? AzureHandler.Error(HttpStatusCode.NotFound, "BlobNotFound") : null;
+        await provider.MoveAsync("src.txt", "dst.txt");
+        Assert.AreEqual("v1", await ReadRaw("dst.txt"));
     }
 
     // ----- A lease is not a condition (F10) -----

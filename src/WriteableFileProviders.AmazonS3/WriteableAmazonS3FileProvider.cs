@@ -139,8 +139,9 @@ public sealed class WriteableAmazonS3FileProvider : WriteableFileProvider<Amazon
         _core.CopyAsync(source, destination, cancellationToken);
 
     /// <summary>
-    /// Copies the file, then deletes the source with <c>If-Match</c> on the version copied; when the source changed
-    /// meanwhile, the copy is removed and <see cref="PreconditionFailedException"/> is thrown.
+    /// Copies the file, then deletes the source with <c>If-Match</c> on the version copied. A source deleted meanwhile
+    /// completes the move; a source changed meanwhile removes the copy (only while it is still the copy) and throws
+    /// <see cref="PreconditionFailedException"/>.
     /// </summary>
     protected override Task MoveCoreAsync(ResolvedPath source, ResolvedPath destination, CancellationToken cancellationToken) =>
         _core.MoveAsync(source, destination, cancellationToken);

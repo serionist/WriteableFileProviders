@@ -211,7 +211,8 @@ public abstract class S3BehaviourTests
     {
         using var provider = CreateProvider(Root);
         await provider.UpdateFileAsync("f.txt", TestStreams.Text("0123"));
-        foreach (var (offset, length) in new[] { (1L, long.MaxValue), (2L, long.MaxValue - 1), (3L, long.MaxValue - 3) })
+        // offset + length - 1 overflows for the last two: the read must still go to the end, not fail.
+        foreach (var (offset, length) in new[] { (1L, long.MaxValue), (2L, long.MaxValue - 1), (2L, long.MaxValue), (3L, long.MaxValue - 1) })
         {
             await using var stream = await provider.ReadRangeAsync("f.txt", offset, length);
             using var reader = new StreamReader(stream, Encoding.UTF8);
@@ -453,6 +454,54 @@ public abstract class S3BehaviourTests
             factory.Intercept = null;
             Assert.AreEqual("theirs", await ReadAsync(provider, "a.txt"), "The concurrent change is kept");
             Assert.IsFalse((await provider.GetFileInfoAsync("b.txt")).Exists, "The copy was removed");
+        }
+    }
+
+    [TestMethod]
+    public async Task Move_WhoseSourceGoesAfterTheCopyCompletes()
+    {
+        var (provider, factory) = Intercepted();
+        using (provider)
+        {
+            await provider.UpdateFileAsync("a.txt", TestStreams.Text("a"));
+            var heads = 0;
+            factory.Intercept = async r =>
+            {
+                // The third HEAD of the source is the check before the delete off AWS: another writer deletes it first.
+                if (r.Method == HttpMethod.Head && r.RequestUri!.AbsolutePath.EndsWith("/a.txt", StringComparison.Ordinal) && Interlocked.Increment(ref heads) == 3)
+                {
+                    using var client = Endpoint.CreateClient();
+                    await client.DeleteObjectAsync(Endpoint.Bucket, $"{Root}/a.txt");
+                }
+                return null;
+            };
+            await provider.MoveAsync("a.txt", "b.txt");
+            factory.Intercept = null;
+            Assert.AreEqual("a", await ReadAsync(provider, "b.txt"), "The copy keeps the content");
+            Assert.IsFalse((await provider.GetFileInfoAsync("a.txt")).Exists);
+        }
+    }
+
+    [TestMethod]
+    public async Task Move_WhoseCopyIsOverwrittenBeforeTheUndoLeavesIt()
+    {
+        var (provider, factory) = Intercepted();
+        using (provider)
+        {
+            await provider.UpdateFileAsync("a.txt", TestStreams.Text("a"));
+            factory.Intercept = async r =>
+            {
+                if (r.Method != HttpMethod.Delete || !r.RequestUri!.AbsolutePath.EndsWith("/a.txt", StringComparison.Ordinal))
+                    return null;
+                // The source's delete is refused, and meanwhile another writer puts its own file where the copy is.
+                await PutRawAsync("b.txt", "theirs");
+                return Error(HttpStatusCode.PreconditionFailed, "PreconditionFailed");
+            };
+            var e = await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => provider.MoveAsync("a.txt", "b.txt"));
+            StringAssert.Contains(e.Message, "now holds another write");
+            factory.Intercept = null;
+            Assert.AreEqual("theirs", await ReadAsync(provider, "b.txt"), "The other write is kept");
+            Assert.AreEqual("a", await ReadAsync(provider, "a.txt"));
         }
     }
 

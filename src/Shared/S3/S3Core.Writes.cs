@@ -30,13 +30,13 @@ internal sealed partial class S3Core
         var client = await ClientAsync(cancellationToken).ConfigureAwait(false);
         long? remaining = contents.CanSeek ? Math.Max(0, contents.Length - contents.Position) : null;
         var partSize = PartSizeFor(remaining, 1);
-        // One byte past the part tells whether more follows: up to exactly PartSize is one request. A known short content
-        // is read in one buffer of its size; an unknown one grows its buffer as it arrives.
-        using var buffer = new PartBuffer((int)Math.Min(partSize + 1L, remaining is { } n ? n + 1 : FirstReadSize));
-        await buffer.FillAsync(contents, partSize + 1, cancellationToken).ConfigureAwait(false);
+        // The buffer holds one part, and one byte past it tells whether more follows: up to exactly PartSize is one
+        // request. A known short content is read in one buffer of its size; an unknown one grows its buffer as it arrives.
+        using var buffer = new PartBuffer((int)Math.Min(partSize, remaining is { } n ? Math.Max(n, 1) : FirstReadSize));
+        await buffer.FillAsync(contents, partSize, cancellationToken).ConfigureAwait(false);
         try
         {
-            if (buffer.Count <= partSize)
+            if (!buffer.HasMore)
                 await PutAsync(client, path, buffer, options, cancellationToken).ConfigureAwait(false);
             else
                 await UploadInPartsAsync(client, path, contents, remaining, buffer, options, cancellationToken).ConfigureAwait(false);
@@ -57,10 +57,10 @@ internal sealed partial class S3Core
     /// <param name="source">The file to copy.</param>
     /// <param name="destination">The new file.</param>
     /// <param name="cancellationToken">Cancels the call.</param>
-    /// <returns>The ETag of the source that was copied.</returns>
+    /// <returns>The ETag of the source that was copied, and the copy's own.</returns>
     /// <exception cref="FileNotFoundException">The source does not exist.</exception>
     /// <exception cref="FileExistsException">The destination exists.</exception>
-    public async Task<string> CopyAsync(ResolvedPath source, ResolvedPath destination, CancellationToken cancellationToken)
+    public async Task<CopyResult> CopyAsync(ResolvedPath source, ResolvedPath destination, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(destination);
@@ -68,9 +68,10 @@ internal sealed partial class S3Core
             ?? throw await NotFoundAsync(source, cancellationToken).ConfigureAwait(false);
         try
         {
+            string? copy;
             if (head.ContentLength <= MaxSingleCopySize)
             {
-                await CallAsync(c => c.CopyObjectAsync(new CopyObjectRequest
+                copy = (await CallAsync(c => c.CopyObjectAsync(new CopyObjectRequest
                 {
                     SourceBucket = Bucket,
                     SourceKey = Key(source),
@@ -80,13 +81,13 @@ internal sealed partial class S3Core
                     IfNoneMatch = "*",
                     StorageClass = _settings.StorageClass,
                     RequestPayer = Payer,
-                }, cancellationToken), cancellationToken).ConfigureAwait(false);
+                }, cancellationToken), cancellationToken).ConfigureAwait(false)).ETag;
             }
             else
             {
-                await CopyInPartsAsync(source, destination, head, cancellationToken).ConfigureAwait(false);
+                copy = await CopyInPartsAsync(source, destination, head, cancellationToken).ConfigureAwait(false);
             }
-            return head.ETag;
+            return new CopyResult(head.ETag, copy);
         }
         catch (AmazonS3Exception e) when (IsNotFound(e))
         {
@@ -102,10 +103,17 @@ internal sealed partial class S3Core
 
     /// <summary>
     /// Moves a file: copies it (see <see cref="CopyAsync"/>), then deletes exactly the source key with <c>If-Match</c> on
-    /// the version that was copied. When the source changed meanwhile, the copy is removed and the move throws
-    /// <see cref="PreconditionFailedException"/>, so no change is lost. AWS checks the condition atomically; S3-compatible
-    /// servers may ignore it on a delete (MinIO does), so there the version is also checked just before the delete, which
-    /// is not atomic.
+    /// the version that was copied.
+    /// <list type="bullet">
+    /// <item>A source deleted meanwhile completes the move: the copy holds the content.</item>
+    /// <item>
+    /// A source changed meanwhile undoes it: the copy is deleted with <c>If-Match</c> on its own version, and the move
+    /// throws <see cref="PreconditionFailedException"/>, so no change is lost. When the copy was itself overwritten
+    /// meanwhile, it is left alone, and the exception says so.
+    /// </item>
+    /// </list>
+    /// AWS checks both conditions atomically; S3-compatible servers may ignore them on a delete (MinIO does), so there the
+    /// versions are also checked just before each delete, which is not atomic.
     /// </summary>
     /// <param name="source">The file to move.</param>
     /// <param name="destination">Where it goes; it does not exist.</param>
@@ -114,34 +122,89 @@ internal sealed partial class S3Core
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(destination);
-        var etag = await CopyAsync(source, destination, cancellationToken).ConfigureAwait(false);
+        var copy = await CopyAsync(source, destination, cancellationToken).ConfigureAwait(false);
+        Exception changed;
         try
         {
-            if (!ChecksAtomically && (await HeadAsync(Key(source), cancellationToken).ConfigureAwait(false))?.ETag != etag)
-                throw Changed(source, etag, null);
+            if (!ChecksAtomically)
+            {
+                var head = await HeadAsync(Key(source), cancellationToken).ConfigureAwait(false);
+                if (head is null)
+                    return;
+                if (head.ETag != copy.SourceETag)
+                    throw Changed(source, copy.SourceETag, null);
+            }
             await CallAsync(c => c.DeleteObjectAsync(new DeleteObjectRequest
             {
                 BucketName = Bucket,
                 Key = Key(source),
-                IfMatch = etag,
+                IfMatch = copy.SourceETag,
                 RequestPayer = Payer,
             }, cancellationToken), cancellationToken).ConfigureAwait(false);
+            return;
         }
-        catch (Exception e) when (e is PreconditionFailedException || (e is AmazonS3Exception s3 && (IsConditionFailure(s3) || IsNotFound(s3))))
+        catch (AmazonS3Exception e) when (IsNotFound(e))
         {
-            // The source changed or went after it was copied: take the copy back rather than lose that change.
-            try
-            {
-                await DeleteFileAsync(destination, CancellationToken.None).ConfigureAwait(false);
-            }
-            catch (Exception rollback) when (rollback is AmazonS3Exception or InvalidOperationException or IOException)
-            {
-                throw new IOException(
-                    $"The file '{source}' changed while it was moved, and its copy '{destination}' could not be removed.", new AggregateException(e, rollback));
-            }
-            throw new PreconditionFailedException($"The file '{source}' changed while it was moved; the move was undone.", e);
+            // Deleted by another writer since the copy: the move is complete, as on the other providers.
+            return;
         }
+        catch (Exception e) when (e is PreconditionFailedException || (e is AmazonS3Exception s3 && IsConditionFailure(s3)))
+        {
+            changed = e;
+        }
+        await UndoCopyAsync(source, destination, copy.CopyETag, changed).ConfigureAwait(false);
     }
+
+    // The source changed after it was copied: delete the copy, but only while it is still the copy.
+    private async Task UndoCopyAsync(ResolvedPath source, ResolvedPath destination, string? copyETag, Exception changed)
+    {
+        Exception? overwritten = null;
+        try
+        {
+            if (!ChecksAtomically && await HeadAsync(Key(destination), CancellationToken.None).ConfigureAwait(false) is { } head)
+            {
+                if (copyETag is not null && head.ETag != copyETag)
+                    overwritten = Changed(destination, copyETag, null);
+            }
+            if (overwritten is null)
+            {
+                await CallAsync(c => c.DeleteObjectAsync(new DeleteObjectRequest
+                {
+                    BucketName = Bucket,
+                    Key = Key(destination),
+                    IfMatch = copyETag,
+                    RequestPayer = Payer,
+                }, CancellationToken.None), CancellationToken.None).ConfigureAwait(false);
+            }
+        }
+        catch (AmazonS3Exception e) when (IsConditionFailure(e))
+        {
+            overwritten = e;
+        }
+        catch (AmazonS3Exception e) when (IsNotFound(e))
+        {
+            // The copy is already gone: nothing to undo.
+        }
+#pragma warning disable CA1031 // Any failure leaves the copy behind, and the caller must learn where it is.
+        catch (Exception rollback)
+#pragma warning restore CA1031
+        {
+            throw new IOException(
+                $"The file '{source}' changed while it was moved, and its copy '{destination}' could not be removed.", new AggregateException(changed, rollback));
+        }
+        if (overwritten is not null)
+        {
+            throw new PreconditionFailedException(
+                $"The file '{source}' changed while it was moved, so it was not moved; '{destination}' now holds another write and was left as it is.",
+                new AggregateException(changed, overwritten));
+        }
+        throw new PreconditionFailedException($"The file '{source}' changed while it was moved; the move was undone.", changed);
+    }
+
+    /// <summary>What a copy copied: the source's version it matched, and the copy's own version, if the store said.</summary>
+    /// <param name="SourceETag">The source's ETag.</param>
+    /// <param name="CopyETag">The copy's ETag.</param>
+    public readonly record struct CopyResult(string SourceETag, string? CopyETag);
 
     // 412 Precondition Failed, or the 409 S3 answers when a concurrent conditional write to the same key won.
     private static bool IsConditionFailure(AmazonS3Exception e) =>
@@ -149,7 +212,7 @@ internal sealed partial class S3Core
 
     private async Task PutAsync(IAmazonS3 client, ResolvedPath path, PartBuffer buffer, UpdateFileOptions options, CancellationToken cancellationToken)
     {
-        using var body = buffer.Content(buffer.Count);
+        using var body = buffer.Content();
         await CallAsync(_ => client.PutObjectAsync(new PutObjectRequest
         {
             BucketName = Bucket,
@@ -178,20 +241,19 @@ internal sealed partial class S3Core
         var parts = new List<PartETag>();
         try
         {
-            // The buffer holds the part and, when more follows, its first byte: send the part, keep that byte, and read the
-            // next part (and its own lookahead byte) before deciding whether there is one.
+            // The buffer holds a part and knows whether a byte follows it: send the part, then, only when more follows,
+            // start the next part with that byte; a part past the limit fails only when it has data.
             var partNumber = 1;
-            var partSize = PartSizeFor(remaining, partNumber);
             while (true)
             {
-                var size = Math.Min(buffer.Count, partSize);
-                parts.Add(await UploadPartAsync(client, key, upload.UploadId, partNumber, buffer, size, cancellationToken).ConfigureAwait(false));
-                buffer.Consume(size);
-                partSize = PartSizeFor(remaining, ++partNumber);
-                if (await buffer.FillAsync(contents, partSize + 1, cancellationToken).ConfigureAwait(false) == 0)
+                parts.Add(await UploadPartAsync(client, key, upload.UploadId, partNumber, buffer, cancellationToken).ConfigureAwait(false));
+                if (!buffer.HasMore)
                     break;
+                var partSize = PartSizeFor(remaining, ++partNumber);
                 if (partNumber > MaxPartCount)
                     throw new IOException($"The file '{path}' is too large: S3 takes at most {MaxPartCount} parts, of {partSize} bytes here.");
+                buffer.StartNextPart();
+                await buffer.FillAsync(contents, partSize, cancellationToken).ConfigureAwait(false);
             }
             await CallAsync(_ => client.CompleteMultipartUploadAsync(new CompleteMultipartUploadRequest
             {
@@ -211,11 +273,11 @@ internal sealed partial class S3Core
         }
     }
 
-    private async Task<PartETag> UploadPartAsync(IAmazonS3 client, string key, string uploadId, int partNumber, PartBuffer buffer, int size,
+    private async Task<PartETag> UploadPartAsync(IAmazonS3 client, string key, string uploadId, int partNumber, PartBuffer buffer,
         CancellationToken cancellationToken)
     {
         // The part is in memory, so the SDK can rewind it to retry; the caller's stream is never seeked.
-        using var body = buffer.Content(size);
+        using var body = buffer.Content();
         var response = await CallAsync(_ => client.UploadPartAsync(new UploadPartRequest
         {
             BucketName = Bucket,
@@ -228,13 +290,14 @@ internal sealed partial class S3Core
         return new PartETag { PartNumber = partNumber, ETag = response.ETag };
     }
 
-    private async Task CopyInPartsAsync(ResolvedPath source, ResolvedPath destination, GetObjectMetadataResponse head, CancellationToken cancellationToken)
+    private async Task<string?> CopyInPartsAsync(ResolvedPath source, ResolvedPath destination, GetObjectMetadataResponse head, CancellationToken cancellationToken)
     {
         var client = await ClientAsync(cancellationToken).ConfigureAwait(false);
         var length = head.ContentLength;
         var partSize = Math.Max(CopyPartSize, (length + MaxPartCount - 1) / MaxPartCount);
         var key = Key(destination);
-        // A single CopyObject keeps the source's headers and metadata; a copy in parts carries them over itself.
+        // A single CopyObject keeps the source's headers and metadata; a copy in parts carries them over itself. Tags are
+        // left out: reading them takes a call of their own.
         var initiate = new InitiateMultipartUploadRequest
         {
             BucketName = Bucket,
@@ -246,6 +309,10 @@ internal sealed partial class S3Core
         initiate.Headers.CacheControl = head.Headers.CacheControl;
         initiate.Headers.ContentDisposition = head.Headers.ContentDisposition;
         initiate.Headers.ContentEncoding = head.Headers.ContentEncoding;
+        initiate.Headers.ContentLanguage = head.Headers.ContentLanguage;
+        // The SDK gives a HEAD's Expires as text; its typed form stays empty.
+        if (!string.IsNullOrEmpty(head.ExpiresString))
+            initiate.Headers["Expires"] = head.ExpiresString;
         foreach (var name in head.Metadata.Keys)
             initiate.Metadata[name] = head.Metadata[name];
         var upload = await CallAsync(_ => client.InitiateMultipartUploadAsync(initiate, cancellationToken), cancellationToken).ConfigureAwait(false);
@@ -269,7 +336,7 @@ internal sealed partial class S3Core
                 }, cancellationToken), cancellationToken).ConfigureAwait(false);
                 parts.Add(new PartETag { PartNumber = partNumber, ETag = part.ETag });
             }
-            await CallAsync(_ => client.CompleteMultipartUploadAsync(new CompleteMultipartUploadRequest
+            return (await CallAsync(_ => client.CompleteMultipartUploadAsync(new CompleteMultipartUploadRequest
             {
                 BucketName = Bucket,
                 Key = key,
@@ -277,7 +344,7 @@ internal sealed partial class S3Core
                 PartETags = parts,
                 IfNoneMatch = "*",
                 RequestPayer = Payer,
-            }, cancellationToken), cancellationToken).ConfigureAwait(false);
+            }, cancellationToken), cancellationToken).ConfigureAwait(false)).ETag;
         }
         catch
         {
@@ -313,34 +380,41 @@ internal sealed partial class S3Core
         var size = length is { } n
             ? Math.Max(PartSize, (n + MaxPartCount - 1) / MaxPartCount)
             : PartSize * (1 + ((partNumber - 1) / 1000));
-        // One byte below the largest array, for the lookahead byte.
-        return (int)Math.Min(size, Array.MaxLength - 1);
+        return (int)Math.Min(size, Array.MaxLength);
     }
 
-    /// <summary>One part's bytes, in an array rented from the shared pool and returned on dispose.</summary>
+    /// <summary>
+    /// One part's bytes, in an array rented from the shared pool and returned on dispose, and whether a byte follows the
+    /// part. That lookahead byte is kept apart, so the array is never larger than a part.
+    /// </summary>
     private sealed class PartBuffer(int initialSize) : IDisposable
     {
+        private readonly byte[] _next = new byte[1];
         private byte[] _array = ArrayPool<byte>.Shared.Rent(Math.Max(1, initialSize));
         private bool _ended;
 
-        /// <summary>How many bytes the buffer holds.</summary>
+        /// <summary>How many bytes the part holds.</summary>
         public int Count { get; private set; }
 
-        /// <summary>The first <paramref name="length"/> bytes, as a read-only stream.</summary>
-        public MemoryStream Content(int length) => new(_array, 0, length, writable: false);
+        /// <summary>Whether the stream has a byte past the part.</summary>
+        public bool HasMore { get; private set; }
 
-        /// <summary>Drops the first <paramref name="length"/> bytes, keeping the rest at the start.</summary>
-        public void Consume(int length)
+        /// <summary>The part, as a read-only stream.</summary>
+        public MemoryStream Content() => new(_array, 0, Count, writable: false);
+
+        /// <summary>Empties the part and starts the next one with the byte that followed it.</summary>
+        public void StartNextPart()
         {
-            _array.AsSpan(length, Count - length).CopyTo(_array);
-            Count -= length;
+            _array[0] = _next[0];
+            Count = 1;
+            HasMore = false;
         }
 
         /// <summary>
-        /// Reads until the buffer holds <paramref name="limit"/> bytes or the stream ends, after what it already holds,
-        /// renting a larger array as needed.
+        /// Reads until the part holds <paramref name="limit"/> bytes or the stream ends, after what it already holds,
+        /// renting a larger array as needed; then reads one byte more to learn whether the stream goes on.
         /// </summary>
-        public async Task<int> FillAsync(Stream source, int limit, CancellationToken cancellationToken)
+        public async Task FillAsync(Stream source, int limit, CancellationToken cancellationToken)
         {
             while (Count < limit && !_ended)
             {
@@ -355,7 +429,9 @@ internal sealed partial class S3Core
                 _ended = read == 0;
                 Count += read;
             }
-            return Count;
+            if (!_ended)
+                HasMore = await source.ReadAsync(_next, cancellationToken).ConfigureAwait(false) == 1;
+            _ended |= !HasMore;
         }
 
         public void Dispose() => ArrayPool<byte>.Shared.Return(_array);

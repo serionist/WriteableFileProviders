@@ -85,9 +85,10 @@ The provider never disposes a client it was given. Its options then give only th
   the file's type.
 - **Copy and move** happen on the server. MinIO ignores `If-None-Match` on copies, so an existing destination is
   checked first, which is not atomic. A move deletes exactly the source key, after checking that the source is still
-  the version it copied (MinIO ignores `If-Match` on deletes, so this is not atomic either); when it changed, the copy
-  is removed and the move throws `PreconditionFailedException`. Copies over 5 GiB keep the content type, encoding,
-  disposition, cache control and metadata.
+  the version it copied (MinIO ignores `If-Match` on deletes, so this is not atomic either). A source deleted meanwhile
+  completes the move; a source changed meanwhile undoes it, deleting the copy only while it is still the copy, and the
+  move throws `PreconditionFailedException`. Copies over 5 GiB keep the content type, language, encoding, disposition,
+  cache control, expiry and metadata (not tags).
 - No storage class is sent: MinIO refuses the ones it does not know.
 - Nothing touches the network before the first call, which asks for the region (unless `Region` names it) and checks
   the bucket.

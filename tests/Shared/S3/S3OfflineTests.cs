@@ -143,33 +143,95 @@ public abstract class S3OfflineTests
     }
 
     [TestMethod]
-    public async Task Move_WhoseSourceChangedRemovesTheCopy()
+    public async Task Move_WhoseSourceChangedRemovesTheCopyAtItsVersion()
     {
-        var (provider, factory) = Offline(r => Task.FromResult(
-            IsCopy(r) ? CopyResult()
-            : r.Method == HttpMethod.Delete && IsKey(r, "a.txt") ? Error(HttpStatusCode.PreconditionFailed, "PreconditionFailed")
-            : Missing(r, "b.txt")));
+        string? ifMatch = null;
+        var (provider, factory) = MoveFake(r =>
+        {
+            if (r.Method == HttpMethod.Delete && IsKey(r, "a.txt"))
+                return Error(HttpStatusCode.PreconditionFailed, "PreconditionFailed");
+            if (r.Method == HttpMethod.Delete && IsKey(r, "b.txt"))
+                ifMatch = Header(r, "If-Match");
+            return null;
+        });
         using (provider)
         {
             var e = await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => provider.MoveAsync("a.txt", "b.txt"));
             StringAssert.Contains(e.Message, "undone");
         }
-        Assert.IsTrue(factory.Requests.Any(r => r.StartsWith("DELETE", StringComparison.Ordinal) && r.Contains("/root/b.txt", StringComparison.Ordinal)), "The copy was removed");
+        Assert.AreEqual(CopyETag, ifMatch, "The copy is removed only while it is the copy");
+        Assert.IsTrue(factory.Requests.Any(r => r.StartsWith("DELETE", StringComparison.Ordinal) && r.Contains("/root/b.txt", StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
+    public async Task Move_WhoseSourceWentAfterTheCopyCompletes()
+    {
+        // Off AWS the check before the delete finds the source gone; on AWS the delete answers 404: either way the copy
+        // holds the content, and the move is done, as on the other providers.
+        var (provider, factory) = MoveFake(r =>
+            (r.Method == HttpMethod.Head || r.Method == HttpMethod.Delete) && IsKey(r, "a.txt") ? Error(HttpStatusCode.NotFound, "NoSuchKey") : null);
+        using (provider)
+            await provider.MoveAsync("a.txt", "b.txt");
+        Assert.IsFalse(factory.Requests.Any(r => r.StartsWith("DELETE", StringComparison.Ordinal) && r.Contains("/root/b.txt", StringComparison.Ordinal)), "The copy is kept");
+    }
+
+    [TestMethod]
+    public async Task Move_WhoseCopyWasOverwrittenMeanwhileLeavesIt()
+    {
+        var (provider, factory) = MoveFake(r =>
+            r.Method == HttpMethod.Delete && IsKey(r, "a.txt") ? Error(HttpStatusCode.PreconditionFailed, "PreconditionFailed")
+            // Another writer has put its own file where the copy was: off AWS the check sees it, on AWS the delete refuses.
+            : r.Method == HttpMethod.Head && IsKey(r, "b.txt") ? WithETag(Empty(), "\"theirs\"")
+            : r.Method == HttpMethod.Delete && IsKey(r, "b.txt") ? Error(HttpStatusCode.PreconditionFailed, "PreconditionFailed")
+            : null);
+        using (provider)
+        {
+            var e = await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => provider.MoveAsync("a.txt", "b.txt"));
+            StringAssert.Contains(e.Message, "now holds another write");
+        }
+        Assert.AreEqual(ChecksAtomically, factory.Requests.Any(r => r.StartsWith("DELETE", StringComparison.Ordinal) && r.Contains("/root/b.txt", StringComparison.Ordinal)),
+            "Off AWS the other write is seen before any delete");
     }
 
     [TestMethod]
     public async Task Move_ThatCannotRemoveItsCopyNamesIt()
     {
-        var (provider, _) = Offline(r => Task.FromResult(
-            IsCopy(r) ? CopyResult()
-            : r.Method == HttpMethod.Delete ? Error(HttpStatusCode.PreconditionFailed, "PreconditionFailed")
-            : Missing(r, "b.txt")));
+        var (provider, _) = MoveFake(r =>
+            r.Method == HttpMethod.Delete && IsKey(r, "a.txt") ? Error(HttpStatusCode.PreconditionFailed, "PreconditionFailed")
+            : r.Method == HttpMethod.Delete && IsKey(r, "b.txt") ? throw new HttpRequestException("Injected network failure")
+            : null);
         using (provider)
         {
             var e = await Assert.ThrowsExactlyAsync<IOException>(() => provider.MoveAsync("a.txt", "b.txt"));
             StringAssert.Contains(e.Message, "b.txt");
             Assert.IsInstanceOfType<AggregateException>(e.InnerException);
         }
+    }
+
+    private const string CopyETag = "\"copy\"";
+
+    // A move from a.txt to b.txt: before the copy, a.txt exists and b.txt does not; after it, b.txt holds the copy.
+    // `afterCopy` answers what it wants once the copy is made.
+    private (IWriteableFileProvider Provider, InterceptingHttpClientFactory Factory) MoveFake(Func<HttpRequestMessage, HttpResponseMessage?> afterCopy)
+    {
+        var copied = false;
+        return Offline(r =>
+        {
+            if (IsCopy(r))
+            {
+                copied = true;
+                return Task.FromResult<HttpResponseMessage?>(CopyResult());
+            }
+            if (!copied)
+                return Task.FromResult(Missing(r, "b.txt"));
+            return Task.FromResult(afterCopy(r) ?? (r.Method == HttpMethod.Head && IsKey(r, "b.txt") ? WithETag(Empty(), CopyETag) : null));
+        });
+    }
+
+    private static HttpResponseMessage WithETag(HttpResponseMessage response, string etag)
+    {
+        response.Headers.ETag = new System.Net.Http.Headers.EntityTagHeaderValue(etag);
+        return response;
     }
 
     [TestMethod]
@@ -187,6 +249,8 @@ public abstract class S3OfflineTests
                 head.Content.Headers.ContentDisposition = new System.Net.Http.Headers.ContentDispositionHeaderValue("attachment") { FileName = "big.bin" };
                 head.Headers.CacheControl = new System.Net.Http.Headers.CacheControlHeaderValue { MaxAge = TimeSpan.FromHours(1) };
                 head.Headers.Add("x-amz-meta-owner", "tests");
+                head.Content.Headers.ContentLanguage.Add("hu");
+                head.Content.Headers.Expires = new DateTimeOffset(2030, 1, 2, 3, 4, 5, TimeSpan.Zero);
                 return Task.FromResult<HttpResponseMessage?>(head);
             }
             if (IsInitiate(r))
@@ -210,6 +274,8 @@ public abstract class S3OfflineTests
         StringAssert.Contains(initiate.GetValueOrDefault("Content-Disposition"), "big.bin");
         Assert.AreEqual("max-age=3600", initiate.GetValueOrDefault("Cache-Control"));
         Assert.AreEqual("tests", initiate.GetValueOrDefault("x-amz-meta-owner"));
+        Assert.AreEqual("hu", initiate.GetValueOrDefault("Content-Language"));
+        StringAssert.Contains(initiate.GetValueOrDefault("Expires"), "02 Jan 2030");
     }
 
     [TestMethod]
@@ -316,18 +382,6 @@ public abstract class S3OfflineTests
                 provider.UpdateFileAsync("f.txt", new MemoryStream([1]), new UpdateFileOptions { IfMatch = ETag }));
             StringAssert.Contains(gone.Message, "no longer");
         }
-    }
-
-    [TestMethod]
-    public async Task Move_WhoseSourceWentAfterTheCopyIsUndone()
-    {
-        var (provider, factory) = Offline(r => Task.FromResult(
-            IsCopy(r) ? CopyResult()
-            : r.Method == HttpMethod.Delete && IsKey(r, "a.txt") ? Error(HttpStatusCode.NotFound, "NoSuchKey")
-            : Missing(r, "b.txt")));
-        using (provider)
-            await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => provider.MoveAsync("a.txt", "b.txt"));
-        Assert.IsTrue(factory.Requests.Any(r => r.StartsWith("DELETE", StringComparison.Ordinal) && r.Contains("/root/b.txt", StringComparison.Ordinal)), "The copy was removed");
     }
 
     [TestMethod]

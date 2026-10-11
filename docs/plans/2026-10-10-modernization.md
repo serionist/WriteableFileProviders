@@ -689,7 +689,7 @@ Status: `todo`, `done` (with the PR), `wontfix` (with the reason). F-numbers are
 | P1.3 Cancellation everywhere | S4 | done (S4) |
 | P1.4 Dependencies current | S2, S6–S10 | S6 done (Azure.Storage.Blobs 12.30.1, Azure.Identity 1.21.0); S7 done (AWSSDK.S3 4, the Minio SDK removed); S8 done (Google.Cloud.Storage.V1 5.0.0); S9 done (Microsoft.Graph 6.8.0, Graph.Core 4.0.1); S10 Box.V2.Core 10.19.0 |
 | P2.5 Streaming writes without temp-file round trips where the SDK can | S5–S8 | S6 done (Azure overwrites stage blocks as they read; appends spool, to retry); S7 done (one part in memory at a time); S8 done (GCS uploads stream from the caller's stream); S5 todo |
-| P2.6 ETags and conditional writes | S4, S5–S10 | S4 done (API, non-atomic default); S6 done (Azure, atomic); S7 done (checked atomically by S3 and MinIO); S8 done (GCS: the generation, atomic); S9 done (SharePoint: checked, and sent to the service; D15 as amended); S10 Box (`IfNotExists` atomic, `IfMatch` checked until the live run, D15); S5 native |
+| P2.6 ETags and conditional writes | S4, S5–S10 | S4 done (API, non-atomic default); S6 done (Azure, atomic); S7 done (atomic on AWS; on MinIO and other S3-compatible servers checked first and sent to the server); S8 done (GCS: the generation, atomic); S9 done (SharePoint: checked, and sent to the service; D15 as amended); S10 Box (`IfNotExists` atomic, `IfMatch` checked until the live run, D15); S5 native |
 | P2.7 Content type on write and read | S4, S5–S10 | S4 done (API, hint); S6 done (Azure); S7 done; S8 done (GCS); S9 done (SharePoint reports the service's type and ignores the hint); S10 Box keeps none (ignored, null); S5, S10 |
 | P2.8 Async listing, recursive | S4, S5–S10 | S4 done (API, default walk); S6 done (Azure: one flat listing); S7 done (a recursive walk is one paged listing); S8 done (GCS: paged prefix listing, the base's walk); S9 done (SharePoint: paged children, the base's walk); S10 Box (marker paging, recursive by folder id); S5, S10 |
 | P2.9 Dependency injection | S4, S11 | S4 done (registration); S11 done (`AddWriteableFileProviderGateway`, `MapWriteableFileProviderGateway`, keyed providers resolved by name) |
@@ -1379,7 +1379,7 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
   - **Conformance suite** (Testing): two capability flags for emulator bugs, `FailedLargeWriteKeepsOldContent` and
     `SupportsLargeConditionalWrites`, true by default; S3Mock 5.2.3 sets both false (reasons in the S7 row).
   - **D25, D26** (main session): `WriteableAmazonS3FileProvider` and `WriteableMinioFileProvider` are `sealed`, and the
-    six new options carry `[JsonIgnore(Condition = WhenWritingDefault)]`, as S6's do, so the golden written-shape test
+    seven new options properties (four on S3, three on MinIO) carry `[JsonIgnore(Condition = WhenWritingDefault)]`, as S6's do, so the golden written-shape test
     stays as it was; each options test pins both, and the migration guide lists the sealing.
   - **Verified:** the solution builds strict; all non-Live tests with `WFP_REQUIRE_DOCKER=1`, 775 passed and none skipped
     (S3Mock 5.2.3 and MinIO by digest through Testcontainers); the coverage gate. Coverage on Windows: AmazonS3 98.3% of
@@ -1420,6 +1420,28 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
   - **Floors** from this Windows run (AmazonS3 98.3% / 92.6%, Minio 99.2% / 91.3%), by the rule under Tests (the
     whole-point floor, minus one): AmazonS3 97/91, Minio 98/90. CI on PR #30 reports Linux; the lower of the two counts.
   - Plan ids (D18, D26) are out of the public XML docs and the migration guide's S3 and MinIO section.
+
+- **2026-10-11, S7 review round 2** (PR #30, read at b38bfdd: F1–F9, D25 and D26 verified; 5 minors, 4 nits), all
+  fixed:
+  - **N1** (decided: one meaning with GCS and Azure) A source deleted between the copy and its delete (404, or gone at
+    the check off AWS) completes the move and keeps the copy; a changed source still undoes it.
+  - **N2** `CopyAsync` returns the copy's ETag too (CopyObject or the completed upload); the undo deletes the copy with
+    `If-Match` on it, and off AWS checks it first (not atomic). A copy another writer replaced is left, and the
+    `PreconditionFailedException` says the source was not moved and the destination holds another write.
+  - **N3** Any failure of the undo (a network error included) throws `IOException` naming the copy.
+  - **N4** The part array holds exactly one part (8 MiB, not the next power of two); the lookahead byte lives apart.
+  - **N5** The range test now has cases that overflow (`(2, long.MaxValue)`, `(3, long.MaxValue - 1)`); on the old
+    expression S3Mock answers 400 and MinIO returns the whole file, so both fail without the fix.
+  - **N6–N9** MinIO's `SupportsAtomicPreconditions` doc says always false; the AmazonS3 README says a provider redirected
+    by `AWS_ENDPOINT_URL_S3` still counts as AWS; a copy in parts also carries Content-Language and Expires (from the
+    HEAD's `ExpiresString`, as the SDK leaves the typed value empty), and leaves tags out, documented; the log counts
+    seven new options properties.
+  - Tests: offline `Move_WhoseSourceWentAfterTheCopyCompletes`, `Move_WhoseCopyWasOverwrittenMeanwhileLeavesIt`,
+    `Move_WhoseSourceChangedRemovesTheCopyAtItsVersion`, `Move_ThatCannotRemoveItsCopyNamesIt` (a network failure);
+    emulator `Move_WhoseSourceGoesAfterTheCopyCompletes`, `Move_WhoseCopyIsOverwrittenBeforeTheUndoLeavesIt`.
+  - Rebased onto S6 (dd566ac) and S12 part 1: the trackers carry S6's, S7's and S8's parts. The old test project starts
+    no emulator any more, so `Emulators.cs` and its Testcontainers reference go, and AGENTS.md no longer names it. P2.6
+    says what S7 checks since F4. Verified on that tree: 1514 non-Live tests, the coverage gate.
 
 ### For the maintainers
 

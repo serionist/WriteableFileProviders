@@ -84,9 +84,11 @@ and `CreateBucketIfMissing`.
   the file's type. Listings carry no content type; `GetFileInfoAsync` does.
 - **Copy and move** happen on the server. An existing destination is refused, atomically on AWS (`If-None-Match`);
   S3-compatible servers that ignore that header on copies are still checked first. Files over 5 GiB are copied in
-  parts, keeping the content type, encoding, disposition, cache control and metadata. A move deletes exactly the source
-  key, with `If-Match` on the version it copied: when the source changed meanwhile, the copy is removed and the move
-  throws `PreconditionFailedException`. Atomic on AWS; elsewhere the version is also checked just before the delete.
+  parts, keeping the content type, language, encoding, disposition, cache control, expiry and metadata (not tags). A
+  move deletes exactly the source key, with `If-Match` on the version it copied. A source deleted meanwhile completes
+  the move. A source changed meanwhile undoes it: the copy is deleted with `If-Match` on its own version, and the move
+  throws `PreconditionFailedException`; a copy that another writer has replaced meanwhile is left as it is, and the
+  exception says so. Atomic on AWS; elsewhere each version is also checked just before its delete.
 - **Ranged and seekable reads** are ranged GETs, pinned to the version with `If-Match`.
 - **Requester-pays** buckets on AWS work: every request accepts the charge.
 - **Versions:** `ReadFileVersionAsync(versionId, path)` reads a version in a bucket with versioning.
@@ -113,7 +115,8 @@ gateway URL instead.
   checked once, on first use; a bucket deleted later is reported by the next call that finds it gone.
 - Off AWS (`ServiceUrl`), conditions are checked first and then sent: atomic only where the server enforces them.
 - The SDK's configured endpoints (`AWS_ENDPOINT_URL_S3`) redirect a provider without `ServiceUrl`, as they do every AWS
-  client.
+  client. Such a provider still counts as AWS: it leaves conditions to the endpoint, which must then enforce them as AWS
+  does. Point at another server with `ServiceUrl` instead.
 
 Moving from 2026: see
 [docs/migration-2027.md](https://github.com/serionist/WriteableFileProviders/blob/main/docs/migration-2027.md).

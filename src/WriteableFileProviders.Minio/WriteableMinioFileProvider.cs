@@ -60,8 +60,8 @@ public sealed class WriteableMinioFileProvider : WriteableFileProvider<MinioFile
     internal S3Core Core => _core;
 
     /// <summary>
-    /// True on AWS, which checks <c>If-Match</c> and <c>If-None-Match</c> atomically. On an S3-compatible server the
-    /// provider checks them first too (not atomic), and still sends them.
+    /// Always false: MinIO may ignore <c>If-Match</c> and <c>If-None-Match</c> (on copies and deletes it does), so the
+    /// provider checks conditions first, which is not atomic, and still sends them for MinIO to enforce where it can.
     /// </summary>
     protected override bool SupportsAtomicPreconditions => _core.ChecksAtomically;
 
@@ -114,8 +114,9 @@ public sealed class WriteableMinioFileProvider : WriteableFileProvider<MinioFile
         _core.CopyAsync(source, destination, cancellationToken);
 
     /// <summary>
-    /// Copies the file, then deletes the source with <c>If-Match</c> on the version copied; when the source changed
-    /// meanwhile, the copy is removed and <see cref="PreconditionFailedException"/> is thrown.
+    /// Copies the file, then deletes the source with <c>If-Match</c> on the version copied. A source deleted meanwhile
+    /// completes the move; a source changed meanwhile removes the copy (only while it is still the copy) and throws
+    /// <see cref="PreconditionFailedException"/>.
     /// </summary>
     protected override Task MoveCoreAsync(ResolvedPath source, ResolvedPath destination, CancellationToken cancellationToken) =>
         _core.MoveAsync(source, destination, cancellationToken);

@@ -19,7 +19,7 @@
   <ItemGroup Label="Provider SDKs">
     <PackageVersion Include="AWSSDK.S3" Version="3.7.305.22" />
     <PackageVersion Include="Azure.Identity" Version="1.21.0" />
-    <PackageVersion Include="Azure.Storage.Blobs" Version="12.23.0" />
+    <PackageVersion Include="Azure.Storage.Blobs" Version="12.30.0" />
     <PackageVersion Include="Box.V2.Core" Version="5.8.0" />
     <PackageVersion Include="Google.Cloud.Storage.V1" Version="5.0.0" />
     <PackageVersion Include="Microsoft.Graph" Version="5.85.0" />

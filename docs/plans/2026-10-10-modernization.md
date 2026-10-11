@@ -1717,6 +1717,43 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     non-root user; the coverage gate (Windows: Physical 99.47/93.92, AspNetCore 100/99.01 over its new 98; Linux
     container: Physical 100/97.97); the pack and the package check.
 
+- **2026-10-11, S12 part 2, harmonize, review round 2 (PR #41, read at `4b74a81`):** F2–F10 verified, and round 1's F1
+  fix too; one new major and one owner call, both decided by the main session:
+  - **N1 (major, sensitive; decided: never open a file to describe it):** round 1 described a link by opening its
+    target, read-write first, from listings, `GetFileInfo` and the version checks. The reviewer's Linux probes, as a
+    non-root user: a reader waiting on a FIFO behind a link got an early end of file, a writer's message was lost, a
+    FIFO the process may read but not write hung every listing in `open()` (no token cancels it, so anyone who can make
+    a link and a FIFO in the root could hang them all), inotify saw OPEN and CLOSE_WRITE, and on Windows the handle made
+    another process's `File.OpenRead` fail. Before this half, listings never opened a target. Now nothing opens a file
+    to describe it:
+    - Checked first in the container: .NET's FileInfo for a link on Linux reports the link's own length (its target's
+      text) and time, only its mode through the link; in the deploy layout it gave 23 bytes and the link's time, not the
+      private file's 7 bytes. So a link is described by `PhysicalPathOf`: the path walked a component at a time from its
+      root, each link replaced by its target, a relative target resolved against the part already resolved and `..`
+      applied to that part, giving up after 40 links; then a FileInfo of the result, which stat describes without
+      opening. On Windows, `ResolveLinkTarget(returnFinalTarget: true)`, which asks the system for the final path on a
+      handle without access. A link that leads nowhere is described as itself; only a reparse point is asked (F5).
+      `ResolvesLinksAsTheKernel` (internal, per system like the others) lets the tests run both ways on each system.
+    - `OpenThroughLink` is gone. Writes keep `IsReplaceable`'s probe; a link to a FIFO now has length 0 from stat, so a
+      write through it is still refused as not a regular file without waiting.
+    - Tests: the link test runs both ways and checks the target's last-access and last-write times unchanged; the deploy
+      layout test stays; on Linux, a link to a FIFO the process may read but not write is listed and described at once,
+      and a reader waiting on a FIFO is still waiting after a listing and an info of a link to it (then released by a
+      writer, and it reads what was written); `PhysicalPathOf` is tested on every system (the deploy layout, an absolute
+      target, `..` through a linked folder, a loop, `..` at the root).
+  - **N2 (owner call; decided: AWS hosts are AWS):** since F6 a client with its own `ServiceURL` counted as
+    S3-compatible, so AWS clients through a VPC endpoint, FIPS or dual-stack lost requester-pays and the location of a
+    created bucket. For both the options' `ServiceUrl` and a client's `ServiceURL`, a host that is `s3.amazonaws.com`,
+    or ends in `.amazonaws.com` or `.amazonaws.com.cn`, is AWS for all three settings (`ChecksAtomically`,
+    `RequesterPays`, `BucketLocation`). Offline tests: a VPC endpoint and MinIO's `localhost:9000`, each through the
+    options and through a client, and the host rule on its own. The XML docs say so; the AmazonS3 README's lines are
+    for the docs PR.
+  - **Verified:** the solution builds strict; every non-Live test on Windows with `WFP_REQUIRE_DOCKER=1`: 2115, none
+    failed, 11 skipped (the three concurrent-append cases and eight Unix-only Physical tests); Physical (147: 145
+    passed, the concurrent append and the Windows-only ACL test skipped) and Common (224 passed) in the container as a
+    non-root user; the coverage gate (Windows: Physical 99.50/94.38, AmazonS3 97.97/92.33; Linux container: Physical
+    100/97.19).
+
 ### For the maintainers
 
 What this session cannot do, kept current as the work goes on:

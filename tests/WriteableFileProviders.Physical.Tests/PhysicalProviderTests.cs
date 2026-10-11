@@ -332,12 +332,17 @@ public sealed class PhysicalProviderTests
     }
 
     [TestMethod]
-    public async Task ALinkToAFile_IsDescribedPinnedAndWrittenAsItsTarget()
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task ALinkToAFile_IsDescribedPinnedAndWrittenAsItsTarget(bool resolvesAsTheKernel)
     {
         // A file reached through a symbolic link: its info, its listing entry and its ETag describe the target, which reads
         // open, so a pinned read and an append through the link see one version (the link's own length is 0 on Windows,
-        // the length of its target's path on Linux). A write replaces the link with a file, and leaves the target as it
-        // was; ALinkBehindALinkedFolder checks the mode the new file takes.
+        // the length of its target's path on Linux). Describing it never opens the target. A write replaces the link with
+        // a file, and leaves the target as it was; ALinkBehindALinkedFolder checks the mode the new file takes. Both ways
+        // of following a link run on each system.
+        _provider.Dispose();
+        _provider = new WriteablePhysicalFileProvider(_root) { ResolvesLinksAsTheKernel = resolvesAsTheKernel };
         await Write("target.txt", "0123456789");
         try
         {
@@ -348,8 +353,13 @@ public sealed class PhysicalProviderTests
             Assert.Inconclusive($"Creating a symbolic link on Windows needs Developer Mode or elevation: {e.Message}");
         }
 
+        var accessed = File.GetLastAccessTimeUtc(Disk("target.txt"));
+        var written = File.GetLastWriteTimeUtc(Disk("target.txt"));
         var info = await _provider.GetFileInfoAsync("link.txt");
         Assert.AreEqual(10, info.Length);
+        Assert.AreEqual(10, (await _provider.GetDirectoryContentsAsync("")).Single(e => e.Name == "link.txt").Length);
+        Assert.AreEqual(accessed, File.GetLastAccessTimeUtc(Disk("target.txt")), "Describing the link does not touch its target");
+        Assert.AreEqual(written, File.GetLastWriteTimeUtc(Disk("target.txt")), "Describing the link does not touch its target");
         Assert.AreEqual((await _provider.GetFileInfoAsync("target.txt")).ETag, info.ETag);
         Assert.AreEqual(Disk("link.txt"), info.PhysicalPath, "The path is the link's, inside the root");
         Assert.AreEqual(10, (await _provider.GetDirectoryContentsAsync("")).Single(e => e.Name == "link.txt").Length);
@@ -438,18 +448,7 @@ public sealed class PhysicalProviderTests
     {
         // Opening a FIFO to read waits for a writer, and to write waits for a reader: a link to one is described, and a
         // write through it refused as not a regular file, without either wait.
-        Directory.CreateDirectory(_root);
-        try
-        {
-            using var mkfifo = Process.Start(new ProcessStartInfo("mkfifo", Disk("pipe")) { UseShellExecute = false })!;
-            await mkfifo.WaitForExitAsync();
-            if (mkfifo.ExitCode != 0)
-                Assert.Inconclusive($"mkfifo exited with {mkfifo.ExitCode}.");
-        }
-        catch (Win32Exception e)
-        {
-            Assert.Inconclusive($"mkfifo is not available: {e.Message}");
-        }
+        await MakeFifo("pipe");
         File.CreateSymbolicLink(Disk("pipe-link"), Disk("pipe"));
         var names = await Task.Run(() => Names()).WaitAsync(TimeSpan.FromSeconds(30));
         CollectionAssert.Contains(names, "pipe-link");
@@ -459,6 +458,91 @@ public sealed class PhysicalProviderTests
         var refused = await Assert.ThrowsExactlyAsync<IOException>(() => _provider.UpdateFileAsync("pipe-link", TestStreams.Text("x")).WaitAsync(TimeSpan.FromSeconds(30)));
         StringAssert.Contains(refused.Message, "not a regular file");
         Assert.IsEmpty(TempFiles());
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Linux | OperatingSystems.OSX)]
+    public async Task ALinkToAFifo_IsDescribedWithoutOpeningIt()
+    {
+        // Describing a file never opens it. A FIFO the process may read but not write, which an open would wait on for a
+        // writer, is listed and described at once; and a reader waiting on a FIFO for a writer is not woken by a listing or
+        // an info of a link to it, as an open and close would wake it with an early end of file.
+        await MakeFifo("readonly-pipe", "0444");
+        File.CreateSymbolicLink(Disk("readonly-link"), Disk("readonly-pipe"));
+        await MakeFifo("pipe");
+        File.CreateSymbolicLink(Disk("pipe-link"), Disk("pipe"));
+        var reader = Task.Run(async () =>
+        {
+            await using var stream = new FileStream(Disk("pipe"), FileMode.Open, FileAccess.Read);
+            using var text = new StreamReader(stream);
+            return await text.ReadToEndAsync();
+        });
+        try
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(200)); // the reader waits in its open, for a writer
+
+            CollectionAssert.IsSubsetOf(new[] { "pipe-link", "readonly-link" }, await Task.Run(() => Names()).WaitAsync(TimeSpan.FromSeconds(30)));
+            Assert.AreEqual(0, (await _provider.GetFileInfoAsync("readonly-link").WaitAsync(TimeSpan.FromSeconds(30))).Length);
+            Assert.AreEqual(0, (await _provider.GetFileInfoAsync("pipe-link").WaitAsync(TimeSpan.FromSeconds(30))).Length);
+            await Task.Delay(TimeSpan.FromMilliseconds(200));
+            Assert.IsFalse(reader.IsCompleted, "The reader still waits for a writer");
+        }
+        finally
+        {
+            // Opened to read and write, which never waits, whether or not the reader still does.
+            await using var writer = new FileStream(Disk("pipe"), FileMode.Open, FileAccess.ReadWrite);
+            await writer.WriteAsync("hello"u8.ToArray());
+        }
+        Assert.AreEqual("hello", await reader.WaitAsync(TimeSpan.FromSeconds(30)));
+    }
+
+    [TestMethod]
+    public void PhysicalPathOf_ResolvesLinksFromWhereTheyAre()
+    {
+        // The walk Linux and macOS describe links with, run on every system: a relative target resolves against the part
+        // of the path already resolved, '..' climbs from where a linked folder leads, and a loop gives up.
+        var site = Disk("site");
+        Directory.CreateDirectory(Path.Combine(site, "releases", "r1"));
+        Directory.CreateDirectory(Path.Combine(site, "shared"));
+        File.WriteAllText(Path.Combine(site, "shared", "secret.txt"), "private");
+        try
+        {
+            Directory.CreateSymbolicLink(Path.Combine(site, "current"), Path.Combine("releases", "r1"));
+        }
+        catch (Exception e) when (OperatingSystem.IsWindows() && e is IOException or UnauthorizedAccessException)
+        {
+            Assert.Inconclusive($"Creating a symbolic link on Windows needs Developer Mode or elevation: {e.Message}");
+        }
+        File.CreateSymbolicLink(Path.Combine(site, "releases", "r1", "secret.txt"), Path.Combine("..", "..", "shared", "secret.txt"));
+        File.CreateSymbolicLink(Path.Combine(site, "absolute.txt"), Path.Combine(site, "current", "secret.txt"));
+        File.CreateSymbolicLink(Path.Combine(site, "loop1"), "loop2");
+        File.CreateSymbolicLink(Path.Combine(site, "loop2"), "loop1");
+
+        // The temp folder may itself be reached through a link (macOS: /var -> /private/var).
+        var secret = WriteablePhysicalFileProvider.PhysicalPathOf(Path.Combine(site, "shared", "secret.txt"));
+        Assert.AreEqual(secret, WriteablePhysicalFileProvider.PhysicalPathOf(Path.Combine(site, "current", "secret.txt")));
+        Assert.AreEqual(secret, WriteablePhysicalFileProvider.PhysicalPathOf(Path.Combine(site, "absolute.txt")));
+        Assert.AreEqual(secret, WriteablePhysicalFileProvider.PhysicalPathOf(Path.Combine(site, "current", ".", "..", "r1", "secret.txt")));
+        Assert.IsNull(WriteablePhysicalFileProvider.PhysicalPathOf(Path.Combine(site, "loop1")));
+        var root = Path.GetPathRoot(site)!;
+        Assert.AreEqual(root, WriteablePhysicalFileProvider.PhysicalPathOf(Path.Join(root, "..")));
+    }
+
+    // Makes a FIFO under the root with mkfifo, with the given permission bits; inconclusive where there is no mkfifo.
+    private async Task MakeFifo(string name, string mode = "0644")
+    {
+        Directory.CreateDirectory(_root);
+        try
+        {
+            using var mkfifo = Process.Start(new ProcessStartInfo("mkfifo") { ArgumentList = { "-m", mode, Disk(name) }, UseShellExecute = false })!;
+            await mkfifo.WaitForExitAsync();
+            if (mkfifo.ExitCode != 0)
+                Assert.Inconclusive($"mkfifo exited with {mkfifo.ExitCode}.");
+        }
+        catch (Win32Exception e)
+        {
+            Assert.Inconclusive($"mkfifo is not available: {e.Message}");
+        }
     }
 
     [TestMethod]

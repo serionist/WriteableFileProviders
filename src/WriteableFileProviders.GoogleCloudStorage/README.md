@@ -9,7 +9,8 @@ A Google Cloud Storage bucket as an `IWriteableFileProvider`, on `Google.Cloud.S
 dotnet add package WriteableFileProviders.GoogleCloudStorage
 ```
 
-Needs .NET 10. Keep every WriteableFileProviders package in an app on the same major version.
+Needs .NET 10. Not native AOT compatible: the Google Cloud Storage SDK reads and writes JSON through reflection.
+Keep every WriteableFileProviders package in an app on the same major version.
 
 ## Use
 

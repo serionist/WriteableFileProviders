@@ -2,8 +2,8 @@
 
   <PropertyGroup>
     <PackageId>WriteableFileProviders.AspNetCore</PackageId>
-    <Description>Signed download and upload URLs for every WriteableFileProviders store in ASP.NET Core, the local disk included: IWriteableFileUrlService returns the store's own presigned or SAS URL where it can sign one, else a URL of a gateway in your app that serves GET, HEAD (with ranges) and PUT on Data Protection tokens.</Description>
-    <PackageTags>$(PackageTags);aspnetcore;asp-net-core;presigned-url;gateway;file-download;file-upload</PackageTags>
+    <Description>Signed download and upload URLs for every WriteableFileProviders store in ASP.NET Core, the local disk included: IWriteableFileUrlService returns the store's own presigned or SAS URL where it can sign one, else a URL of a gateway in your app that serves GET, HEAD (with ranges) and PUT on Data Protection tokens. Native AOT compatible.</Description>
+    <PackageTags>$(PackageTags);aspnetcore;asp-net-core;presigned-url;gateway;file-download;file-upload;aot;native-aot;trimming</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 

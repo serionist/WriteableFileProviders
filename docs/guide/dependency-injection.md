@@ -119,3 +119,18 @@ WriteableFileProviderSerializer.Register<MyOwnProvider>();           // a provid
   now throws. JSON written by 2027 isn't promised to read on 2026.
 - Building does no network I/O. A provider signs in and finds its bucket, container or library on its first call, so
   those settings fail there, not at startup.
+- It finds types and reads options through reflection, so its members, and `AddWriteableFileProvider(section)`, warn
+  in a trimmed or native AOT app. See below.
+
+## In a native AOT app
+
+Bind the options with the configuration binder (its source generator runs in AOT apps) and build the provider in code:
+
+```csharp
+var options = builder.Configuration.GetSection("Files").Get<AzureBlobFileProviderOptions>()!;
+builder.Services.AddWriteableFileProvider(_ => new WriteableAzureBlobFileProvider(options));
+```
+
+The keys are the same, without `Type`. Two differences from the serializer: a boolean is `true` or `false`, not `1` or
+`0`, and the binder leaves Amazon S3's `StorageClassForNewFiles` at its default, so set that one in code.
+GoogleCloudStorage and Box don't work in AOT apps ([Native AOT](../../README.md#native-aot)).

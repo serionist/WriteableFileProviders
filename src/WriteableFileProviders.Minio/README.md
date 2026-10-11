@@ -10,7 +10,8 @@ S3 protocol MinIO speaks, not on the Minio SDK.
 dotnet add package WriteableFileProviders.Minio
 ```
 
-Needs .NET 10. Keep every WriteableFileProviders package in an app on the same major version.
+Needs .NET 10, and is native AOT compatible. Keep every WriteableFileProviders package in an app on the same
+major version.
 
 ## Use
 

@@ -10,10 +10,30 @@
   <a href="https://github.com/serionist/WriteableFileProviders/actions/workflows/codeql.yml"><img alt="CodeQL" src="https://github.com/serionist/WriteableFileProviders/actions/workflows/codeql.yml/badge.svg?branch=main"></a>
   <a href="LICENSE"><img alt="Licence: MIT" src="https://img.shields.io/badge/licence-MIT-blue"></a>
   <a href="https://dotnet.microsoft.com/download/dotnet/10.0"><img alt=".NET 10" src="https://img.shields.io/badge/.NET-10-512BD4"></a>
+  <a href="#native-aot"><img alt="Native AOT" src="https://img.shields.io/badge/native%20AOT-compatible-2ea44f"></a>
 </p>
 
 One writeable `IFileProvider` for .NET, over the local disk and six cloud stores: read, write, list, move and sign
-links with the same code everywhere.
+links with the same code everywhere. Native AOT compatible, except Google Cloud Storage and Box.
+
+## Providers
+
+| Package | Store | Native AOT | NuGet | Downloads |
+|---|---|---|---|---|
+| [Physical](src/WriteableFileProviders.Physical/README.md) | A folder on the local disk | Yes | [![NuGet](https://img.shields.io/nuget/v/WriteableFileProviders.Physical?label=)](https://www.nuget.org/packages/WriteableFileProviders.Physical) | [![Downloads](https://img.shields.io/nuget/dt/WriteableFileProviders.Physical?label=)](https://www.nuget.org/packages/WriteableFileProviders.Physical) |
+| [AzureBlob](src/WriteableFileProviders.AzureBlob/README.md) | Azure Blob Storage | Yes | [![NuGet](https://img.shields.io/nuget/v/WriteableFileProviders.AzureBlob?label=)](https://www.nuget.org/packages/WriteableFileProviders.AzureBlob) | [![Downloads](https://img.shields.io/nuget/dt/WriteableFileProviders.AzureBlob?label=)](https://www.nuget.org/packages/WriteableFileProviders.AzureBlob) |
+| [AmazonS3](src/WriteableFileProviders.AmazonS3/README.md) | Amazon S3, or an S3-compatible server | Yes | [![NuGet](https://img.shields.io/nuget/v/WriteableFileProviders.AmazonS3?label=)](https://www.nuget.org/packages/WriteableFileProviders.AmazonS3) | [![Downloads](https://img.shields.io/nuget/dt/WriteableFileProviders.AmazonS3?label=)](https://www.nuget.org/packages/WriteableFileProviders.AmazonS3) |
+| [Minio](src/WriteableFileProviders.Minio/README.md) | MinIO | Yes | [![NuGet](https://img.shields.io/nuget/v/WriteableFileProviders.Minio?label=)](https://www.nuget.org/packages/WriteableFileProviders.Minio) | [![Downloads](https://img.shields.io/nuget/dt/WriteableFileProviders.Minio?label=)](https://www.nuget.org/packages/WriteableFileProviders.Minio) |
+| [GoogleCloudStorage](src/WriteableFileProviders.GoogleCloudStorage/README.md) | Google Cloud Storage | No | [![NuGet](https://img.shields.io/nuget/v/WriteableFileProviders.GoogleCloudStorage?label=)](https://www.nuget.org/packages/WriteableFileProviders.GoogleCloudStorage) | [![Downloads](https://img.shields.io/nuget/dt/WriteableFileProviders.GoogleCloudStorage?label=)](https://www.nuget.org/packages/WriteableFileProviders.GoogleCloudStorage) |
+| [Box](src/WriteableFileProviders.Box/README.md) | Box | No | [![NuGet](https://img.shields.io/nuget/v/WriteableFileProviders.Box?label=)](https://www.nuget.org/packages/WriteableFileProviders.Box) | [![Downloads](https://img.shields.io/nuget/dt/WriteableFileProviders.Box?label=)](https://www.nuget.org/packages/WriteableFileProviders.Box) |
+| [SharePoint](src/WriteableFileProviders.SharePoint/README.md) | SharePoint, through Microsoft Graph | Yes | [![NuGet](https://img.shields.io/nuget/v/WriteableFileProviders.SharePoint?label=)](https://www.nuget.org/packages/WriteableFileProviders.SharePoint) | [![Downloads](https://img.shields.io/nuget/dt/WriteableFileProviders.SharePoint?label=)](https://www.nuget.org/packages/WriteableFileProviders.SharePoint) |
+| [AspNetCore](src/WriteableFileProviders.AspNetCore/README.md) | Signed links for every store, served by your app | Yes | [![NuGet](https://img.shields.io/nuget/v/WriteableFileProviders.AspNetCore?label=)](https://www.nuget.org/packages/WriteableFileProviders.AspNetCore) | [![Downloads](https://img.shields.io/nuget/dt/WriteableFileProviders.AspNetCore?label=)](https://www.nuget.org/packages/WriteableFileProviders.AspNetCore) |
+| [Common](src/WriteableFileProviders.Common/README.md) | The interface, the base class and configuration | Yes | [![NuGet](https://img.shields.io/nuget/v/WriteableFileProviders.Common?label=)](https://www.nuget.org/packages/WriteableFileProviders.Common) | [![Downloads](https://img.shields.io/nuget/dt/WriteableFileProviders.Common?label=)](https://www.nuget.org/packages/WriteableFileProviders.Common) |
+
+Each package is `WriteableFileProviders.<name>` on NuGet, and brings `WriteableFileProviders.Common`.
+
+**Another store?** Derive from `WriteableFileProvider<TOptions>` in Common and implement five members. The base class
+handles paths, the root, conditions, copies, moves and errors ([Writing a provider](docs/guide/writing-a-provider.md)).
 
 ## Install
 
@@ -21,8 +41,8 @@ links with the same code everywhere.
 dotnet add package WriteableFileProviders.AzureBlob
 ```
 
-One package per store ([Providers](#providers)), each with `WriteableFileProviders.Common`. Add
-`WriteableFileProviders.AspNetCore` for signed links on every store. .NET 10 only; on .NET 8, stay on `2026.10.10.x`.
+One package per store. Add `WriteableFileProviders.AspNetCore` for signed links on every store. .NET 10 only; on
+.NET 8, stay on `2026.10.10.x`.
 
 ## The interface
 
@@ -66,19 +86,22 @@ builder.Services.AddWriteableFileProvider(builder.Configuration.GetSection("File
 
 Then inject `IWriteableFileProvider` wherever you need files. Another store is another configuration, not new code.
 
-## Providers
+## Native AOT
 
-| Package | Store | NuGet | Downloads |
-|---|---|---|---|
-| [WriteableFileProviders.Physical](src/WriteableFileProviders.Physical/README.md) | A folder on the local disk | [![NuGet](https://img.shields.io/nuget/v/WriteableFileProviders.Physical?label=)](https://www.nuget.org/packages/WriteableFileProviders.Physical) | [![Downloads](https://img.shields.io/nuget/dt/WriteableFileProviders.Physical?label=)](https://www.nuget.org/packages/WriteableFileProviders.Physical) |
-| [WriteableFileProviders.AzureBlob](src/WriteableFileProviders.AzureBlob/README.md) | Azure Blob Storage | [![NuGet](https://img.shields.io/nuget/v/WriteableFileProviders.AzureBlob?label=)](https://www.nuget.org/packages/WriteableFileProviders.AzureBlob) | [![Downloads](https://img.shields.io/nuget/dt/WriteableFileProviders.AzureBlob?label=)](https://www.nuget.org/packages/WriteableFileProviders.AzureBlob) |
-| [WriteableFileProviders.AmazonS3](src/WriteableFileProviders.AmazonS3/README.md) | Amazon S3, or an S3-compatible server | [![NuGet](https://img.shields.io/nuget/v/WriteableFileProviders.AmazonS3?label=)](https://www.nuget.org/packages/WriteableFileProviders.AmazonS3) | [![Downloads](https://img.shields.io/nuget/dt/WriteableFileProviders.AmazonS3?label=)](https://www.nuget.org/packages/WriteableFileProviders.AmazonS3) |
-| [WriteableFileProviders.Minio](src/WriteableFileProviders.Minio/README.md) | MinIO | [![NuGet](https://img.shields.io/nuget/v/WriteableFileProviders.Minio?label=)](https://www.nuget.org/packages/WriteableFileProviders.Minio) | [![Downloads](https://img.shields.io/nuget/dt/WriteableFileProviders.Minio?label=)](https://www.nuget.org/packages/WriteableFileProviders.Minio) |
-| [WriteableFileProviders.GoogleCloudStorage](src/WriteableFileProviders.GoogleCloudStorage/README.md) | Google Cloud Storage | [![NuGet](https://img.shields.io/nuget/v/WriteableFileProviders.GoogleCloudStorage?label=)](https://www.nuget.org/packages/WriteableFileProviders.GoogleCloudStorage) | [![Downloads](https://img.shields.io/nuget/dt/WriteableFileProviders.GoogleCloudStorage?label=)](https://www.nuget.org/packages/WriteableFileProviders.GoogleCloudStorage) |
-| [WriteableFileProviders.Box](src/WriteableFileProviders.Box/README.md) | Box | [![NuGet](https://img.shields.io/nuget/v/WriteableFileProviders.Box?label=)](https://www.nuget.org/packages/WriteableFileProviders.Box) | [![Downloads](https://img.shields.io/nuget/dt/WriteableFileProviders.Box?label=)](https://www.nuget.org/packages/WriteableFileProviders.Box) |
-| [WriteableFileProviders.SharePoint](src/WriteableFileProviders.SharePoint/README.md) | SharePoint, through Microsoft Graph | [![NuGet](https://img.shields.io/nuget/v/WriteableFileProviders.SharePoint?label=)](https://www.nuget.org/packages/WriteableFileProviders.SharePoint) | [![Downloads](https://img.shields.io/nuget/dt/WriteableFileProviders.SharePoint?label=)](https://www.nuget.org/packages/WriteableFileProviders.SharePoint) |
-| [WriteableFileProviders.AspNetCore](src/WriteableFileProviders.AspNetCore/README.md) | Signed links for every store, served by your app | [![NuGet](https://img.shields.io/nuget/v/WriteableFileProviders.AspNetCore?label=)](https://www.nuget.org/packages/WriteableFileProviders.AspNetCore) | [![Downloads](https://img.shields.io/nuget/dt/WriteableFileProviders.AspNetCore?label=)](https://www.nuget.org/packages/WriteableFileProviders.AspNetCore) |
-| [WriteableFileProviders.Common](src/WriteableFileProviders.Common/README.md) | The interface, the base class and configuration | [![NuGet](https://img.shields.io/nuget/v/WriteableFileProviders.Common?label=)](https://www.nuget.org/packages/WriteableFileProviders.Common) | [![Downloads](https://img.shields.io/nuget/dt/WriteableFileProviders.Common?label=)](https://www.nuget.org/packages/WriteableFileProviders.Common) |
+Every package works in trimmed and native AOT apps except GoogleCloudStorage and Box, whose SDKs read and write JSON
+through reflection. CI publishes an app over the others with native AOT and runs it: on the local disk, Azurite,
+MinIO and an in-memory Microsoft Graph.
+
+Building a provider from configuration by its `Type` uses reflection too, so `AddWriteableFileProvider(section)` and
+`WriteableFileProviderSerializer` warn in an AOT app. Bind the options and build the provider in code instead:
+
+```csharp
+var options = builder.Configuration.GetSection("Files").Get<AzureBlobFileProviderOptions>()!;
+builder.Services.AddWriteableFileProvider(_ => new WriteableAzureBlobFileProvider(options));
+```
+
+In an ASP.NET Core AOT app, SharePoint adds one warning, `IL2104` for `Microsoft.IO.RecyclableMemoryStream`, which
+Microsoft Graph uses. It is harmless: that package's event logging passes only primitives.
 
 ## Signed links
 

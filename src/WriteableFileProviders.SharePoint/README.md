@@ -9,7 +9,8 @@ A SharePoint document library as an `IWriteableFileProvider`, through Microsoft 
 dotnet add package WriteableFileProviders.SharePoint
 ```
 
-Needs .NET 10. Keep every WriteableFileProviders package in an app on the same major version.
+Needs .NET 10, and is native AOT compatible: in an ASP.NET Core app, Microsoft Graph adds one harmless warning
+([Native AOT](https://github.com/serionist/WriteableFileProviders#native-aot)). Keep every WriteableFileProviders package in an app on the same major version.
 
 ## Use
 

@@ -13,7 +13,8 @@ dotnet add package WriteableFileProviders.Physical
 ```
 
 Or `.AzureBlob`, `.AmazonS3`, `.Minio`, `.GoogleCloudStorage`, `.Box`, `.SharePoint`. Install Common alone to write a
-provider of your own. Needs .NET 10. Keep every WriteableFileProviders package in an app on the same major version.
+provider of your own. Needs .NET 10, and is native AOT compatible, except building a provider from configuration
+([Native AOT](https://github.com/serionist/WriteableFileProviders#native-aot)). Keep every WriteableFileProviders package in an app on the same major version.
 
 ## Use
 
@@ -58,6 +59,14 @@ For several providers, register each under a key: `services.AddKeyedSingleton<IW
 `WriteableFileProviderSerializer` also reads JSON (`FromJson`) and writes a provider back (`ToJson`, `ToJsonString`).
 The JSON holds the options' secrets: never log it. To build a provider of your own from configuration, call
 `WriteableFileProviderSerializer.Register<TProvider>()` first, or pass its assembly.
+
+The serializer finds types and reads options through reflection, so it warns in a trimmed or native AOT app. There,
+bind the options and build the provider in code:
+
+```csharp
+var options = configuration.GetSection("Files").Get<AzureBlobFileProviderOptions>()!;
+services.AddWriteableFileProvider(_ => new WriteableAzureBlobFileProvider(options));
+```
 
 ## Learn more
 

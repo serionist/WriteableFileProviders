@@ -10,7 +10,8 @@ presigned, GCS V4, Box and SharePoint download URLs), else a gateway URL, served
 dotnet add package WriteableFileProviders.AspNetCore
 ```
 
-Needs .NET 10. Keep every WriteableFileProviders package in an app on the same major version.
+Needs .NET 10, and is native AOT compatible. Keep every WriteableFileProviders package in an app on the same
+major version.
 
 ## Use
 

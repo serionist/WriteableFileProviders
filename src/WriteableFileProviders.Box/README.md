@@ -9,7 +9,8 @@ A [Box](https://www.box.com) folder as an `IWriteableFileProvider`, on the Box .
 dotnet add package WriteableFileProviders.Box
 ```
 
-Needs .NET 10. Keep every WriteableFileProviders package in an app on the same major version.
+Needs .NET 10. Not native AOT compatible: the Box SDK reads and writes JSON through reflection. Keep every
+WriteableFileProviders package in an app on the same major version.
 
 ## Use
 

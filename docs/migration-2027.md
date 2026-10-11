@@ -56,8 +56,8 @@ registration (`services.AddWriteableFileProvider(name, configuration)`).
 | `watchAsync(string)` (abstract) | `WatchCore(string)`, optional |
 | `createLocalFileStreamAsync(bool, params string[])` (protected virtual), and overriding the public virtual `CreateLocalFileStreamAsync(bool, params string[])` | `CreateLocalFileStreamCoreAsync(ResolvedPath, bool, CancellationToken)`, optional. The public `CreateLocalFileStreamAsync(ProviderPath, bool, CancellationToken)` is no longer virtual, so an override of it no longer compiles |
 | `isSegmentAllowed`, `validateSegments` | `IsSegmentAllowed`, `ValidateSegments` |
-| `getRelativeSegments`, `isRootPath` | Gone by 2027.0.0 (`[Obsolete]` until then): `ResolvedPath.RelativeSegments` and `ResolvedPath.IsRoot` |
-| `normalizePem` | Gone by 2027.0.0 (`[Obsolete]` until then): keep your own helper |
+| `getRelativeSegments`, `isRootPath` | Gone: `ResolvedPath.RelativeSegments` and `ResolvedPath.IsRoot` |
+| `normalizePem` | Gone: keep your own helper |
 | `normalizePath(string)` | `ProviderPath.Parse(string)` |
 | `fileSegments(IFileInfo)` | `IWriteableFileInfo.Path` |
 | `RunTaskSerial(...)`, both overloads | Gone: await the task |

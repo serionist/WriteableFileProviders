@@ -106,14 +106,7 @@ public sealed class BaseClassTests
     public async Task Helpers()
     {
         using var provider = Stub("tenant/a");
-        CollectionAssert.AreEqual(new[] { "x" }, provider.Relative(["tenant", "a", "x"]));
-        Assert.IsTrue(provider.IsRoot(["tenant", "a"]));
-        Assert.IsTrue(provider.IsRoot(null!));
-        Assert.IsFalse(provider.IsRoot(["tenant", "a", "x"]));
         Assert.AreEqual(new ProviderPath("a", "b"), provider.ResolveForTest("a\\b"));
-        Assert.AreEqual("-----BEGIN-----\nAB\n-----END-----", StubProvider.Pem("-----BEGIN-----\\nAB\\r\\n-----END-----"));
-        Assert.AreEqual("plain", StubProvider.Pem("plain"));
-        Assert.IsNull(StubProvider.Pem(null));
         await using (var spooled = await StubProvider.Spool(TestStreams.Text("spool")))
         {
             Assert.AreEqual(0, spooled.Position);

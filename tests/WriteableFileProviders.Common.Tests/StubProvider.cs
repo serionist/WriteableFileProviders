@@ -82,15 +82,6 @@ public sealed class StubProvider(StubOptions options) : WriteableFileProvider<St
 
     public ProviderPath ResolveForTest(ProviderPath path) => Resolve(path).Path;
 
-    // The 2026 helpers stay tested until S12 removes them.
-#pragma warning disable CS0618
-    public string[] Relative(string[] absolute) => GetRelativeSegments(absolute);
-
-    public bool IsRoot(string[] absolute) => IsRootPath(absolute);
-
-    public static string? Pem(string? pem) => NormalizePem(pem);
-#pragma warning restore CS0618
-
     public Task AppendByRewrite(string path, Stream contents, UpdateFileOptions? options = null) =>
         AppendByRewriteAsync(Resolve(path), contents, options ?? UpdateFileOptions.Append, default);
 

@@ -59,31 +59,6 @@ public abstract partial class WriteableFileProvider<TOptions>
     /// <returns>False to reject the segment.</returns>
     protected virtual bool IsSegmentAllowed(string part) => true;
 
-    /// <summary>The segments after the root segments of an absolute path.</summary>
-    /// <param name="absoluteSegments">The root segments followed by the relative ones.</param>
-    [Obsolete("Removed before 2027.0.0: use ResolvedPath.RelativeSegments.")]
-    protected string[] GetRelativeSegments(string[] absoluteSegments)
-    {
-        ArgumentNullException.ThrowIfNull(absoluteSegments);
-        return [.. absoluteSegments.Skip(Options.RootDirectorySegments.Length)];
-    }
-
-    /// <summary>Whether absolute segments point to the provider root (no segments after the root segments).</summary>
-    /// <param name="absoluteSegments">The root segments followed by the relative ones.</param>
-    [Obsolete("Removed before 2027.0.0: use ResolvedPath.IsRoot.")]
-    protected bool IsRootPath(string[] absoluteSegments) => GetRelativeSegments(absoluteSegments ?? []).Length == 0;
-
-    /// <summary>
-    /// Turns escaped newline sequences (a key pasted into an environment variable or a secret) into real newlines. A PEM
-    /// body never contains a backslash, so a valid key is returned unchanged.
-    /// </summary>
-    /// <param name="pem">The key.</param>
-    [Obsolete("Removed before 2027.0.0: it moves into the Box and Google Cloud Storage providers, its only users.")]
-    protected static string? NormalizePem(string? pem) =>
-        string.IsNullOrEmpty(pem) || !pem.Contains('\\', StringComparison.Ordinal)
-            ? pem
-            : pem.Replace("\\r\\n", "\n", StringComparison.Ordinal).Replace("\\n", "\n", StringComparison.Ordinal).Replace("\\r", "\n", StringComparison.Ordinal);
-
     private ResolvedPath ResolveReadable(ProviderPath path)
     {
         var resolved = Resolve(path);

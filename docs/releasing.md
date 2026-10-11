@@ -75,27 +75,6 @@ Within an hour or so of the push (validation and indexing take a while):
 Then, for the first 2027 release only, unlist every version below `2026.10.10` of each package (its Manage page on
 nuget.org lists them), keeping `2026.10.10.x` listed for .NET 8 consumers.
 
-## Afterwards: move the public API to shipped
-
-Each package's `PublicAPI.Unshipped.txt` lists what is new since the last release; once a release ships, its lines move
-to `PublicAPI.Shipped.txt`, so the next change shows only what it adds or removes. In a pull request after the release:
-
-```
-for dir in src/WriteableFileProviders.*/; do
-  shipped="$dir/PublicAPI.Shipped.txt"; unshipped="$dir/PublicAPI.Unshipped.txt"
-  removed=$(grep '^\*REMOVED\*' "$unshipped" | sed 's/^\*REMOVED\*//' || true)
-  { grep -v '^#nullable enable$' "$shipped"; grep -v -e '^#nullable enable$' -e '^\*REMOVED\*' "$unshipped"; } \
-    | grep -v -x -F -e "$removed" | grep -v '^$' | LC_ALL=C sort -u > "$shipped.new"
-  { echo '#nullable enable'; cat "$shipped.new"; } > "$shipped"
-  echo '#nullable enable' > "$unshipped"
-  rm "$shipped.new"
-done
-dotnet build WriteableFileProviders.slnx
-```
-
-A `*REMOVED*` line in `PublicAPI.Unshipped.txt` drops that member's line from `PublicAPI.Shipped.txt`. The build checks
-the result: a member missing from both files fails it (RS0016), and so does a line with no member (RS0017).
-
 ## Afterwards: turn on the package validation baseline
 
 Package validation already runs on every pack. After the first release on nuget.org, it can also compare each new

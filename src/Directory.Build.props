@@ -41,13 +41,4 @@
     <None Include="$(MSBuildThisFileDirectory)..\docs\assets\icon.png" Pack="true" PackagePath="/" Visible="false" />
   </ItemGroup>
 
-  <!-- Each package's public API is declared next to its project: PublicAPI.Shipped.txt holds what released versions
-       have, PublicAPI.Unshipped.txt what is new since. A public member added or removed without its line there fails
-       the build (RS0016, RS0017 in .editorconfig). -->
-  <ItemGroup Label="Public API">
-    <PackageReference Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" PrivateAssets="all" />
-    <AdditionalFiles Include="PublicAPI.Shipped.txt" />
-    <AdditionalFiles Include="PublicAPI.Unshipped.txt" />
-  </ItemGroup>
-
 </Project>

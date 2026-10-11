@@ -20,15 +20,14 @@ links, `docs/guide/`.
 | `tests/WriteableFileProviders.<Provider>.Tests/` | A provider's tests: the conformance suite on its store, emulator or fake, its own cases, and a `Live` suite (see Tests). |
 | `docs/guide/` | The user guide, one topic a page, each linked from the README: `providers.md` (the comparison matrix), `paths-and-listings.md`, `reading-and-writing.md`, `signed-urls.md` (native URLs and the gateway), `dependency-injection.md`, `errors.md`, `writing-a-provider.md`, `versioning.md` (the versioning policy). |
 | `docs/migration-2027.md` | What 2027.0.0 breaks and how to move over; each change of the release adds its part. |
-| `docs/releasing.md` | The release runbook: the one-time setup, tagging and approving a release, what to check on nuget.org, moving the public API files to shipped, the package validation baseline. |
+| `docs/releasing.md` | The release runbook: the one-time setup, tagging and approving a release, what to check on nuget.org, the package validation baseline. |
 | `docs/assets/` | The logo (`logo.svg`, `logo-dark.svg`), the mark (`icon.svg`) and the social preview, with the PNGs `eng/render-assets.sh` renders from them: `icon.png` is every package's icon. |
 | `REVIEW.md` | The questions every review answers. |
 | `docs/plans/` | The plan of each non-trivial change, and the template (`docs/plans/README.md`). |
 | `docs/reviews/` | Reports of whole-repo or whole-folder reviews. A change's own review goes in its PR. |
 | `.claude/skills/` | The work loop: `start-work`, `review-plan`, `review-code`, `finish-work`. |
 | `WriteableFileProviders.slnx` | The solution. |
-| `Directory.Build.props`, `Directory.Build.targets` | Settings every project shares; `src/` and `tests/` add their own (for `src/`, packaging, the public API files, and the upper bound of a packed dependency on one of our packages, `[V, NextMajor.0.0-0)`; for `tests/`, test project settings). The root `.targets` file holds the strictness settings, where no project can turn them off. |
-| `src/*/PublicAPI.Shipped.txt`, `src/*/PublicAPI.Unshipped.txt` | Each package's public API, as released and as new since (see below). |
+| `Directory.Build.props`, `Directory.Build.targets` | Settings every project shares; `src/` and `tests/` add their own (for `src/`, packaging, package validation, and the upper bound of a packed dependency on one of our packages, `[V, NextMajor.0.0-0)`; for `tests/`, test project settings). The root `.targets` file holds the strictness settings, where no project can turn them off. |
 | `Directory.Packages.props` | Every package version, once (central package management). A `.csproj` names packages without versions. |
 | `global.json`, `nuget.config` | The SDK and the test runner; the package source (nuget.org only). |
 | `eng/` | `coverage-gate.cs`, the coverage gate, and `coverage.json`, the floor of each assembly; `package-check.cs`, which checks a release's packages before they are pushed; `render-assets.sh`, which renders the PNGs in `docs/assets/` with Docker. |
@@ -44,13 +43,10 @@ Every project targets `net10.0` and builds strict: nullable analysis, warnings a
 `latest-recommended` and the `.editorconfig` style enforced in the build. Code follows `.editorconfig`, and nothing
 reformats a file it does not otherwise change.
 
-Each package under `src/` declares its public API in `PublicAPI.Shipped.txt` and `PublicAPI.Unshipped.txt`
-(Microsoft.CodeAnalysis.PublicApiAnalyzers). A change to the public API updates `PublicAPI.Unshipped.txt` in the same
-change, or the build fails (RS0016 for a member missing from the files, RS0017 for a line with no member left; the code
-fix, or `dotnet format analyzers <project> --diagnostics RS0016`, writes the lines, and a shipped member that goes is
-written `*REMOVED*` followed by its line). When a release ships, starting with 2027.0.0, the lines of
-`PublicAPI.Unshipped.txt` move to `PublicAPI.Shipped.txt`, so the next change shows what it adds or removes against what
-consumers have.
+Package validation (`EnablePackageValidation`, in `src/Directory.Build.props`) runs on every pack. Until 2027.0.0 is
+on nuget.org it checks each package's own consistency; then its baseline compares every later package with that
+release, and a breaking change to the public API fails the pack ([docs/releasing.md](docs/releasing.md), "Afterwards:
+turn on the package validation baseline").
 
 ## Build and test
 

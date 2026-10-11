@@ -1,7 +1,9 @@
 using System.Net;
 using System.Text;
 using System.Web;
+using Google;
 using Google.Apis.Auth.OAuth2;
+using Google.Apis.Auth.OAuth2.Responses;
 using Google.Cloud.Storage.V1;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using WriteableFileProviders.Testing;
@@ -381,39 +383,82 @@ public sealed class GcsOptionsTests
     [DataRow(HttpStatusCode.Forbidden)]
     [DataRow(HttpStatusCode.InternalServerError)]
     [DataRow((HttpStatusCode)0)]
-    public async Task SignedUrl_ThatIamRefusesOrFailsIsNotSupported(HttpStatusCode status)
+    public async Task SignedUrl_ThatIamRefusesOrCannotReachIsNotSupported(HttpStatusCode status)
     {
         // An identity that signs through IAM's signBlob, here Compute Engine's: a refusal (403 without
-        // iam.serviceAccounts.signBlob), an error or a network failure of the signing is NotSupportedException with the
-        // cause inside, so the URL service falls back to the gateway. All of it through the client's HTTP seam.
+        // iam.serviceAccounts.signBlob), another error answer or a network failure of the signing is
+        // NotSupportedException with the cause inside, so the URL service falls back to the gateway. All of it through
+        // the client's HTTP seam.
+        var (provider, http) = OverComputeEngine(Token, _ => status == 0
+            ? throw new HttpRequestException("Injected network failure")
+            : Task.FromResult<HttpResponseMessage?>(FaultInjection.Error(status, "Permission 'iam.serviceAccounts.signBlob' denied")));
+        using (provider)
+        {
+            var e = await Assert.ThrowsExactlyAsync<NotSupportedException>(() =>
+                provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Permission = SignedUrlAccess.Write }));
+            Assert.IsNotNull(e.InnerException, "The cause travels inside");
+            Assert.IsTrue(http.Requests.Any(r => r.Contains(":signBlob", StringComparison.Ordinal)), string.Join('\n', http.Requests) + '\n' + e.InnerException);
+        }
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task SignedUrl_OfARefusedCredentialIsNotTakenForAMissingSigner(bool atTheTokenEndpoint)
+    {
+        // A credential refused (a token request answered invalid_grant, or signBlob answering 401) is not a signer the
+        // identity lacks: it is not NotSupportedException, which would have the URL service issue a gateway URL that
+        // fails later, but fails as every other member does.
+        Func<HttpRequestMessage, Task<HttpResponseMessage?>> token = atTheTokenEndpoint
+            ? _ => Task.FromResult<HttpResponseMessage?>(new HttpResponseMessage(HttpStatusCode.BadRequest)
+            {
+                Content = new StringContent("""{"error":"invalid_grant","error_description":"injected"}""", Encoding.UTF8, "application/json"),
+            })
+            : Token;
+        var (provider, _) = OverComputeEngine(token, _ => Task.FromResult<HttpResponseMessage?>(FaultInjection.Error(HttpStatusCode.Unauthorized, "injected")));
+        using (provider)
+        {
+            var e = await Assert.ThrowsAsync<Exception>(() =>
+                provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Permission = SignedUrlAccess.Write }));
+            Assert.IsNotInstanceOfType<NotSupportedException>(e, e.ToString());
+            // The store's error, as it is, or inside the exception the contract maps it to.
+            var cause = e is TokenResponseException or GoogleApiException ? e : e.InnerException;
+            if (atTheTokenEndpoint)
+                Assert.IsInstanceOfType<TokenResponseException>(cause, e.ToString());
+            else
+                Assert.AreEqual(HttpStatusCode.Unauthorized, Assert.IsInstanceOfType<GoogleApiException>(cause, e.ToString()).HttpStatusCode);
+        }
+    }
+
+    // A provider over a client signed in as Compute Engine's identity, whose metadata server and IAM answer through the
+    // client's HTTP seam. The universe is named, so the credential asks the metadata server nothing but the email and
+    // the token.
+    private static (WriteableGoogleCloudStorageFileProvider Provider, FaultInjection Http) OverComputeEngine(
+        Func<HttpRequestMessage, Task<HttpResponseMessage?>> token, Func<HttpRequestMessage, Task<HttpResponseMessage?>> signBlob)
+    {
         var http = new FaultInjection
         {
             OnRequest = request => request.RequestUri!.AbsolutePath switch
             {
-                var p when p.EndsWith("/service-accounts/default/email", StringComparison.Ordinal) => Text("wfp@example-project.iam.gserviceaccount.com"),
-                var p when p.EndsWith("/service-accounts/default/token", StringComparison.Ordinal) =>
-                    Text("""{"access_token":"fake-token","expires_in":3600,"token_type":"Bearer"}""", "application/json"),
-                var p when p.EndsWith(":signBlob", StringComparison.Ordinal) => status == 0
-                    ? throw new HttpRequestException("Injected network failure")
-                    : Task.FromResult<HttpResponseMessage?>(FaultInjection.Error(status, "Permission 'iam.serviceAccounts.signBlob' denied")),
+                var p when p.EndsWith("/service-accounts/default/email", StringComparison.Ordinal) => Metadata("wfp@example-project.iam.gserviceaccount.com"),
+                var p when p.EndsWith("/service-accounts/default/token", StringComparison.Ordinal) => token(request),
+                var p when p.EndsWith(":signBlob", StringComparison.Ordinal) => signBlob(request),
                 _ => Task.FromResult<HttpResponseMessage?>(FaultInjection.Error(HttpStatusCode.NotFound)),
             },
         };
-        // The universe is named, so the credential asks the metadata server nothing but the email and the token.
         var credential = new ComputeCredential(new ComputeCredential.Initializer { HttpClientFactory = http }).ToGoogleCredential().CreateWithUniverseDomain("googleapis.com");
-        using var client = new StorageClientBuilder { GoogleCredential = credential, HttpClientFactory = http }.Build();
-        using var provider = new WriteableGoogleCloudStorageFileProvider(Options(null), client);
-        var e = await Assert.ThrowsExactlyAsync<NotSupportedException>(() =>
-            provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Permission = SignedUrlAccess.Write }));
-        Assert.IsNotNull(e.InnerException, "The cause travels inside");
-        Assert.IsTrue(http.Requests.Any(r => r.Contains(":signBlob", StringComparison.Ordinal)), string.Join("\n", http.Requests) + "\n" + e.InnerException);
+        var client = new StorageClientBuilder { GoogleCredential = credential, HttpClientFactory = http }.Build();
+        return (new WriteableGoogleCloudStorageFileProvider(Options(null), client), http);
+    }
 
-        static Task<HttpResponseMessage?> Text(string body, string type = "text/plain")
-        {
-            var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, type) };
-            response.Headers.Add("Metadata-Flavor", "Google");
-            return Task.FromResult<HttpResponseMessage?>(response);
-        }
+    private static Task<HttpResponseMessage?> Token(HttpRequestMessage request) =>
+        Metadata("""{"access_token":"fake-token","expires_in":3600,"token_type":"Bearer"}""", "application/json");
+
+    private static Task<HttpResponseMessage?> Metadata(string body, string type = "text/plain")
+    {
+        var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, type) };
+        response.Headers.Add("Metadata-Flavor", "Google");
+        return Task.FromResult<HttpResponseMessage?>(response);
     }
 
     // A client signed in with the made-up key, for Google's endpoint, whose HTTP never leaves the process: it answers

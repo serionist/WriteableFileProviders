@@ -128,6 +128,62 @@ public sealed class AmazonS3OfflineTests
     }
 
     [TestMethod]
+    [DataRow("AWS_ENDPOINT_URL_S3")]
+    [DataRow("AWS_ENDPOINT_URL")]
+    public async Task AnEndpointInTheSdksConfiguration_IsANamedEndpoint(string variable)
+    {
+        // The SDK redirects a client it builds to an endpoint from its own configuration: the provider treats it as it
+        // treats ServiceUrl, for the plain-http rule, the conditions, create URLs and requester-pays.
+        string[] names = ["AWS_ENDPOINT_URL_S3", "AWS_ENDPOINT_URL"];
+        var saved = names.ToDictionary(n => n, Environment.GetEnvironmentVariable);
+        try
+        {
+            foreach (var name in names)
+                Environment.SetEnvironmentVariable(name, null);
+            Environment.SetEnvironmentVariable(variable, "http://minio.internal:9000");
+            var e = Assert.ThrowsExactly<ArgumentException>(() => new WriteableAmazonS3FileProvider(Aws()));
+            StringAssert.Contains(e.Message, "AllowInsecureHttp");
+            StringAssert.Contains(e.Message, "minio.internal");
+            Assert.AreEqual("options", e.ParamName);
+
+            string? payer = "unset";
+            var options = Aws();
+            options.AllowInsecureHttp = true;
+            var (provider, factory) = Offline(options, answer: r =>
+            {
+                if (r.Method == HttpMethod.Head && r.RequestUri!.AbsolutePath.EndsWith("/f.txt", StringComparison.Ordinal))
+                    payer = r.Headers.TryGetValues("x-amz-request-payer", out var values) ? string.Join(",", values) : null;
+                return null;
+            });
+            using (provider)
+            {
+                Assert.IsFalse(provider.Core.ChecksAtomically, "Conditions toward the configured endpoint are checked first");
+                Assert.IsNull(provider.Core.BucketLocation);
+                await Assert.ThrowsExactlyAsync<NotSupportedException>(() =>
+                    provider.GetSignedUrlAsync("new.txt", For(TimeSpan.FromMinutes(5), access: SignedUrlAccess.Create)));
+                Assert.IsTrue((await provider.GetFileInfoAsync("f.txt")).Exists);
+                Assert.IsNull(payer, "No requester-pays header toward a server that is not S3");
+                Assert.AreEqual(Uri.UriSchemeHttp, (await provider.GetSignedUrlAsync("f.txt", For(TimeSpan.FromMinutes(5)))).Url.Scheme);
+            }
+
+            // One of S3's own host names is still S3 for requester-pays and a created bucket's location.
+            Environment.SetEnvironmentVariable(variable, "https://s3.eu-west-1.amazonaws.com");
+            using var s3 = new WriteableAmazonS3FileProvider(Aws());
+            Assert.IsFalse(s3.Core.ChecksAtomically);
+            Assert.AreEqual("eu-west-1", s3.Core.BucketLocation);
+
+            // An endpoint that is neither http nor https is refused, as a ServiceUrl is.
+            Environment.SetEnvironmentVariable(variable, "ftp://files.internal");
+            StringAssert.Contains(Assert.ThrowsExactly<ArgumentException>(() => new WriteableAmazonS3FileProvider(Aws())).Message, "AWS_ENDPOINT_URL_S3");
+        }
+        finally
+        {
+            foreach (var (name, value) in saved)
+                Environment.SetEnvironmentVariable(name, value);
+        }
+    }
+
+    [TestMethod]
     public async Task Presign_CreateUrlsOnlyWhereTheStoreEnforcesThem()
     {
         // AWS enforces the If-None-Match a create URL signs; an S3-compatible server behind a named endpoint may ignore

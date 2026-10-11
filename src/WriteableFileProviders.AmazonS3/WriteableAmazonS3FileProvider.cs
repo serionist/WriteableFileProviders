@@ -1,3 +1,4 @@
+using Amazon;
 using Amazon.Runtime;
 using Amazon.S3;
 using WriteableFileProviders.S3;
@@ -17,16 +18,17 @@ namespace WriteableFileProviders.AmazonS3;
 /// write, and an append (a rewrite of the whole file) writes with <c>If-Match</c> on the version it read. A copy
 /// refuses an existing destination with <c>If-None-Match: *</c>, and a move deletes the source with <c>If-Match</c> on
 /// the version it copied, undoing the copy when the source changed. AWS checks all of these atomically. Toward an
-/// endpoint that <see cref="AmazonS3FileProviderOptions.ServiceUrl"/> or a given client names, which may be an
-/// S3-compatible server that ignores some of them, the provider also checks them first, which is not atomic.
+/// endpoint that <see cref="AmazonS3FileProviderOptions.ServiceUrl"/>, a given client or the AWS SDK's own
+/// configuration (<c>AWS_ENDPOINT_URL_S3</c>, <c>AWS_ENDPOINT_URL</c>, a profile's <c>endpoint_url</c>) names, which
+/// may be an S3-compatible server that ignores some of them, the provider also checks them first, which is not atomic.
 /// </para>
 /// <para>
 /// Nothing touches the network until the first call, which resolves the credentials of the default chain if asked and
 /// checks the bucket once. Presigned read, create and write URLs live at most 7 days, and never longer than the
 /// credential that signs them. A create URL (only if the file does not exist yet) is issued only on AWS, which enforces
-/// the <c>If-None-Match: *</c> it signs; toward an endpoint the options or a given client name, it throws
-/// <see cref="NotSupportedException"/>, so WriteableFileProviders.AspNetCore issues a gateway URL instead. Plain
-/// <c>http</c> toward a host that is not loopback is refused unless
+/// the <c>If-None-Match: *</c> it signs; toward an endpoint the options, a given client or the SDK's configuration
+/// name, it throws <see cref="NotSupportedException"/>, so WriteableFileProviders.AspNetCore issues a gateway URL
+/// instead. Plain <c>http</c> toward a host that is not loopback is refused unless
 /// <see cref="AmazonS3FileProviderOptions.AllowInsecureHttp"/> allows it.
 /// </para>
 /// </remarks>
@@ -37,8 +39,8 @@ public sealed class WriteableAmazonS3FileProvider : WriteableFileProvider<Amazon
     /// <summary>Creates the provider; it connects on first use.</summary>
     /// <param name="options">The options.</param>
     /// <exception cref="ArgumentException">
-    /// The options are incomplete or contradict each other, or <see cref="AmazonS3FileProviderOptions.ServiceUrl"/> is
-    /// plain http toward a host that is not loopback without
+    /// The options are incomplete or contradict each other, or <see cref="AmazonS3FileProviderOptions.ServiceUrl"/>, or
+    /// the endpoint the AWS SDK's configuration names, is plain http toward a host that is not loopback without
     /// <see cref="AmazonS3FileProviderOptions.AllowInsecureHttp"/>.
     /// </exception>
     public WriteableAmazonS3FileProvider(AmazonS3FileProviderOptions options)
@@ -225,7 +227,19 @@ public sealed class WriteableAmazonS3FileProvider : WriteableFileProvider<Amazon
             serviceUrl = options.ServiceUrl;
         }
         if (client is not null)
+        {
             RefuseInsecureHttp(options, S3Core.PlainHttpEndpointOf(client.Config), "The client's endpoint");
+        }
+        else if (serviceUrl is null && ConfiguredEndpoint() is { } configured)
+        {
+            // An endpoint the AWS SDK takes from its own configuration redirects every client it builds: it is a named
+            // endpoint, as ServiceUrl is, for the plain-http rule, the conditions, create URLs and requester-pays.
+            const string What = "The endpoint configured for the AWS SDK (AWS_ENDPOINT_URL_S3, AWS_ENDPOINT_URL or a profile's endpoint_url)";
+            if (!Uri.TryCreate(configured, UriKind.Absolute, out var uri) || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+                throw new ArgumentException($"{What} is not an absolute http or https URL.", nameof(options));
+            RefuseInsecureHttp(options, uri.Scheme == Uri.UriSchemeHttp ? uri : null, What);
+            serviceUrl = configured;
+        }
         var region = S3Core.NormalizeRegion(options.BucketRegion);
         if (!clientGiven && serviceUrl is null && region is null)
             throw new ArgumentException("BucketRegion is required unless ServiceUrl is set.", nameof(options));
@@ -250,6 +264,11 @@ public sealed class WriteableAmazonS3FileProvider : WriteableFileProvider<Amazon
             CreateBucketIfMissing = options.CreateBucketIfMissing,
         };
     }
+
+    // The endpoint the AWS SDK would send a client it builds to, from AWS_ENDPOINT_URL_S3, AWS_ENDPOINT_URL or the
+    // profile's endpoint_url (unless AWS_IGNORE_CONFIGURED_ENDPOINT_URLS is set); null when it would use AWS's own. The
+    // region is named so the SDK looks nothing up for it.
+    private static string? ConfiguredEndpoint() => new AmazonS3Config { RegionEndpoint = RegionEndpoint.USEast1 }.ServiceURL;
 
     // Plain http toward a host that is not loopback sends files, session tokens and presigned bearer URLs in clear
     // text: refused unless the options allow it, as the MinIO provider refuses it.

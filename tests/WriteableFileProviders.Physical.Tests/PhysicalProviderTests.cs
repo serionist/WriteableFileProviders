@@ -1108,6 +1108,67 @@ public sealed class PhysicalProviderTests
     }
 
     [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    [DataRow(@"\\?\")]
+    [DataRow(@"\\.\")]
+    public async Task Root_InTheExtendedFormIsTakenPlainSoShortNamesAreStillRefused(string prefix)
+    {
+        // .NET does not normalize an extended path, so under such a root 8.3 short names would go unexpanded while NTFS
+        // still resolves them: the root is taken in its plain form.
+        await Write("long folder name/report-2024.txt", "original");
+        using var provider = new WriteablePhysicalFileProvider(prefix + _root);
+        Assert.AreEqual(_root, provider.Options.RootDirectoryPath);
+        Assert.IsTrue((await provider.GetFileInfoAsync("long folder name/report-2024.txt")).Exists);
+        if (!Directory.Exists(Disk("LONGFO~1")))
+            Assert.Inconclusive("This volume keeps no 8.3 short names (fsutil 8dot3name).");
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => provider.UpdateFileAsync("LONGFO~1/REPORT~1.TXT", TestStreams.Text("REPLACED")));
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => provider.DeleteAsync("LONGFO~1"));
+        Assert.AreEqual("original", await Read("long folder name/report-2024.txt"));
+    }
+
+    [TestMethod]
+    [DataRow(@"\\?\C:\files", @"C:\files")]
+    [DataRow(@"\\?\c:\", @"c:\")]
+    [DataRow(@"\\?\D:", @"D:\")]
+    [DataRow(@"\\.\C:\files\x", @"C:\files\x")]
+    [DataRow("//?/C:/files", @"C:\files")]
+    [DataRow(@"\\?\UNC\server\share\files", @"\\server\share\files")]
+    [DataRow(@"\\?\unc\server\share", @"\\server\share")]
+    [DataRow(@"\\.\UNC\server\share", @"\\server\share")]
+    [DataRow(@"C:\files", @"C:\files")]
+    [DataRow(@"\\server\share\files", @"\\server\share\files")]
+    [DataRow("relative/folder", "relative/folder")]
+    public void PlainRootOf_TakesExtendedAndDevicePathsPlain(string root, string plain) =>
+        Assert.AreEqual(plain, WriteablePhysicalFileProvider.PlainRootOf(root));
+
+    [TestMethod]
+    [DataRow(@"\\?\Volume{12345678-1234-1234-1234-123456789abc}\files")]
+    [DataRow(@"\\.\PhysicalDrive0")]
+    [DataRow(@"\\.\pipe\name")]
+    [DataRow(@"\\?\GLOBALROOT\Device\HarddiskVolume1\files")]
+    public void PlainRootOf_HasNoneForAPathWithNoPlainForm(string root) =>
+        Assert.IsNull(WriteablePhysicalFileProvider.PlainRootOf(root));
+
+    [TestMethod]
+    public void PlainRootOf_HasNoneForAPathTooLongToBePlain()
+    {
+        var longest = @"C:\" + new string('a', 256);
+        Assert.AreEqual(longest, WriteablePhysicalFileProvider.PlainRootOf(@"\\?\" + longest));
+        Assert.IsNull(WriteablePhysicalFileProvider.PlainRootOf(@"\\?\" + longest + "b"));
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Root_WithNoPlainFormIsRefused()
+    {
+        foreach (var root in new[] { @"\\?\Volume{12345678-1234-1234-1234-123456789abc}\files", @"\\?\C:\" + new string('a', 300) })
+        {
+            var e = Assert.ThrowsExactly<ArgumentException>(() => new WriteablePhysicalFileProvider(root), root);
+            Assert.AreEqual("options", e.ParamName);
+        }
+    }
+
+    [TestMethod]
     public async Task List_LeavesOutNamesWindowsReadsAsOthers()
     {
         // Such names exist where another program made them: through a \\?\ path on Windows, or any path on Linux and

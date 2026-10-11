@@ -765,6 +765,7 @@ public abstract class ProviderConformanceTests
         Assert.AreEqual("file", await Read("dir"));
         Assert.AreEqual("below", await Read("dir/x.txt"));
         await AssertListsAFileAndAFolderAsync("dir");
+        await AssertDeletesTheFileThenTheFolderAsync("dir", "dir/x.txt");
     }
 
     [TestMethod]
@@ -783,6 +784,22 @@ public abstract class ProviderConformanceTests
         Assert.AreEqual("file", await Read("f.txt"));
         Assert.AreEqual("below", await Read("f.txt/y.txt"));
         await AssertListsAFileAndAFolderAsync("f.txt");
+        await AssertDeletesTheFileThenTheFolderAsync("f.txt", "f.txt/y.txt");
+    }
+
+    // A delete of a name a file and a folder share removes the file first, and a second delete the folder.
+    private async Task AssertDeletesTheFileThenTheFolderAsync(string name, string below)
+    {
+        Assert.IsTrue(await Provider.DeleteAsync(name), "The first delete removes the file");
+        var info = await Provider.GetFileInfoAsync(name);
+        Assert.IsTrue(info.Exists && info.IsDirectory, "The folder stays after the first delete");
+        await Assert.ThrowsAsync<FileNotFoundException>(() => Provider.ReadFileAsync(name));
+        Assert.IsTrue((await Provider.GetDirectoryContentsAsync("")).Any(e => e.Name == name && e.IsDirectory), "The folder lists again");
+        Assert.IsTrue((await Provider.GetFileInfoAsync(below)).Exists);
+        Assert.IsTrue(await Provider.DeleteAsync(name), "The second delete removes the folder");
+        Assert.IsFalse((await Provider.GetFileInfoAsync(name)).Exists);
+        Assert.IsFalse((await Provider.GetFileInfoAsync(below)).Exists);
+        Assert.IsFalse(await Provider.DeleteAsync(name), "Nothing is left");
     }
 
     // The root's listing of a name a file and a folder share: both, or, where the store lists only the file, the file.

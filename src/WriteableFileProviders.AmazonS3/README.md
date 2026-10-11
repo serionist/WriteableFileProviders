@@ -135,10 +135,11 @@ anything else, pass your own `IAmazonS3` (see Use).
 for at most 7 days. A longer validity throws `NotSupportedException`, so WriteableFileProviders.AspNetCore can issue a
 gateway URL instead.
 
-- A create URL is issued only on AWS (no `ServiceUrl`, and no client with its own `ServiceURL`), which enforces the
-  `If-None-Match: *` it signs. Toward a named endpoint, a server may ignore that header and let the URL overwrite a
-  file, so a create URL throws `NotSupportedException` there, and the gateway issues one, which checks the condition
-  before the write (as `IfNotExists` does toward that endpoint). Read and write URLs stay native.
+- A create URL is issued only on AWS (no `ServiceUrl`, no client with its own `ServiceURL`, and no endpoint in the
+  SDK's configuration), which enforces the `If-None-Match: *` it signs. Toward a named endpoint, a server may ignore
+  that header and let the URL overwrite a file, so a create URL throws `NotSupportedException` there, and the gateway
+  issues one, which checks the condition before the write (as `IfNotExists` does toward that endpoint). Read and write
+  URLs stay native.
 - A read URL can carry a download file name and a content type (`response-content-disposition`, `-type`), and needs
   the file to exist (`FileNotFoundException`). An upload URL with a download file name throws
   `NotSupportedException`.
@@ -162,9 +163,11 @@ gateway URL instead.
   it creates no location (the AWS SDK may still add one it reads from a host under `amazonaws.com`).
 - Plain `http` toward a host that is not loopback, through `ServiceUrl` or a client's own endpoint, is refused when the
   provider is built unless `AllowInsecureHttp` is set.
-- The SDK's configured endpoints (`AWS_ENDPOINT_URL_S3`) redirect a provider without `ServiceUrl`, as they do every AWS
-  client. Such a provider still counts as AWS: it leaves conditions to the endpoint and issues create URLs, which the
-  endpoint must then enforce as AWS does. Point at another server with `ServiceUrl` instead.
+- An endpoint the AWS SDK takes from its own configuration (`AWS_ENDPOINT_URL_S3`, `AWS_ENDPOINT_URL`, or a profile's
+  `endpoint_url`) redirects a provider without `ServiceUrl`, as it does every AWS client, and counts as a named endpoint,
+  as `ServiceUrl` does: conditions are checked first, create URLs come from the gateway, plain `http` toward a host that
+  is not loopback needs `AllowInsecureHttp`, and requester-pays and a created bucket's location apply only to S3's own
+  host names. Set `AWS_IGNORE_CONFIGURED_ENDPOINT_URLS` to have the SDK ignore it.
 - Change notifications (`Watch`) are not supported.
 
 ## More

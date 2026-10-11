@@ -6,7 +6,6 @@ using System.Security.Cryptography;
 using System.Web;
 using Google;
 using Google.Apis.Auth.OAuth2;
-using Google.Apis.Auth.OAuth2.Responses;
 using Google.Apis.Requests;
 using Google.Apis.Storage.v1;
 using Google.Apis.Storage.v1.Data;
@@ -39,8 +38,9 @@ namespace WriteableFileProviders.GoogleCloudStorage;
 /// </description></item>
 /// <item><description>
 /// <b>Signed URLs</b> are V4 signed URLs, for read, create and write, valid from one second to seven days. A credential
-/// that cannot sign, or an identity whose signing through IAM's <c>signBlob</c> is refused or fails, throws
-/// <see cref="NotSupportedException"/>, so WriteableFileProviders.AspNetCore issues a gateway URL instead.
+/// that cannot sign, or an identity whose signing through IAM's <c>signBlob</c> is refused (403), answers another error
+/// than 401 or cannot be reached, throws <see cref="NotSupportedException"/>, so WriteableFileProviders.AspNetCore
+/// issues a gateway URL instead; a refused credential and a timeout fail as on every other member.
 /// </description></item>
 /// <item><description>
 /// <b>Credentials</b> are resolved on the first call, never in a constructor; see
@@ -338,9 +338,10 @@ public sealed class WriteableGoogleCloudStorageFileProvider : WriteableFileProvi
     /// <param name="options">The validated options.</param>
     /// <param name="cancellationToken">Cancels the call.</param>
     /// <exception cref="NotSupportedException">
-    /// The credential cannot sign, or signing through IAM's <c>signBlob</c> was refused or failed (the cause is the
-    /// <see cref="Exception.InnerException"/>); the validity is under one second; or a download name was asked for an
-    /// upload URL.
+    /// The credential cannot sign; IAM's <c>signBlob</c> refused the signing (403) or answered another error than 401,
+    /// or could not be reached (the cause is the <see cref="Exception.InnerException"/>); the validity is under one
+    /// second; or a download name was asked for an upload URL. A refused credential (401, a token error) and a timeout
+    /// are not turned into this exception.
     /// </exception>
     protected override async Task<SignedUrl> GetSignedUrlCoreAsync(ResolvedPath path, SignedUrlOptions options, CancellationToken cancellationToken)
     {
@@ -386,13 +387,14 @@ public sealed class WriteableGoogleCloudStorageFileProvider : WriteableFileProvi
         {
             signed = await signer.SignAsync(template, UrlSigner.Options.FromDuration(TimeSpan.FromSeconds(seconds)), cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception e) when (e is GoogleApiException or HttpRequestException or TokenResponseException)
+        catch (Exception e) when (e is HttpRequestException || (e is GoogleApiException api && api.HttpStatusCode != HttpStatusCode.Unauthorized))
         {
             // An identity that signs through IAM's signBlob (Compute Engine, Cloud Run, Workload Identity,
-            // impersonation) may be refused it, or fail to reach it: the URL cannot be signed natively, so the gateway
-            // can serve it.
+            // impersonation) may be refused it (403, without iam.serviceAccounts.signBlob), get another error answer,
+            // or not reach it: the URL cannot be signed natively, so the gateway can serve it. A refused credential
+            // (401, or a token error) and a timeout are not this; they fail as on every other member.
             throw new NotSupportedException(
-                $"{GetType().Name} could not sign the URL: the signing service refused or failed it. Grant iam.serviceAccounts.signBlob, or use a service account key.", e);
+                $"{GetType().Name} could not sign the URL: IAM's signBlob refused it or could not be reached. Grant iam.serviceAccounts.signBlob, or use a service account key.", e);
         }
         var url = new Uri(signed);
         return new SignedUrl

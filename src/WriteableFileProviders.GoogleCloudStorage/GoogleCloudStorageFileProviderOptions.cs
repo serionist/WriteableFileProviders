@@ -29,7 +29,8 @@ namespace WriteableFileProviders.GoogleCloudStorage;
 /// <para>
 /// Signed URLs (<see cref="IWriteableFileProvider.GetSignedUrlAsync"/>) need a credential that can sign: a service
 /// account key, or an identity that holds <c>iam.serviceAccounts.signBlob</c> on its service account. Without one, or
-/// when IAM refuses or fails the signing, they throw <see cref="NotSupportedException"/>.
+/// when IAM's <c>signBlob</c> refuses the signing (403), answers another error than 401 or cannot be reached, they
+/// throw <see cref="NotSupportedException"/>; a refused credential and a timeout fail as on every other member.
 /// </para>
 /// </remarks>
 public sealed class GoogleCloudStorageFileProviderOptions : FileProviderOptions

@@ -2178,13 +2178,36 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
   - **Docs:** the Physical, Azure, Amazon S3, MinIO, Google Cloud Storage, Box and SharePoint READMEs, the root
     README's matrix (the folders column, the S3 and MinIO URL cells, the GCS gateway cell) and notes, the migration
     guide, the XML docs, and AGENTS.md (the live classes, the MinIO fixtures' flag).
-  - **Verified:** the solution builds strict; every non-Live test on Windows with `WFP_REQUIRE_DOCKER=1`: 2265, none
-    failed, 12 skipped (the three concurrent-append cases and nine Unix-only Physical tests); Physical (194: 190 passed,
-    the concurrent append, the Windows-only ACL test and the two Windows-only name tests skipped) and Common (234
-    passed) in a `dotnet/sdk:10.0` container as a non-root user; the coverage gate (Windows: AmazonS3 98.11/93.26,
-    AzureBlob 99.22/91.12, Box 99.69/93.17, GCS 99.64/95.16, MinIO 98.22/91.57, Physical 99.53/93.81, SharePoint
-    99.76/91.52), by whose rule the AmazonS3 branch floor rises from 91 to 92. No live suite ran (no accounts here;
-    D21).
+  - **PR #43 review, round 1** (no blocker or major; five items, each decided fail-closed by the main session):
+    - F1: a Windows root in the extended or device form (`\\?\C:\…`, `\\?\UNC\…`, `\\.\C:\…`) skipped .NET's
+      normalization, so 8.3 short names under it went unexpanded while NTFS resolved them, and the short-name check was
+      bypassed (the reviewer overwrote a file and deleted a folder through `LONGFO~1`). The constructor now takes such a
+      root in its plain form, and writes that back; one with no plain form of at most 259 characters (a volume GUID, a
+      device) throws `ArgumentException`. Tests: a Windows root with each prefix refuses the short names; the plain
+      form of each shape, on every system.
+    - F2: an endpoint the AWS SDK takes from its own configuration (`AWS_ENDPOINT_URL_S3`, `AWS_ENDPOINT_URL`, a
+      profile's `endpoint_url`) was never checked when the provider built its client. It now counts as a named endpoint,
+      as `ServiceUrl` does: the plain-http rule, conditions checked first, create URLs through the gateway, and
+      requester-pays and a created bucket's location only for S3's own host names. Offline tests set and restore both
+      variables. The README's line that such a provider "counts as AWS" and the class remarks are corrected.
+    - F3: the GCS signing catch no longer takes `TokenResponseException` or a `GoogleApiException` with 401, so a
+      refused credential fails as on every other member (`UnauthorizedAccessException` once the common half's mapping
+      lands) instead of having the URL service issue a gateway URL that fails later; signBlob's 403, other error
+      answers and `HttpRequestException` stay `NotSupportedException`, and a timeout is left to the base. Tests: a token
+      endpoint answering `invalid_grant`, and signBlob answering 401.
+    - F4: the D30 conformance tests now pin the delete order: the first delete removes the file and leaves the folder,
+      the second removes the folder.
+    - F5: the migration guide says the device-name rule follows Windows' documented reservation, which recent builds
+      do not always enforce, so a file such as `con.txt` that 2026 served is now refused and left out of listings.
+    - Nits: the 8.3 check and the device-name lookup allocate nothing (a span compare, a `FrozenSet` span lookup);
+      `SharePointLiveChecks` pages through the site's libraries as the provider does.
+  - **Verified** (after round 1): the solution builds strict; every non-Live test on Windows with
+    `WFP_REQUIRE_DOCKER=1`: 2288, none failed, 12 skipped (the three concurrent-append cases and nine Unix-only Physical
+    tests); Physical (213: 206 passed; skipped the concurrent append, the Windows-only ACL test and five Windows-only
+    name and root tests) and Common (234 passed) in a `dotnet/sdk:10.0` container as a non-root user; the coverage gate
+    (Windows: AmazonS3 98.13/93.22, AzureBlob 99.22/91.12, Box 99.69/93.17, GCS 99.64/95.24, MinIO 98.22/91.57,
+    Physical 99.54/94.02, SharePoint 99.76/91.52), by whose rule the AmazonS3 branch floor rises from 91 to 92. No live
+    suite ran (no accounts here; D21).
 
 ### For the maintainers
 

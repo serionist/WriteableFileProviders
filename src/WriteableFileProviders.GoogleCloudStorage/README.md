@@ -134,9 +134,10 @@ copies and moves, appends to a new file, and seekable reads, local streams and r
 
 `GetSignedUrlAsync` issues V4 signed URLs, which need a credential that can sign: a service account key, or an identity
 that holds `iam.serviceAccounts.signBlob` on its service account (Workload Identity, Compute Engine, Cloud Run). With a
-credential that cannot sign (a user, an access token), or when IAM refuses or fails the signing (an identity without
-`signBlob`), it throws `NotSupportedException` with the cause inside, and the WriteableFileProviders.AspNetCore gateway
-can take over.
+credential that cannot sign (a user, an access token), or when IAM's `signBlob` refuses the signing (403, an identity
+without the permission), answers another error than 401, or cannot be reached, it throws `NotSupportedException` with
+the cause inside, and the WriteableFileProviders.AspNetCore gateway can take over. A refused credential (401, a token
+error) and a timeout are not this: they fail as on every other member.
 
 | Permission | URL | The request must send |
 |---|---|---|

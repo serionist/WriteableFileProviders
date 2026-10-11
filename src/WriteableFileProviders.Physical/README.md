@@ -49,7 +49,7 @@ The provider class is sealed: to change what it does, wrap it, or derive your ow
 | Key | Meaning |
 |---|---|
 | `Type` | `WriteablePhysicalFileProvider`. |
-| `RootDirectoryPath` | The folder the provider is confined to: absolute (`/srv/files`, `C:\files`, `\\server\share\files`) or relative to the current directory, with `/` or `\`. A relative path is resolved once, when the provider is built, and written back to the options, so `ToJson` names the same folder wherever it is read. The folder need not exist; the first write creates it. |
+| `RootDirectoryPath` | The folder the provider is confined to: absolute (`/srv/files`, `C:\files`, `\\server\share\files`) or relative to the current directory, with `/` or `\`. A relative path is resolved once, when the provider is built, and written back to the options, so `ToJson` names the same folder wherever it is read. On Windows, an extended or device path (`\\?\C:\files`, `\\?\UNC\server\share`, `\\.\C:\files`) is taken, and written back, in its plain form, so the name rules below hold under it; one with no plain form of at most 259 characters (a volume GUID, a device) is refused. The folder need not exist; the first write creates it. |
 | `RootDirectorySegments` | The same path as segments, in the form every stored configuration has: a drive (`C:`), `\` for a network share, or `root:` for a path from the file system root (`/srv/files` is `["root:", "srv", "files"]`). Either key alone is enough. |
 
 Configuration stored by 2026 reads the same, including the `root:/srv/files` form 2026 wrote for `RootDirectoryPath` on

@@ -141,9 +141,15 @@ public sealed class SharePointLiveChecks
         var site = new Uri(_options!.SiteUrl!);
         var sitePath = Uri.UnescapeDataString(site.AbsolutePath).TrimEnd('/');
         var siteId = (await _graph!.Sites[$"{site.Host}:{(sitePath.Length == 0 ? "/" : sitePath)}"].GetAsync())!.Id!;
-        var drives = (await _graph.Sites[siteId].Drives.GetAsync())!.Value!;
-        _driveId = drives.First(d => string.Equals(d.Name, _options.DocumentLibraryName, StringComparison.OrdinalIgnoreCase)).Id!;
-        return _driveId;
+        // Page through the site's libraries, as the provider does.
+        var drives = _graph.Sites[siteId].Drives;
+        for (var page = await drives.GetAsync(); page is not null;
+             page = page.OdataNextLink is { } next ? await drives.WithUrl(next).GetAsync() : null)
+        {
+            if ((page.Value ?? []).FirstOrDefault(d => string.Equals(d.Name, _options.DocumentLibraryName, StringComparison.OrdinalIgnoreCase)) is { Id: { } id })
+                return _driveId = id;
+        }
+        throw new AssertFailedException($"The site has no library named '{_options.DocumentLibraryName}'.");
     }
 
     private static CreateUploadSessionPostRequestBody SessionBody() => new()

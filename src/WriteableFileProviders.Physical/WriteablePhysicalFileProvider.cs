@@ -113,6 +113,9 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
         .Concat(new[] { "COM", "LPT" }.SelectMany(device => "123456789¹²³".Select(digit => device + digit)))
         .ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
+    // The same set, looked up by a span, so a check allocates nothing.
+    private static readonly FrozenSet<string>.AlternateLookup<ReadOnlySpan<char>> _windowsDeviceLookup = _windowsDevices.GetAlternateLookup<ReadOnlySpan<char>>();
+
     // Every entry, hidden and system ones included, as 2026 listed them.
     private static readonly EnumerationOptions _listing = new() { AttributesToSkip = 0, IgnoreInaccessible = false };
 
@@ -129,25 +132,38 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
 
     /// <summary>Creates a provider over a folder.</summary>
     /// <param name="rootPath">The folder: an absolute path, or a path relative to the current directory.</param>
-    /// <exception cref="ArgumentException">The path is empty or not valid.</exception>
+    /// <exception cref="ArgumentException">
+    /// The path is empty or not valid, or, on Windows, an extended or device path (<c>\\?\</c>, <c>\\.\</c>) that has
+    /// no plain form of at most 259 characters.
+    /// </exception>
     public WriteablePhysicalFileProvider(string rootPath)
         : this(new PhysicalFileProviderOptions { RootDirectoryPath = rootPath })
     {
     }
 
     /// <summary>
-    /// Creates a provider from its options. A relative root is resolved against the current directory here, once, and the
-    /// absolute path is written back to <paramref name="options"/>, so its JSON names the same folder wherever it is read.
-    /// The folder need not exist: the first write creates it. Nothing on disk is touched here.
+    /// Creates a provider from its options. A relative root is resolved against the current directory here, once, and
+    /// the absolute path is written back to <paramref name="options"/>, so its JSON names the same folder wherever it
+    /// is read. On Windows, a root in the extended or device form (<c>\\?\C:\files</c>, <c>\\?\UNC\server\share</c>,
+    /// <c>\\.\C:\files</c>) is written back in its plain form (<c>C:\files</c>, <c>\\server\share</c>), so every path
+    /// under it is checked as a plain path is. The folder need not exist: the first write creates it. Nothing on disk
+    /// is touched here.
     /// </summary>
     /// <param name="options">The options.</param>
     /// <exception cref="ArgumentNullException"><paramref name="options"/> is null.</exception>
-    /// <exception cref="ArgumentException">The root is empty or not a valid path.</exception>
+    /// <exception cref="ArgumentException">
+    /// The root is empty or not a valid path, or, on Windows, an extended or device path that has no plain form (a
+    /// volume GUID, a device) or whose plain form is longer than 259 characters.
+    /// </exception>
     public WriteablePhysicalFileProvider(PhysicalFileProviderOptions options) : base(options)
     {
         if (string.IsNullOrEmpty(Options.RootDirectoryPath))
             throw new ArgumentException("The root folder, RootDirectoryPath, is not set.", nameof(options));
-        _root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(Options.RootDirectoryPath));
+        var root = !OperatingSystem.IsWindows() ? Options.RootDirectoryPath : PlainRootOf(Options.RootDirectoryPath)
+            ?? throw new ArgumentException(
+                "RootDirectoryPath is an extended or device path with no plain form of at most 259 characters (a volume GUID, a device, or a longer path): give the folder as a drive or share path.",
+                nameof(options));
+        _root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
         Options.RootDirectoryPath = _root;
         _rootPrefix = Path.EndsInDirectorySeparator(_root) ? _root : _root + Path.DirectorySeparatorChar;
     }
@@ -392,8 +408,29 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
             return false;
         // A device name stands for the device whatever extension follows it, and with spaces before that extension.
         var dot = part.IndexOf('.', StringComparison.Ordinal);
-        var stem = (dot < 0 ? part : part[..dot]).TrimEnd(' ');
-        return !_windowsDevices.Contains(stem);
+        var stem = (dot < 0 ? part.AsSpan() : part.AsSpan(0, dot)).TrimEnd(' ');
+        return !_windowsDeviceLookup.Contains(stem);
+    }
+
+    // A Windows root in its plain form. An extended path (\\?\C:\files, \\?\UNC\server\share) skips .NET's
+    // normalization, and with it the expansion of 8.3 short names that FullPath relies on to refuse them; a device path
+    // (\\.\C:\files) is taken the same way. A form with no plain equivalent (a volume GUID, a device), or one too long
+    // for a plain path (MAX_PATH, 260 characters with its terminator), is null. Any other path is returned as it is.
+    internal static string? PlainRootOf(string root)
+    {
+        const int MaxPlainLength = 259;
+        var text = root.Replace('/', '\\');
+        if (!text.StartsWith(@"\\?\", StringComparison.Ordinal) && !text.StartsWith(@"\\.\", StringComparison.Ordinal))
+            return root;
+        var rest = text[4..];
+        string plain;
+        if (rest.StartsWith(@"UNC\", StringComparison.OrdinalIgnoreCase))
+            plain = @"\\" + rest[4..];
+        else if (rest.Length >= 2 && char.IsAsciiLetter(rest[0]) && rest[1] == ':' && (rest.Length == 2 || rest[2] == '\\'))
+            plain = rest.Length == 2 ? rest + @"\" : rest;
+        else
+            return null;
+        return plain.Length <= MaxPlainLength ? plain : null;
     }
 
     /// <summary>Stops watching.</summary>
@@ -439,7 +476,7 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
             throw new ArgumentException($"The path '{path}' resolves outside the provider root.", nameof(path));
         // On Windows, .NET expands an 8.3 short name (REPORT~1.TXT) into the long name it stands for, so a segment that
         // is the short name of another name would reach that name: refused, as a trailing dot is.
-        if (RefusesWindowsNames && !string.Equals(fullPath[_rootPrefix.Length..], relative, StringComparison.OrdinalIgnoreCase))
+        if (RefusesWindowsNames && !fullPath.AsSpan(_rootPrefix.Length).Equals(relative, StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException($"The path '{path}' is the short name of another file or folder.", nameof(path));
         return fullPath;
     }

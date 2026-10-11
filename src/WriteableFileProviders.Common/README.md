@@ -63,7 +63,9 @@ Every provider runs the same conformance suite, the written contract, declaring 
 
 - **Paths:** a segment that is empty, only dots and spaces, holds a control character, or becomes one of those when
   percent-decoded throws `ArgumentException`. The root is a folder: it cannot be written, moved or deleted
-  (`InvalidOperationException`), nor read as a file.
+  (`InvalidOperationException`), nor read as a file. The root the options name goes through the same rules when the
+  provider is built, so `RootDirectoryPath` `tenants/../other` throws `ArgumentException` (Physical excepted: its root
+  is a folder of the disk).
 - **Writes:** atomic, so a write that fails leaves the old content. They create parent folders, read the caller's
   stream from its position, and leave it open. `UpdateFileOptions.IfMatch` and `IfNotExists` throw
   `PreconditionFailedException` when they do not hold; each provider's README says whether its store checks them
@@ -76,6 +78,15 @@ Every provider runs the same conformance suite, the written contract, declaring 
 - **Signed URLs** never live longer than asked: what a provider cannot sign throws `NotSupportedException`, which lets
   `WriteableFileProviders.AspNetCore` serve a gateway URL instead.
 - **Unsupported operations** throw `NotSupportedException`.
+- **Failures** throw only these types, on every provider: `ArgumentException` (a path or an option),
+  `FileNotFoundException`, `FileExistsException`, `PreconditionFailedException`, `NotSupportedException`,
+  `InvalidOperationException` (the store is not set up as configured: a missing container, bucket, library or root
+  folder, or no credentials to find), `UnauthorizedAccessException` (the store refused the credential or the
+  permission), `IOException` (any other failure of the store, the service or the network, timeouts included),
+  `ObjectDisposedException`, and `OperationCanceledException` only when your token cancels. The SDK's exception is the
+  `InnerException`, unless it already derives from one of these types, which passes as it is (`OutOfMemoryException`
+  passes unmapped); the same holds for reads of a stream a member returned, and for each step of
+  a listing.
 
 `IWriteableFileProvider`'s documentation says what each member does.
 
@@ -88,8 +99,18 @@ public parameterless constructor and settable properties) and does no network I/
 `AppendByRewriteAsync` (an append for a store without one, conditional on the version read), `SpoolToTempFileAsync`,
 `NotFound`, and `IsAddressable(name)`, true when the provider's own path validation (`IsSegmentAllowed` included) would
 accept the name as one path segment: leave the names it refuses out of your listings, so everything listed can be read
-back. Run your provider against `ProviderConformanceTests` (in the repository's `tests/WriteableFileProviders.Testing`)
-to check it meets the contract.
+back.
+
+The base class keeps the error contract for you: an exception that escapes a `...CoreAsync` member, a stream or a
+listing it returns, and is not one of the types above, is turned into one, with it inside. Override `IsNotFound` and
+`IsAccessDenied` to say which of your SDK's exceptions mean "missing" and "refused"; anything else becomes
+`IOException`, and a cancellation your caller's token did not ask for (a timeout) too. Throw a contract type yourself
+where you know better: it passes through as it is. A public member of your own runs through `ReadWithContractAsync`
+for a read. The root is checked when the provider is built, and kept: read it through `Resolve(ProviderPath.Root)`, not
+from the options, which a caller can still change; a provider whose root is not a path in its store overrides
+`ValidatesRootDirectory`. How a local stream is made (`CreateLocalFileStreamAsync`) is not customisable. Run your
+provider against `ProviderConformanceTests` (in the repository's `tests/WriteableFileProviders.Testing`) to check it
+meets the contract.
 
 ## More
 

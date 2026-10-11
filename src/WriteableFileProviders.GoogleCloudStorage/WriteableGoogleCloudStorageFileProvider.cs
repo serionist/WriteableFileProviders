@@ -6,6 +6,7 @@ using System.Security.Cryptography;
 using System.Web;
 using Google;
 using Google.Apis.Auth.OAuth2;
+using Google.Apis.Auth.OAuth2.Responses;
 using Google.Apis.Requests;
 using Google.Apis.Storage.v1;
 using Google.Apis.Storage.v1.Data;
@@ -109,6 +110,16 @@ public sealed class WriteableGoogleCloudStorageFileProvider : WriteableFileProvi
     /// <summary>A read URL carries the download name and content type; an upload URL carries the content type.</summary>
     /// <param name="permission">The permission.</param>
     protected override bool SupportsSignedUrlContentHeaders(SignedUrlAccess permission) => true;
+
+    /// <summary>
+    /// Cloud Storage's 401 and 403, and Google's token endpoint refusing the credential (a 400, 401 or 403 answer to the
+    /// token request, such as <c>invalid_grant</c> for a key that was deleted): the public members turn them into an
+    /// <see cref="UnauthorizedAccessException"/>.
+    /// </summary>
+    /// <param name="exception">The store's exception.</param>
+    protected override bool IsAccessDenied(Exception exception) =>
+        exception is GoogleApiException { HttpStatusCode: HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden }
+            or TokenResponseException { StatusCode: HttpStatusCode.BadRequest or HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden };
 
     /// <inheritdoc />
     protected override async Task<IWriteableFileInfo> GetFileInfoCoreAsync(ResolvedPath path, CancellationToken cancellationToken)
@@ -572,10 +583,13 @@ public sealed class WriteableGoogleCloudStorageFileProvider : WriteableFileProvi
             {
                 case HttpStatusCode.OK or HttpStatusCode.PartialContent:
                     var body = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-                    // A whole object for a ranged request: the server ignored the range (a transcoded object).
+                    // A whole object for a ranged request: the server ignored the range (a transcoded object), so the
+                    // stream skips to the offset and stops after the length.
                     var ignored = ranged && response.StatusCode == HttpStatusCode.OK;
+                    var skip = ignored ? offset : 0;
+                    var limit = ignored ? length : null;
                     owned = true;
-                    return new ResponseReadStream(response, body, ignored ? offset : 0, ignored ? length : null);
+                    return new SliceReadStream(body, skip, limit, response, KnownLength(response, skip, limit));
                 case HttpStatusCode.RequestedRangeNotSatisfiable:
                     return Stream.Null;
                 case HttpStatusCode.PreconditionFailed when generation is { } pinned:
@@ -591,6 +605,15 @@ public sealed class WriteableGoogleCloudStorageFileProvider : WriteableFileProvi
             if (!owned)
                 response.Dispose();
         }
+    }
+
+    // How many bytes a download returns, when the response says its length: what is left after the skip, up to the limit.
+    private static long? KnownLength(HttpResponseMessage response, long skip, long? limit)
+    {
+        if (response.Content.Headers.ContentLength is not { } contentLength)
+            return null;
+        var available = Math.Max(0, contentLength - skip);
+        return limit is { } max ? Math.Min(max, available) : available;
     }
 
     private async Task<StorageObject> CopyAsync(State state, ResolvedPath source, ResolvedPath destination, long? sourceGeneration, CancellationToken cancellationToken)

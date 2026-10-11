@@ -18,6 +18,9 @@ public sealed class PhysicalConformanceTests : ProviderConformanceTests
 
     protected override bool HasPhysicalPaths => true;
 
+    // The root is a folder of the disk, which the system resolves (dot segments included); paths under it stay inside it.
+    protected override bool ChecksItsRoot => false;
+
     // The version check before the rename is not atomic (D15, D19): PhysicalProviderTests pins that it catches a change
     // made while the append copies, which is what the shared test races.
     protected override bool DetectsConcurrentAppends => false;

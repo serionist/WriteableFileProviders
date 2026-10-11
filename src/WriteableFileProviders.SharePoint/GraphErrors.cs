@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Azure.Identity;
 using Microsoft.Graph.Models.ODataErrors;
 using Microsoft.Kiota.Abstractions;
 using Microsoft.Kiota.Abstractions.Serialization;
@@ -28,11 +29,13 @@ internal static class GraphErrors
     /// (<see cref="AggregateException"/>), a network failure, no answer within the HTTP client's timeout (a
     /// <see cref="TaskCanceledException"/> holding a <see cref="TimeoutException"/>), or an answer the SDK could not read
     /// (Kiota 2.0 raises <see cref="InvalidOperationException"/> for an error body that is not JSON, and
-    /// <see cref="JsonException"/> for a JSON body that is malformed). Cancellation and disposal pass through.
+    /// <see cref="JsonException"/> for a JSON body that is malformed), or a sign-in that found no credential to use
+    /// (<see cref="CredentialUnavailableException"/>, which Azure.Identity raises inside the request). Cancellation and
+    /// disposal pass through.
     /// </summary>
     public static bool IsFailure(Exception exception) => exception switch
     {
-        ApiException or AggregateException or HttpRequestException or JsonException => true,
+        ApiException or AggregateException or HttpRequestException or JsonException or CredentialUnavailableException => true,
         TaskCanceledException { InnerException: TimeoutException } => true,
         ObjectDisposedException => false,
         InvalidOperationException => true,
@@ -40,13 +43,20 @@ internal static class GraphErrors
     };
 
     /// <summary>An exception for a failed call: <see cref="UnauthorizedAccessException"/> for 401 and 403,
-    /// <see cref="PreconditionFailedException"/> for 412, otherwise <see cref="IOException"/>.</summary>
+    /// <see cref="PreconditionFailedException"/> for 412, <see cref="InvalidOperationException"/> for a sign-in that found no
+    /// credential (the store is not set up as configured), otherwise <see cref="IOException"/>.</summary>
     /// <param name="exception">What the SDK threw.</param>
     /// <param name="what">What the provider was doing, such as "Writing 'a/b.txt'".</param>
-    public static Exception Wrap(Exception exception, string what)
+    /// <param name="givenClient">Whether the caller gave the provider its Graph client, and so its sign-in.</param>
+    public static Exception Wrap(Exception exception, string what, bool givenClient = false)
     {
         switch (exception)
         {
+            case CredentialUnavailableException:
+                return new InvalidOperationException(givenClient
+                    ? $"{what} failed: the Microsoft Entra ID credential of the given client found no credential to use."
+                    : $"{what} failed: UseDefaultAzureCredential is set, but the Microsoft Entra ID sign-in found no credential to use (environment, workload or managed identity, developer sign-in). Configure one, or set ClientSecret or a certificate.",
+                    exception);
             case AggregateException aggregate:
                 var statuses = string.Join(", ", aggregate.Flatten().InnerExceptions.Select(Status).OfType<int>().Distinct());
                 return new IOException($"{what} failed: Microsoft Graph kept answering {(statuses.Length == 0 ? "with errors" : statuses)} after its retries (throttled or unavailable).", exception);

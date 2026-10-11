@@ -98,11 +98,11 @@ public sealed partial class WriteableSharePointFileProvider
             {
                 case HttpStatusCode.OK:
                     // The service may ignore a range it cannot serve and send the whole file.
-                    var whole = new DownloadStream(response, await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false), length);
-                    await whole.SkipAsync(offset, cancellationToken).ConfigureAwait(false);
+                    var whole = new SliceReadStream(await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false), offset, length, response);
+                    await whole.SkipAsync(cancellationToken).ConfigureAwait(false);
                     return whole;
                 case HttpStatusCode.PartialContent when !ranged || response.Content.Headers.ContentRange?.From == offset:
-                    return new DownloadStream(response, await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false), length);
+                    return new SliceReadStream(await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false), 0, length, response);
                 case HttpStatusCode.PartialContent:
                     throw new IOException($"Reading '{path}' failed: the service sent another range than the one asked.");
                 case HttpStatusCode.RequestedRangeNotSatisfiable:
@@ -184,7 +184,7 @@ public sealed partial class WriteableSharePointFileProvider
         }
         catch (Exception e) when (GraphErrors.IsFailure(e))
         {
-            throw GraphErrors.Wrap(e, what);
+            throw Failure(e, what);
         }
     }
 
@@ -220,7 +220,7 @@ public sealed partial class WriteableSharePointFileProvider
         }
         catch (Exception e) when (GraphErrors.IsFailure(e))
         {
-            throw GraphErrors.Wrap(e, what);
+            throw Failure(e, what);
         }
         if (session?.UploadUrl is not { } uploadUrlText || !Uri.TryCreate(uploadUrlText, UriKind.Absolute, out var uploadUrl))
             throw new IOException($"{what} failed: Microsoft Graph returned no upload session.");
@@ -364,7 +364,7 @@ public sealed partial class WriteableSharePointFileProvider
         }
         catch (Exception e) when (GraphErrors.IsFailure(e))
         {
-            throw GraphErrors.Wrap(e, what);
+            throw Failure(e, what);
         }
         return native.Value as HttpResponseMessage ?? throw new IOException($"{what} failed: no answer was received.");
     }
@@ -410,7 +410,7 @@ public sealed partial class WriteableSharePointFileProvider
         }
         catch (Exception e) when (GraphErrors.IsFailure(e))
         {
-            throw GraphErrors.Wrap(e, what);
+            throw Failure(e, what);
         }
     }
 

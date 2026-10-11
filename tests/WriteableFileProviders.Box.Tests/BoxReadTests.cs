@@ -388,7 +388,7 @@ public sealed class BoxReadTests
         Assert.IsTrue((await provider.GetFileInfoAsync("a.txt")).Exists, "One 500 is retried by the SDK");
 
         failures = int.MaxValue;
-        var e = await Assert.ThrowsExactlyAsync<BoxApiException>(() => provider.GetFileInfoAsync("a.txt"));
+        var e = BoxErrors.Inner(await Assert.ThrowsExactlyAsync<IOException>(() => provider.GetFileInfoAsync("a.txt")));
         Assert.AreEqual(500, e.ResponseInfo.StatusCode);
     }
 

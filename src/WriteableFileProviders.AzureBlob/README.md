@@ -119,6 +119,11 @@ exactly as 2026.10.10.x stored it. `ToJson` output contains the account key: nev
   already gone. The one exception is the conversion of a 2026 append blob, below.
 - **A missing container** makes every member that reaches it throw `InvalidOperationException`, naming it and
   `CreateContainerIfMissing`.
+- **Errors** are the contract's types: Azure's 401 and 403, and a sign-in Microsoft Entra ID refuses (Azure.Identity's
+  `AuthenticationFailedException`), throw `UnauthorizedAccessException`, a move whose source delete is refused included
+  (its copy is removed first); a sign-in that finds no credential to use (`CredentialUnavailableException`), like a
+  missing container, `InvalidOperationException`; any other failure of Azure or the network, after the SDK's retries,
+  `IOException`, timeouts included. The SDK's `RequestFailedException`, or what it threw, is the `InnerException`.
 
 ### Append blobs written by 2026.10.10.x
 

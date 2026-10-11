@@ -25,11 +25,14 @@ Every section has the same shape: what changed, then a table of each change with
    synchronous forms are extension methods in `WriteableFileProviderExtensions` (add `using WriteableFileProviders;`).
    Providers are disposable: `await using` the ones you create.
 5. **The serializer is System.Text.Json.** Newtonsoft.Json leaves every package. `ToJson` returns a `JsonObject`, and
-   `FromJson` takes text, a `JsonElement` or a `JsonObject`. Every configuration stored by 2026 reads the same; JSON
-   that 2027 writes is not promised to read back on 2026 (see [Stored configuration](#stored-configuration)).
+   `FromJson` takes text, a `JsonElement` or a `JsonObject`. Every configuration stored by 2026 reads the same, except
+   a root with a dot segment (`tenants/../other`), which no longer builds; JSON that 2027 writes is not promised to read
+   back on 2026 (see [Stored configuration](#stored-configuration)).
 6. **Provider classes are sealed.** To change what a provider does, wrap it (implement `IWriteableFileProvider` and
    delegate), or derive your own provider from `WriteableFileProvider<TOptions>`.
-7. **Each provider changed behaviour** to follow the contract. The short list; its section has the rest:
+7. **Each provider changed behaviour** to follow the contract. Every provider but Physical checks its root as a path
+   when it is built (`ArgumentException` for a root such as `tenants/../other`). The short list; its section has the
+   rest:
    - [Physical](#physical): writes and appends go through a temp file and a rename, so the file at the path is a new
      file after each write; readers no longer block writers and deletes.
    - [Azure Blob Storage](#azure-blob-storage): files are block blobs; a missing container is no longer created unless
@@ -44,7 +47,11 @@ Every section has the same shape: what changed, then a table of each change with
      an existing destination; download URLs honour the validity asked.
    - [SharePoint](#sharepoint): Microsoft Graph 6; `WorkFolderPath` is the start of the root, and caller paths are no
      longer rewritten; download URLs honour the validity asked.
-8. **Download URLs mean one thing.** A signed URL never lives longer than asked: where a provider cannot sign the URL
+8. **Failures have one set of types.** Every member of every provider throws only the contract's exceptions, with the
+   SDK's own exception inside: catch `UnauthorizedAccessException`, `IOException` and the others where you caught
+   `RequestFailedException`, `AmazonS3Exception`, `GoogleApiException` or `BoxException` (see
+   [What a member throws](#what-a-member-throws)).
+9. **Download URLs mean one thing.** A signed URL never lives longer than asked: where a provider cannot sign the URL
    asked for, `GetSignedUrlAsync` throws `NotSupportedException` instead of returning another one. For a download or
    upload URL on every provider, use `IWriteableFileUrlService` from the new
    [WriteableFileProviders.AspNetCore](#new-package-writeablefileprovidersaspnetcore) package, which falls back to a
@@ -64,7 +71,7 @@ and conveniences as extension methods, and System.Text.Json instead of Newtonsof
 
 | 2026 | 2027 | What to do |
 |---|---|---|
-| `string subpath` and `params string[] pathSegments` overloads | One `ProviderPath` parameter, with implicit conversions from `string` (`"a/b"`) and `string[]` | Most calls compile unchanged. Calls with several string arguments, such as `ReadFileAsync("a", "b.txt")`, compile through an `[Obsolete]` shim: pass `"a/b.txt"` or `new[] { "a", "b.txt" }`. |
+| `string subpath` and `params string[] pathSegments` overloads | One `ProviderPath` parameter, with implicit conversions from `string` (`"a/b"`) and `string[]` | Most calls compile unchanged. Calls with several string arguments, such as `ReadFileAsync("a", "b.txt")`, compile through an `[Obsolete]` shim: pass `"a/b.txt"` or `new[] { "a", "b.txt" }`. A call with no path, which meant the root, such as `GetDirectoryContentsAsync()` or `GetFileInfoAsync()`, no longer compiles: pass `ProviderPath.Root` or `""`. |
 | No `CancellationToken` | Every async member takes one, last | Pass yours where you have one. |
 | `UpdateFileAsync(Stream, UpdateFileMode, params string[])`, `UpdateFileAsync(string, UpdateFileMode, Stream)` | `UpdateFileAsync(path, contents, UpdateFileOptions?)` and the extension `UpdateFileAsync(path, contents, UpdateFileMode)` | The old orders compile through `[Obsolete]` shims; move the path first. |
 | `CreateLocalFileStreamAsync(bool readOnly, ...)` | `CreateLocalFileStreamAsync(path, bool readOnly)` | The path comes first; the old order compiles through a shim. |
@@ -107,7 +114,9 @@ the move and copy checks, preconditions, signed URL validity).
 | `move(string[], string[])` | `MoveCoreAsync(ResolvedPath, ResolvedPath, CancellationToken)` | Optional: the default copies, then deletes exactly the source. |
 | `getDownloadUrl(string[], TimeSpan)` | `GetSignedUrlCoreAsync(ResolvedPath, SignedUrlOptions, CancellationToken)` with `SupportsSignedUrl(access)` | Override both, or neither (the call then throws `NotSupportedException`). |
 | `watchAsync(string)` (abstract) | `WatchCore(string)`, optional | Override it only if the store can watch. |
-| `createLocalFileStreamAsync(bool, params string[])` (protected virtual), and overriding the public virtual `CreateLocalFileStreamAsync(bool, params string[])` | `CreateLocalFileStreamCoreAsync(ResolvedPath, bool, CancellationToken)`, optional. The public `CreateLocalFileStreamAsync(ProviderPath, bool, CancellationToken)` is no longer virtual | Drop the override. `LocalFileStream`'s constructor is internal, so an override of `CreateLocalFileStreamCoreAsync` can only call the base, which gives every provider a local temp copy committed through `UpdateFileAsync`. |
+| `createLocalFileStreamAsync(bool, params string[])` (protected virtual), and overriding the public virtual `CreateLocalFileStreamAsync(bool, params string[])` | Removed: the public `CreateLocalFileStreamAsync(ProviderPath, bool, CancellationToken)` is not virtual, and how a local stream is made is not customisable in 2027.0.0. Every provider's local stream is a local temp copy, spooled through `ReadFileCoreAsync` and committed through `UpdateFileCoreAsync` | Drop the override; put what it did in those two members. |
+| Exceptions of the store reached callers as the provider let them out | The base class maps every exception that escapes a `...CoreAsync` member, or a stream or a listing it returns, and is not one of the contract's types ([What a member throws](#what-a-member-throws)): what `IsNotFound` recognises becomes `FileNotFoundException`, what the new `IsAccessDenied` recognises `UnauthorizedAccessException`, anything else `IOException`, the original inside | Override `IsNotFound` and `IsAccessDenied` for your SDK's exceptions, and throw a contract type yourself where you know better: it passes through. A public member of your own that reads goes through `ReadWithContractAsync`. |
+| `RootDirectorySegments` were used as given | The base constructor checks them as a path, unless `ValidatesRootDirectory` is overridden to false (a root that is not a path in your store, such as a folder of the disk), and keeps a copy that `Resolve` uses, so a later change to the options does not move the provider | Read the root through `Resolve(ProviderPath.Root)`, not from `Options`. |
 | `isSegmentAllowed`, `validateSegments` | `IsSegmentAllowed`, `ValidateSegments` | Rename. |
 | `getRelativeSegments`, `isRootPath` | Removed | `ResolvedPath.RelativeSegments` and `ResolvedPath.IsRoot`. |
 | `normalizePem` | Removed | Keep your own helper. |
@@ -116,10 +125,13 @@ the move and copy checks, preconditions, signed URL validity).
 | `RunTaskSerial(...)`, both overloads | Removed | Await the task. |
 
 Optional overrides with shared defaults: `ReadRangeCoreAsync`, `OpenReadSeekableCoreAsync`, `CopyCoreAsync`,
-`MoveCoreAsync`, `DeleteFileCoreAsync`, `FolderExistsCoreAsync`, `EnumerateRecursiveCoreAsync`,
-`CreateLocalFileStreamCoreAsync`, `IsNotFound`, `Dispose(bool)`, `DisposeAsyncCore`. Helpers: `AppendByRewriteAsync`,
-`SpoolToTempFileAsync`, `NotFound`, and `IsAddressable(name)`, true when the provider's own path validation
-(`IsSegmentAllowed` included) would accept the name as one path segment.
+`MoveCoreAsync`, `DeleteFileCoreAsync`, `FolderExistsCoreAsync`, `EnumerateRecursiveCoreAsync`, `IsNotFound`,
+`IsAccessDenied`, `ValidatesRootDirectory`, `Dispose(bool)`, `DisposeAsyncCore`. Helpers: `AppendByRewriteAsync`,
+`SpoolToTempFileAsync`, `NotFound`, `ReadWithContractAsync` (a read by a public member of your own, under the same error
+contract as `ReadFileAsync`), and `IsAddressable(name)`, true when the provider's own path validation (`IsSegmentAllowed`
+included) would accept the name as one path segment. The base constructor calls `IsSegmentAllowed` and
+`ValidatesRootDirectory` to check the root before your constructor runs, so they must not depend on your provider's
+state.
 
 What the store can do is declared through these members, and each default makes the base class refuse or weaken an
 operation until the provider says otherwise:
@@ -160,6 +172,39 @@ What changed: the base class enforces the contract on every provider, so these h
 | An invalid path segment's `ArgumentException` named various parameters | It names the parameter `path` | Nothing. |
 | Listings could show names no path could read back | Listings leave out names the provider's path validation would refuse (an empty segment, a name of only dots and spaces, a control character, a backslash, a percent-encoded form of one of these, and what a provider refuses on its own), on every provider | Rename such objects with another tool if you need them. Each provider's section names its cases. |
 
+## What a member throws
+
+What changed: 2026 let each SDK's exceptions out, so code that handled a failure depended on the provider: Azure's
+`RequestFailedException`, `AmazonS3Exception`, `GoogleApiException`, Box's `BoxException`, `HttpRequestException`, and a
+timeout as `TaskCanceledException`. In 2027 every member of every provider throws only these types, and the SDK's
+exception travels as the `InnerException`, unless it already derives from one of the contract's types, which passes as
+it is (an `IOException` of the network, say); `OutOfMemoryException` passes unmapped:
+
+| Type | When |
+|---|---|
+| `ArgumentException` (`ArgumentNullException`, `ArgumentOutOfRangeException`) | A path or an option the provider refuses. |
+| `FileNotFoundException` | A file the member needs does not exist, or is a folder. |
+| `FileExistsException` | The destination of a copy or a move exists. |
+| `PreconditionFailedException` | `IfMatch` or `IfNotExists` did not hold, or a pinned read's file changed. |
+| `NotSupportedException` | A feature this provider or its store cannot give. |
+| `InvalidOperationException` | The store is not set up as configured: a missing container, bucket, library or root folder, or no credentials to find; or the root was to be modified. |
+| `UnauthorizedAccessException` | The store refused the credential or the permission: an HTTP 401 or 403, or a sign-in its identity service refused. |
+| `IOException` | Any other failure of the store, the service or the network, timeouts included. |
+| `ObjectDisposedException` | The provider is disposed. |
+| `OperationCanceledException` | Only when your cancellation token cancelled the call. |
+
+The same holds for the reads of a stream a member returned, for each step of `EnumerateAsync`, and for a local stream's
+commit. A failure of the stream you give `UpdateFileAsync` reaches you as it is when it is one of these types, as an
+`IOException` usually is, and inside an `IOException` otherwise.
+
+| 2026 | 2027 | What to do |
+|---|---|---|
+| An SDK's exception: `RequestFailedException`, `AmazonS3Exception`, `GoogleApiException`, `BoxException`, `HttpRequestException` | One of the types above, with the SDK's exception as `InnerException` | Catch the contract's type; read a status or an error code from `InnerException` where you need one. |
+| A timeout as `TaskCanceledException` or `OperationCanceledException`, or inside an `AggregateException` | `IOException`, the timeout inside; `OperationCanceledException` only for your token | Handle `IOException` as you handled timeouts (retry, report). |
+| A credential or a permission refused, each SDK its own way | `UnauthorizedAccessException`, on every provider | Catch `UnauthorizedAccessException`. |
+
+Each provider's README says which of its store's answers become which type (its "Errors" item).
+
 ## Stored configuration
 
 What changed: nothing in the shape. A stored configuration has, as before:
@@ -173,6 +218,7 @@ What changed: nothing in the shape. A stored configuration has, as before:
 | S3's `StorageClassForNewFiles` was written as `{"Value":"STANDARD_IA"}` and read back as `STANDARD` | From JSON, both forms read correctly; it is written as the string `"STANDARD_IA"`. Configuration (`FromConfiguration`) reads the string form, which 2026 ignored; the object form is still ignored there | In a configuration file, give the class as a string. |
 | A `Type` was searched for in the loaded assemblies | It is found among the assemblies passed in, then this library's own providers (their assembly is loaded when needed), then types registered with `WriteableFileProviderSerializer.Register<TProvider>()`. Loaded assemblies are no longer searched | Register a third-party provider, or pass its assembly in. |
 | 2026 read what it wrote | **JSON written by 2027.0.0 is not promised to read back in 2026.10.10.x** | Do not share stored configuration between the two versions once 2027 has written it. |
+| A `RootDirectoryPath` (or `RootDirectorySegments`) was used as written, dot segments included: on Azure Blob Storage, `tenants/../other` reached blobs outside the root, and `../secrets` another container | Every provider but Physical checks the root with the rules of a path when it is built: a segment that is empty, only dots and spaces, holds a control character, or decodes to one (`..`, `.`, `%2e%2e`) throws `ArgumentException` naming `RootDirectoryPath`, so **a stored configuration with such a root no longer builds** | Name the folder itself (`other`, not `tenants/../other`). Physical's root is a folder of the disk, which the system resolves, as before. |
 
 New options are written to JSON only when they differ from their defaults, so a configuration that uses none of them
 keeps its 2026 shape. Each provider's section lists its new options; some change what an existing configuration does
@@ -227,6 +273,7 @@ JSON only when `true`.
 | Deleting a blob with snapshots fails (`RequestFailedException`) | It still fails, now with `IOException`, and so does a move of such a blob; snapshots are never deleted, except by the append blob conversion below | Delete the snapshots first. |
 | Listings showed every blob | Blobs whose names no path can address (an empty, `.` or `..` segment, a control character, a backslash) and the provider's own `.wfp-` entries are left out | Rename such blobs with another tool if you need them. |
 | `WriteableAzureBlobFileProvider` can be derived from | It is sealed | Wrap it instead, or derive from `WriteableFileProvider<AzureFileProviderOptions>`. |
+| A root with a dot segment, such as `tenants/../other`, reached blobs outside the root, and `../secrets` another container | Building the provider throws `ArgumentException` naming `RootDirectoryPath` (see [Stored configuration](#stored-configuration)) | Name the folder itself. |
 | Two overwrites of one file at once: both commit, one after the other | The one that commits second finds its blocks dropped by the first: one block's worth is staged again, so the last writer still wins; a longer one throws `IOException` and stores nothing | Write it again, or serialize the writers. |
 | Options: shared key only | `UseDefaultAzureCredential` (Microsoft Entra ID) and a constructor that takes a `BlobContainerClient`, `new WriteableAzureBlobFileProvider(options, container)` (options may be null), which the provider never disposes. `AccountKey` must be base64, and setting it together with `UseDefaultAzureCredential` throws | Fix a key that is not base64; it never worked. |
 
@@ -317,7 +364,7 @@ client on the first call, and follows the contract. If you use that SDK directly
 | A missing bucket: listings threw `GoogleApiException`, `GetFileInfo` said "not found", writes threw `GoogleApiException` | Every member throws `InvalidOperationException` naming the bucket; `CreateBucketIfMissing` (default false) creates it on the first call instead | Create the bucket, or set the option (with `ProjectId` when the key does not name the project). |
 | A missing file threw `GoogleApiException` 404 | `FileNotFoundException`, with the `GoogleApiException` as `InnerException` | Catch `FileNotFoundException`. |
 | `GetFileInfo` on a folder said it did not exist | A folder that holds objects exists and is a directory, with `Length` -1 | Check `IsDirectory`. |
-| `GetFileInfo` of a path that is not a file read one object | It also lists objects, to tell a folder, so a credential needs `storage.objects.list` for it, as for listings, copies and appends to a new file (it gets a 403 otherwise) | Grant `storage.objects.list` (the `roles/storage.objectViewer` and `roles/storage.objectAdmin` roles have it). |
+| `GetFileInfo` of a path that is not a file read one object | It also lists objects, to tell a folder, so a credential needs `storage.objects.list` for it, as for listings, copies and appends to a new file (it gets `UnauthorizedAccessException`, Cloud Storage's 403, otherwise) | Grant `storage.objects.list` (the `roles/storage.objectViewer` and `roles/storage.objectAdmin` roles have it). |
 | `PhysicalPath` held the object's name | `PhysicalPath` is null; `IWriteableFileInfo.Path` is the path | Use `Path`. |
 | `ReadFile` downloaded the whole object to a temp file and returned it, seekable | It returns the download as it arrives: read forward, with `Length` when the server sends it | Use `OpenReadSeekableAsync` to seek, or `ReadRangeAsync` for a slice; both download only what is read. |
 | Move and copy overwrote an existing destination | They throw `FileExistsException` and leave it unchanged; a move deletes exactly the generation it copied, and throws `PreconditionFailedException` if the source was written meanwhile, keeping that write | Delete the destination first if you meant to replace it. |
@@ -342,14 +389,14 @@ is stored as before.
 | 2026 | 2027 | What to do |
 |---|---|---|
 | `Box.V2.Core` 5.8 (namespace `Box.V2`) | `Box.V2.Core` 10.19 (namespace `Box.Sdk.Gen`); v10 no longer has the `Box.V2` namespace | Code of yours that uses the Box SDK directly moves to `Box.Sdk.Gen` (Box's own guide: `migration-guides/from-v5-to-v10.md` in `box/box-windows-sdk-v2`). Newtonsoft.Json and Portable.BouncyCastle leave the graph; the SDK brings BouncyCastle.Cryptography 2, System.IdentityModel.Tokens.Jwt 8 and Microsoft.Extensions.Http and DependencyInjection 8. |
-| The constructor signed in to Box, blocking on the network (and threw `AggregateException` on a bad credential) | No network I/O in the constructor: it checks that every credential is set and that the private key opens with the passphrase (`ArgumentException`), and signs in on the first call | A wrong client id or secret now fails on the first call, with the SDK's `BoxApiException`. `WriteableFileProviderSerializer` builds a Box provider offline. |
+| The constructor signed in to Box, blocking on the network (and threw `AggregateException` on a bad credential) | No network I/O in the constructor: it checks that every credential is set and that the private key opens with the passphrase (`ArgumentException`), and signs in on the first call | A wrong client id or secret now fails on the first call, with `UnauthorizedAccessException` (the SDK's `BoxApiException` inside). `WriteableFileProviderSerializer` builds a Box provider offline. |
 | `WriteableBoxFileProvider` could be derived from | It is sealed | Wrap it, or write a provider on `WriteableFileProvider<TOptions>`. |
 | Only the options constructor | Also `WriteableBoxFileProvider(BoxFileProviderOptions, IBoxClient)`: a ready client (another authentication, as-user, a proxy, custom retries), which the provider never disposes | Optional. With a client, only `RootFolderId` and the root folder are read from the options. |
 | `GetFileInfo` on a folder: `Exists` false, `IsDirectory` true | `Exists` true, `IsDirectory` true, `Length` -1; a missing path has `Length` -1 (was 0) | Test `IsDirectory` and `Exists` as for every provider. |
 | `PhysicalPath`: the joined path from `GetFileInfo`, the bare name in listings | Always null | Use `IWriteableFileInfo.Path`. |
 | Overwrite rewound a seekable stream and uploaded it from byte 0 | Every write uploads from the stream's current position | Rewind the stream yourself if you meant to upload it all. |
 | Move created no folders (`DirectoryNotFoundException`), moved folders, and wrapped Box's 409 in `BoxException` | Moves files only, creates the destination's folders, and throws `FileExistsException` when the destination exists | Move a folder's files one by one, or use the Box SDK. |
-| Errors were re-thrown as `BoxException` with the path in the message | The SDK's `BoxApiException` (status in `ResponseInfo.StatusCode`), except where the contract names an exception (`FileNotFoundException`, `FileExistsException`, `PreconditionFailedException`, `ArgumentException` for a name Box refuses, `InvalidOperationException` for a `RootFolderId` that does not exist or the app cannot see). A failed download throws `FileNotFoundException` or `IOException` with its status only, since the SDK's error names the pre-authenticated URL. When the provider built its client, or was given exactly a `BoxClient`, every `BoxApiException` it throws or wraps keeps Box's status, code and message, and of the request only its method, its URL without the query, and an allow-list of headers and parameters (the SDK keeps the access token, extra headers, the query and the body, and a token request's body holds the client secret); over any other `IBoxClient`, a class derived from `BoxClient` included, the errors are the client's own and may carry its credentials | Catch the contract's exceptions, or `BoxApiException`. |
+| Errors were re-thrown as `BoxException` with the path in the message | The contract's exceptions ([What a member throws](#what-a-member-throws)): `FileNotFoundException`, `FileExistsException`, `PreconditionFailedException`, `ArgumentException` for a name Box refuses, `InvalidOperationException` for a `RootFolderId` that does not exist or the app cannot see, `UnauthorizedAccessException` for Box's 401 and 403 and a sign-in it refuses, `IOException` for the rest, with the SDK's `BoxApiException` (status in `ResponseInfo.StatusCode`) inside. A failed download throws `FileNotFoundException` or `IOException` with its status only, since the SDK's error names the pre-authenticated URL. When the provider built its client, or was given exactly a `BoxClient`, every `BoxApiException` it wraps keeps Box's status, code and message, and of the request only its method, its URL without the query, and an allow-list of headers and parameters (the SDK keeps the access token, extra headers, the query and the body, and a token request's body holds the client secret); over any other `IBoxClient`, a class derived from `BoxClient` included, the errors are the client's own and may carry its credentials | Catch the contract's exceptions; read Box's status and code from the `BoxApiException` inside. |
 | Writing under a file threw `InvalidOperationException` | `IOException` | Catch `IOException`. |
 | Folder listings paged by offset (500 a page) | Marker paging, 1000 a page | Nothing. |
 | Listings showed every item | Items whose names no path can address are left out: a name of only dots and spaces (`...`), or one such as `%2e%2e` that decodes to one | Rename such items in Box if you need them. |

@@ -27,6 +27,14 @@ public abstract class MinioConformanceTests : ProviderConformanceTests
     protected override IWriteableFileProvider? CreateProviderWithMissingContainer() =>
         Create("wfp-missing-" + Guid.NewGuid().ToString("N")[..12], _base);
 
+    // Every request fails in the AWS SDK's HTTP seam, after the SDK's own retries of what it takes for transient.
+    protected override IWriteableFileProvider? CreateProviderThatFails(Exception failure)
+    {
+        var provider = Create(Endpoint.Bucket, $"{_base}/{RootName}");
+        provider.Core.HttpClientFactory = new InterceptingHttpClientFactory { Intercept = _ => throw failure };
+        return provider;
+    }
+
     protected override Task<bool> StoreRawFileAsync(IReadOnlyList<string> names, string text) =>
         Endpoint.StoreRawAsync($"{_base}/{string.Join('/', names)}", text);
 

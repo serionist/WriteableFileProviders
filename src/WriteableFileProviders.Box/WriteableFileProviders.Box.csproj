@@ -12,6 +12,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The ranged read of a download, shared with Common, GoogleCloudStorage and SharePoint: each package compiles its own
+         internal copy. -->
+    <Compile Include="..\Shared\SliceReadStream.cs" Link="Shared\SliceReadStream.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Box.V2.Core" />
   </ItemGroup>
 

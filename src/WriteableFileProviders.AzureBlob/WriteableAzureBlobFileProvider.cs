@@ -57,6 +57,13 @@ public sealed partial class WriteableAzureBlobFileProvider : WriteableFileProvid
     private const int DeleteParallelism = 8;
 
     private readonly BlobContainerClient _container;
+
+    // Whether the provider built its client from the options (and so its sign-in), or was given one.
+    private readonly bool _clientFromOptions;
+
+    // The root the provider was built with, which a later change to the options does not move; read once, so a message
+    // that names a blob still works after the provider is disposed.
+    private readonly string[] _rootSegments;
     private long _serverCopyRefusedUntil;
 
     /// <summary>Creates the provider from its options; it does no network I/O until it is used.</summary>
@@ -88,6 +95,7 @@ public sealed partial class WriteableAzureBlobFileProvider : WriteableFileProvid
         if (!string.IsNullOrEmpty(Options.ContainerName) && !string.Equals(Options.ContainerName, container.Name, StringComparison.Ordinal))
             throw new ArgumentException($"AzureFileProviderOptions.ContainerName is '{Options.ContainerName}', but the client is for container '{container.Name}'.", nameof(options));
         _container = container;
+        _rootSegments = Resolve(ProviderPath.Root).AbsoluteSegments;
     }
 
     /// <summary>The options constructor, with the client options and the credential a test can give.</summary>
@@ -95,6 +103,8 @@ public sealed partial class WriteableAzureBlobFileProvider : WriteableFileProvid
         : base(options)
     {
         _container = CreateContainerClient(Options, clientOptions, credential);
+        _clientFromOptions = true;
+        _rootSegments = Resolve(ProviderPath.Root).AbsoluteSegments;
     }
 
     /// <summary>The size of each staged block: 8 MiB. A write from a seekable stream uses larger blocks when it needs them.</summary>
@@ -247,7 +257,7 @@ public sealed partial class WriteableAzureBlobFileProvider : WriteableFileProvid
         return await GuardAsync(async () =>
         {
             var stream = await Blob(path).OpenReadAsync(new BlobOpenReadOptions(options.AllowModifications) { BufferSize = options.BufferSize }, cancellationToken).ConfigureAwait(false);
-            return (Stream)new BlobReadStream(stream, path.ToString());
+            return (Stream)new BlobReadStream(stream, path.ToString(), NoCredential);
         }).ConfigureAwait(false);
     }
 
@@ -284,10 +294,22 @@ public sealed partial class WriteableAzureBlobFileProvider : WriteableFileProvid
     protected override async Task DeleteFileCoreAsync(ResolvedPath path, CancellationToken cancellationToken) =>
         await GuardAsync(() => DeleteBlobAsync(Blob(path), cancellationToken)).ConfigureAwait(false);
 
-    /// <summary>A store's "blob not found": read members turn it into a <see cref="FileNotFoundException"/>.</summary>
+    /// <summary>A store's "blob not found": the public members turn it into a <see cref="FileNotFoundException"/>.</summary>
     /// <param name="exception">The store's exception.</param>
     protected override bool IsNotFound(Exception exception) =>
         exception is RequestFailedException { Status: 404 } e && !Is(e, BlobErrorCode.ContainerNotFound);
+
+    /// <summary>
+    /// Azure's 401 and 403, and Microsoft Entra ID refusing the credential when the provider signs in with
+    /// <see cref="AzureFileProviderOptions.UseDefaultAzureCredential"/> (Azure.Identity's
+    /// <see cref="AuthenticationFailedException"/>, thrown inside each request): the public members turn them into an
+    /// <see cref="UnauthorizedAccessException"/>. A sign-in that finds no credential at all
+    /// (<see cref="CredentialUnavailableException"/>) is not a refusal: the provider throws
+    /// <see cref="InvalidOperationException"/> for it, as for a missing container.
+    /// </summary>
+    /// <param name="exception">The store's exception.</param>
+    protected override bool IsAccessDenied(Exception exception) =>
+        exception is RequestFailedException { Status: 401 or 403 } or (AuthenticationFailedException and not CredentialUnavailableException);
 
     private static BlobContainerClient CreateContainerClient(AzureFileProviderOptions options, BlobClientOptions? clientOptions, TokenCredential? credential)
     {
@@ -435,8 +457,11 @@ public sealed partial class WriteableAzureBlobFileProvider : WriteableFileProvid
     }
 
     // A blob's name as a path of this provider, for messages.
-    private string ProviderPathOf(BlobBaseClient blob) =>
-        Options.RootDirectorySegments.Length == 0 ? blob.Name : blob.Name[(string.Join('/', Options.RootDirectorySegments).Length + 1)..];
+    private string ProviderPathOf(BlobBaseClient blob) => PathUnderRoot(blob.Name);
+
+    // A blob name under the root as a path of this provider.
+    private string PathUnderRoot(string blobName) =>
+        _rootSegments.Length == 0 ? blobName : blobName[(string.Join('/', _rootSegments).Length + 1)..];
 
     /// <summary>
     /// Deletes exactly the one blob at <paramref name="path"/> through <see cref="DeleteFileCoreAsync"/>, the hook the base
@@ -476,7 +501,15 @@ public sealed partial class WriteableAzureBlobFileProvider : WriteableFileProvid
     private InvalidOperationException ContainerMissing(Exception? innerException) =>
         new($"The blob container '{_container.Name}' does not exist. Create it, or set AzureFileProviderOptions.{nameof(AzureFileProviderOptions.CreateContainerIfMissing)} so the first write creates it.", innerException);
 
-    // Every member: a missing container is an InvalidOperationException, never a missing path (P18).
+    // Microsoft Entra ID sign-in found no credential to use (Azure.Identity raises it inside each request): the store is
+    // not set up as configured, as a missing container is. The hint names what the caller set up: the options, or a client.
+    private InvalidOperationException NoCredential(CredentialUnavailableException innerException) =>
+        new(_clientFromOptions
+            ? $"UseDefaultAzureCredential is set, but the Microsoft Entra ID sign-in found no credential to use (environment, workload or managed identity, developer sign-in). Configure one, or set AzureFileProviderOptions.{nameof(AzureFileProviderOptions.AccountKey)}."
+            : "The Microsoft Entra ID credential of the given client found no credential to use.", innerException);
+
+    // Every member: a missing container is an InvalidOperationException, never a missing path (P18), and so is a sign-in
+    // that finds no credential.
     private async Task<T> GuardAsync<T>(Func<Task<T>> operation)
     {
         try
@@ -486,6 +519,10 @@ public sealed partial class WriteableAzureBlobFileProvider : WriteableFileProvid
         catch (RequestFailedException e) when (Is(e, BlobErrorCode.ContainerNotFound))
         {
             throw ContainerMissing(e);
+        }
+        catch (CredentialUnavailableException e)
+        {
+            throw NoCredential(e);
         }
     }
 
@@ -498,6 +535,10 @@ public sealed partial class WriteableAzureBlobFileProvider : WriteableFileProvid
         catch (RequestFailedException e) when (Is(e, BlobErrorCode.ContainerNotFound))
         {
             throw ContainerMissing(e);
+        }
+        catch (CredentialUnavailableException e)
+        {
+            throw NoCredential(e);
         }
     }
 
@@ -516,6 +557,10 @@ public sealed partial class WriteableAzureBlobFileProvider : WriteableFileProvid
                 catch (RequestFailedException e) when (Is(e, BlobErrorCode.ContainerNotFound))
                 {
                     throw ContainerMissing(e);
+                }
+                catch (CredentialUnavailableException e)
+                {
+                    throw NoCredential(e);
                 }
                 if (!hasNext)
                     yield break;

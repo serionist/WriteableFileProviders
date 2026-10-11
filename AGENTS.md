@@ -12,7 +12,7 @@ and what never to do. What the packages do for those who use them is in [README.
 | `src/WriteableFileProviders.Common/` | `IWriteableFileProvider`; `WriteableFileProvider<TOptions>`, the base class every provider derives from; `FileProviderOptions` (the root folder); `LocalFileStream`; `WriteableFileProviderSerializer`, which builds a provider from configuration or JSON. Package `WriteableFileProviders.Common`. |
 | `src/WriteableFileProviders.<Provider>/` | One provider each: `Physical`, `AzureBlob`, `AmazonS3`, `Minio`, `Box`, `SharePoint`, `GoogleCloudStorage`. Package `WriteableFileProviders.<Provider>`. |
 | `src/WriteableFileProviders.AspNetCore/` | The signed-URL gateway for ASP.NET Core: `IWriteableFileUrlService` (a provider's native URL, else a gateway URL), the `GET`/`HEAD`/`PUT` endpoints on Data Protection tokens, and the one-time token store. Package `WriteableFileProviders.AspNetCore`. |
-| `src/Shared/`, `tests/Shared/` | Source compiled into more than one project, linked by each `.csproj`: the internal S3 core (`S3/`) that the AmazonS3 and Minio packages both build, and the test code their two test projects share. |
+| `src/Shared/`, `tests/Shared/` | Source compiled into more than one project, linked by each `.csproj`: the internal S3 core (`S3/`) that the AmazonS3 and Minio packages both build, and the test code their two test projects share; `SliceReadStream`, the ranged read of a download that Common, Box, GoogleCloudStorage and SharePoint each compile, and its tests, linked into those four test projects. |
 | `tests/WriteableFileProviders.Testing/` | Shared test code: `ProviderConformanceTests`, the contract every provider passes, and `InMemoryFileProvider`, the reference provider that passes it. |
 | `tests/WriteableFileProviders.Common.Tests/` | Common's tests: the conformance suite on the in-memory provider, unit tests, and the configuration-shape goldens. |
 | `tests/WriteableFileProviders.AspNetCore.Tests/` | The gateway and the URL service, end to end on TestServer over the in-memory provider. |
@@ -76,10 +76,11 @@ Run everything from the repo root, with a .NET 10 SDK (`global.json`).
   lower one to pass. The goal is 90% of lines on every assembly.
 - **CI** (`.github/workflows/ci.yml`) runs the build, the tests with coverage, the gate and the pack on Linux, where
   Docker is available and a missing emulator fails the run (`WFP_REQUIRE_DOCKER=1`), and the build and tests on Windows.
-- **Release:** a maintainer tags `v<version>` on `main`. `release.yml` builds, tests and packs, checks that every
-  package has that version and depends on our other packages within its major (`eng/package-check.cs`), and once a
-  maintainer approves the `nuget` environment, pushes the packages to nuget.org through trusted publishing and creates
-  the GitHub release.
+- **Release:** a maintainer tags `v<version>` on `main`. `release.yml` builds, runs the tests with coverage and the
+  coverage gate, packs, checks that every package has that version and depends on our other packages within its major
+  (`eng/package-check.cs`), and requires that `ci.yml` concluded success on the tagged commit (its Windows job included);
+  then, once a maintainer approves the `nuget` environment, it pushes the packages to nuget.org through trusted
+  publishing and creates the GitHub release.
 
 ### Tests
 
@@ -88,7 +89,12 @@ contract" in the modernization plan. A provider's test project derives a `[TestC
 provider and what the store can do (real folders, case, signed URLs, the large-file size, the emulator bugs it must step
 around), and so runs every rule. Where the fixture can reach the store past the provider, it also stores files under
 names the provider refuses (`StoreRawFileAsync`), so the suite checks that listings leave them out and everything listed
-reads back (D27). `InMemoryFileProvider`, the reference provider, passes it in `WriteableFileProviders.Common.Tests`.
+reads back (D27). Every fixture builds a provider at a root with a dot segment and expects `ArgumentException`, except
+where the root is a folder of the disk (`ChecksItsRoot`, false for Physical). The error contract's cases (D29) run on
+a provider whose store throws whatever it is given (`CreateProviderThatFails`): the in-memory fixtures and every
+emulator or offline provider fixture wire it, through a seam of their SDK; a fixture without it (Physical's, the live
+suites) reports those cases inconclusive.
+`InMemoryFileProvider`, the reference provider, passes it in `WriteableFileProviders.Common.Tests`.
 
 Each package has a test project of its own, `tests/WriteableFileProviders.<Package>.Tests`:
 
@@ -113,7 +119,8 @@ Each package has a test project of its own, `tests/WriteableFileProviders.<Packa
   `AzuriteStrictConformanceTests` (over a container client whose pipeline, `AzureHandler`, refuses what Azure refuses
   and Azurite allows: replacing an append blob, more blocks than the limit, here lowered to 6), and
   `AzureBlobProviderTests` (2026 append blobs, block restaging, races injected through the pipeline, missing
-  containers, signed URLs used over HTTP); `AzureBlobOptionsTests` and `SignedUrlTests` offline.
+  containers, signed URLs used over HTTP, failures part of the way); `AzureBlobOptionsTests`, `SignedUrlTests`,
+  `AzureErrorTests` and `AzureRootTests` offline.
 - **Amazon S3 and MinIO:** each runs the suite and the shared S3 behaviour tests (`tests/Shared/S3`, linked into both)
   against S3Mock 5.2.3 and MinIO (`cgr.dev/chainguard/minio`, pinned by digest, run as root), and offline tests that
   fake S3 behind the AWS SDK's HTTP layer. The S3Mock fixtures declare its two bugs as capabilities: an aborted
@@ -121,7 +128,7 @@ Each package has a test project of its own, `tests/WriteableFileProviders.<Packa
 - **Google Cloud Storage**, on fake-gcs-server: `GcsConformanceTests` (through the options, with a service account key
   generated for the run and the `Endpoint` option), `GcsClientConformanceTests` (over a `StorageClient` the test built,
   which cannot sign) and `GcsProviderTests` (the missing bucket, bucket creation, signed URLs used for real, races and
-  server answers injected through the client's HTTP seam); `GcsOptionsTests` offline.
+  server answers injected through the client's HTTP seam); `GcsOptionsTests` and `GcsErrorTests` offline.
 - **SharePoint**, offline against `GraphFake`, a stateful in-memory Microsoft Graph at the end of the SDK's own HTTP
   pipeline: the suite through both constructors (a caller's `GraphServiceClient`, and options with a work folder), and
   unit tests of the requests sent, upload sessions, races the service settles, faults and the options.
@@ -209,7 +216,9 @@ feature or a new target framework in a minor; a fix in a patch.
 - **The configuration shape:** `WriteableFileProviderSerializer` builds a provider from its `Type` and the property
   names of its options class, from configuration or JSON (System.Text.Json since 2027.0.0). Consumers keep that in
   configuration files and databases, so renaming a provider class, an options property or the `Type` key breaks what
-  they stored. Every later reader reads what an earlier version wrote (the goldens pin it); the reverse is not promised.
+  they stored. Every later reader reads what an earlier version wrote (the goldens pin it), except a root with a dot
+  segment, refused since 2027.0.0 because it reached outside the root (final review F1, agreed on
+  [#3](https://github.com/serionist/WriteableFileProviders/issues/3#issuecomment-6108746458)); the reverse is not promised.
 - **The gateway's URLs:** the token format and its Data Protection purpose chain (`WriteableFileProviders.Gateway.v1`,
   the provider name, the access) and the URL shape `{BasePath}/{token}/{fileName?}`. A URL issued by one version
   redeems on the next; a new format gets a new purpose version and the old one keeps redeeming.

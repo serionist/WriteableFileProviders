@@ -39,6 +39,10 @@ public sealed class SharePointConformanceTests : ProviderConformanceTests
     protected override IWriteableFileProvider? CreateProviderWithMissingContainer() =>
         TestGraph.Provider(_client, TestGraph.Options(library: "No Such Library"));
 
+    // A Graph of its own whose every request fails in the SDK's pipeline, through a client the provider builds and owns.
+    protected override IWriteableFileProvider? CreateProviderThatFails(Exception failure) =>
+        TestGraph.OwnProvider(new GraphFake { Intercept = _ => throw failure }, TestGraph.Options(RootName));
+
     protected override Task<bool> StoreRawFileAsync(IReadOnlyList<string> names, string text)
     {
         _fake.SetFile(string.Join('/', names), Encoding.UTF8.GetBytes(text));
@@ -89,6 +93,9 @@ public sealed class SharePointWorkFolderConformanceTests : ProviderConformanceTe
     // The root repeats the work folder in another case: one copy is dropped, so the base is the work folder itself.
     protected override IWriteableFileProvider CreateProvider(string? root) =>
         TestGraph.OwnProvider(_fake, TestGraph.Options(root is null ? "shared/work folder" : $"Shared/Work Folder/{root}", WorkFolder));
+
+    protected override IWriteableFileProvider? CreateProviderThatFails(Exception failure) =>
+        TestGraph.OwnProvider(new GraphFake { Intercept = _ => throw failure }, TestGraph.Options($"Shared/Work Folder/{RootName}", WorkFolder));
 
     protected override Task<bool> StoreRawFileAsync(IReadOnlyList<string> names, string text)
     {

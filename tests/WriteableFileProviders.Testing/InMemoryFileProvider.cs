@@ -47,7 +47,8 @@ public sealed class InMemoryFileProvider(InMemoryFileProviderOptions options) : 
     public void StoreRaw(IReadOnlyList<string> names, byte[] content)
     {
         ArgumentNullException.ThrowIfNull(names);
-        string[] segments = [.. Options.RootDirectorySegments, .. names];
+        // The root the provider was built with, which a later change to the options does not move.
+        string[] segments = [.. Resolve(ProviderPath.Root).AbsoluteSegments, .. names];
         lock (Files)
         {
             for (var i = 1; i < segments.Length; i++)
@@ -55,6 +56,12 @@ public sealed class InMemoryFileProvider(InMemoryFileProviderOptions options) : 
             Files.Entries[string.Join('/', segments)] = new Entry(content, TimeProvider.GetUtcNow(), Guid.NewGuid().ToString("N"), null);
         }
     }
+
+    /// <summary>
+    /// When set, every call to the store throws it, as a store or its SDK might (a network failure, an answer it cannot
+    /// read, a timeout): how the error-policy tests see what reaches the caller.
+    /// </summary>
+    public Exception? Failure { get; set; }
 
     /// <inheritdoc />
     protected override bool IsCaseInsensitive => Files.Comparison == StringComparison.OrdinalIgnoreCase;
@@ -69,6 +76,7 @@ public sealed class InMemoryFileProvider(InMemoryFileProviderOptions options) : 
     protected override Task<IWriteableFileInfo> GetFileInfoCoreAsync(ResolvedPath path, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        ThrowIfFailing();
         var key = Key(path);
         lock (Files)
         {
@@ -84,6 +92,7 @@ public sealed class InMemoryFileProvider(InMemoryFileProviderOptions options) : 
     protected override async IAsyncEnumerable<IWriteableFileInfo> EnumerateCoreAsync(ResolvedPath path, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        ThrowIfFailing();
         var key = Key(path);
         List<IWriteableFileInfo> entries;
         lock (Files)
@@ -107,6 +116,7 @@ public sealed class InMemoryFileProvider(InMemoryFileProviderOptions options) : 
     protected override Task<Stream> ReadFileCoreAsync(ResolvedPath path, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        ThrowIfFailing();
         lock (Files)
         {
             return Files.Entries.TryGetValue(Key(path), out var file)
@@ -121,6 +131,7 @@ public sealed class InMemoryFileProvider(InMemoryFileProviderOptions options) : 
         ArgumentNullException.ThrowIfNull(contents);
         ArgumentNullException.ThrowIfNull(options);
         cancellationToken.ThrowIfCancellationRequested();
+        ThrowIfFailing();
         if (options.Mode == UpdateFileMode.Append)
         {
             await AppendByRewriteAsync(path, contents, options, cancellationToken).ConfigureAwait(false);
@@ -145,6 +156,7 @@ public sealed class InMemoryFileProvider(InMemoryFileProviderOptions options) : 
     protected override Task<bool> DeleteCoreAsync(ResolvedPath path, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        ThrowIfFailing();
         var key = Key(path);
         lock (Files)
         {
@@ -164,6 +176,7 @@ public sealed class InMemoryFileProvider(InMemoryFileProviderOptions options) : 
     protected override Task<SignedUrl> GetSignedUrlCoreAsync(ResolvedPath path, SignedUrlOptions options, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
+        ThrowIfFailing();
         var lifetime = options.Validity;
         if (Options.FixedSignedUrlLifetime is { } fixedLifetime)
         {
@@ -189,6 +202,12 @@ public sealed class InMemoryFileProvider(InMemoryFileProviderOptions options) : 
     }
 
     private static string Key(ResolvedPath path) => string.Join('/', path.AbsoluteSegments);
+
+    private void ThrowIfFailing()
+    {
+        if (Failure is { } failure)
+            throw failure;
+    }
 
     private static string Name(string key) => key[(key.LastIndexOf('/') + 1)..];
 

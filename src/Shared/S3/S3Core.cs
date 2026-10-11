@@ -108,6 +108,21 @@ internal sealed partial class S3Core(IWriteableFileProvider owner, S3CoreSetting
     public static bool IsNotFound(Exception exception) =>
         exception is AmazonS3Exception { ErrorCode: "NoSuchKey" or "NoSuchVersion" };
 
+    /// <summary>
+    /// Whether an exception of the SDK means the store refused the credential or the permission: any 401 or 403
+    /// (<c>AccessDenied</c>, <c>InvalidAccessKeyId</c>, <c>SignatureDoesNotMatch</c>, <c>InvalidSecurity</c>,
+    /// <c>NotSignedUp</c>, <c>InvalidPayer</c>, a server's own code, or none, as a HEAD answers), except the 403s that are
+    /// not about the credential: an archived object (<c>InvalidObjectState</c>, <c>ObjectNotInActiveTierError</c>) and a
+    /// skewed clock (<c>RequestTimeTooSkewed</c>), the store's failures. Also a session token that expired or is not
+    /// valid (<c>ExpiredToken</c>, <c>InvalidToken</c>), which S3 answers with a 400.
+    /// </summary>
+    /// <param name="exception">The exception.</param>
+    public static bool IsAccessDenied(Exception exception) =>
+        exception is AmazonS3Exception s3
+        && (s3.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden
+            ? s3.ErrorCode is not ("InvalidObjectState" or "ObjectNotInActiveTierError" or "RequestTimeTooSkewed")
+            : s3.ErrorCode is "ExpiredToken" or "InvalidToken");
+
     /// <summary>Disposes the client this core built; a client the caller gave is left alone. Called once, by the provider.</summary>
     public void Dispose()
     {
@@ -157,7 +172,7 @@ internal sealed partial class S3Core(IWriteableFileProvider owner, S3CoreSetting
     {
         if (_givenClient is not null)
             return new Connection(_givenClient, null, false, IsHttp(_givenClient.Config));
-        var credentials = _settings.Credentials ?? await DefaultAWSCredentialsIdentityResolver.GetCredentialsAsync().ConfigureAwait(false);
+        var credentials = _settings.Credentials ?? await DefaultCredentialsAsync(() => DefaultAWSCredentialsIdentityResolver.GetCredentialsAsync()).ConfigureAwait(false);
         var region = _settings.Region;
         if (region is null && _settings.DiscoverRegion)
             region = await DiscoverRegionAsync(credentials).ConfigureAwait(false);
@@ -170,6 +185,26 @@ internal sealed partial class S3Core(IWriteableFileProvider owner, S3CoreSetting
         }
         client.Dispose();
         throw new ObjectDisposedException(_owner.GetType().FullName);
+    }
+
+    /// <summary>
+    /// The credentials of the SDK's default chain (environment, profile, SSO, container or instance role). Finding none is a
+    /// store that is not set up as configured, <see cref="InvalidOperationException"/>, which the next call asks again.
+    /// </summary>
+    /// <param name="resolve">Resolves the chain: the SDK's resolver, or a test's.</param>
+    public static async Task<AWSCredentials> DefaultCredentialsAsync(Func<Task<AWSCredentials>> resolve)
+    {
+        ArgumentNullException.ThrowIfNull(resolve);
+        try
+        {
+            return await resolve().ConfigureAwait(false);
+        }
+        catch (AmazonClientException e)
+        {
+            throw new InvalidOperationException(
+                "UseDefaultCredentials is set, but the AWS SDK's default credential chain found no credentials (environment, profile, SSO, container or instance role).",
+                e);
+        }
     }
 
     // MinIO answers GetBucketLocation signed for us-east-1 even when it runs in another region, which rejects every other
@@ -219,6 +254,13 @@ internal sealed partial class S3Core(IWriteableFileProvider owner, S3CoreSetting
         }
         catch (AmazonS3Exception e) when (e.ErrorCode == "BucketAlreadyOwnedByYou")
         {
+        }
+        catch (AmazonS3Exception e) when (e.ErrorCode == "BucketAlreadyExists")
+        {
+            // Bucket names are global: this one belongs to another account, so the store cannot be set up as configured.
+            throw new InvalidOperationException(
+                $"The bucket '{Bucket}' does not exist for these credentials, and CreateBucketIfMissing cannot create it: another account owns the name. Name another bucket.",
+                e);
         }
     }
 

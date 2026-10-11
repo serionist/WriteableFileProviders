@@ -8,8 +8,10 @@ public abstract partial class WriteableFileProvider<TOptions>
     private static readonly char[] _segmentSeparators = ['/', '\\'];
 
     /// <summary>
-    /// Validates a caller's path and places it under the provider root. Every part must pass
-    /// <see cref="ValidateSegments"/> and <see cref="IsSegmentAllowed"/>, also after percent-decoding.
+    /// Validates a caller's path and places it under the provider root: the root the options named when the provider was
+    /// built, which a later change to the options does not move. Every part must pass <see cref="ValidateSegments"/> and
+    /// <see cref="IsSegmentAllowed"/>, also after percent-decoding. <c>Resolve(ProviderPath.Root).AbsoluteSegments</c> is
+    /// the root itself.
     /// </summary>
     /// <param name="path">The caller's path.</param>
     /// <exception cref="ArgumentException">A segment is not allowed.</exception>
@@ -20,11 +22,21 @@ public abstract partial class WriteableFileProvider<TOptions>
         var parts = ValidateSegments(path.Segments);
         foreach (var part in parts)
         {
-            if (!IsSegmentAllowed(part) || !DecodedForms(part)!.TrueForAll(IsSegmentAllowed))
+            if (!IsAllowedByProvider(part))
                 throw InvalidSegment(part);
         }
-        return new ResolvedPath(Options.RootDirectorySegments, parts);
+        return new ResolvedPath(_rootSegments, parts);
     }
+
+    /// <summary>
+    /// Whether the base class checks <see cref="FileProviderOptions.RootDirectorySegments"/> when the provider is built,
+    /// with the same rules as a caller's path (<see cref="ValidateSegments"/> and <see cref="IsSegmentAllowed"/>, also
+    /// after percent-decoding), so that a root such as <c>tenants/../other</c> throws <see cref="ArgumentException"/>
+    /// instead of naming a place outside itself. True by default. A provider whose root is not a path in its store, such
+    /// as a folder of the local disk, returns false and checks its root itself. The base constructor reads it before the
+    /// provider's own constructor runs, so it must not depend on the provider's state.
+    /// </summary>
+    protected virtual bool ValidatesRootDirectory => true;
 
     /// <summary>
     /// Splits the caller's segments on <c>/</c> and <c>\</c> and validates every part. A part is rejected when it is empty
@@ -36,25 +48,16 @@ public abstract partial class WriteableFileProvider<TOptions>
     /// <exception cref="ArgumentException">A part is not allowed.</exception>
     protected static string[] ValidateSegments(IEnumerable<string>? segments)
     {
-        var ret = new List<string>();
-        if (segments is null)
-            return [];
-        foreach (var segment in segments)
-        {
-            foreach (var part in (segment ?? "").Split(_segmentSeparators))
-            {
-                if (!IsValidPart(part))
-                    throw InvalidSegment(part);
-                var decoded = DecodedForms(part);
-                if (decoded is null || !decoded.TrueForAll(d => Array.TrueForAll(d.Split(_segmentSeparators), IsValidPart)))
-                    throw InvalidSegment(part);
-                ret.Add(part);
-            }
-        }
-        return [.. ret];
+        var parts = PartsOf(segments);
+        return parts.Find(part => !IsPathPart(part)) is { } refused ? throw InvalidSegment(refused) : [.. parts];
     }
 
-    /// <summary>A provider's own segment rule, applied to every validated part and to each of its percent-decoded forms.</summary>
+    /// <summary>
+    /// A provider's own segment rule, applied to every validated part and to each of its percent-decoded forms: of a
+    /// caller's path, of a name a listing returns (<see cref="IsAddressable"/>), and of the root (see
+    /// <see cref="ValidatesRootDirectory"/>), which the base constructor checks before the provider's own constructor runs,
+    /// so the rule must not depend on the provider's state.
+    /// </summary>
     /// <param name="part">A single path segment.</param>
     /// <returns>False to reject the segment.</returns>
     protected virtual bool IsSegmentAllowed(string part) => true;
@@ -70,11 +73,8 @@ public abstract partial class WriteableFileProvider<TOptions>
     protected bool IsAddressable(string name) =>
         !string.IsNullOrEmpty(name)
         && name.IndexOfAny(_segmentSeparators) < 0
-        && IsValidPart(name)
-        && DecodedForms(name) is { } decoded
-        && decoded.TrueForAll(d => Array.TrueForAll(d.Split(_segmentSeparators), IsValidPart))
-        && IsSegmentAllowed(name)
-        && decoded.TrueForAll(IsSegmentAllowed);
+        && IsPathPart(name)
+        && IsAllowedByProvider(name);
 
     private ResolvedPath ResolveReadable(ProviderPath path)
     {
@@ -87,6 +87,30 @@ public abstract partial class WriteableFileProvider<TOptions>
         var resolved = Resolve(path);
         return resolved.IsRoot ? throw new InvalidOperationException(RootModificationMessage) : resolved;
     }
+
+    // The options' root, checked once when the provider is built (ValidatesRootDirectory) as a caller's path is checked:
+    // the message of the ArgumentException to throw, or null when the root may be used.
+    private string? RootRefusal(string[] root)
+    {
+        if (!ValidatesRootDirectory || PartsOf(root).Find(part => !IsPathPart(part) || !IsAllowedByProvider(part)) is not { } refused)
+            return null;
+        return $"RootDirectoryPath '{Printable(string.Join('/', root))}' cannot be the provider's root: its segment '{Printable(refused)}' is not "
+            + "allowed in a path (no segment may be empty, only dots and spaces, hold a control character, or become one of those when "
+            + "percent-decoded), and a root must not name a place outside itself.";
+    }
+
+    // The segments split on both separators, in order.
+    private static List<string> PartsOf(IEnumerable<string>? segments) =>
+        segments is null ? [] : [.. segments.SelectMany(segment => (segment ?? "").Split(_segmentSeparators))];
+
+    // A part the common path rules accept, as it is and after every round of percent-decoding.
+    private static bool IsPathPart(string part) =>
+        IsValidPart(part)
+        && DecodedForms(part) is { } decoded
+        && decoded.TrueForAll(d => Array.TrueForAll(d.Split(_segmentSeparators), IsValidPart));
+
+    // A part the provider's own rule accepts, as it is and in each of its percent-decoded forms; for a part IsPathPart took.
+    private bool IsAllowedByProvider(string part) => IsSegmentAllowed(part) && DecodedForms(part)!.TrueForAll(IsSegmentAllowed);
 
     // The percent-decoded forms of the part, one per round, or null when it still changes after MaxDecodeRounds.
     private static List<string>? DecodedForms(string part)
@@ -107,9 +131,8 @@ public abstract partial class WriteableFileProvider<TOptions>
     private static bool IsValidPart(string part) =>
         !string.IsNullOrWhiteSpace(part) && part.Trim(' ', '.').Length != 0 && !part.Any(char.IsControl);
 
-    private static ArgumentException InvalidSegment(string? part, string parameterName = "path")
-    {
-        var name = new string([.. (part ?? "").Select(c => char.IsControl(c) ? '?' : c)]);
-        return new ArgumentException($"The path segment '{name}' is not allowed.", parameterName);
-    }
+    private static ArgumentException InvalidSegment(string? part, string parameterName = "path") =>
+        new($"The path segment '{Printable(part)}' is not allowed.", parameterName);
+
+    private static string Printable(string? text) => new([.. (text ?? "").Select(c => char.IsControl(c) ? '?' : c)]);
 }

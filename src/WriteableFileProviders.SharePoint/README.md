@@ -130,10 +130,12 @@ provider to release the HTTP client and certificate it created.
   afterwards and create the destination.
 - **Delete** sends items to the site's recycle bin.
 - **Errors:** only a 404 means "not found". The SDK retries 429, 503 and 504 three times, honouring `Retry-After`;
-  then the call throws `IOException`. 401 and 403 throw `UnauthorizedAccessException`, other failures `IOException`;
-  the message names Graph's error, and the SDK's or the network's exception is inside where there is one. A missing
-  site or library throws `InvalidOperationException` naming `SiteUrl` or `DocumentLibraryName` from every member that
-  reaches the library.
+  then the call throws `IOException`. 401 and 403 throw `UnauthorizedAccessException`, and so does a sign-in Microsoft
+  Entra ID refuses (Azure.Identity's `AuthenticationFailedException`, inside); other failures `IOException`, timeouts
+  included; the message names Graph's error, and the SDK's or the network's exception is inside where there is one. A
+  missing site or library throws `InvalidOperationException` naming `SiteUrl` or `DocumentLibraryName` from every member
+  that reaches the library, and so does a sign-in that finds no credential to use (`CredentialUnavailableException`,
+  with `UseDefaultAzureCredential`).
 
 ## Signed URLs
 

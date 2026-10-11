@@ -13,6 +13,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The tests of the download stream this package compiles its own copy of (src/Shared). -->
+    <Compile Include="..\Shared\SliceReadStreamTests.cs" Link="Shared\SliceReadStreamTests.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\WriteableFileProviders.Testing\WriteableFileProviders.Testing.csproj" />
     <ProjectReference Include="..\..\src\WriteableFileProviders.SharePoint\WriteableFileProviders.SharePoint.csproj" />
   </ItemGroup>

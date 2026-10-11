@@ -158,7 +158,9 @@ What every provider promises:
 
 - **Paths** never reach outside the provider's root; on Physical, symbolic links and junctions inside the root are
   followed wherever they point ([its README](src/WriteableFileProviders.Physical/README.md)). The root is a folder: it
-  cannot be written, moved or deleted (`InvalidOperationException`), nor read as a file (`ArgumentException`).
+  cannot be written, moved or deleted (`InvalidOperationException`), nor read as a file (`ArgumentException`). The root
+  in the options is checked as a path is when the provider is built, so a root such as `tenants/../other` throws
+  `ArgumentException` (Physical's root is a folder of the disk, which the system resolves).
 - **Missing things:** a read of a missing file, or of a folder, throws `FileNotFoundException`; `GetFileInfoAsync`
   returns `Exists` false; a missing folder lists as not existing and empty; `DeleteAsync` returns false. A missing
   bucket or container throws `InvalidOperationException` from every member that reaches it, naming the option that
@@ -168,6 +170,13 @@ What every provider promises:
 - **Listings** show only names a path can address, so everything listed can be read back.
 - **Signed URLs** never live longer than asked: a provider that cannot sign the URL asked for throws
   `NotSupportedException`, and so does any operation a provider cannot do.
+- **Failures** have one set of types on every provider, so you catch the same exceptions whichever store you use:
+  `UnauthorizedAccessException` when the store refuses the credential or the permission, `InvalidOperationException`
+  when it is not set up as configured, `IOException` for any other failure of the store, the service or the network,
+  timeouts included, and `OperationCanceledException` only when your token cancels. The SDK's own exception is the
+  `InnerException`, unless it already derives from one of these types, which passes as it is; `OutOfMemoryException`
+  passes unmapped. The [migration guide](docs/migration-2027.md#what-a-member-throws) lists them
+  all.
 
 ## Providers
 

@@ -171,11 +171,16 @@ public abstract class S3BehaviourTests
         using (provider)
         {
             await provider.UpdateFileAsync("d/a.txt", TestStreams.Text("a"));
+            var code = "AccessDenied";
             factory.Intercept = r => Task.FromResult(IsDeleteObjects(r)
-                ? Xml(HttpStatusCode.OK, "<DeleteResult><Error><Key>k</Key><Code>AccessDenied</Code><Message>Injected</Message></Error></DeleteResult>")
+                ? Xml(HttpStatusCode.OK, $"<DeleteResult><Error><Key>k</Key><Code>{code}</Code><Message>Injected</Message></Error></DeleteResult>")
                 : null);
+            // Refused keys are refused as a file delete is; any other failure is the store's.
+            var refused = await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(() => provider.DeleteAsync("d"));
+            StringAssert.Contains(refused.Message, "AccessDenied");
+            code = "InternalError";
             var e = await Assert.ThrowsExactlyAsync<IOException>(() => provider.DeleteAsync("d"));
-            StringAssert.Contains(e.Message, "AccessDenied");
+            StringAssert.Contains(e.Message, "InternalError");
         }
     }
 
@@ -307,7 +312,7 @@ public abstract class S3BehaviourTests
             factory.Intercept = r => Task.FromResult(IsUploadPart(r) && Interlocked.Increment(ref parts) == 2
                 ? Error(HttpStatusCode.BadRequest, "InvalidPart")
                 : null);
-            var e = await Assert.ThrowsExactlyAsync<AmazonS3Exception>(() => provider.UpdateFileAsync("f.bin", new MemoryStream(TestStreams.Bytes(12 * MiB))));
+            var e = Assert.IsInstanceOfType<AmazonS3Exception>((await Assert.ThrowsExactlyAsync<IOException>(() => provider.UpdateFileAsync("f.bin", new MemoryStream(TestStreams.Bytes(12 * MiB))))).InnerException);
             Assert.AreEqual("InvalidPart", e.ErrorCode);
             Assert.IsTrue(factory.Requests.Any(r => r.StartsWith("DELETE", StringComparison.Ordinal) && r.Contains("uploadId=", StringComparison.Ordinal)), "The upload was aborted");
             factory.Intercept = null;
@@ -374,7 +379,7 @@ public abstract class S3BehaviourTests
                 // The abort fails too: the copy's own failure is what the caller sees.
                 : IsAbort(r) ? Error(HttpStatusCode.BadRequest, "InvalidRequest")
                 : null);
-            var e = await Assert.ThrowsExactlyAsync<AmazonS3Exception>(() => provider.CopyAsync("big.bin", "copy.bin"));
+            var e = Assert.IsInstanceOfType<AmazonS3Exception>((await Assert.ThrowsExactlyAsync<IOException>(() => provider.CopyAsync("big.bin", "copy.bin"))).InnerException);
             Assert.AreEqual("InvalidRequest", e.ErrorCode);
             Assert.IsTrue(factory.Requests.Any(r => r.StartsWith("DELETE", StringComparison.Ordinal) && r.Contains("uploadId=", StringComparison.Ordinal)), "The copy was aborted");
             factory.Intercept = null;

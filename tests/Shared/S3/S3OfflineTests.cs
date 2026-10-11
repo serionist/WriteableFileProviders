@@ -1,5 +1,6 @@
 using System.Net;
 using Amazon;
+using Amazon.S3;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using static WriteableFileProviders.S3.Testing.InterceptingHttpClientFactory;
 
@@ -292,8 +293,9 @@ public abstract class S3OfflineTests
         });
         using (provider)
         {
-            // 503 after the SDK's retries says nothing about the bucket: the next call checks again.
-            await Assert.ThrowsAsync<Exception>(() => provider.GetFileInfoAsync("f.txt"));
+            // 503 after the SDK's retries says nothing about the bucket: the next call checks again. The SDK's error travels
+            // inside the contract's IOException.
+            Assert.IsInstanceOfType<AmazonS3Exception>((await Assert.ThrowsExactlyAsync<IOException>(() => provider.GetFileInfoAsync("f.txt"))).InnerException);
             var failed = checks;
             Assert.IsTrue(failed > 0);
             status = HttpStatusCode.BadRequest;
@@ -428,6 +430,73 @@ public abstract class S3OfflineTests
         if (ExpectedLocationConstraint is not null)
             StringAssert.Contains(body, $"<LocationConstraint>{ExpectedLocationConstraint}</LocationConstraint>");
         Assert.AreEqual(1, creations);
+    }
+
+    [TestMethod]
+    public async Task Errors_ARefusalIsUnauthorizedAccess_AnyOtherFailureIOException()
+    {
+        var (provider, _) = Offline(r => Task.FromResult(
+            (r.Method == HttpMethod.Delete || r.Method == HttpMethod.Get) && IsKey(r, "denied.txt") ? Error(HttpStatusCode.Forbidden, "AccessDenied")
+            : r.Method == HttpMethod.Get && IsKey(r, "broken.txt") ? Error(HttpStatusCode.BadRequest, "InvalidArgument")
+            : null));
+        using (provider)
+        {
+            // A file delete refused is refused as a folder delete is: the store refused the credential or the permission.
+            var delete = await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(() => provider.DeleteAsync("denied.txt"));
+            Assert.IsInstanceOfType<AmazonS3Exception>(delete.InnerException);
+            Assert.IsInstanceOfType<AmazonS3Exception>((await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(() => provider.ReadFileAsync("denied.txt"))).InnerException);
+            Assert.IsInstanceOfType<AmazonS3Exception>((await Assert.ThrowsExactlyAsync<IOException>(() => provider.ReadFileAsync("broken.txt"))).InnerException);
+        }
+    }
+
+    [TestMethod]
+    public async Task Errors_A403WithoutACodeIsARefusal_AnArchivedObjectIsNot()
+    {
+        var (provider, _) = Offline(r => Task.FromResult(
+            r.Method == HttpMethod.Head && IsKey(r, "denied.txt") ? Empty(HttpStatusCode.Forbidden)
+            : r.Method == HttpMethod.Get && IsKey(r, "archived.txt") ? Error(HttpStatusCode.Forbidden, "InvalidObjectState")
+            : null));
+        using (provider)
+        {
+            // A HEAD's 403 has no body, so no code: the credential or the permission was refused.
+            Assert.IsInstanceOfType<AmazonS3Exception>((await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(() => provider.GetFileInfoAsync("denied.txt"))).InnerException);
+            // An archived object answers 403 too: it needs restoring, not another credential.
+            var archived = await Assert.ThrowsExactlyAsync<IOException>(() => provider.ReadFileAsync("archived.txt"));
+            Assert.AreEqual("InvalidObjectState", Assert.IsInstanceOfType<AmazonS3Exception>(archived.InnerException).ErrorCode);
+        }
+    }
+
+    [TestMethod]
+    public async Task Delete_OfAFolderWhoseKeysAreRefusedIsUnauthorizedAccess()
+    {
+        const string Refused = """<?xml version="1.0" encoding="UTF-8"?><DeleteResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Error><Key>root/dir/a.txt</Key><Code>AccessDenied</Code><Message>Access Denied</Message></Error></DeleteResult>""";
+        const string Failed = """<?xml version="1.0" encoding="UTF-8"?><DeleteResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Error><Key>root/dir/a.txt</Key><Code>InternalError</Code><Message>Try again</Message></Error></DeleteResult>""";
+        var answer = Refused;
+        var (provider, _) = Offline(r => Task.FromResult(
+            IsDeleteObjects(r) ? Xml(HttpStatusCode.OK, answer)
+            : IsList(r) ? ListResult(["root/dir/a.txt"])
+            : Missing(r, "dir")));
+        using (provider)
+        {
+            var refused = await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(() => provider.DeleteAsync("dir"));
+            StringAssert.Contains(refused.Message, "AccessDenied");
+            answer = Failed;
+            StringAssert.Contains((await Assert.ThrowsExactlyAsync<IOException>(() => provider.DeleteAsync("dir"))).Message, "InternalError");
+        }
+    }
+
+    [TestMethod]
+    public async Task CreateBucket_WhoseNameAnotherAccountOwns_IsInvalidOperation()
+    {
+        var (provider, _) = Offline(r => Task.FromResult(!IsBucket(r) ? null
+            : r.Method == HttpMethod.Head ? Empty(HttpStatusCode.NotFound)
+            : Error(HttpStatusCode.Conflict, "BucketAlreadyExists")), createBucketIfMissing: true);
+        using (provider)
+        {
+            var e = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.GetFileInfoAsync("f.txt"));
+            StringAssert.Contains(e.Message, "another account owns the name");
+            Assert.IsInstanceOfType<AmazonS3Exception>(e.InnerException);
+        }
     }
 
     [TestMethod]

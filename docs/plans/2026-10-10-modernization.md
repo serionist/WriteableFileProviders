@@ -97,6 +97,10 @@ agreement for a one-way door. D20 records how the two maintainers agree for this
 | D26 | New options keep the stored shape | Every options property new in 2027 is written to JSON only when it differs from its default ([JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]), so a configuration that uses none of them keeps its 2026 shape. |
 | D27 | Listings show only addressable names | A name the provider's path validation would refuse is left out of listings on every provider; S12 brings the providers that do not yet do it into line. |
 | D28 | Versioning policy (decided by @serionist on 2026-10-11) | SemVer from git tags (MinVer, prefix `v`, minimum `2027.0`), every package in lockstep at one version (D2). The major is a sequence number, not a date: it continues above the 2018–2026 date-stamped versions (`yyyy.M.d.n`), so NuGet orders every 2027 release after them; `2027.0.0` is the first SemVer release, `2027.1.0` adds features, `2027.0.1` fixes, and the next breaking release is `2028.0.0` whenever it ships, even years later. Breaking means a major: a change to a one-way door in AGENTS.md, dropping a target framework, or a dependency change that breaks consumers' builds (such as an SDK major in a public signature, D17); adding a target framework or a feature is a minor. Target frameworks: the current .NET LTS (net10.0); a new LTS is added in a minor, an out-of-support one is dropped only in a major. Support: the latest major gets every fix; the previous major gets security fixes for 6 months after the next major ships; `2026.10.10.x` (.NET 8) gets security fixes until a date the maintainers announce. Prereleases: `-alpha.0.<height>` from untagged builds, `-rc.N` tags before a major. Written in the root README's Versioning section, SECURITY.md's supported versions, AGENTS.md (One-way doors) and CONTRIBUTING.md. |
+| D29 | Failures outside the contract | Every member of every provider throws only the contract's exceptions: `ArgumentException` (a path or an option), `FileNotFoundException`, `FileExistsException`, `PreconditionFailedException`, `NotSupportedException` (a feature this provider or store cannot give), `InvalidOperationException` (the store is not set up as configured: a missing container, bucket, library or root folder, or no credentials to find), `UnauthorizedAccessException` (the store refused the credential or the permission), `IOException` (any other failure of the store, the service or the network, timeouts included), and `OperationCanceledException` only for the caller's token, plus `ObjectDisposedException`. A provider's or SDK's exception travels as `InnerException`, unless it already derives from one of the contract's types, which passes as it is; `OutOfMemoryException` passes unmapped. It is enforced once, in `WriteableFileProvider<TOptions>`: the public members map what escapes a `...CoreAsync` member (and what escapes a stream or an enumeration they return) through `IsNotFound` (existing) and a new `protected virtual bool IsAccessDenied(Exception exception)`; anything else that is not one of the contract's types becomes `IOException` naming the operation and the path. A provider still maps what it knows better itself. Agreed by @serionist on 2026-10-11 and posted on #3 ([comment](https://github.com/serionist/WriteableFileProviders/issues/3#issuecomment-6108746458)). The pass-through of the contract's own subtypes and of OutOfMemoryException is the plan's reading of the agreed contract (review of PR #42). |
+| D30 | A file and a folder may share a name on object stores | On S3, MinIO, Azure Blob and Google Cloud Storage, folders are name prefixes, so writing a file at a folder's path, or a folder under a file's path, succeeds and a listing then shows both. Physical, Box, SharePoint and the in-memory provider refuse it with `IOException`. The conformance suite pins both behind a capability flag; the README matrix and the migration guide say so. (An extra listing request on every object-store write was rejected for its cost.) Agreed by @serionist on 2026-10-11 and posted on #3 ([comment](https://github.com/serionist/WriteableFileProviders/issues/3#issuecomment-6108746458)). |
+| D31 | Create-only signed URLs are native only where the store is trusted with conditions | A provider issues a native `SignedUrlAccess.Create` URL only where it trusts the store to enforce `If-None-Match` (S3 on AWS; Azure; GCS); elsewhere (S3 toward a named endpoint, MinIO) it answers `NotSupportedException`, so the URL service issues a gateway URL, which enforces create-only. Read and write URLs stay native. Agreed by @serionist on 2026-10-11 and posted on #3 ([comment](https://github.com/serionist/WriteableFileProviders/issues/3#issuecomment-6108746458)). |
+| D32 | Providers hide only their own temporary names | A listing leaves out only names the provider cannot address (D27) and the temporary names it creates itself, exactly: Azure its `.wfp-tmp/` folder at the root, Physical `.wfp-` followed by 32 hex digits and `.tmp`. Any other `.wfp-` name is listed like any other name. Agreed by @serionist on 2026-10-11 and posted on #3 ([comment](https://github.com/serionist/WriteableFileProviders/issues/3#issuecomment-6108746458)). |
 
 ## Design
 
@@ -133,6 +137,8 @@ Every provider passes the same conformance tests for each of these rules:
   - Segments are validated as today: no empty, dot-only, control-character or percent-encoded escapes.
   - The root cannot be modified (`InvalidOperationException`) or read as a file (`ArgumentException`).
   - No public member takes absolute segments (F1, F2, F47).
+  - The root in the options is checked with the same rules when the provider is built (`ArgumentException`), except
+    where it is a folder of the disk (Physical); final review F1.
 - **File info:**
   - A file: `Exists`, not a directory, `Length`, `LastModified`, `ETag`, `ContentType` where the store keeps one.
   - A folder: `Exists`, `IsDirectory`, `Length` -1.
@@ -227,6 +233,10 @@ Every provider passes the same conformance tests for each of these rules:
     Physical's readers do, and with `IOException` when another process holds the file without sharing writes. A
     Physical test (not a shared conformance case, since what an open reader sees differs per store) writes while a read
     stream is open, with the result expected per OS, and runs on Windows CI (S5).
+- **Errors (D29, final review):** every member throws only the contract's types, the store's exception inside; the
+  base class maps what escapes untyped, from members, streams and listings alike. Conformance cases on a fixture that
+  can make its store throw (`CreateProviderThatFails`): an arbitrary exception is `IOException`, a timeout is
+  `IOException`, a contract type passes through as it is.
 - **Library code:**
   - Every await uses `ConfigureAwait(false)`.
   - Sync members go through one `GetAwaiter().GetResult()` helper (F13, F33).
@@ -425,6 +435,8 @@ public class PreconditionFailedException : IOException      public class FileExi
 - **`live.yml`:** manual, and nightly on `main`. Runs the live suites only where their secrets are set, never on PRs
   from forks.
 - **`release.yml`**, on a `v*` tag, with `fetch-depth: 0`:
+  - the tests with coverage and the gate, and only once `ci.yml` concluded success on the tagged commit (final review
+    F12);
   - pack, and push through nuget.org trusted publishing, behind a `nuget` environment;
   - the maintainers configure the trusted publisher and the environment.
 - **After merge:** CI becomes a required check in the ruleset, which closes REVIEW.md's "until CI exists" gap. That is
@@ -466,8 +478,13 @@ public class PreconditionFailedException : IOException      public class FileExi
   - The protected members of `WriteableFileProvider<T>` are renamed (`...CoreAsync`), which breaks third-party
     providers. `normalizePath`, `fileSegments` and both `RunTaskSerial` overloads go (`ProviderPath.Parse`,
     `IWriteableFileInfo.Path`, await). `createLocalFileStreamAsync` and the public virtual `CreateLocalFileStreamAsync`
-    become `CreateLocalFileStreamCoreAsync`; the public member is no longer virtual. `GetRelativeSegments`, `IsRootPath`
-    and `NormalizePem` were `[Obsolete]` and went in S12.
+    go: the public member is no longer virtual, and how a local stream is made is not customisable (final review F11,
+    agreed on #3: [comment](https://github.com/serionist/WriteableFileProviders/issues/3#issuecomment-6108746458)).
+    `GetRelativeSegments`, `IsRootPath` and `NormalizePem` were `[Obsolete]` and went in S12.
+  - A store's exceptions no longer escape as they are: the base class maps them (D29), with `IsAccessDenied` beside
+    `IsNotFound`; the root in the options is checked when the provider is built (`ValidatesRootDirectory`), so a stored
+    configuration whose root has a dot segment no longer builds (final review F1, agreed on #3:
+    [comment](https://github.com/serionist/WriteableFileProviders/issues/3#issuecomment-6108746458)).
   - Capability hooks whose defaults refuse or weaken an operation until a provider overrides them:
     `SupportsAtomicPreconditions`, `IsCaseInsensitive`, `SupportsSignedUrl`, `SupportsSignedUrlContentHeaders`,
     `MaxSignedUrlValidity`, and the `TimeProvider` property.
@@ -530,7 +547,7 @@ Each step is an issue under #3, a branch `<issue>-<slug>`, and a PR that builds 
 | S9 SharePoint | #13 | #28 | The SharePoint row, with the Graph fake; its live run is outstanding for the maintainers (D21). | F4 F6 F7 F8 F11 F13 F17–F21 F26 F39 F43 F49 F53 F62 F66 F70 F74 F77 | done (#28, 70e3f74); live suite not run (D21) |
 | S10 Box | #14 | #25 | The Box row, with the Box fake; its live run is outstanding for the maintainers (D21). | F4 F6 F11 F13 F17–F21 F25 F32 F53 F63 F67 F74 F77, Box's part of F56 | done (#25, 3ce3b89); live suites not run (D21) |
 | S11 AspNetCore gateway | #15 | #24 | The new package, the URL service, endpoints, the gateway tests and defaults (D22, P13, P27); its README, migration entry and AGENTS.md entry; whether the token purpose string and URL shape are a one-way door (they are: tokens issued by one version must redeem on the next minor; recorded under One-way doors in AGENTS.md). | F11 | done (#24, bce935c) |
-| S12 Docs, CI, launch prep | #16 | #31; part 2: #41 (`16-harmonize`) and the PR of `16-docs` | The root README, the migration guide's final pass, CONTRIBUTING, SECURITY, AGENTS.md and REVIEW.md, codeql, dependabot, `live.yml`, the release workflow, every floor at 90% or more, a check that no project sets `WfpLegacy`, the removal of the `[Obsolete]` 2026 helpers in Common (`GetRelativeSegments`, `IsRootPath`, `NormalizePem`, which Box and GCS take over), the PublicAPI files, and a final deep `review-code` of the whole repo. | F12 F76 | part 1 done (#31, 65cfd40: codeql, dependabot, `live.yml`, the release workflow, CONTRIBUTING, SECURITY, the issue forms). Part 2 in two halves built in parallel: `16-harmonize` done (#41, 581e050: D27 on Box and Physical, the live-class rule, D25 and D26 checked, the `[Obsolete]` helpers removed, no `WfpLegacy`, the old test project retired, the PublicAPI files, the floors, the options first in every client constructor, `IsAddressable`) and `16-docs` in review (the root README and its provider matrix, the package READMEs and metadata, the migration guide's final pass, D28, REVIEW.md, this plan's statuses). Then the final deep `review-code` of the whole repo: todo. The packed upper bound on Common (Compatibility, P21) is done in #41 |
+| S12 Docs, CI, launch prep | #16 | #31; part 2: #41 (`16-harmonize`) and the PR of `16-docs` | The root README, the migration guide's final pass, CONTRIBUTING, SECURITY, AGENTS.md and REVIEW.md, codeql, dependabot, `live.yml`, the release workflow, every floor at 90% or more, a check that no project sets `WfpLegacy`, the removal of the `[Obsolete]` 2026 helpers in Common (`GetRelativeSegments`, `IsRootPath`, `NormalizePem`, which Box and GCS take over), the PublicAPI files, and a final deep `review-code` of the whole repo. | F12 F76 | part 1 done (#31, 65cfd40: codeql, dependabot, `live.yml`, the release workflow, CONTRIBUTING, SECURITY, the issue forms). Part 2 in two halves built in parallel: `16-harmonize` done (#41, 581e050: D27 on Box and Physical, the live-class rule, D25 and D26 checked, the `[Obsolete]` helpers removed, no `WfpLegacy`, the old test project retired, the PublicAPI files, the floors, the options first in every client constructor, `IsAddressable`) and `16-docs` in review (the root README and its provider matrix, the package READMEs and metadata, the migration guide's final pass, D28, REVIEW.md, this plan's statuses). The final deep `review-code` of the whole repo is done (`docs/reviews/2026-10-11-2027-final.md`: 20 findings, D29 to D32), and its fixes are built in two halves: `16-final-common` (Common, the harness, the shared read stream, the error policy) and `16-final-providers` (the provider-specific findings). The packed upper bound on Common (Compatibility, P21) is done in #41 |
 
 The provider steps S5–S10 are independent once S4 is merged. They may run in parallel agents, each in its own worktree,
 touching only their provider's folders, but they merge one at a time (P41): each rebases onto main before its PR and
@@ -600,6 +617,10 @@ Covered under Design, Docs. AGENTS.md changes in S2 (layout, commands), in S3 (t
 - **Convenience extensions** such as `ReadAllBytes`, `WriteAllText` and a sync `Copy` (D23).
 - **Scanning loaded assemblies** for provider types (D23).
 - **Package validation baselines:** set them to `2027.0.0` after it ships, and keep the PublicAPI files from then on.
+  Package validation itself runs on every pack since the final review (F17).
+- **One reader of the live settings** (final review F19, the owner's call: no, for now): the six live classes keep
+  their own readers of `WFP_*` variables and `testsettings.json`. A shared helper in WriteableFileProviders.Testing would
+  remove five copies, but only live accounts can check a refactor of how test credentials are read.
 
 ## Finding tracker
 
@@ -683,7 +704,7 @@ Status: `todo`, `done` (with the PR), `wontfix` (with the reason). F-numbers are
 | F73 | Minio forces Extensions 9 and Reactive | S7 | done (S7): the Minio SDK is gone |
 | F74 | Temp-file spool written nine times | S4 | S4 done (`SpoolToTempFileAsync`, `AppendByRewriteAsync`); S5 done (Physical has one write path, its temp file next to the target, which is its spool); S6 done (Azure appends spool through it); S7 done (append through `AppendByRewriteAsync`; writes stream in parts, no spool); S8 done (GCS spools only through `AppendByRewriteAsync`); S9 done (SharePoint uses both); S10 done for Box (`BoxUploadBuffer` gone) |
 | F75 | GCS has no emulator seam | S8 | done (S8): the `Endpoint` option, the `StorageClient` constructor, and the conformance suite on fake-gcs-server |
-| F76 | Package descriptions and READMEs | S12 | done: S12 part 2 (a description and tags in every `.csproj`, the shared metadata in `src/Directory.Build.props`, a README per package packed through `PackageReadmeFile`, and the root README with the provider matrix) |
+| F76 | Package descriptions and READMEs | S12 | done: S12 part 2 (a description and tags in every `.csproj`, the shared metadata in `src/Directory.Build.props`, a README per package packed through `PackageReadmeFile`, and the root README with the provider matrix); the icon waits for the maintainers ("For the maintainers", final review F17) |
 | F77 | Dead code in providers | S5, S9, S10 | S5 done (Physical's `O` field, `info`, `isRoot`, `getPathSegments` and the unused usings go); S9 done (SharePoint rewritten); S10 done for Box (the catch-all rethrows are gone) |
 | F78 | S3 `StorageClassForNewFiles` is written as `{"Value":…}` and read back as `STANDARD`, and the configuration path never reads it at all (found in S3 by the golden corpus) | S4, S7 | done (S4): both forms read, the string is written, configuration converts it; S7: the class read from either form reaches the store on new files and copies (S3Mock test) |
 | F79 | On Unix, Physical's `Options.RootDirectoryPath`, and so its `ToJson` output, carries the internal `root:` marker of an absolute path instead of the path (found by S3's first Linux CI run) | S5 | done (S5): `RootDirectoryPath` is the real path on every system; the stored `root:` forms still read |
@@ -1884,6 +1905,195 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     serializer's options-only constructor, and smaller wording; two plan ids left the Azure provider's XML docs.
   - Left for the final PR (N1): S3's FIPS host names (`s3-fips`) as S3's own.
 
+- **2026-10-11, S12 final review and its fixes, common half (#16):** the final deep `review-code` of the whole repo ran
+  at `581e050` (kind audit, label `2027-final`, 213 files, 11 lenses, 34 agents): 20 findings, F1 to F4 major, F5 to
+  F20 minor, none refuted. The report, with a Decisions section naming each finding's fix and branch, is
+  [`docs/reviews/2026-10-11-2027-final.md`](../reviews/2026-10-11-2027-final.md). The main session decided every finding
+  under the maintainer's standing instruction; D29 to D32 are in Decisions, and @serionist agreed them, with the
+  one-way-door changes below (the dot-segment root, the local stream hook), on #3
+  ([comment](https://github.com/serionist/WriteableFileProviders/issues/3#issuecomment-6108746458)). Two branches fix
+  them in parallel: `16-final-common` (worktree
+  `D:\workspaces\wfp-wt\16d`; this entry) and `16-final-providers` (worktree `16e`; its own entry); the second to merge
+  rebases.
+  - **F1 (major), the root** (agreed on #3: [comment](https://github.com/serionist/WriteableFileProviders/issues/3#issuecomment-6108746458)):
+    `WriteableFileProvider<TOptions>`'s constructor (now written out, `protected`; the PublicAPI line is the same)
+    checks `RootDirectorySegments` with the rules of a caller's path (`ValidateSegments`, `IsSegmentAllowed`, the
+    decoded forms) and throws `ArgumentException` (parameter `options`) naming
+    `RootDirectoryPath`. A new `protected virtual bool ValidatesRootDirectory` (true) lets a provider whose root is not
+    a store path opt out: Physical does (an operating system path, which it resolves; every path under it stays
+    checked). SharePoint's own check stays, for its work folder, which the base cannot see. The base reads both hooks
+    before the provider's constructor runs, which their docs say. Tests: `RootValidationTests` in Common.Tests (dot,
+    percent-encoded, backslash, whitespace and control forms; empty and null segments; valid roots kept as given; the
+    provider's own rule; the opt-out; a stored configuration that no longer builds) and the conformance case
+    `Path_ARootWithADotSegmentIsRefused`, which every fixture runs (`ChecksItsRoot`, false for Physical's two), so the
+    providers half needs no per-provider root test. SharePoint's options test moves its `%2E%2E` root to the base's
+    refusal and adds dot segments in the work folder. Migration guide: a row in Stored configuration (a stored root with
+    a dot segment no longer builds) and one in Azure Blob Storage.
+  - **F4 / D29, the error policy**, as D29 words it, in one place (`WriteableFileProvider.Errors.cs`, `Map`):
+    - Every public member maps what escapes it: the async members, the three `IFileProvider` members (through them, or
+      `Watch` itself), and `GetSignedUrlAsync`'s store calls; path and argument checks throw before, as before. A read's
+      stream is wrapped in `ContractStream` (internal), which keeps what the provider's stream can do (seek, length,
+      position, timeouts) and maps the failures of its reads, seeks and disposal; a listing maps each `MoveNextAsync` and
+      its disposal; a local stream's commit maps as a write.
+    - The order: `OutOfMemoryException` passes; an `OperationCanceledException` passes when the caller's token is
+      cancelled and is otherwise a timeout, `IOException`; what `IsNotFound` recognises becomes `FileNotFoundException`
+      for the path (in every member now, not only reads); what `IsAccessDenied` recognises,
+      `UnauthorizedAccessException`; the contract's types pass by type; after the caller cancelled, any other failure is
+      `OperationCanceledException` with it inside; anything else is `IOException` naming the operation, the path and
+      the inner exception's type.
+    - Decided here: the outer message never copies the inner one, which may carry a credential (Box's errors over a
+      caller's client); a provider predicate that throws counts as "no", since a throwing exception filter would let the
+      store's exception out unmapped; an SDK exception that derives from a contract type (Kiota's
+      `InvalidOperationException`, an `IOException` of the network) passes as it is, where the provider has not mapped
+      it; a failure of the caller's own stream given to `UpdateFileAsync` arrives inside an `IOException` unless it is a
+      contract type; one protected helper, `ReadWithContractAsync`, puts a provider's own public read under the same
+      contract (S3's `ReadFileVersionAsync` uses it); Azure and SharePoint count Azure.Identity's
+      `AuthenticationFailedException` as access denied, but not `CredentialUnavailableException` ("no credential
+      found"), which each maps itself to `InvalidOperationException` (corrected in review round 1 of #42, below), as S3's
+      empty default chain and GCS's missing Application Default Credentials are; Box's
+      and GCS's token endpoints refusing a credential with OAuth's 400 (`invalid_grant`, `invalid_client`) count as
+      access denied, beside D29's 401 and 403.
+    - `IsAccessDenied` on every provider: Azure (`RequestFailedException` 401/403, `AuthenticationFailedException`),
+      S3 and MinIO (`S3Core.IsAccessDenied`: 401/403 or `AccessDenied`), GCS (`GoogleApiException` 401/403,
+      `TokenResponseException` 400/401/403), Box (401/403, and a 400 to `/oauth2/token`), SharePoint (Graph 401/403,
+      `AuthenticationFailedException`); Physical's `UnauthorizedAccessException` passes through.
+    - Tests: `ErrorPolicyTests` in Common.Tests drive every public member, both stream kinds, listings, a local
+      stream's commit and `ReadWithContractAsync` through a provider that throws whatever a test gives it (an arbitrary
+      exception, each contract type, a not-found, a refusal, a timeout, the caller's cancellation, a failure after it, a
+      throwing predicate); the conformance suite's `Errors_OutsideTheContractAreIOException`,
+      `Errors_ATimeoutIsIOException_NotACancellation` and `Errors_OfTheContractPassThrough` run where a fixture can make
+      its store fail (`CreateProviderThatFails`; `InMemoryFileProvider.Failure`); offline tests of each provider's
+      refusals (`AzureErrorTests`, `GcsErrorTests`, `BoxErrorTests`, `SharePointErrorTests`, the S3 offline and core
+      tests). The provider tests that pinned an SDK's exception (Box's, S3's and MinIO's, GCS's, Azure's, SharePoint's
+      timeout) now expect the contract's type with it inside, and S3's loose `ThrowsAsync<Exception>` became exact.
+    - Docs: the migration guide's new section "What a member throws" and its rows, an "Errors" item in each provider's
+      README, the root README's promises, Common's README and `IWriteableFileProvider`'s remarks.
+  - **"For the final review" items 1, 2, 4, 5 and 6, closed under D29** (3 and 7 are the providers half's):
+    1. One policy: D29, mapped by the base; SharePoint keeps its own mapping, which throws contract types the base
+       passes; GCS's tests that pinned `GoogleApiException` expect the contract's type with it inside.
+    2. Azure: a resumed plain read's raw 404 mid-read is `FileNotFoundException` and its 412 `IOException` (the stream
+       is mapped); a delete's or a move's other refusals are `UnauthorizedAccessException` for 401 and 403,
+       `IOException` otherwise; `CreateContainerIfMissing` refused with 403 is `UnauthorizedAccessException`.
+    4. Timeouts: an `OperationCanceledException` the caller's token did not ask for is `IOException` on every provider
+       (GCS's raw download, Box's and S3's clients); Azure's `AggregateException` after its retries is `IOException`.
+    5. SharePoint: Azure.Identity's `AuthenticationFailedException` is `UnauthorizedAccessException`; a site answer
+       without an id is `IOException` (the service's failure, not a site the options name wrongly), not cached.
+    6. S3: a file delete's `AccessDenied` is `UnauthorizedAccessException`, and so is now a folder delete whose every
+       refused key says `AccessDenied` (it was `IOException`; any other code stays `IOException`); `BucketAlreadyExists`
+       with `CreateBucketIfMissing` is `InvalidOperationException` naming the bucket.
+  - **F10:** the migration guide's first row: a call with no path, which meant the root, now takes `ProviderPath.Root`
+    or `""`. No shims.
+  - **F11** (agreed on #3: [comment](https://github.com/serionist/WriteableFileProviders/issues/3#issuecomment-6108746458)): `CreateLocalFileStreamCoreAsync` is a
+    private member of the base class (`CreateLocalCopyAsync`), out of `PublicAPI.Unshipped.txt` and the migration
+    guide's list of overrides; the guide says how a local stream is made is not customisable in 2027.0.0.
+  - **F12:** `release.yml` runs the tests with ci.yml's coverage flags and the gate, and a job that `publish` needs
+    (`actions: read`) waits for the tagged commit's `ci.yml` run on `main` and requires it concluded success (its Windows
+    job included); a failed run, or none within 50 minutes, stops the release. `gh run list` with the job's filters
+    answered `1 0 1` (one success, none running, one run) for `b6e78b8`. actionlint 1.7.12 with shellcheck 0.11.0 finds
+    nothing. AGENTS.md's Release line says so.
+  - **F13:** `AnalysisLevel` moved to `Directory.Build.targets`; `EffectiveAnalysisLevel` is still 10.0.
+  - **F17:** `EnablePackageValidation` in `src/Directory.Build.props` (no baseline until 2027.0.0 ships; Later says to
+    set it then); a pack and a stable pack (`MinVerVersionOverride`) of every package validate cleanly. No icon: "For
+    the maintainers" gains it, and F76's row says the icon waits for them.
+  - **F19 (the owner's call: no, for now):** under Later, with its reason.
+  - **F20 (the owner's call: yes):** one internal `SliceReadStream` in `src/Shared/`, linked into Common, Box,
+    GoogleCloudStorage and SharePoint, replaces Common's `BoundedReadStream` and skip helper, Box's `SliceStream`, GCS's
+    `ResponseReadStream` and SharePoint's `DownloadStream`, keeping each one's behaviour: the owner disposed after the
+    body (an HTTP response), a known length (GCS, from `Content-Length`), the skip of an ignored range (by seeking when
+    the body can, by reading otherwise; at once with `SkipAsync`, as Common's default range read and SharePoint do, or
+    on the first read). Its tests, one file in `tests/Shared/` (where the namespace rule is off for linked files),
+    linked into the four test projects, replace the two provider test files and Common's three stream tests. Found on
+    the way: the old skip by seeking overflowed for an offset near `long.MaxValue`; the new one does not.
+  - **For the providers half:** the conformance root case and `CreateProviderThatFails` are in
+    `ProviderConformanceTests`; Physical's `IsSegmentAllowed` is not read from the constructor, since Physical opts out
+    of the root check, but any provider's rule must not depend on its state.
+  - **Verified:** the solution builds strict; every non-Live test on Windows with `WFP_REQUIRE_DOCKER=1`: 2367, none failed, 11 skipped (the three concurrent-append cases and eight Unix-only Physical tests);
+    Physical (157: 155 passed, the concurrent append and the Windows-only ACL test skipped) and Common (298 passed) in a
+    `dotnet/sdk:10.0` container as a non-root user; the coverage gate on Windows (AmazonS3 98.12/93.05, AspNetCore 100/99.01, AzureBlob 99.21/91.04, Box 99.71/93.12, Common 96.88/93.12, GCS 99.49/94.20, MinIO 98.13/91.12, Physical 99.25/94.15, SharePoint 99.77/91.13, lines/branches; no floor rises without CI's Linux figures, which may let Common's branch floor and AmazonS3's rise to 92); a pack and a stable
+    pack with package validation, and the package check. No live suite ran (no accounts here; D21).
+
+- **2026-10-11, S12 final fixes, common half, review round 1 (PR #42, read at `e203072`):** 28 agents, nothing
+  refuted: 1 blocker, 3 majors, 9 minors or nits; the main session decided the owner calls. Fixed:
+  - **F1 (blocker), the doors:** @serionist agreed D29 to D32, the dot-segment root that no longer builds and the
+    removal of `CreateLocalFileStreamCoreAsync`, on #3
+    ([comment](https://github.com/serionist/WriteableFileProviders/issues/3#issuecomment-6108746458)); the PR names them.
+    The D29 to D32 rows, the Compatibility lines and this half's log lines cite it.
+  - **F2 (major, decided: option a):** "no credential found" is `InvalidOperationException` on Azure Blob and
+    SharePoint too, as on S3, MinIO and GCS: Azure.Identity's `CredentialUnavailableException` leaves `IsAccessDenied`
+    on both, and each provider maps it where it maps its SDK's errors (Azure's `GuardAsync`, now also around signing;
+    SharePoint's `GraphErrors`), with the original inside and a message naming `UseDefaultAzureCredential`. A plain
+    `AuthenticationFailedException` stays `UnauthorizedAccessException`. Tests in `AzureErrorTests` and
+    `SharePointErrorTests`; the D29 note above is corrected.
+  - **F3 (major):** an Azure move whose source delete is refused with 401 or 403 removes its copy, as for any refusal,
+    and throws `UnauthorizedAccessException` (it was `IOException`). New tests on Azurite through the handler: a resumed
+    plain read answering 404 (`FileNotFoundException`) and 412 (`IOException`, Azure's error inside), a move whose copy
+    answers 403 and one whose source delete does (`UnauthorizedAccessException`), and a container creation refused with
+    403 (`UnauthorizedAccessException`).
+  - **F4 (major):** Box's constructor docs say a refused sign-in is `UnauthorizedAccessException`, the
+    `BoxApiException` inside; the class remarks say "wraps".
+  - **F5 (decided: option a):** the base constructor keeps a copy of the validated root and `Resolve` uses it, so
+    changing `RootDirectoryPath` or a segment of `RootDirectorySegments` after the build does not move the provider;
+    Azure's temp blobs and the names it strips read the same copy (`Resolve(ProviderPath.Root)`). Tests: the base
+    (`RootValidationTests`), the in-memory provider, and an Azure request offline (`AzureRootTests`). The
+    `RootDirectoryPath` docs say so.
+  - **F6:** S3 and MinIO count as refusals only a 401, an error code that refuses the credential or the permission
+    (`AccessDenied`, `InvalidAccessKeyId`, `SignatureDoesNotMatch`, `AllAccessDisabled`, `AccountProblem`,
+    `InvalidToken`, `ExpiredToken`), or a 403 without a code, as a HEAD answers; an archived object
+    (`InvalidObjectState`, `ObjectNotInActiveTierError`) and `RequestTimeTooSkewed` are `IOException`. Tests in
+    `S3CoreTests` and the S3 offline tests (a HEAD's bare 403, an archived object); the READMEs' "Errors" items.
+  - **F7:** the five places that said an SDK's exception is never the type thrown say it travels inside unless it
+    already derives from one of the contract's types, and that `OutOfMemoryException` passes unmapped (D29's row,
+    the migration guide, `IWriteableFileProvider`'s remarks, Common's README, the root README).
+  - **F8:** the migration guide's summary: item 5 names the dot-segment root that no longer builds, item 7 the root
+    check.
+  - **F9:** AGENTS.md's configuration-shape door records the exception, linking the agreement.
+  - **F10 and F11 (decided: option a, wire the hook):** `CreateProviderThatFails` is overridden by the fixtures with an
+    offline seam: Azure's two (`AzureHandler.Intercept`), GCS's two (`FaultInjection`), SharePoint's two (a
+    `GraphFake` of their own), Box's two (a `FakeBox` of their own) and S3's and MinIO's four (the intercepting HTTP
+    factory). The `Errors_*` cases now check each SDK's wrapping: Azure retries a timeout into an `AggregateException`,
+    which the base maps to `IOException`; the AWS SDK replaces a timeout with a `TimeoutException` of its own, so the
+    timeout case accepts the injected timeout or the SDK's own timeout in the chain; `Errors_OfTheContractPassThrough`
+    looks for the refused exception anywhere in the chain, as the hook's docs allow. A fixture without the hook
+    (Physical's) reports the three cases inconclusive instead of passing them silently.
+  - **F12:** Physical's README has an "Errors" item.
+  - **F13:** AGENTS.md's offline class lists name `AzureErrorTests`, `AzureRootTests` and `GcsErrorTests`.
+  - **Verified:** the solution builds strict; every non-Live test on Windows with `WFP_REQUIRE_DOCKER=1`: 2401, none failed, 14 skipped (the eleven of before and Physical's three `Errors_*` cases, inconclusive without a failure hook);
+    Physical (157: 152 passed, the concurrent append, the Windows-only ACL test and the three `Errors_*` cases skipped) and Common (300 passed) in a `dotnet/sdk:10.0` container as a non-root user; the
+    coverage gate on Windows (AmazonS3 98.14/93.32, AspNetCore 100/99.01, AzureBlob 99.23/91.67, Box 99.71/93.12, Common 96.87/93.14, GCS 99.49/94.20, MinIO 98.15/91.42, Physical 99.25/94.15, SharePoint 99.77/91.24; no floor rises without CI's Linux figures). PR #43 also edits the provider test projects; this half's changes there
+    are members of their own, and the second to merge rebases.
+- **2026-10-11, S12 final fixes, common half, review round 2 (PR #42, read at `b76f579`):** nine findings, all fixed:
+  - **N1:** the "no credential found" message names what the caller set up. Built from the options, it names
+    `UseDefaultAzureCredential` and the key or secret to set; over a caller's client (Azure's
+    `(options, BlobContainerClient)`, SharePoint's `(options, GraphServiceClient)`) it says the given client's
+    Microsoft Entra ID credential found no credential to use. Azure tells by whether it built the container client,
+    SharePoint by whether it owns the Graph client (`GraphErrors.Wrap(…, givenClient)`). Tests through each client
+    constructor (`AzureErrorTests`, `SharePointErrorTests`) and of both messages of `GraphErrors`.
+  - **N2 (decided: invert the rule):** S3 and MinIO count every 401 and 403 as a refusal but `InvalidObjectState`,
+    `ObjectNotInActiveTierError` and `RequestTimeTooSkewed`, which are `IOException`; that takes in AWS's
+    `InvalidSecurity`, `NotSignedUp` and `InvalidPayer` and any S3-compatible server's own codes. F6's list is gone, but
+    for its two codes that AWS sends with a 400, `ExpiredToken` and `InvalidToken` (a session token that expired or is
+    not valid), which stay refusals so that an expired token does not turn into `IOException`. `S3CoreTests` has a row
+    per named code, both ways, and a 400 with any other code is not a refusal; the providers' remarks and the READMEs'
+    "Errors" items say so.
+  - **N3:** Box's failing fixtures let the sign-in (`/oauth2/token`) through, so each member's own requests are the ones
+    that fail.
+  - **N4:** the conformance timeout case accepts only the injected exception or its own inner `TimeoutException` (which
+    the AWS SDK passes on), no longer any timeout or cancellation in the chain.
+  - **N5:** AGENTS.md says the emulator and offline provider fixtures wire `CreateProviderThatFails` and a fixture
+    without it (Physical's, the live suites) reports the cases inconclusive.
+  - **N6:** Azure reads its root once, in the constructor, so the "content is kept at '…'" messages of a write that
+    could not finish still name the blob after the provider is disposed (`Resolve` throws `ObjectDisposedException`
+    then).
+  - **N7:** `InMemoryFileProvider.StoreRaw` stores under the root the provider was built with.
+  - **N8:** Azure's seekable read stream maps a `CredentialUnavailableException` of a resumed range read to the
+    provider's `InvalidOperationException`, as every other member does; a unit test reads through it.
+  - **N9:** D29's row says the pass-through of the contract's own subtypes and of `OutOfMemoryException` is the plan's
+    reading of the agreed contract.
+  - **Verified:** the solution builds strict; every non-Live test on Windows with `WFP_REQUIRE_DOCKER=1`: 2414, none
+    failed, 14 skipped (as in round 1); the coverage gate on Windows (AmazonS3 98.13/93.49, AspNetCore 100/99.01,
+    AzureBlob 99.33/91.71, Box 99.71/93.12, Common 96.87/93.14, GCS 99.49/94.20, MinIO 98.14/91.67, Physical 99.25/94.15,
+    SharePoint 99.77/91.27). Physical and the base are unchanged this round, so the Linux container run was not repeated.
+
 ### For the maintainers
 
 What this session cannot do, in the order to do it: first what closes a security exposure, then the review of what
@@ -2044,6 +2254,8 @@ is missing when `WFP_LIVE=1` is set without them.
   a copyright line, if you want one, in `src/Directory.Build.props`); the root README's Licence section then links it.
 - [ ] Fill in the date in SECURITY.md until which 2026.10.10.x gets security fixes (D28); it now says the maintainers
   will announce it there.
+- [ ] Add a package icon, if you want one: a `PackageIcon` in `src/Directory.Build.props` and the image packed beside
+  each README (final review F17).
 
 **The release (D28):**
 

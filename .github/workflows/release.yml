@@ -1,6 +1,8 @@
-# The release: pushing a tag v<version> on main builds, tests and packs every package at <version> (MinVer reads the
-# tag), checks them, pushes them to nuget.org and creates the GitHub release with the packages attached. A tag with a
-# prerelease suffix (v2027.1.0-rc.1) makes a prerelease on both.
+# The release: pushing a tag v<version> on main builds, tests with coverage and the coverage gate, and packs every
+# package at <version> (MinVer reads the tag), checks them, pushes them to nuget.org and creates the GitHub release with
+# the packages attached. Nothing is pushed unless ci.yml concluded success on the tagged commit, which covers what this
+# workflow does not run (the Windows build and tests). A tag with a prerelease suffix (v2027.1.0-rc.1) makes a
+# prerelease on both.
 #
 # What the maintainers configure once, in this order. A workflow that names an environment creates it, unprotected, the
 # first time it runs, so the environment is protected before it holds a secret or nuget.org trusts it:
@@ -61,8 +63,15 @@ jobs:
       # deterministic, with source paths in the symbols that SourceLink maps to this commit.
       - name: Build
         run: dotnet build WriteableFileProviders.slnx --no-restore -c Release -p:ContinuousIntegrationBuild=true
-      - name: Test
-        run: dotnet test --solution WriteableFileProviders.slnx --no-build -c Release --filter "TestCategory!=Live"
+      # The tests and the gate as ci.yml runs them, on the commit that is released.
+      - name: Test with coverage
+        run: >-
+          dotnet test --solution WriteableFileProviders.slnx --no-build -c Release
+          --filter "TestCategory!=Live"
+          --coverage --coverage-output-format cobertura --coverage-settings tests/coverage.runsettings
+          --results-directory artifacts/TestResults
+      - name: Coverage gate
+        run: dotnet run eng/coverage-gate.cs -- artifacts/TestResults
       - name: Pack
         run: >-
           dotnet pack WriteableFileProviders.slnx --no-build -c Release -p:ContinuousIntegrationBuild=true
@@ -76,9 +85,47 @@ jobs:
           path: artifacts/packages
           if-no-files-found: error
 
+  ci:
+    name: CI passed on the tagged commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      # Reads the ci.yml runs of the tagged commit.
+      actions: read
+    steps:
+      # ci.yml runs on every push to main, so the tagged commit has a run of its own: it must have concluded success,
+      # Windows job included, before anything is pushed. A run still going (a tag pushed right after the merge) is
+      # waited for; a run that failed, or none at all, stops the release. Re-run this workflow once CI is green.
+      - name: Require a successful ci.yml run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS + 50 * 60))
+          while :; do
+            counts=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --commit "$GITHUB_SHA" \
+              --branch main --event push --limit 20 --json status,conclusion \
+              --jq '"\([.[] | select(.conclusion == "success")] | length) \([.[] | select(.status != "completed")] | length) \(length)"')
+            read -r succeeded running total <<<"$counts"
+            if [ "$succeeded" -gt 0 ]; then
+              echo "ci.yml concluded success on $GITHUB_SHA."
+              exit 0
+            fi
+            if [ "$total" -gt 0 ] && [ "$running" -eq 0 ]; then
+              echo "::error::ci.yml did not conclude success on $GITHUB_SHA. Fix main and tag a new commit, or re-run CI and then this workflow."
+              exit 1
+            fi
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::error::No successful ci.yml run on $GITHUB_SHA within 50 minutes ($total found, $running still running). Re-run this workflow once CI is green."
+              exit 1
+            fi
+            echo "Waiting for ci.yml on $GITHUB_SHA ($total found, $running still running)..."
+            sleep 30
+          done
+
   publish:
     name: Push to nuget.org
-    needs: build
+    needs: [build, ci]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # The maintainers approve here: the environment's required reviewers, and the policy names this environment.

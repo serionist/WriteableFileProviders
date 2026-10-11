@@ -96,12 +96,16 @@ public sealed class WriteableAmazonS3FileProvider : WriteableFileProvider<Amazon
     /// <returns>The content, as a network stream that reads forward only.</returns>
     /// <exception cref="ArgumentException">A segment of the path is not allowed, or the path is the provider root.</exception>
     /// <exception cref="FileNotFoundException">The file or the version does not exist.</exception>
+    /// <exception cref="UnauthorizedAccessException">S3 refused the credential or the permission.</exception>
+    /// <exception cref="IOException">Any other failure of S3 or the network, while opening or reading the stream.</exception>
     public async Task<Stream> ReadFileVersionAsync(string? versionId, ProviderPath path, CancellationToken cancellationToken = default)
     {
         var resolved = Resolve(path);
         if (resolved.IsRoot)
             throw new ArgumentException("The path must contain at least one segment.", nameof(path));
-        return await _core.ReadAsync(resolved, string.IsNullOrEmpty(versionId) ? null : versionId, cancellationToken).ConfigureAwait(false);
+        var version = string.IsNullOrEmpty(versionId) ? null : versionId;
+        // The error contract of every other read: the SDK's exceptions are mapped, from the stream's reads too.
+        return await ReadWithContractAsync(resolved, token => _core.ReadAsync(resolved, version, token), cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -169,6 +173,15 @@ public sealed class WriteableAmazonS3FileProvider : WriteableFileProvider<Amazon
 
     /// <inheritdoc />
     protected override bool IsNotFound(Exception exception) => S3Core.IsNotFound(exception);
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// The store's 401 and 403, whatever the code, but an archived object (<c>InvalidObjectState</c>,
+    /// <c>ObjectNotInActiveTierError</c>) and a skewed clock (<c>RequestTimeTooSkewed</c>), which are the store's failures
+    /// (<see cref="IOException"/>); and a session token that expired or is not valid (<c>ExpiredToken</c>,
+    /// <c>InvalidToken</c>), which S3 answers with a 400.
+    /// </remarks>
+    protected override bool IsAccessDenied(Exception exception) => S3Core.IsAccessDenied(exception);
 
     /// <inheritdoc />
     protected override void Dispose(bool disposing)

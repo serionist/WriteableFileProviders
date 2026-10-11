@@ -120,6 +120,11 @@ None: the provider reads and writes with the permissions of the process that run
   content in place. The first `Watch` creates the root folder if it is missing. It relies on file system events, which
   some network and container-mounted folders do not deliver; set `DOTNET_USE_POLLING_FILE_WATCHER` to `1` or `true` to
   poll instead.
+- **Errors** are the contract's types, and here they are the file system's own: `UnauthorizedAccessException` and
+  `IOException` (a sharing violation, a full disk, a missing folder) pass through as .NET raises them, with no SDK in
+  between; a missing file is `FileNotFoundException` naming the path under the root, with the system's exception
+  inside; anything else that escapes is `IOException`, with it inside. The root folder is an operating system path,
+  which the system resolves, dot segments included, rather than a path the provider checks.
 
 ## Signed URLs
 

@@ -12,7 +12,11 @@ public class FileProviderOptions
 
     /// <summary>
     /// The root folder as a path, such as <c>tenants/acme</c>: every path the provider takes is relative to it, and nothing
-    /// outside it can be reached. Reading it gives the segments joined with <c>/</c> and a trailing <c>/</c>.
+    /// outside it can be reached. Reading it gives the segments joined with <c>/</c> and a trailing <c>/</c>. The provider
+    /// checks it as a path when it is built: a segment a path may not hold, such as <c>..</c> or <c>%2e%2e</c>, throws
+    /// <see cref="ArgumentException"/> (a provider whose root is a folder of the local disk checks it its own way). The
+    /// provider keeps a copy of the root it was built with: setting this property, or changing
+    /// <see cref="RootDirectorySegments"/>, afterwards does not move a provider already built.
     /// </summary>
     public virtual string? RootDirectoryPath
     {

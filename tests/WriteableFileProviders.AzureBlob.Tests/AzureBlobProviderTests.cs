@@ -112,7 +112,8 @@ public sealed partial class AzureBlobProviderTests
         using var provider = Provider(retries: 0);
         await Write(provider, "f.txt", "original");
         _handler.Intercept = r => IsCommit(r) ? AzureHandler.Error(HttpStatusCode.InternalServerError, "InternalError") : null;
-        await Assert.ThrowsExactlyAsync<RequestFailedException>(() => Write(provider, "f.txt", "replacement"));
+        var e = await Assert.ThrowsExactlyAsync<IOException>(() => Write(provider, "f.txt", "replacement"));
+        Assert.IsInstanceOfType<RequestFailedException>(e.InnerException, "Azure's error travels inside");
         _handler.Intercept = null;
         Assert.AreEqual("original", await Read(provider, "f.txt"));
     }

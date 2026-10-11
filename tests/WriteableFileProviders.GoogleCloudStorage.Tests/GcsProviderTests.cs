@@ -358,7 +358,7 @@ public sealed class GcsProviderTests
             await Side.CopyObjectAsync(Bucket, Key("a.txt"), Bucket, Key("b.txt"));
             return FaultInjection.Error(HttpStatusCode.ServiceUnavailable);
         };
-        var e = await Assert.ThrowsExactlyAsync<GoogleApiException>(() => provider.CopyAsync("a.txt", "b.txt"));
+        var e = Assert.IsInstanceOfType<GoogleApiException>((await Assert.ThrowsExactlyAsync<IOException>(() => provider.CopyAsync("a.txt", "b.txt"))).InnerException);
         Assert.AreEqual(HttpStatusCode.ServiceUnavailable, e.HttpStatusCode);
         Assert.AreEqual(1, copies, "The conditional copy is sent once");
     }
@@ -495,21 +495,22 @@ public sealed class GcsProviderTests
     }
 
     [TestMethod]
-    public async Task Read_AnErrorStatusThrowsGoogleApiException()
+    public async Task Read_AnErrorStatusIsTheContractsType_WithGoogleApiExceptionInside()
     {
         var http = new FaultInjection();
         var provider = Provider(http);
         await provider.UpdateFileAsync("f.txt", TestStreams.Text("x"));
 
         http.OnRequest = request => Task.FromResult(FaultInjection.IsDownload(request) ? FaultInjection.Error(HttpStatusCode.Forbidden, "no access") : null);
-        var json = await Assert.ThrowsExactlyAsync<GoogleApiException>(() => provider.ReadFileAsync("f.txt"));
+        // A 403 is Cloud Storage refusing the credential or the permission.
+        var json = Assert.IsInstanceOfType<GoogleApiException>((await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(() => provider.ReadFileAsync("f.txt"))).InnerException);
         Assert.AreEqual(HttpStatusCode.Forbidden, json.HttpStatusCode);
         StringAssert.Contains(json.Message, "no access");
 
         http.OnRequest = request => Task.FromResult(FaultInjection.IsDownload(request)
             ? new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) { Content = new StringContent("<html>busy</html>", Encoding.UTF8, "text/html") }
             : null);
-        var html = await Assert.ThrowsExactlyAsync<GoogleApiException>(() => provider.ReadRangeAsync("f.txt", 0, 1));
+        var html = Assert.IsInstanceOfType<GoogleApiException>((await Assert.ThrowsExactlyAsync<IOException>(() => provider.ReadRangeAsync("f.txt", 0, 1))).InnerException);
         Assert.AreEqual(HttpStatusCode.ServiceUnavailable, html.HttpStatusCode);
 
         // A 412 on a pinned read: the file changed.
@@ -549,7 +550,7 @@ public sealed class GcsProviderTests
     {
         var http = new FaultInjection { OnRequest = request => Task.FromResult(FaultInjection.IsUploadStart(request) ? FaultInjection.Error(HttpStatusCode.NotFound) : null) };
         var provider = Provider(http);
-        var e = await Assert.ThrowsExactlyAsync<GoogleApiException>(() => provider.UpdateFileAsync("f.txt", TestStreams.Text("x")));
+        var e = Assert.IsInstanceOfType<GoogleApiException>((await Assert.ThrowsExactlyAsync<IOException>(() => provider.UpdateFileAsync("f.txt", TestStreams.Text("x")))).InnerException);
         Assert.AreEqual(HttpStatusCode.NotFound, e.HttpStatusCode);
     }
 

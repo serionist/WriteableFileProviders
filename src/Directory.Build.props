@@ -5,7 +5,8 @@
   <!-- Packaging, for every package under src/. Versions come from git tags (MinVer): tag v2027.0.0 to release
        2027.0.0; an untagged build is 2027.0.0-alpha.0.<height>. All packages release together at one version, under the
        policy in the root README's Versioning section. Each .csproj adds its Description, its own tags after these, and
-       its README. No licence or copyright line until the maintainers agree the licence; no icon yet. -->
+       its README. No licence or copyright line until the maintainers agree the licence, and no icon until they add
+       one. -->
 
   <PropertyGroup Label="Package">
     <IsPackable>true</IsPackable>
@@ -22,6 +23,10 @@
     <MinVerTagPrefix>v</MinVerTagPrefix>
     <MinVerMinimumMajorMinor>2027.0</MinVerMinimumMajorMinor>
     <MinVerDefaultPreReleaseIdentifiers>alpha.0</MinVerDefaultPreReleaseIdentifiers>
+    <!-- Package validation runs on every pack. With one target framework and no baseline it checks the package's own
+         consistency; once 2027.0.0 ships, PackageValidationBaselineVersion set to it also checks every later package
+         against what consumers have (the plan's Later). -->
+    <EnablePackageValidation>true</EnablePackageValidation>
   </PropertyGroup>
 
   <ItemGroup>

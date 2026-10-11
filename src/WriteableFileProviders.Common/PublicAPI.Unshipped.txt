@@ -132,13 +132,13 @@ static WriteableFileProviders.WriteableFileProviderServiceCollectionExtensions.A
 virtual WriteableFileProviders.FileProviderOptions.RootDirectoryPath.get -> string?
 virtual WriteableFileProviders.FileProviderOptions.RootDirectoryPath.set -> void
 virtual WriteableFileProviders.WriteableFileProvider<TOptions>.CopyCoreAsync(WriteableFileProviders.ResolvedPath! source, WriteableFileProviders.ResolvedPath! destination, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task!
-virtual WriteableFileProviders.WriteableFileProvider<TOptions>.CreateLocalFileStreamCoreAsync(WriteableFileProviders.ResolvedPath! path, bool readOnly, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task<WriteableFileProviders.LocalFileStream!>!
 virtual WriteableFileProviders.WriteableFileProvider<TOptions>.DeleteFileCoreAsync(WriteableFileProviders.ResolvedPath! path, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task!
 virtual WriteableFileProviders.WriteableFileProvider<TOptions>.Dispose(bool disposing) -> void
 virtual WriteableFileProviders.WriteableFileProvider<TOptions>.DisposeAsyncCore() -> System.Threading.Tasks.ValueTask
 virtual WriteableFileProviders.WriteableFileProvider<TOptions>.EnumerateRecursiveCoreAsync(WriteableFileProviders.ResolvedPath! path, System.Threading.CancellationToken cancellationToken) -> System.Collections.Generic.IAsyncEnumerable<WriteableFileProviders.IWriteableFileInfo!>!
 virtual WriteableFileProviders.WriteableFileProvider<TOptions>.FolderExistsCoreAsync(WriteableFileProviders.ResolvedPath! path, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task<bool>!
 virtual WriteableFileProviders.WriteableFileProvider<TOptions>.GetSignedUrlCoreAsync(WriteableFileProviders.ResolvedPath! path, WriteableFileProviders.SignedUrlOptions! options, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task<WriteableFileProviders.SignedUrl!>!
+virtual WriteableFileProviders.WriteableFileProvider<TOptions>.IsAccessDenied(System.Exception! exception) -> bool
 virtual WriteableFileProviders.WriteableFileProvider<TOptions>.IsCaseInsensitive.get -> bool
 virtual WriteableFileProviders.WriteableFileProvider<TOptions>.IsNotFound(System.Exception! exception) -> bool
 virtual WriteableFileProviders.WriteableFileProvider<TOptions>.IsSegmentAllowed(string! part) -> bool
@@ -149,6 +149,7 @@ virtual WriteableFileProviders.WriteableFileProvider<TOptions>.ReadRangeCoreAsyn
 virtual WriteableFileProviders.WriteableFileProvider<TOptions>.SupportsAtomicPreconditions.get -> bool
 virtual WriteableFileProviders.WriteableFileProvider<TOptions>.SupportsSignedUrl(WriteableFileProviders.SignedUrlAccess permission) -> bool
 virtual WriteableFileProviders.WriteableFileProvider<TOptions>.SupportsSignedUrlContentHeaders(WriteableFileProviders.SignedUrlAccess permission) -> bool
+virtual WriteableFileProviders.WriteableFileProvider<TOptions>.ValidatesRootDirectory.get -> bool
 virtual WriteableFileProviders.WriteableFileProvider<TOptions>.WatchCore(string! filter) -> Microsoft.Extensions.Primitives.IChangeToken!
 WriteableFileProviders.DirectoryContents
 WriteableFileProviders.DirectoryContents.DirectoryContents(bool exists, System.Collections.Generic.IEnumerable<Microsoft.Extensions.FileProviders.IFileInfo!>! entries) -> void
@@ -304,6 +305,7 @@ WriteableFileProviders.WriteableFileProvider<TOptions>.MoveAsync(WriteableFilePr
 WriteableFileProviders.WriteableFileProvider<TOptions>.OpenReadSeekableAsync(WriteableFileProviders.ProviderPath path, WriteableFileProviders.SeekableReadOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.IO.Stream!>!
 WriteableFileProviders.WriteableFileProvider<TOptions>.Options.get -> TOptions!
 WriteableFileProviders.WriteableFileProvider<TOptions>.ReadFileAsync(WriteableFileProviders.ProviderPath path, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.IO.Stream!>!
+WriteableFileProviders.WriteableFileProvider<TOptions>.ReadWithContractAsync(WriteableFileProviders.ResolvedPath! path, System.Func<System.Threading.CancellationToken, System.Threading.Tasks.Task<System.IO.Stream!>!>! read, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task<System.IO.Stream!>!
 WriteableFileProviders.WriteableFileProvider<TOptions>.ReadRangeAsync(WriteableFileProviders.ProviderPath path, long offset, long? length, WriteableFileProviders.ReadOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.IO.Stream!>!
 WriteableFileProviders.WriteableFileProvider<TOptions>.Resolve(WriteableFileProviders.ProviderPath path) -> WriteableFileProviders.ResolvedPath!
 WriteableFileProviders.WriteableFileProvider<TOptions>.TimeProvider.get -> System.TimeProvider!

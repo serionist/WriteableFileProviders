@@ -993,8 +993,8 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
       environment picks the providers whose secrets are set (it sees only true or false) and whose live suite has its
       own test project; the nightly run skips the others with a warning, a manual run fails on them. Each provider's
       job gets only its own secrets, as the `WFP_*` variables, with `WFP_LIVE=1`, and runs
-      `dotnet test --project tests/WriteableFileProviders.<Provider>.Tests --filter "TestCategory=Live"`. No test
-      results are uploaded: a failed signed URL test can print a URL.
+      `dotnet test --project tests/WriteableFileProviders.<Provider>.Tests --filter "TestCategory=Live"`. The results
+      stay in the job's log, as in CI; review round 1 below adds the masks and the minimum test count.
     - `release.yml`, on a `v*` tag: the tag must be on `main`; locked restore, build and pack with
       `ContinuousIntegrationBuild`, the non-Live tests with `WFP_REQUIRE_DOCKER=1`; `eng/package-check.cs` (new)
       checks a `.nupkg` and `.snupkg` per project under `src/`, each at the tag's version, and every dependency on one
@@ -1014,15 +1014,41 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
   - **Live variables:** the live classes on `main` read only `testsettings.json`, so `live.yml` maps the names the
     provider steps S5–S10 read on their branches (#9–#14). To align as they merge: Box reads a file path
     (`WFP_BOX_CONFIG_FILE`), so the workflow writes the `WFP_BOX_CONFIG_JSON` secret to a temp file and deletes it;
-    `WFP_AZURE_USE_DEFAULT_CREDENTIAL` and `WFP_SHAREPOINT_USE_DEFAULT_CREDENTIAL` are not mapped, since the workflow
-    has no Azure sign-in; Physical's live suite (`WFP_PHYSICAL_ROOT`) is a folder on a maintainer's machine and is not
-    in the workflow.
+    Google Cloud Storage gets `WFP_GCS_CLIENT_EMAIL` and `WFP_GCS_PRIVATE_KEY`, and `WFP_GCS_CREDENTIALS_JSON` is not
+    mapped (review round 1); `WFP_AZURE_USE_DEFAULT_CREDENTIAL` and `WFP_SHAREPOINT_USE_DEFAULT_CREDENTIAL` are not
+    mapped, since the workflow has no Azure sign-in; Physical's live suite (`WFP_PHYSICAL_ROOT`) is a folder on a
+    maintainer's machine and is not in the workflow.
   - **Verified:** actionlint 1.7.12 with shellcheck finds nothing in the four workflows; every YAML file parses; the
     provider selection ran in bash against simulated inputs; the package check passes on a local pack at its version and
     fails on another version, a missing symbol package, a missing package and an exclusive lowest version. Not
     verified until GitHub runs them: CodeQL, Dependabot's reading of its file, the environments, trusted publishing
     and a release.
   - **Next, S12 part 2:** the rest of the S12 row, and REVIEW.md's "until CI exists".
+
+- **2026-10-11, S12 part 1 review round 1 (#31):** needs-fixes; rebased onto `main` after S11 (bce935c) and S8
+  (e1c4b52), so the package check now covers nine packages, `WriteableFileProviders.AspNetCore` included, and
+  `live.yml` finds its first provider project, Google Cloud Storage's, whose variable names match. Fixed:
+  - **F1** (a part of a secret printed alone is not masked): before the Box suite runs, the step masks the client
+    secret, the passphrase and every line of the private key, read from the one `WFP_BOX_CONFIG_JSON` secret with
+    `jq`. Google Cloud Storage takes the key's `client_email` and `private_key` as two secrets, never the whole key
+    file, and the step masks every line of the key, with `\n` escapes or real line breaks. The workflow's header and
+    the checklist below say what each secret holds.
+  - **F2**: the dependency graph does not read versions kept in `Directory.Packages.props`; the checklist and
+    `dependabot.yml` ask for the dependency graph and Automatic dependency submission, and NuGetAudit stays the guard
+    at restore time.
+  - **F3**: SECURITY.md shows no placeholder: 2026.10.10.x gets security fixes until a date the maintainers will
+    announce there.
+  - **F4**: every `actions/checkout`, `ci.yml`'s included, sets `persist-credentials: false`.
+  - **F5**: the live results stay in the job's log, which is as public as the repository; at worst a failed test
+    prints a signed URL there, which expires within minutes and points at a test file the suite deletes.
+  - **F6**: a workflow that names an environment creates it unprotected on its first run, so the checklist and both
+    workflow headers protect `nuget` and `live-cloud` before any secret or the nuget.org policy.
+  - **F7**: CONTRIBUTING asks a provider PR whose live suite did not run to say so in "Tested by", and why.
+  - Also: each live run passes `-- --minimum-expected-tests 1`. Checked locally: after `--` the minimum counts per
+    test module and leaves out skipped tests, so an all-inconclusive run exits 9 (Google Cloud Storage's live suite
+    without `WFP_LIVE`: 74 skipped, exit 9); before `--` it counts skipped tests and exits 0.
+  - Verified: actionlint 1.7.12 and the schema checks pass; the masking ran in bash with `jq` (Alpine) on a sample
+    Box configuration and on a key in both forms; the package check passes on a fresh pack of nine packages.
 
 ### For the maintainers
 
@@ -1059,25 +1085,33 @@ What this session cannot do, kept current as the work goes on:
   3. Check that the nuspec depends on Common `2026.10.10.5`, then push.
   4. Publish a GitHub security advisory for F1, F2 and F47, naming the fixed versions.
 - [ ] Agree the licence with László Nemes and Starschema (D8), then add `LICENSE` and `PackageLicenseExpression`.
-- [ ] Configure the release (`release.yml`, whose header says the same):
-  - on nuget.org, as the account that owns the packages, a trusted publishing policy: owner `serionist`,
-    repository `WriteableFileProviders`, workflow `release.yml`, environment `nuget`; and reserve the
-    `WriteableFileProviders.` id prefix;
-  - the `nuget` environment: required reviewers, the maintainers; deployment tags `v*`; the secret `NUGET_USER`,
-    the nuget.org profile name of the policy's owner;
-  - a tag ruleset on `v*`, so only the maintainers create, move or delete release tags.
-- [ ] Create the `live-cloud` environment for `live.yml`: deployment branches `main` only, no required reviewers
-  (the nightly run would wait), and one secret per `WFP_*` variable the workflow maps, for accounts you own and
-  keep for it. A provider without its secrets is skipped at night.
+- [ ] Configure the release (`release.yml`, whose header says the same), in this order: a workflow that names an
+  environment creates it unprotected on its first run, so protect it before it holds a secret or nuget.org trusts it.
+  1. The `nuget` environment: required reviewers, the maintainers; deployment tags `v*` only.
+  2. A tag ruleset on `v*`, so only the maintainers create, move or delete release tags.
+  3. The `nuget` environment's secret `NUGET_USER`: the nuget.org profile name (not the email) of the account that
+     owns the packages.
+  4. On nuget.org, as that account, a trusted publishing policy: owner `serionist`, repository
+     `WriteableFileProviders`, workflow `release.yml`, environment `nuget`; and reserve the `WriteableFileProviders.`
+     id prefix.
+- [ ] Create the `live-cloud` environment for `live.yml`, protected first: deployment branches `main` only, and no
+  required reviewers (the nightly run would wait). Then one secret per `WFP_*` variable the workflow maps, for
+  accounts you own and keep for it: Box's app configuration JSON as the one secret `WFP_BOX_CONFIG_JSON`; Google Cloud
+  Storage's `client_email` and `private_key` as `WFP_GCS_CLIENT_EMAIL` and `WFP_GCS_PRIVATE_KEY`, never the whole key
+  file. A provider without its secrets is skipped at night.
 - [ ] Make CI a required check in the `main` ruleset: "Build, test, coverage, pack (Linux)" and "Build and test
   (Windows)", and CodeQL's "Analyze (csharp)" if you want code scanning to gate merges too.
 - [ ] Turn on private vulnerability reporting (Settings > Code security), which SECURITY.md and the issue forms
   point to. It was off on 2026-10-11.
 - [ ] Turn on Dependabot alerts and Dependabot security updates; `dependabot.yml` only schedules version updates.
   Both were off on 2026-10-11.
+- [ ] Turn on the dependency graph and Automatic dependency submission (Settings > Code security): the graph does
+  not read the versions in `Directory.Packages.props`, so without the submission the alerts miss every package.
+  NuGetAudit stays the guard at restore time.
 - [ ] Keep secret scanning and its push protection on (on as of 2026-10-11), and CodeQL's default setup off:
   `codeql.yml` is the advanced setup, and the two conflict.
-- [ ] Set the date in SECURITY.md until which 2026.10.10.x gets security fixes.
+- [ ] Fill in the date in SECURITY.md until which 2026.10.10.x gets security fixes; it now says the maintainers will
+  announce it there.
 - [ ] Run the live suites against your accounts before tagging `v2027.0.0`.
 - [ ] Unlist the 2018–2024 package versions on nuget.org, keeping `2026.10.10.x` listed for .NET 8 consumers.
 

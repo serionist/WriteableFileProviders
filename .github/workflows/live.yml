@@ -2,13 +2,21 @@
 # never runs. Started by hand, for the providers chosen, or every night on main for every provider whose account is set
 # up. Never on a pull request: the accounts' credentials must never reach code that has not been merged.
 #
-# What the maintainers configure (Settings > Environments > live-cloud):
-# - Deployment branches: main only, so the secrets reach only merged code. A branch's live suite runs on a maintainer's
-#   machine, with the same variables (AGENTS.md, Tests).
-# - No required reviewers, or the nightly run waits for one every night.
-# - One secret per WFP_* variable of the "Run the live suite" step below, named as the variable, for an account the
-#   maintainers own and keep for this. A provider without the secrets it needs is skipped at night, and fails a manual
-#   run that chose it.
+# What the maintainers configure, in this order (Settings > Environments > live-cloud). A workflow that names an
+# environment creates it, unprotected, the first time it runs, so protect the environment before any secret goes in:
+# 1. Deployment branches: main only, so the secrets reach only merged code. A branch's live suite runs on a
+#    maintainer's machine, with the same variables (AGENTS.md, Tests).
+# 2. No required reviewers, or the nightly run waits for one every night.
+# 3. Then the secrets: one per WFP_* variable of the "Run the live suite" step below, named as the variable, for an
+#    account the maintainers own and keep for this. Box takes the app's JSON configuration, as the Box developer
+#    console downloads it, as the one secret WFP_BOX_CONFIG_JSON. Google Cloud Storage takes the service account key's
+#    client_email and private_key as WFP_GCS_CLIENT_EMAIL and WFP_GCS_PRIVATE_KEY, never the whole key file. A provider
+#    without the secrets it needs is skipped at night, and fails a manual run that chose it.
+#
+# Logs: GitHub masks each secret as a whole, and the suite step also masks each part a test could print on its own
+# (every line of a private key, the Box app's client secret and passphrase). The results stay in the job's log, as in
+# CI, and the log is as public as the repository: at worst a failed test prints a signed URL there, which expires
+# within minutes and points at a test file the suite deletes.
 #
 # Cleanup: every test works under a folder of its own (wfp-test-<id>/ or wfp-live-<id>/) and deletes it, pass or fail.
 # A run that is cancelled or times out can leave one behind: check the account after such a run, and delete any
@@ -69,6 +77,8 @@ jobs:
       providers: ${{ steps.select.outputs.providers }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - id: select
         env:
           SCHEDULED: ${{ github.event_name == 'schedule' }}
@@ -88,8 +98,8 @@ jobs:
             && secrets.WFP_MINIO_SECRET_KEY != '' && secrets.WFP_MINIO_BUCKET != '' }}
           GOOGLECLOUDSTORAGE: ${{ inputs.googlecloudstorage }}
           GOOGLECLOUDSTORAGE_READY: >-
-            ${{ secrets.WFP_GCS_BUCKET != '' && (secrets.WFP_GCS_CREDENTIALS_JSON != ''
-            || (secrets.WFP_GCS_CLIENT_EMAIL != '' && secrets.WFP_GCS_PRIVATE_KEY != '')) }}
+            ${{ secrets.WFP_GCS_BUCKET != '' && secrets.WFP_GCS_CLIENT_EMAIL != ''
+            && secrets.WFP_GCS_PRIVATE_KEY != '' }}
           BOX: ${{ inputs.box }}
           BOX_READY: ${{ secrets.WFP_BOX_CONFIG_JSON != '' }}
           SHAREPOINT: ${{ inputs.sharepoint }}
@@ -127,7 +137,7 @@ jobs:
           consider Minio "$MINIO" "$MINIO_READY" \
             "WFP_MINIO_ENDPOINT, WFP_MINIO_ACCESS_KEY, WFP_MINIO_SECRET_KEY and WFP_MINIO_BUCKET"
           consider GoogleCloudStorage "$GOOGLECLOUDSTORAGE" "$GOOGLECLOUDSTORAGE_READY" \
-            "WFP_GCS_BUCKET and WFP_GCS_CREDENTIALS_JSON (or WFP_GCS_CLIENT_EMAIL and WFP_GCS_PRIVATE_KEY)"
+            "WFP_GCS_BUCKET, WFP_GCS_CLIENT_EMAIL and WFP_GCS_PRIVATE_KEY"
           consider Box "$BOX" "$BOX_READY" \
             "WFP_BOX_CONFIG_JSON"
           consider SharePoint "$SHAREPOINT" "$SHAREPOINT_READY" \
@@ -164,6 +174,7 @@ jobs:
         with:
           # MinVer versions the assemblies from the git history and tags.
           fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           global-json-file: global.json
@@ -193,7 +204,6 @@ jobs:
           WFP_MINIO_USE_SSL: ${{ matrix.provider == 'Minio' && secrets.WFP_MINIO_USE_SSL || '' }}
           WFP_MINIO_REGION: ${{ matrix.provider == 'Minio' && secrets.WFP_MINIO_REGION || '' }}
           WFP_GCS_BUCKET: ${{ matrix.provider == 'GoogleCloudStorage' && secrets.WFP_GCS_BUCKET || '' }}
-          WFP_GCS_CREDENTIALS_JSON: ${{ matrix.provider == 'GoogleCloudStorage' && secrets.WFP_GCS_CREDENTIALS_JSON || '' }}
           WFP_GCS_CLIENT_EMAIL: ${{ matrix.provider == 'GoogleCloudStorage' && secrets.WFP_GCS_CLIENT_EMAIL || '' }}
           WFP_GCS_PRIVATE_KEY: ${{ matrix.provider == 'GoogleCloudStorage' && secrets.WFP_GCS_PRIVATE_KEY || '' }}
           WFP_GCS_PROJECT_ID: ${{ matrix.provider == 'GoogleCloudStorage' && secrets.WFP_GCS_PROJECT_ID || '' }}
@@ -210,12 +220,34 @@ jobs:
           WFP_SHAREPOINT_CERTIFICATE_PASSWORD: ${{ matrix.provider == 'SharePoint' && secrets.WFP_SHAREPOINT_CERTIFICATE_PASSWORD || '' }}
           WFP_SHAREPOINT_WORK_FOLDER: ${{ matrix.provider == 'SharePoint' && secrets.WFP_SHAREPOINT_WORK_FOLDER || '' }}
         run: |
-          if [ "$PROVIDER" = Box ]; then
-            export WFP_BOX_CONFIG_FILE="$RUNNER_TEMP/box-config.json"
-            (umask 077 && printf '%s' "$WFP_BOX_CONFIG_JSON" > "$WFP_BOX_CONFIG_FILE")
-            unset WFP_BOX_CONFIG_JSON
-          fi
-          dotnet test --project "$PROJECT" --no-build -c Release --filter "TestCategory=Live"
+          # GitHub masks a secret only as a whole. Mask each line of every credential a test could print on its own,
+          # before anything runs.
+          mask_lines() {
+            local line
+            while IFS= read -r line; do
+              line=${line%$'\r'}
+              if [ -n "$line" ]; then echo "::add-mask::${line//%/%25}"; fi
+            done
+          }
+          case "$PROVIDER" in
+            Box)
+              for field in .boxAppSettings.clientSecret .boxAppSettings.appAuth.passphrase \
+                .boxAppSettings.appAuth.privateKey; do
+                jq -r "$field // empty" <<< "$WFP_BOX_CONFIG_JSON" | mask_lines
+              done
+              export WFP_BOX_CONFIG_FILE="$RUNNER_TEMP/box-config.json"
+              (umask 077 && printf '%s' "$WFP_BOX_CONFIG_JSON" > "$WFP_BOX_CONFIG_FILE")
+              unset WFP_BOX_CONFIG_JSON
+              ;;
+            GoogleCloudStorage)
+              # The key as the key file holds it, with \n escapes, or with real line breaks.
+              printf '%s\n' "${WFP_GCS_PRIVATE_KEY//\\n/$'\n'}" | mask_lines
+              ;;
+          esac
+          # The minimum after "--" counts per test module and leaves out skipped tests, so a suite whose every test is
+          # inconclusive (no settings reached it) fails instead of passing green.
+          dotnet test --project "$PROJECT" --no-build -c Release --filter "TestCategory=Live" \
+            -- --minimum-expected-tests 1
 
       - name: Delete the Box configuration
         if: always() && matrix.provider == 'Box'

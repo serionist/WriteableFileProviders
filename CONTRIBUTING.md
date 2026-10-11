@@ -34,7 +34,8 @@ with the rule's test there, and every provider passes it, or throws the same exc
 with a test that failed before it.
 
 **Live suites** (`TestCategory=Live`) run against real cloud accounts. Run one only against an account you own; a PR
-never needs one from you. The maintainers run them with the `live.yml` workflow.
+never needs one from you. When a change to a provider has not run its live suite, say so in the PR's "Tested by", and
+why (no account, for example); the maintainers run it with the `live.yml` workflow.
 
 ## Opening the pull request
 

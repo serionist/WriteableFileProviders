@@ -31,7 +31,7 @@ affected.
 | Version | Supported |
 |---------|-----------|
 | 2027.x | Yes |
-| 2026.10.10.x (.NET 8) | Security fixes only, until <!-- maintainers: set the end date, e.g. 2027-06-30 --> YYYY-MM-DD |
+| 2026.10.10.x (.NET 8) | Security fixes only, until a date the maintainers will announce here |
 | Older | No: move to 2027.x, or to 2026.10.10.x on .NET 8 |
 
 From 2027.0.0, every package of a release has the same version. The packages in one application must all come from

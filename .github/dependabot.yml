@@ -2,6 +2,12 @@
 # the workflows pin by SHA, and the .NET SDK in global.json. Security updates are separate: they come as soon as an
 # advisory is published, whatever the schedule, once the maintainers turn them on in the repository settings.
 #
+# Alerts and security updates come from the dependency graph, which does not read the versions that central package
+# management keeps in Directory.Packages.props. The maintainers turn on the dependency graph and Automatic dependency
+# submission (Settings > Code security), which resolves the packages from a restore and submits them. NuGetAudit
+# (Directory.Build.props) stays the guard at restore time: a package with a known advisory, direct or transitive, shows
+# in every build and fails it where warnings are errors.
+#
 # Every update is a PR like any other: CI must pass and a maintainer merges it (AGENTS.md, How a change lands).
 # CI restores in locked mode. Dependabot rewrites the lock files of the projects that reference a bumped package, but
 # can miss a project that only gets it through a ProjectReference (dependabot/dependabot-core#13950). When its PR fails

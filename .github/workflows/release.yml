@@ -2,15 +2,17 @@
 # tag), checks them, pushes them to nuget.org and creates the GitHub release with the packages attached. A tag with a
 # prerelease suffix (v2027.1.0-rc.1) makes a prerelease on both.
 #
-# What the maintainers configure once:
-# - On nuget.org, signed in as the account that owns the WriteableFileProviders.* packages: Trusted Publishing > a
-#   policy with repository owner "serionist", repository "WriteableFileProviders", workflow file "release.yml" and
-#   environment "nuget". The policy covers every package that account owns.
-# - In GitHub, Settings > Environments > nuget:
-#   - required reviewers: the maintainers, so a person approves every push to nuget.org after the tests pass;
-#   - deployment branches and tags: tags matching v*;
-#   - the secret NUGET_USER: the nuget.org profile name (not the email) of the account that owns the policy.
-# - A tag ruleset on v*, so only the maintainers can create, move or delete a release tag.
+# What the maintainers configure once, in this order. A workflow that names an environment creates it, unprotected, the
+# first time it runs, so the environment is protected before it holds a secret or nuget.org trusts it:
+# 1. In GitHub, Settings > Environments > nuget:
+#    - required reviewers: the maintainers, so a person approves every push to nuget.org after the tests pass;
+#    - deployment branches and tags: tags matching v* only.
+# 2. A tag ruleset on v*, so only the maintainers can create, move or delete a release tag.
+# 3. Then the nuget environment's secret NUGET_USER: the nuget.org profile name (not the email) of the account that owns
+#    the packages and the policy below.
+# 4. Then, on nuget.org, signed in as the account that owns the WriteableFileProviders.* packages: Trusted Publishing >
+#    a policy with repository owner "serionist", repository "WriteableFileProviders", workflow file "release.yml" and
+#    environment "nuget". The policy covers every package that account owns.
 #
 # No long-lived API key exists anywhere: NuGet/login trades the job's OIDC token for a key that lives one hour.
 name: Release
@@ -43,6 +45,7 @@ jobs:
         with:
           # MinVer versions the packages from the git history and the tag; main must be there for the check below.
           fetch-depth: 0
+          persist-credentials: false
       - name: Check the tag is on main
         run: |
           if ! git merge-base --is-ancestor HEAD origin/main; then

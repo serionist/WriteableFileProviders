@@ -81,28 +81,37 @@ public sealed class S3CoreTests
     [DataRow("SignatureDoesNotMatch")]
     [DataRow("AllAccessDisabled")]
     [DataRow("AccountProblem")]
-    [DataRow("InvalidToken")]
-    [DataRow("ExpiredToken")]
-    public void IsAccessDenied_MeansACodeThatRefusesTheCredential(string code)
+    [DataRow("InvalidSecurity")]
+    [DataRow("NotSignedUp")]
+    [DataRow("InvalidPayer")]
+    [DataRow("SomeServersOwnRefusal")]
+    [DataRow("Forbidden")]
+    [DataRow(null)]
+    public void IsAccessDenied_MeansA401OrA403(string? code)
     {
         Assert.IsTrue(S3Core.IsAccessDenied(new Amazon.S3.AmazonS3Exception("x") { StatusCode = System.Net.HttpStatusCode.Forbidden, ErrorCode = code }));
-        Assert.IsTrue(S3Core.IsAccessDenied(new Amazon.S3.AmazonS3Exception("x") { StatusCode = System.Net.HttpStatusCode.BadRequest, ErrorCode = code }));
+        Assert.IsTrue(S3Core.IsAccessDenied(new Amazon.S3.AmazonS3Exception("x") { StatusCode = System.Net.HttpStatusCode.Unauthorized, ErrorCode = code }));
+        Assert.IsFalse(S3Core.IsAccessDenied(new Amazon.S3.AmazonS3Exception("x") { StatusCode = System.Net.HttpStatusCode.BadRequest, ErrorCode = code }), "Only a 401 or a 403");
     }
 
     [TestMethod]
-    public void IsAccessDenied_MeansA401OrA403WithoutACode()
+    [DataRow("ExpiredToken")]
+    [DataRow("InvalidToken")]
+    public void IsAccessDenied_MeansASessionTokenThatExpiredOrIsNotValid(string code)
     {
-        Assert.IsTrue(S3Core.IsAccessDenied(new Amazon.S3.AmazonS3Exception("x") { StatusCode = System.Net.HttpStatusCode.Unauthorized }));
-        Assert.IsTrue(S3Core.IsAccessDenied(new Amazon.S3.AmazonS3Exception("x") { StatusCode = System.Net.HttpStatusCode.Forbidden }));
-        Assert.IsTrue(S3Core.IsAccessDenied(new Amazon.S3.AmazonS3Exception("x") { StatusCode = System.Net.HttpStatusCode.Forbidden, ErrorCode = "Forbidden" }));
+        Assert.IsTrue(S3Core.IsAccessDenied(new Amazon.S3.AmazonS3Exception("x") { StatusCode = System.Net.HttpStatusCode.BadRequest, ErrorCode = code }));
+        Assert.IsTrue(S3Core.IsAccessDenied(new Amazon.S3.AmazonS3Exception("x") { StatusCode = System.Net.HttpStatusCode.Forbidden, ErrorCode = code }));
     }
 
     [TestMethod]
     [DataRow("InvalidObjectState")]
     [DataRow("ObjectNotInActiveTierError")]
     [DataRow("RequestTimeTooSkewed")]
-    public void IsAccessDenied_IsNotAnArchivedObjectOrASkewedClock(string code) =>
+    public void IsAccessDenied_IsNotAnArchivedObjectOrASkewedClock(string code)
+    {
         Assert.IsFalse(S3Core.IsAccessDenied(new Amazon.S3.AmazonS3Exception("x") { StatusCode = System.Net.HttpStatusCode.Forbidden, ErrorCode = code }));
+        Assert.IsFalse(S3Core.IsAccessDenied(new Amazon.S3.AmazonS3Exception("x") { StatusCode = System.Net.HttpStatusCode.Unauthorized, ErrorCode = code }));
+    }
 
     [TestMethod]
     public void IsAccessDenied_IsNotAnotherFailure()

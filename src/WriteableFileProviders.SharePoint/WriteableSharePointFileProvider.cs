@@ -225,7 +225,7 @@ public sealed partial class WriteableSharePointFileProvider : WriteableFileProvi
         }
         catch (Exception e) when (GraphErrors.IsFailure(e))
         {
-            throw GraphErrors.Wrap(e, $"Deleting '{path}'");
+            throw Failure(e, $"Deleting '{path}'");
         }
     }
 
@@ -387,7 +387,7 @@ public sealed partial class WriteableSharePointFileProvider : WriteableFileProvi
         }
         catch (Exception e) when (GraphErrors.IsFailure(e))
         {
-            throw GraphErrors.Wrap(e, $"Finding the site '{Options.SiteUrl}'");
+            throw Failure(e, $"Finding the site '{Options.SiteUrl}'");
         }
         // An answer without an id is the service's failure, not a site the options name wrongly: it is not cached, and the
         // next call asks again.
@@ -408,7 +408,7 @@ public sealed partial class WriteableSharePointFileProvider : WriteableFileProvi
         }
         catch (Exception e) when (GraphErrors.IsFailure(e))
         {
-            throw GraphErrors.Wrap(e, $"Listing the document libraries of '{Options.SiteUrl}'");
+            throw Failure(e, $"Listing the document libraries of '{Options.SiteUrl}'");
         }
         throw new InvalidOperationException(string.IsNullOrEmpty(wanted)
             ? $"The SharePoint site '{Options.SiteUrl}' has no document library."
@@ -424,6 +424,9 @@ public sealed partial class WriteableSharePointFileProvider : WriteableFileProvi
     //
     // ItemWithPath escapes what a URL path cannot hold but leaves a valid escape such as %41 as it is, which the service
     // then decodes. Every '%' is escaped first, so each segment reaches Graph as the name it is.
+
+    // A failed Graph call in the contract's terms (GraphErrors.Wrap), its sign-in hint naming who built the client.
+    private Exception Failure(Exception exception, string what) => GraphErrors.Wrap(exception, what, givenClient: !_ownsGraph);
 
     private string[] LibrarySegments(ResolvedPath path) => [.. _rootSegments, .. path.RelativeSegments];
 
@@ -458,11 +461,11 @@ public sealed partial class WriteableSharePointFileProvider : WriteableFileProvi
         }
         catch (Exception e) when (GraphErrors.IsFailure(e))
         {
-            throw GraphErrors.Wrap(e, what);
+            throw Failure(e, what);
         }
     }
 
-    private static async Task<DriveItemCollectionResponse?> GetPageAsync(ChildrenRequestBuilder request, string? nextLink, ResolvedPath path, CancellationToken cancellationToken)
+    private async Task<DriveItemCollectionResponse?> GetPageAsync(ChildrenRequestBuilder request, string? nextLink, ResolvedPath path, CancellationToken cancellationToken)
     {
         try
         {
@@ -480,7 +483,7 @@ public sealed partial class WriteableSharePointFileProvider : WriteableFileProvi
         }
         catch (Exception e) when (GraphErrors.IsFailure(e))
         {
-            throw GraphErrors.Wrap(e, $"Listing '{path}'");
+            throw Failure(e, $"Listing '{path}'");
         }
     }
 
@@ -547,12 +550,12 @@ public sealed partial class WriteableSharePointFileProvider : WriteableFileProvi
             // Another writer created it first.
             string[] path = [.. parent, name];
             var item = await TryGetItemAsync(driveId, path, _folderFields, what, cancellationToken).ConfigureAwait(false)
-                ?? throw GraphErrors.Wrap(e, what);
+                ?? throw Failure(e, what);
             return FolderId(item, path, what);
         }
         catch (Exception e) when (GraphErrors.IsFailure(e))
         {
-            throw GraphErrors.Wrap(e, what);
+            throw Failure(e, what);
         }
     }
 

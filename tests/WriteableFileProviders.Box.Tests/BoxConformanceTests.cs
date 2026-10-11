@@ -29,9 +29,10 @@ public sealed class BoxConformanceTests : ProviderConformanceTests
     protected override IWriteableFileProvider? CreateProviderWithMissingContainer() =>
         TestCredentials.Default.Provider(_box, rootFolderId: "404404");
 
-    // A Box of its own whose every request fails behind the SDK's network client, the sign-in first.
+    // A Box of its own whose every request but the sign-in fails behind the SDK's network client, so each member's own
+    // requests are the ones that fail.
     protected override IWriteableFileProvider? CreateProviderThatFails(Exception failure) =>
-        BoxFixture.Tune(TestCredentials.Default.Provider(new FakeBox { Intercept = _ => throw failure }, RootName));
+        BoxFixture.Tune(TestCredentials.Default.Provider(new FakeBox { Intercept = BoxFixture.FailAllButSignIn(failure) }, RootName));
 
     protected override Task<bool> StoreRawFileAsync(IReadOnlyList<string> names, string text) => Task.FromResult(BoxFixture.StoreRaw(_box, names, text));
 }
@@ -71,7 +72,7 @@ public sealed class BoxAtomicConformanceTests : ProviderConformanceTests
 
     protected override IWriteableFileProvider? CreateProviderThatFails(Exception failure) =>
         BoxFixture.Tune(new WriteableBoxFileProvider(new BoxFileProviderOptions { RootDirectoryPath = RootName },
-            TestCredentials.Default.Client(new FakeBox { Intercept = _ => throw failure }))
+            TestCredentials.Default.Client(new FakeBox { Intercept = BoxFixture.FailAllButSignIn(failure) }))
         {
             SendIfMatch = true,
             PollDelay = TimeSpan.Zero,
@@ -83,6 +84,11 @@ public sealed class BoxAtomicConformanceTests : ProviderConformanceTests
 /// <summary>What the offline fixtures share.</summary>
 internal static class BoxFixture
 {
+    /// <summary>An interception that fails every request with <paramref name="failure"/>, except the sign-in.</summary>
+    /// <param name="failure">What each request throws.</param>
+    public static Func<HttpRequestMessage, HttpResponseMessage?> FailAllButSignIn(Exception failure) =>
+        request => request.RequestUri!.AbsolutePath.EndsWith("/oauth2/token", StringComparison.Ordinal) ? null : throw failure;
+
     /// <summary>Uploads from this size go through an upload session: lowered from Box's 20 MiB so the suite crosses it.</summary>
     public const long ChunkedUploadThreshold = 256 * 1024;
 

@@ -184,7 +184,7 @@ public sealed partial class WriteableSharePointFileProvider
         }
         catch (Exception e) when (GraphErrors.IsFailure(e))
         {
-            throw GraphErrors.Wrap(e, what);
+            throw Failure(e, what);
         }
     }
 
@@ -220,7 +220,7 @@ public sealed partial class WriteableSharePointFileProvider
         }
         catch (Exception e) when (GraphErrors.IsFailure(e))
         {
-            throw GraphErrors.Wrap(e, what);
+            throw Failure(e, what);
         }
         if (session?.UploadUrl is not { } uploadUrlText || !Uri.TryCreate(uploadUrlText, UriKind.Absolute, out var uploadUrl))
             throw new IOException($"{what} failed: Microsoft Graph returned no upload session.");
@@ -364,7 +364,7 @@ public sealed partial class WriteableSharePointFileProvider
         }
         catch (Exception e) when (GraphErrors.IsFailure(e))
         {
-            throw GraphErrors.Wrap(e, what);
+            throw Failure(e, what);
         }
         return native.Value as HttpResponseMessage ?? throw new IOException($"{what} failed: no answer was received.");
     }
@@ -410,7 +410,7 @@ public sealed partial class WriteableSharePointFileProvider
         }
         catch (Exception e) when (GraphErrors.IsFailure(e))
         {
-            throw GraphErrors.Wrap(e, what);
+            throw Failure(e, what);
         }
     }
 

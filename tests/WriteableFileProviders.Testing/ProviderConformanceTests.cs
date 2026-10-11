@@ -1018,10 +1018,10 @@ public abstract class ProviderConformanceTests
         {
             foreach (var (name, call) in CallsReachingTheStore(provider))
             {
-                // The timeout is inside, as it was raised or as the SDK reports its timeouts (the AWS SDK throws a
-                // TimeoutException of its own for a request cancelled by nobody).
+                // The timeout is inside: the exception raised, or its own inner TimeoutException, which the AWS SDK
+                // passes on for a request that nobody cancelled.
                 var e = await Assert.ThrowsExactlyAsync<IOException>(call, name);
-                Assert.IsTrue(Causes(e).Skip(1).Any(c => ReferenceEquals(c, timeout) || c is TimeoutException or OperationCanceledException),
+                Assert.IsTrue(Causes(e).Any(c => ReferenceEquals(c, timeout) || ReferenceEquals(c, timeout.InnerException)),
                     $"{name}: the timeout is inside: {string.Join(" > ", Causes(e).Select(c => c.GetType().Name + ": " + c.Message))}");
             }
         }

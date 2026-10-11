@@ -113,13 +113,14 @@ configuration with none of them is refused when the provider is built. For anyth
   it.
 - **Versions:** `ReadFileVersionAsync(versionId, path)` reads a version in a bucket with versioning.
 - Nothing touches the network before the first call, which resolves the credentials (if asked) and checks the bucket.
-- **Errors** are the contract's types: S3's 401, and a 403 that refuses the credential or the permission
-  (`AccessDenied`, `InvalidAccessKeyId`, `SignatureDoesNotMatch`, `ExpiredToken` and the like, or no code, as a HEAD
-  answers), throw `UnauthorizedAccessException`, for a file delete as for a folder's; a bucket name another account owns,
-  with `CreateBucketIfMissing`, or no credentials for `UseDefaultCredentials` to find, `InvalidOperationException`; any
-  other failure of S3 or the network, after the SDK's retries, `IOException`: timeouts, an archived object
-  (`InvalidObjectState`) and a skewed clock (`RequestTimeTooSkewed`) included. The SDK's `AmazonS3Exception`, or what it
-  threw, is the `InnerException`.
+- **Errors** are the contract's types: S3's 401 and 403, whatever the code (`AccessDenied`, `InvalidAccessKeyId`,
+  `SignatureDoesNotMatch`, `InvalidPayer` and the like, or none, as a HEAD answers), and a session token that expired or
+  is not valid (`ExpiredToken`, `InvalidToken`, a 400), throw `UnauthorizedAccessException`, for a file delete as for a
+  folder's, except an archived object (`InvalidObjectState`, `ObjectNotInActiveTierError`) and a skewed clock
+  (`RequestTimeTooSkewed`); a bucket name another account owns, with `CreateBucketIfMissing`, or no credentials for
+  `UseDefaultCredentials` to find, `InvalidOperationException`; any other failure of S3 or the network, after the SDK's
+  retries, `IOException`: timeouts, the archived object and the skewed clock included. The SDK's `AmazonS3Exception`, or
+  what it threw, is the `InnerException`.
 
 ## Signed URLs
 

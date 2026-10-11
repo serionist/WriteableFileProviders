@@ -47,13 +47,15 @@ internal static class GraphErrors
     /// credential (the store is not set up as configured), otherwise <see cref="IOException"/>.</summary>
     /// <param name="exception">What the SDK threw.</param>
     /// <param name="what">What the provider was doing, such as "Writing 'a/b.txt'".</param>
-    public static Exception Wrap(Exception exception, string what)
+    /// <param name="givenClient">Whether the caller gave the provider its Graph client, and so its sign-in.</param>
+    public static Exception Wrap(Exception exception, string what, bool givenClient = false)
     {
         switch (exception)
         {
             case CredentialUnavailableException:
-                return new InvalidOperationException(
-                    $"{what} failed: UseDefaultAzureCredential is set, but the Microsoft Entra ID sign-in found no credential to use (environment, workload or managed identity, developer sign-in). Configure one, or set ClientSecret or a certificate.",
+                return new InvalidOperationException(givenClient
+                    ? $"{what} failed: the Microsoft Entra ID credential of the given client found no credential to use."
+                    : $"{what} failed: UseDefaultAzureCredential is set, but the Microsoft Entra ID sign-in found no credential to use (environment, workload or managed identity, developer sign-in). Configure one, or set ClientSecret or a certificate.",
                     exception);
             case AggregateException aggregate:
                 var statuses = string.Join(", ", aggregate.Flatten().InnerExceptions.Select(Status).OfType<int>().Distinct());

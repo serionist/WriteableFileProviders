@@ -34,10 +34,25 @@ public sealed class SharePointErrorTests
             new BaseBearerTokenAuthenticationProvider(new RefusingTokenProvider(new CredentialUnavailableException("DefaultAzureCredential failed to retrieve a token from the included credentials."))),
             GraphFake.BaseUrl);
         await using var provider = TestGraph.Provider(client, TestGraph.Options());
+        // The caller built the client, and its sign-in: the message names the client, not the options.
         var e = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.GetFileInfoAsync("a.txt"));
         Assert.IsInstanceOfType<CredentialUnavailableException>(e.InnerException);
-        StringAssert.Contains(e.Message, nameof(SharePointFileProviderOptions.UseDefaultAzureCredential));
+        StringAssert.Contains(e.Message, "given client");
+        Assert.IsFalse(e.Message.Contains(nameof(SharePointFileProviderOptions.UseDefaultAzureCredential), StringComparison.Ordinal), e.Message);
         await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.UpdateFileAsync("a.txt", new MemoryStream([1])));
+    }
+
+    [TestMethod]
+    public void ASignInThatFindsNoCredential_NamesWhatTheCallerSetUp()
+    {
+        var unavailable = new CredentialUnavailableException("No credential to use.");
+        var fromOptions = GraphErrors.Wrap(unavailable, "Reading 'a.txt'");
+        Assert.IsInstanceOfType<InvalidOperationException>(fromOptions);
+        StringAssert.Contains(fromOptions.Message, nameof(SharePointFileProviderOptions.UseDefaultAzureCredential));
+        var fromClient = GraphErrors.Wrap(unavailable, "Reading 'a.txt'", givenClient: true);
+        Assert.IsInstanceOfType<InvalidOperationException>(fromClient);
+        StringAssert.Contains(fromClient.Message, "given client");
+        Assert.AreSame(unavailable, fromClient.InnerException);
     }
 
     [TestMethod]

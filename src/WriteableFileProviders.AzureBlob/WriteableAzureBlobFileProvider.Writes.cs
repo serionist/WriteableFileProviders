@@ -528,7 +528,7 @@ public sealed partial class WriteableAzureBlobFileProvider
     private static string NewBlockId() => Convert.ToBase64String(RandomNumberGenerator.GetBytes(BlockIdBytes));
 
     private BlockBlobClient TempBlob() =>
-        _container.GetBlockBlobClient(string.Join('/', [.. RootSegments, TempFolder, $"{Guid.NewGuid():N}"]));
+        _container.GetBlockBlobClient(string.Join('/', [.. _rootSegments, TempFolder, $"{Guid.NewGuid():N}"]));
 
     // The temp blob as a path of this provider, which can read it.
     private string TempPath(BlobBaseClient temp) => PathUnderRoot(temp.Name);

@@ -176,9 +176,10 @@ public sealed class WriteableAmazonS3FileProvider : WriteableFileProvider<Amazon
 
     /// <inheritdoc />
     /// <remarks>
-    /// The store's 401; a 403 whose code refuses the credential or the permission (<c>AccessDenied</c>,
-    /// <c>InvalidAccessKeyId</c>, <c>SignatureDoesNotMatch</c> and the like), or that has no code, as a HEAD answers. Not an
-    /// archived object or a skewed clock, which are the store's failures (<see cref="IOException"/>).
+    /// The store's 401 and 403, whatever the code, but an archived object (<c>InvalidObjectState</c>,
+    /// <c>ObjectNotInActiveTierError</c>) and a skewed clock (<c>RequestTimeTooSkewed</c>), which are the store's failures
+    /// (<see cref="IOException"/>); and a session token that expired or is not valid (<c>ExpiredToken</c>,
+    /// <c>InvalidToken</c>), which S3 answers with a 400.
     /// </remarks>
     protected override bool IsAccessDenied(Exception exception) => S3Core.IsAccessDenied(exception);
 

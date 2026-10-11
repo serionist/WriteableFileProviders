@@ -54,6 +54,28 @@ public sealed class AzureErrorTests
     }
 
     [TestMethod]
+    public async Task ASignInThatFindsNoCredential_ThroughAGivenClient_NamesTheClient()
+    {
+        var client = new Azure.Storage.Blobs.BlobContainerClient(new Uri("https://account.blob.core.windows.net/files"), new UnavailableCredential(),
+            AzureBlobOptionsTests.Offline(new StubHandler(_ => StubHandler.BlobProperties())));
+        using var provider = new WriteableAzureBlobFileProvider(null, client);
+        var e = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.GetFileInfoAsync("a.txt"));
+        Assert.IsInstanceOfType<CredentialUnavailableException>(e.InnerException);
+        StringAssert.Contains(e.Message, "given client");
+        Assert.IsFalse(e.Message.Contains(nameof(AzureFileProviderOptions.UseDefaultAzureCredential), StringComparison.Ordinal), e.Message);
+    }
+
+    [TestMethod]
+    public async Task ASeekableReadsRangeThatFindsNoCredential_IsAStoreNotSetUpAsConfigured()
+    {
+        var unavailable = new CredentialUnavailableException("No credential to use.");
+        var stream = new BlobReadStream(new FailingRead(unavailable), "f.txt", e => new InvalidOperationException("No credential.", e));
+        Assert.AreSame(unavailable, Assert.ThrowsExactly<InvalidOperationException>(() => stream.Read(new byte[4], 0, 4)).InnerException);
+        Assert.AreSame(unavailable, (await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => stream.ReadAsync(new byte[4]).AsTask())).InnerException);
+        await stream.DisposeAsync();
+    }
+
+    [TestMethod]
     public async Task AnyOtherFailure_IsIOException()
     {
         using var provider = new WriteableAzureBlobFileProvider(SharedKey(),
@@ -61,6 +83,16 @@ public sealed class AzureErrorTests
         var e = await Assert.ThrowsExactlyAsync<IOException>(() => provider.GetFileInfoAsync("a.txt"));
         Assert.AreEqual(500, Assert.IsInstanceOfType<RequestFailedException>(e.InnerException).Status);
         StringAssert.StartsWith(e.Message, "Getting 'a.txt'");
+    }
+
+    /// <summary>A seekable stream whose next range read fails as the test says.</summary>
+    private sealed class FailingRead(Exception failure) : MemoryStream([1, 2, 3, 4])
+    {
+        public override int Read(byte[] buffer, int offset, int count) => throw failure;
+
+        public override int Read(Span<byte> buffer) => throw failure;
+
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) => ValueTask.FromException<int>(failure);
     }
 
     /// <summary>A sign-in that finds no credential to use, as DefaultAzureCredential reports it from inside each request.</summary>

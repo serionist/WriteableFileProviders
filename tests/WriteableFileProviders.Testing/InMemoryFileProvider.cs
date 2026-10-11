@@ -47,7 +47,8 @@ public sealed class InMemoryFileProvider(InMemoryFileProviderOptions options) : 
     public void StoreRaw(IReadOnlyList<string> names, byte[] content)
     {
         ArgumentNullException.ThrowIfNull(names);
-        string[] segments = [.. Options.RootDirectorySegments, .. names];
+        // The root the provider was built with, which a later change to the options does not move.
+        string[] segments = [.. Resolve(ProviderPath.Root).AbsoluteSegments, .. names];
         lock (Files)
         {
             for (var i = 1; i < segments.Length; i++)

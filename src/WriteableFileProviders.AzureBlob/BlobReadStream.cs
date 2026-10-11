@@ -1,15 +1,18 @@
 using Azure;
+using Azure.Identity;
 
 namespace WriteableFileProviders.AzureBlob;
 
 /// <summary>
 /// The SDK's seekable blob stream (<c>OpenReadAsync</c>), with its errors in the contract's terms: a read after the file
 /// changed throws <see cref="PreconditionFailedException"/>, and after it was deleted <see cref="FileNotFoundException"/>,
-/// both <see cref="IOException"/>s.
+/// both <see cref="IOException"/>s; a range read whose sign-in finds no credential throws
+/// <see cref="InvalidOperationException"/>, as every other member of the provider does.
 /// </summary>
 /// <param name="inner">The SDK's stream, which this one disposes.</param>
 /// <param name="path">The file's path, for the messages.</param>
-internal sealed class BlobReadStream(Stream inner, string path) : Stream
+/// <param name="noCredential">The provider's exception for a sign-in that finds no credential.</param>
+internal sealed class BlobReadStream(Stream inner, string path, Func<CredentialUnavailableException, InvalidOperationException> noCredential) : Stream
 {
     public override bool CanRead => inner.CanRead;
 
@@ -37,6 +40,10 @@ internal sealed class BlobReadStream(Stream inner, string path) : Stream
         {
             throw Translate(e);
         }
+        catch (CredentialUnavailableException e)
+        {
+            throw noCredential(e);
+        }
     }
 
     public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
@@ -51,6 +58,10 @@ internal sealed class BlobReadStream(Stream inner, string path) : Stream
         catch (RequestFailedException e) when (e.Status == 404 || WriteableAzureBlobFileProvider.IsConditionNotMet(e))
         {
             throw Translate(e);
+        }
+        catch (CredentialUnavailableException e)
+        {
+            throw noCredential(e);
         }
     }
 

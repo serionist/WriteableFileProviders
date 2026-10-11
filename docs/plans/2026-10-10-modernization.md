@@ -562,7 +562,7 @@ Each step is an issue under #3, a branch `<issue>-<slug>`, and a PR that builds 
 | S9 SharePoint | #13 | #28 | The SharePoint row, with the Graph fake; its live run is outstanding for the maintainers (D21). | F4 F6 F7 F8 F11 F13 F17–F21 F26 F39 F43 F49 F53 F62 F66 F70 F74 F77 | done (#28, 70e3f74); live suite not run (D21) |
 | S10 Box | #14 | #25 | The Box row, with the Box fake; its live run is outstanding for the maintainers (D21). | F4 F6 F11 F13 F17–F21 F25 F32 F53 F63 F67 F74 F77, Box's part of F56 | done (#25, 3ce3b89); live suites not run (D21) |
 | S11 AspNetCore gateway | #15 | #24 | The new package, the URL service, endpoints, the gateway tests and defaults (D22, P13, P27); its README, migration entry and AGENTS.md entry; whether the token purpose string and URL shape are a one-way door (they are: tokens issued by one version must redeem on the next minor; recorded under One-way doors in AGENTS.md). | F11 | done (#24, bce935c) |
-| S12 Docs, CI, launch prep | #16 | #31; part 2: #41 (`16-harmonize`) and the PR of `16-docs` | The root README, the migration guide's final pass, CONTRIBUTING, SECURITY, AGENTS.md and REVIEW.md, codeql, dependabot, `live.yml`, the release workflow, every floor at 90% or more, a check that no project sets `WfpLegacy`, the removal of the `[Obsolete]` 2026 helpers in Common (`GetRelativeSegments`, `IsRootPath`, `NormalizePem`, which Box and GCS take over), the PublicAPI files, and a final deep `review-code` of the whole repo. | F12 F76 | part 1 done (#31, 65cfd40: codeql, dependabot, `live.yml`, the release workflow, CONTRIBUTING, SECURITY, the issue forms). Part 2 in two halves built in parallel: `16-harmonize` done (#41, 581e050: D27 on Box and Physical, the live-class rule, D25 and D26 checked, the `[Obsolete]` helpers removed, no `WfpLegacy`, the old test project retired, the PublicAPI files, the floors, the options first in every client constructor, `IsAddressable`) and `16-docs` in review (the root README and its provider matrix, the package READMEs and metadata, the migration guide's final pass, D28, REVIEW.md, this plan's statuses). The final deep `review-code` of the whole repo is done (`docs/reviews/2026-10-11-2027-final.md`: 20 findings, D29 to D32), and its fixes are built in two halves: `16-final-common` (Common, the harness, the shared read stream, the error policy) and `16-final-providers` (the provider-specific findings). The packed upper bound on Common (Compatibility, P21) is done in #41 |
+| S12 Docs, CI, launch prep | #16 | #31; part 2: #41 (`16-harmonize`) and the PR of `16-docs` | The root README, the migration guide's final pass, CONTRIBUTING, SECURITY, AGENTS.md and REVIEW.md, codeql, dependabot, `live.yml`, the release workflow, every floor at 90% or more, a check that no project sets `WfpLegacy`, the removal of the `[Obsolete]` 2026 helpers in Common (`GetRelativeSegments`, `IsRootPath`, `NormalizePem`, which Box and GCS take over), the PublicAPI files, and a final deep `review-code` of the whole repo. | F12 F76 | part 1 done (#31, 65cfd40: codeql, dependabot, `live.yml`, the release workflow, CONTRIBUTING, SECURITY, the issue forms). Part 2 in two halves built in parallel: `16-harmonize` done (#41, 581e050: D27 on Box and Physical, the live-class rule, D25 and D26 checked, the `[Obsolete]` helpers removed, no `WfpLegacy`, the old test project retired, the PublicAPI files, the floors, the options first in every client constructor, `IsAddressable`) and `16-docs` in review (the root README and its provider matrix, the package READMEs and metadata, the migration guide's final pass, D28, REVIEW.md, this plan's statuses). The final deep `review-code` of the whole repo is done (`docs/reviews/2026-10-11-2027-final.md`: 20 findings, D29 to D32), and its fixes are built in two halves: `16-final-common` (Common, the harness, the shared read stream, the error policy) and `16-final-providers` (the provider-specific findings). The packed upper bound on Common (Compatibility, P21) is done in #41. The launch half, `16-launch`, built beside `16-simplify`: the short README and the guide under `docs/guide/`, `LICENSE` (D8), the package metadata and icon, `CHANGELOG.md` and the release notes it gives `release.yml`, and `docs/releasing.md` |
 
 The provider steps S5–S10 are independent once S4 is merged. They may run in parallel agents, each in its own worktree,
 touching only their provider's folders, but they merge one at a time (P41): each rebases onto main before its PR and
@@ -2345,6 +2345,43 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     redeemed against another store. The `IWriteableFileUrlService` remarks, the AspNetCore README and the migration
     guide say every provider the gateway serves, default or keyed, must be a singleton or resolve to the same store in
     every scope.
+
+- **2026-10-11, S12 launch (`16-launch`, #16):** the maintainer's requests of the day for the launch: simple docs, a
+  short README with the detail branching off it, MIT, a repo others find, and automated NuGet releases
+  (`.local/briefs/simplify-launch.md`, launch items 1–6). Built beside `16-simplify`, against the API it agreed on #3,
+  and rebased onto #43 and then `16-simplify` before the push, carrying their README and migration-guide facts into the
+  new structure.
+  - **The README** (about 160 lines, most of them code): badges, what the library is, install, a four-step tutorial
+    (the local disk; download links for local files through the gateway, the `16-simplify` snippet; the same code on a
+    cloud store by its configuration; one provider by interface or several), the packages, links to the guide, and
+    Versioning, Contributing, Security and Licence in a few lines each.
+  - **The guide**, `docs/guide/`, one topic a page: `providers.md` (the matrix and its notes, moved), `paths-and-listings.md`,
+    `reading-and-writing.md`, `signed-urls.md` (native URLs provider by provider, the URL service, the gateway's
+    endpoints, headers, tokens, one-time uploads and logs, moved from the AspNetCore README), `dependency-injection.md`,
+    `errors.md` (the contract and each provider's mapping, moved from the package READMEs' "Errors" items),
+    `writing-a-provider.md` (from Common's README and the migration guide) and `versioning.md` (D28, moved from the
+    README). Text was moved, not rewritten, and each new sentence checked against the code.
+  - **Package READMEs** keep install, a short use, their own options, authentication, behaviour and limits; their
+    signed URL and error details moved to the guide, with a summary and a link. Every sample uses the final API:
+    `AddWriteableFileProvider(configuration)`, `UpdateFileOptions.Append`, `AzureBlobFileProviderOptions`, `Access`.
+  - **Licence (D8):** `LICENSE`, `PackageLicenseExpression` MIT and the copyright line, the README's Licence section,
+    CONTRIBUTING's line that contributions are MIT. The maintainers' licence item is gone.
+  - **Findability:** the shared tags (`ifileprovider`, `fileprovider`, `filesystem`, `file-storage`, `storage`,
+    `cloud-storage`, `upload`, `download`, `signed-url`, `writeable`) and each package's own; descriptions that lead with
+    what the package does and name the other stores; `PackageReleaseNotes` linking the changelog and the migration
+    guide; `CHANGELOG.md` with the 2027.0.0 section, which `release.yml`'s GitHub release now uses as its notes (the
+    version's section, a prerelease taking its release's, generated notes and a warning without one); the logo, the
+    mark and a social preview as SVG under `docs/assets/`, with `icon.png` (128×128, packed as every package's
+    `PackageIcon`) and `social-preview.png` (1280×640) rendered by `eng/render-assets.sh` in an Alpine container
+    (librsvg, Inter).
+  - **`docs/releasing.md`:** the one-time setup in order (the `nuget` environment, the tag ruleset, `NUGET_USER`,
+    trusted publishing, the prefix reservation), each release (CHANGELOG, optional rc, tag, approve), what to check on
+    nuget.org, moving PublicAPI Unshipped to Shipped (a script, run on this branch and built), and the package
+    validation baseline. AGENTS.md's Release line, `release.yml`'s header and this plan link it.
+  - **AGENTS.md, REVIEW.md, CONTRIBUTING.md, SECURITY.md:** the guide, the runbook, the assets and the changelog in
+    "Where things are"; a change consumers notice adds a line to `CHANGELOG.md`; the versioning links point to
+    `docs/guide/versioning.md`.
+  - **Verified:** VERIFIED_PLACEHOLDER
 
 ### For the maintainers
 

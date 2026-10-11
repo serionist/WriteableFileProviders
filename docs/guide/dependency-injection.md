@@ -45,7 +45,9 @@ app.MapGet("/archive/{**path}", async (string path, [FromKeyedServices("archive"
 ```
 
 The signed-URL service takes the same key, and the gateway serves the URL from that provider:
-`urls.GetSignedUrlAsync(path, options, providerKey: "archive")` ([Signed URLs](signed-urls.md#the-url-service)).
+`urls.GetSignedUrlAsync(path, options, providerKey: "archive")` ([Signed URLs](signed-urls.md#the-url-service)). A
+provider the gateway serves, keyed or not, is a singleton, or resolves to the same store in every scope: a URL issued
+for one store must not redeem against another.
 
 **Every provider at once:** each `AddWriteableFileProvider` call adds one, and `GetServices` returns them all, in the
 order they were registered:

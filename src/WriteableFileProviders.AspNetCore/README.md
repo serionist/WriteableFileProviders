@@ -83,7 +83,10 @@ whoever holds one can use it until it expires, so the endpoint that hands them o
 An upload URL works the same way: `Access = SignedUrlAccess.Create` (only if the file does not exist yet) or
 `SignedUrlAccess.Write` (create or replace). The client sends `PUT` to `SignedUrl.Url` with the headers in
 `SignedUrl.Headers`. For a provider registered under a key (`AddKeyedSingleton<IWriteableFileProvider>(key, ...)`),
-pass the key: `GetSignedUrlAsync(path, options, providerKey)`.
+pass the key: `GetSignedUrlAsync(path, options, providerKey)`. Every provider the gateway serves, default or keyed,
+must be a singleton, or resolve to the same store in every scope: the URL service resolves it from the root container
+when it issues a URL, and the gateway from the request's services when it redeems one, so a scoped or transient
+provider per tenant would let a URL be redeemed against another tenant's store.
 
 ## Configuration
 

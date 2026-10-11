@@ -75,7 +75,10 @@ SignedUrl other = await urls.GetSignedUrlAsync("2026.zip", options, providerKey:
 Without a key, the URL is for the provider the container gives for `IWriteableFileProvider` (the last one registered,
 when there are several); none registered throws `InvalidOperationException`. With a key, it is for the provider
 registered with `AddKeyedSingleton<IWriteableFileProvider>(key, ...)`; a key with none throws `ArgumentException`. The
-gateway serves each URL from the same provider. Then:
+gateway serves each URL from the same provider. Every provider the gateway serves, default or keyed, must be a
+singleton, or resolve to the same store in every scope: the URL service resolves it from the root container when it
+issues a URL, and the gateway from the request's services when it redeems one, so a scoped or transient provider per
+tenant would let a URL be redeemed against another tenant's store. Then:
 
 1. Unless `PreferGateway` is set, the service calls the provider's `GetSignedUrlAsync`. If that returns, you get the
    provider's own URL (`Kind` is `Presigned` or `PreAuthenticated`).

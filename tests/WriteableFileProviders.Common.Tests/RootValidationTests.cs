@@ -82,6 +82,56 @@ public sealed class RootValidationTests
         StringAssert.Contains(e.Message, "RootDirectoryPath");
     }
 
+    [TestMethod]
+    public void TheRoot_IsTheOneTheProviderWasBuiltWith()
+    {
+        var options = new StubOptions { RootDirectoryPath = "tenants/acme" };
+        using var provider = new RootReportingProvider(options);
+        string[] expected = ["tenants", "acme", "x.txt"];
+        options.RootDirectoryPath = "../secrets";
+        CollectionAssert.AreEqual(expected, provider.Absolute("x.txt"), "A root set after the build does not move the provider");
+        options.RootDirectoryPath = "tenants/acme";
+        options.RootDirectorySegments[0] = "..";
+        CollectionAssert.AreEqual(expected, provider.Absolute("x.txt"), "Nor a segment changed in place");
+        CollectionAssert.AreEqual(new[] { "tenants", "acme" }, provider.Absolute(""));
+    }
+
+    [TestMethod]
+    public async Task TheRoot_SetAfterTheBuild_DoesNotMoveTheFiles()
+    {
+        var store = "root-" + Guid.NewGuid().ToString("N");
+        try
+        {
+            var options = new Testing.InMemoryFileProviderOptions { StoreName = store, RootDirectoryPath = "a" };
+            using var provider = new Testing.InMemoryFileProvider(options);
+            await provider.UpdateFileAsync("f.txt", Testing.TestStreams.Text("x"));
+            options.RootDirectoryPath = "b";
+            Assert.IsTrue((await provider.GetFileInfoAsync("f.txt")).Exists);
+            using var atA = new Testing.InMemoryFileProvider(new Testing.InMemoryFileProviderOptions { StoreName = store, RootDirectoryPath = "a" });
+            Assert.IsTrue((await atA.GetFileInfoAsync("f.txt")).Exists);
+        }
+        finally
+        {
+            Testing.InMemoryFileProvider.ClearStore(store);
+        }
+    }
+
+    /// <summary>A provider that reports where a path lands: the root's segments, then the path's.</summary>
+    private sealed class RootReportingProvider(StubOptions options) : WriteableFileProvider<StubOptions>(options)
+    {
+        public string[] Absolute(string path) => Resolve(path).AbsoluteSegments;
+
+        protected override Task<IWriteableFileInfo> GetFileInfoCoreAsync(ResolvedPath path, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        protected override IAsyncEnumerable<IWriteableFileInfo> EnumerateCoreAsync(ResolvedPath path, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        protected override Task<Stream> ReadFileCoreAsync(ResolvedPath path, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        protected override Task UpdateFileCoreAsync(ResolvedPath path, Stream contents, UpdateFileOptions options, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        protected override Task<bool> DeleteCoreAsync(ResolvedPath path, CancellationToken cancellationToken) => throw new NotSupportedException();
+    }
+
     /// <summary>A provider whose own rule refuses <c>:</c>, as Physical and SharePoint do; the rule needs no state.</summary>
     private sealed class ColonRefusingProvider(StubOptions options) : WriteableFileProvider<StubOptions>(options)
     {

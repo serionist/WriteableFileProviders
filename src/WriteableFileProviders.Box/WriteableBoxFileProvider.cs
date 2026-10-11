@@ -53,7 +53,7 @@ namespace WriteableFileProviders.Box;
 /// <b>Errors.</b> The SDK's <see cref="BoxApiException"/> keeps the request it sent: the access token, any extra header
 /// the client was built with, the query string and the body (a token request's holds the client secret). When the
 /// provider built its client, or was given exactly a <see cref="BoxClient"/>, every <see cref="BoxApiException"/> it
-/// throws or wraps keeps Box's status, code and message, and of the request only its method, its URL without the query,
+/// wraps keeps Box's status, code and message, and of the request only its method, its URL without the query,
 /// and the headers and parameters that diagnose it (<c>As-User</c>, <c>If-Match</c>, <c>Range</c>, the digests, the
 /// content type; the listing and version parameters). A provider given any other <see cref="IBoxClient"/>, a class
 /// derived from <see cref="BoxClient"/> included, uses that client as it is: its errors are the client's own, and may
@@ -88,7 +88,8 @@ public sealed partial class WriteableBoxFileProvider : WriteableFileProvider<Box
     /// <summary>
     /// Creates a provider that signs in with the app's JWT credentials in <paramref name="options"/>, on its first call.
     /// It does no network I/O here; it reads the private key, so a key or passphrase that is wrong fails now. A sign-in
-    /// that Box refuses throws the SDK's <see cref="BoxApiException"/>, without the request it sent.
+    /// that Box refuses throws <see cref="UnauthorizedAccessException"/>, with the SDK's <see cref="BoxApiException"/>
+    /// inside, without the request it sent.
     /// </summary>
     /// <param name="options">The credentials and the root folder.</param>
     /// <exception cref="ArgumentNullException"><paramref name="options"/> is null.</exception>

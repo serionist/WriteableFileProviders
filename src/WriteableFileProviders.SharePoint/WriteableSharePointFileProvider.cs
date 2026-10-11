@@ -167,12 +167,15 @@ public sealed partial class WriteableSharePointFileProvider : WriteableFileProvi
 
     /// <inheritdoc />
     /// <remarks>
-    /// Graph's 401 and 403, and Microsoft Entra ID refusing the credential, or finding none (Azure.Identity's
+    /// Graph's 401 and 403, and Microsoft Entra ID refusing the credential (Azure.Identity's
     /// <see cref="AuthenticationFailedException"/>, which the SDK raises inside each request, as it asks for the token).
-    /// The provider maps the errors it reads itself; these are what reaches the base class untyped.
+    /// The provider maps the errors it reads itself; these are what reaches the base class untyped. A sign-in that finds no
+    /// credential at all (<see cref="CredentialUnavailableException"/>) is not a refusal: the provider throws
+    /// <see cref="InvalidOperationException"/> for it.
     /// </remarks>
     protected override bool IsAccessDenied(Exception exception) =>
-        exception is AuthenticationFailedException || (exception is not null && GraphErrors.Status(exception) is 401 or 403);
+        exception is AuthenticationFailedException and not CredentialUnavailableException
+        || (exception is not null && GraphErrors.Status(exception) is 401 or 403);
 
     /// <inheritdoc />
     protected override async Task<IWriteableFileInfo> GetFileInfoCoreAsync(ResolvedPath path, CancellationToken cancellationToken)

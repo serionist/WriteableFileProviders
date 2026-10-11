@@ -8,8 +8,10 @@ public abstract partial class WriteableFileProvider<TOptions>
     private static readonly char[] _segmentSeparators = ['/', '\\'];
 
     /// <summary>
-    /// Validates a caller's path and places it under the provider root. Every part must pass
-    /// <see cref="ValidateSegments"/> and <see cref="IsSegmentAllowed"/>, also after percent-decoding.
+    /// Validates a caller's path and places it under the provider root: the root the options named when the provider was
+    /// built, which a later change to the options does not move. Every part must pass <see cref="ValidateSegments"/> and
+    /// <see cref="IsSegmentAllowed"/>, also after percent-decoding. <c>Resolve(ProviderPath.Root).AbsoluteSegments</c> is
+    /// the root itself.
     /// </summary>
     /// <param name="path">The caller's path.</param>
     /// <exception cref="ArgumentException">A segment is not allowed.</exception>
@@ -23,7 +25,7 @@ public abstract partial class WriteableFileProvider<TOptions>
             if (!IsAllowedByProvider(part))
                 throw InvalidSegment(part);
         }
-        return new ResolvedPath(Options.RootDirectorySegments, parts);
+        return new ResolvedPath(_rootSegments, parts);
     }
 
     /// <summary>
@@ -86,19 +88,15 @@ public abstract partial class WriteableFileProvider<TOptions>
         return resolved.IsRoot ? throw new InvalidOperationException(RootModificationMessage) : resolved;
     }
 
-    // Checks the options' root once, when the provider is built (ValidatesRootDirectory), as a caller's path is checked.
-    private void ValidateRoot()
+    // The options' root, checked once when the provider is built (ValidatesRootDirectory) as a caller's path is checked:
+    // the message of the ArgumentException to throw, or null when the root may be used.
+    private string? RootRefusal(string[] root)
     {
-        if (!ValidatesRootDirectory)
-            return;
-        var root = Options.RootDirectorySegments;
-        if (PartsOf(root).Find(part => !IsPathPart(part) || !IsAllowedByProvider(part)) is not { } refused)
-            return;
-        throw new ArgumentException(
-            $"RootDirectoryPath '{Printable(string.Join('/', root))}' cannot be the provider's root: its segment '{Printable(refused)}' is not "
+        if (!ValidatesRootDirectory || PartsOf(root).Find(part => !IsPathPart(part) || !IsAllowedByProvider(part)) is not { } refused)
+            return null;
+        return $"RootDirectoryPath '{Printable(string.Join('/', root))}' cannot be the provider's root: its segment '{Printable(refused)}' is not "
             + "allowed in a path (no segment may be empty, only dots and spaces, hold a control character, or become one of those when "
-            + "percent-decoded), and a root must not name a place outside itself.",
-            "options");
+            + "percent-decoded), and a root must not name a place outside itself.";
     }
 
     // The segments split on both separators, in order.

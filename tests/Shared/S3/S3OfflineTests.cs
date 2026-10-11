@@ -450,6 +450,23 @@ public abstract class S3OfflineTests
     }
 
     [TestMethod]
+    public async Task Errors_A403WithoutACodeIsARefusal_AnArchivedObjectIsNot()
+    {
+        var (provider, _) = Offline(r => Task.FromResult(
+            r.Method == HttpMethod.Head && IsKey(r, "denied.txt") ? Empty(HttpStatusCode.Forbidden)
+            : r.Method == HttpMethod.Get && IsKey(r, "archived.txt") ? Error(HttpStatusCode.Forbidden, "InvalidObjectState")
+            : null));
+        using (provider)
+        {
+            // A HEAD's 403 has no body, so no code: the credential or the permission was refused.
+            Assert.IsInstanceOfType<AmazonS3Exception>((await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(() => provider.GetFileInfoAsync("denied.txt"))).InnerException);
+            // An archived object answers 403 too: it needs restoring, not another credential.
+            var archived = await Assert.ThrowsExactlyAsync<IOException>(() => provider.ReadFileAsync("archived.txt"));
+            Assert.AreEqual("InvalidObjectState", Assert.IsInstanceOfType<AmazonS3Exception>(archived.InnerException).ErrorCode);
+        }
+    }
+
+    [TestMethod]
     public async Task Delete_OfAFolderWhoseKeysAreRefusedIsUnauthorizedAccess()
     {
         const string Refused = """<?xml version="1.0" encoding="UTF-8"?><DeleteResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Error><Key>root/dir/a.txt</Key><Code>AccessDenied</Code><Message>Access Denied</Message></Error></DeleteResult>""";

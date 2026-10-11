@@ -27,6 +27,20 @@ public sealed class SharePointErrorTests
     }
 
     [TestMethod]
+    public async Task ASignInThatFindsNoCredential_IsAStoreNotSetUpAsConfigured()
+    {
+        var fake = new GraphFake();
+        using var client = new GraphServiceClient(GraphClientFactory.Create(finalHandler: fake.CreateHandler()),
+            new BaseBearerTokenAuthenticationProvider(new RefusingTokenProvider(new CredentialUnavailableException("DefaultAzureCredential failed to retrieve a token from the included credentials."))),
+            GraphFake.BaseUrl);
+        await using var provider = TestGraph.Provider(client, TestGraph.Options());
+        var e = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.GetFileInfoAsync("a.txt"));
+        Assert.IsInstanceOfType<CredentialUnavailableException>(e.InnerException);
+        StringAssert.Contains(e.Message, nameof(SharePointFileProviderOptions.UseDefaultAzureCredential));
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.UpdateFileAsync("a.txt", new MemoryStream([1])));
+    }
+
+    [TestMethod]
     public async Task ASiteAnswerWithoutAnId_IsTheServicesFailure_AndAskedAgain()
     {
         var fake = new GraphFake();
@@ -40,12 +54,12 @@ public sealed class SharePointErrorTests
         Assert.IsFalse((await provider.GetFileInfoAsync("a.txt")).Exists, "The next call asks again");
     }
 
-    /// <summary>Azure.Identity's provider when Microsoft Entra ID refuses the app's secret.</summary>
-    private sealed class RefusingTokenProvider : IAccessTokenProvider
+    /// <summary>Azure.Identity's provider when Microsoft Entra ID refuses the app's secret, or finds no credential.</summary>
+    private sealed class RefusingTokenProvider(AuthenticationFailedException? failure = null) : IAccessTokenProvider
     {
         public AllowedHostsValidator AllowedHostsValidator { get; } = new([GraphFake.GraphHost]);
 
         public Task<string> GetAuthorizationTokenAsync(Uri uri, Dictionary<string, object>? additionalAuthenticationContext = null, CancellationToken cancellationToken = default) =>
-            Task.FromException<string>(new AuthenticationFailedException("ClientSecretCredential authentication failed: AADSTS7000215: Invalid client secret provided."));
+            Task.FromException<string>(failure ?? new AuthenticationFailedException("ClientSecretCredential authentication failed: AADSTS7000215: Invalid client secret provided."));
     }
 }

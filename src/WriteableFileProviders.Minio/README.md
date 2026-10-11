@@ -106,11 +106,12 @@ A MinIO key pair (`AccessKey`, `SecretKey`), or none for anonymous access. For a
 - No storage class is sent: MinIO refuses the ones it does not know.
 - Nothing touches the network before the first call, which asks for the region (unless `Region` names it) and checks
   the bucket.
-- **Errors** are the contract's types: MinIO's 401 and 403 (`AccessDenied`, `InvalidAccessKeyId`,
-  `SignatureDoesNotMatch`) throw `UnauthorizedAccessException`; a bucket name another account owns, with
-  `CreateBucketIfMissing`, `InvalidOperationException`; any other failure of the server or the network, after the SDK's
-  retries, `IOException`, timeouts and a wrong `Region` included; the SDK's `AmazonS3Exception`, or what it threw, is the
-  `InnerException`.
+- **Errors** are the contract's types: the server's 401, and a 403 that refuses the credential or the permission
+  (`AccessDenied`, `InvalidAccessKeyId`, `SignatureDoesNotMatch` and the like, or no code, as a HEAD answers), throw
+  `UnauthorizedAccessException`; a bucket name another account owns, with `CreateBucketIfMissing`,
+  `InvalidOperationException`; any other failure of the server or the network, after the SDK's retries, `IOException`:
+  timeouts, a wrong `Region` and a skewed clock (`RequestTimeTooSkewed`) included. The SDK's `AmazonS3Exception`, or what
+  it threw, is the `InnerException`.
 
 ## Signed URLs
 

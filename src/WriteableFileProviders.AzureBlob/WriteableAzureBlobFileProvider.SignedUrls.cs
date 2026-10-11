@@ -52,7 +52,10 @@ public sealed partial class WriteableAzureBlobFileProvider
     /// The client has neither a shared key nor a credential that can get a user delegation key, or the key would expire
     /// before the validity asked and <see cref="SignedUrlOptions.AllowShorterValidity"/> is not set.
     /// </exception>
-    protected override async Task<SignedUrl> GetSignedUrlCoreAsync(ResolvedPath path, SignedUrlOptions options, CancellationToken cancellationToken)
+    protected override async Task<SignedUrl> GetSignedUrlCoreAsync(ResolvedPath path, SignedUrlOptions options, CancellationToken cancellationToken) =>
+        await GuardAsync(() => SignAsync(path, options, cancellationToken)).ConfigureAwait(false);
+
+    private async Task<SignedUrl> SignAsync(ResolvedPath path, SignedUrlOptions options, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
         cancellationToken.ThrowIfCancellationRequested();

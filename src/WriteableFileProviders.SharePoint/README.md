@@ -134,7 +134,8 @@ provider to release the HTTP client and certificate it created.
   Entra ID refuses (Azure.Identity's `AuthenticationFailedException`, inside); other failures `IOException`, timeouts
   included; the message names Graph's error, and the SDK's or the network's exception is inside where there is one. A
   missing site or library throws `InvalidOperationException` naming `SiteUrl` or `DocumentLibraryName` from every member
-  that reaches the library.
+  that reaches the library, and so does a sign-in that finds no credential to use (`CredentialUnavailableException`,
+  with `UseDefaultAzureCredential`).
 
 ## Signed URLs
 

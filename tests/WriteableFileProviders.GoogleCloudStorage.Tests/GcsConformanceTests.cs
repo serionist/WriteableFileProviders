@@ -33,6 +33,11 @@ public sealed class GcsConformanceTests : ProviderConformanceTests
     protected override IWriteableFileProvider? CreateProviderWithMissingContainer() =>
         new WriteableGoogleCloudStorageFileProvider(FakeGcs.Options(FakeGcs.MissingBucketName()));
 
+    // Every request fails in the client's HTTP seam; a signed-in client, so the read URL is signed after the info.
+    protected override IWriteableFileProvider? CreateProviderThatFails(Exception failure) =>
+        new WriteableGoogleCloudStorageFileProvider(new GoogleCloudStorageFileProviderOptions { BucketName = _bucket.Value, RootDirectoryPath = RootName },
+            FakeGcs.CreateClient(authenticated: true, new FaultInjection { OnRequest = _ => throw failure }));
+
     protected override Task<bool> StoreRawFileAsync(IReadOnlyList<string> names, string text) => FakeGcs.StoreRawAsync(_bucket.Value, names, text);
 }
 
@@ -63,6 +68,10 @@ public sealed class GcsClientConformanceTests : ProviderConformanceTests
 
     protected override IWriteableFileProvider? CreateProviderWithMissingContainer() =>
         new WriteableGoogleCloudStorageFileProvider(new GoogleCloudStorageFileProviderOptions { BucketName = FakeGcs.MissingBucketName() }, _client.Value);
+
+    protected override IWriteableFileProvider? CreateProviderThatFails(Exception failure) =>
+        new WriteableGoogleCloudStorageFileProvider(new GoogleCloudStorageFileProviderOptions { BucketName = _bucket.Value, RootDirectoryPath = RootName },
+            FakeGcs.CreateClient(authenticated: false, new FaultInjection { OnRequest = _ => throw failure }));
 
     protected override Task<bool> StoreRawFileAsync(IReadOnlyList<string> names, string text) => FakeGcs.StoreRawAsync(_bucket.Value, names, text);
 }

@@ -135,7 +135,11 @@ public sealed class WriteableMinioFileProvider : WriteableFileProvider<MinioFile
     protected override bool IsNotFound(Exception exception) => S3Core.IsNotFound(exception);
 
     /// <inheritdoc />
-    /// <remarks>The store's 401 and 403, and an <c>AccessDenied</c> error.</remarks>
+    /// <remarks>
+    /// The store's 401; a 403 whose code refuses the credential or the permission (<c>AccessDenied</c>,
+    /// <c>InvalidAccessKeyId</c>, <c>SignatureDoesNotMatch</c> and the like), or that has no code, as a HEAD answers. Not an
+    /// archived object or a skewed clock, which are the store's failures (<see cref="IOException"/>).
+    /// </remarks>
     protected override bool IsAccessDenied(Exception exception) => S3Core.IsAccessDenied(exception);
 
     /// <inheritdoc />

@@ -29,9 +29,13 @@ namespace WriteableFileProviders;
 public abstract partial class WriteableFileProvider<TOptions> : IWriteableFileProvider
     where TOptions : FileProviderOptions, new()
 {
+    private readonly string[] _rootSegments;
     private int _disposed;
 
-    /// <summary>Creates the provider over its options, and checks the root they name (see <see cref="ValidatesRootDirectory"/>).</summary>
+    /// <summary>
+    /// Creates the provider over its options, and checks the root they name (see <see cref="ValidatesRootDirectory"/>). The
+    /// provider keeps a copy of the root: changing the options afterwards does not move it.
+    /// </summary>
     /// <param name="options">The provider's options.</param>
     /// <exception cref="ArgumentNullException"><paramref name="options"/> is null.</exception>
     /// <exception cref="ArgumentException">
@@ -40,7 +44,9 @@ public abstract partial class WriteableFileProvider<TOptions> : IWriteableFilePr
     protected WriteableFileProvider(TOptions options)
     {
         Options = options ?? throw new ArgumentNullException(nameof(options));
-        ValidateRoot();
+        _rootSegments = [.. Options.RootDirectorySegments];
+        if (RootRefusal(_rootSegments) is { } refusal)
+            throw new ArgumentException(refusal, nameof(options));
     }
 
     /// <summary>The provider's options, as they were given.</summary>

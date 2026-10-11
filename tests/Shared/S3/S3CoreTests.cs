@@ -76,12 +76,39 @@ public sealed class S3CoreTests
     }
 
     [TestMethod]
-    public void IsAccessDenied_MeansA401OrA403OrAnAccessDeniedCode()
+    [DataRow("AccessDenied")]
+    [DataRow("InvalidAccessKeyId")]
+    [DataRow("SignatureDoesNotMatch")]
+    [DataRow("AllAccessDisabled")]
+    [DataRow("AccountProblem")]
+    [DataRow("InvalidToken")]
+    [DataRow("ExpiredToken")]
+    public void IsAccessDenied_MeansACodeThatRefusesTheCredential(string code)
     {
-        Assert.IsTrue(S3Core.IsAccessDenied(new Amazon.S3.AmazonS3Exception("x") { StatusCode = System.Net.HttpStatusCode.Forbidden, ErrorCode = "SignatureDoesNotMatch" }));
+        Assert.IsTrue(S3Core.IsAccessDenied(new Amazon.S3.AmazonS3Exception("x") { StatusCode = System.Net.HttpStatusCode.Forbidden, ErrorCode = code }));
+        Assert.IsTrue(S3Core.IsAccessDenied(new Amazon.S3.AmazonS3Exception("x") { StatusCode = System.Net.HttpStatusCode.BadRequest, ErrorCode = code }));
+    }
+
+    [TestMethod]
+    public void IsAccessDenied_MeansA401OrA403WithoutACode()
+    {
         Assert.IsTrue(S3Core.IsAccessDenied(new Amazon.S3.AmazonS3Exception("x") { StatusCode = System.Net.HttpStatusCode.Unauthorized }));
-        Assert.IsTrue(S3Core.IsAccessDenied(new Amazon.S3.AmazonS3Exception("x") { ErrorCode = "AccessDenied" }));
+        Assert.IsTrue(S3Core.IsAccessDenied(new Amazon.S3.AmazonS3Exception("x") { StatusCode = System.Net.HttpStatusCode.Forbidden }));
+        Assert.IsTrue(S3Core.IsAccessDenied(new Amazon.S3.AmazonS3Exception("x") { StatusCode = System.Net.HttpStatusCode.Forbidden, ErrorCode = "Forbidden" }));
+    }
+
+    [TestMethod]
+    [DataRow("InvalidObjectState")]
+    [DataRow("ObjectNotInActiveTierError")]
+    [DataRow("RequestTimeTooSkewed")]
+    public void IsAccessDenied_IsNotAnArchivedObjectOrASkewedClock(string code) =>
+        Assert.IsFalse(S3Core.IsAccessDenied(new Amazon.S3.AmazonS3Exception("x") { StatusCode = System.Net.HttpStatusCode.Forbidden, ErrorCode = code }));
+
+    [TestMethod]
+    public void IsAccessDenied_IsNotAnotherFailure()
+    {
         Assert.IsFalse(S3Core.IsAccessDenied(new Amazon.S3.AmazonS3Exception("x") { StatusCode = System.Net.HttpStatusCode.NotFound, ErrorCode = "NoSuchKey" }));
+        Assert.IsFalse(S3Core.IsAccessDenied(new Amazon.S3.AmazonS3Exception("x") { StatusCode = System.Net.HttpStatusCode.InternalServerError }));
         Assert.IsFalse(S3Core.IsAccessDenied(new UnauthorizedAccessException("x")));
     }
 }

@@ -84,7 +84,8 @@ Every provider runs the same conformance suite, the written contract, declaring 
   folder, or no credentials to find), `UnauthorizedAccessException` (the store refused the credential or the
   permission), `IOException` (any other failure of the store, the service or the network, timeouts included),
   `ObjectDisposedException`, and `OperationCanceledException` only when your token cancels. The SDK's exception is the
-  `InnerException`, never the type thrown; the same holds for reads of a stream a member returned, and for each step of
+  `InnerException`, unless it already derives from one of these types, which passes as it is (`OutOfMemoryException`
+  passes unmapped); the same holds for reads of a stream a member returned, and for each step of
   a listing.
 
 `IWriteableFileProvider`'s documentation says what each member does.
@@ -105,7 +106,8 @@ listing it returns, and is not one of the types above, is turned into one, with 
 `IsAccessDenied` to say which of your SDK's exceptions mean "missing" and "refused"; anything else becomes
 `IOException`, and a cancellation your caller's token did not ask for (a timeout) too. Throw a contract type yourself
 where you know better: it passes through as it is. A public member of your own runs through `ReadWithContractAsync`
-for a read. The root is checked when the provider is built; a provider whose root is not a path in its store overrides
+for a read. The root is checked when the provider is built, and kept: read it through `Resolve(ProviderPath.Root)`, not
+from the options, which a caller can still change; a provider whose root is not a path in its store overrides
 `ValidatesRootDirectory`. How a local stream is made (`CreateLocalFileStreamAsync`) is not customisable. Run your
 provider against `ProviderConformanceTests` (in the repository's `tests/WriteableFileProviders.Testing`) to check it
 meets the contract.

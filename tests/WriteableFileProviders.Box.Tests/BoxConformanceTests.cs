@@ -29,6 +29,10 @@ public sealed class BoxConformanceTests : ProviderConformanceTests
     protected override IWriteableFileProvider? CreateProviderWithMissingContainer() =>
         TestCredentials.Default.Provider(_box, rootFolderId: "404404");
 
+    // A Box of its own whose every request fails behind the SDK's network client, the sign-in first.
+    protected override IWriteableFileProvider? CreateProviderThatFails(Exception failure) =>
+        BoxFixture.Tune(TestCredentials.Default.Provider(new FakeBox { Intercept = _ => throw failure }, RootName));
+
     protected override Task<bool> StoreRawFileAsync(IReadOnlyList<string> names, string text) => Task.FromResult(BoxFixture.StoreRaw(_box, names, text));
 }
 
@@ -64,6 +68,14 @@ public sealed class BoxAtomicConformanceTests : ProviderConformanceTests
 
     protected override IWriteableFileProvider? CreateProviderWithMissingContainer() =>
         new WriteableBoxFileProvider(new BoxFileProviderOptions { RootFolderId = "404404" }, TestCredentials.Default.Client(_box));
+
+    protected override IWriteableFileProvider? CreateProviderThatFails(Exception failure) =>
+        BoxFixture.Tune(new WriteableBoxFileProvider(new BoxFileProviderOptions { RootDirectoryPath = RootName },
+            TestCredentials.Default.Client(new FakeBox { Intercept = _ => throw failure }))
+        {
+            SendIfMatch = true,
+            PollDelay = TimeSpan.Zero,
+        });
 
     protected override Task<bool> StoreRawFileAsync(IReadOnlyList<string> names, string text) => Task.FromResult(BoxFixture.StoreRaw(_box, names, text));
 }

@@ -103,18 +103,31 @@ internal sealed partial class S3Core(IWriteableFileProvider owner, S3CoreSetting
         var name => name,
     };
 
+    // The error codes of a refused credential or permission.
+    private static readonly HashSet<string> _refusals = new(StringComparer.Ordinal)
+    {
+        "AccessDenied", "InvalidAccessKeyId", "SignatureDoesNotMatch", "AllAccessDisabled", "AccountProblem", "InvalidToken", "ExpiredToken",
+    };
+
     /// <summary>Whether an exception of the SDK means the object or version does not exist.</summary>
     /// <param name="exception">The exception.</param>
     public static bool IsNotFound(Exception exception) =>
         exception is AmazonS3Exception { ErrorCode: "NoSuchKey" or "NoSuchVersion" };
 
     /// <summary>
-    /// Whether an exception of the SDK means the store refused the credential or the permission: a 401 or a 403
-    /// (<c>AccessDenied</c>, <c>InvalidAccessKeyId</c>, <c>SignatureDoesNotMatch</c>), or an <c>AccessDenied</c> code.
+    /// Whether an exception of the SDK means the store refused the credential or the permission: a 401, an error code that
+    /// says so (<c>AccessDenied</c>, <c>InvalidAccessKeyId</c>, <c>SignatureDoesNotMatch</c>, <c>AllAccessDisabled</c>,
+    /// <c>AccountProblem</c>, <c>InvalidToken</c>, <c>ExpiredToken</c>), or a 403 without a code, as a HEAD answers. A 403
+    /// with another code is not a refusal of the credential: an archived object (<c>InvalidObjectState</c>,
+    /// <c>ObjectNotInActiveTierError</c>) or a skewed clock (<c>RequestTimeTooSkewed</c>) is the store's failure.
     /// </summary>
     /// <param name="exception">The exception.</param>
     public static bool IsAccessDenied(Exception exception) =>
-        exception is AmazonS3Exception { StatusCode: HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden } or AmazonS3Exception { ErrorCode: "AccessDenied" };
+        exception is AmazonS3Exception s3
+        && (s3.StatusCode == HttpStatusCode.Unauthorized
+            || (string.IsNullOrEmpty(s3.ErrorCode) || s3.ErrorCode == "Forbidden"
+                ? s3.StatusCode == HttpStatusCode.Forbidden
+                : _refusals.Contains(s3.ErrorCode)));
 
     /// <summary>Disposes the client this core built; a client the caller gave is left alone. Called once, by the provider.</summary>
     public void Dispose()

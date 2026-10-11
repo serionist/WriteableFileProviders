@@ -290,14 +290,16 @@ public sealed partial class WriteableAzureBlobFileProvider : WriteableFileProvid
         exception is RequestFailedException { Status: 404 } e && !Is(e, BlobErrorCode.ContainerNotFound);
 
     /// <summary>
-    /// Azure's 401 and 403, and Microsoft Entra ID refusing the credential, or finding none, when the provider signs in
-    /// with <see cref="AzureFileProviderOptions.UseDefaultAzureCredential"/> (Azure.Identity's
+    /// Azure's 401 and 403, and Microsoft Entra ID refusing the credential when the provider signs in with
+    /// <see cref="AzureFileProviderOptions.UseDefaultAzureCredential"/> (Azure.Identity's
     /// <see cref="AuthenticationFailedException"/>, thrown inside each request): the public members turn them into an
-    /// <see cref="UnauthorizedAccessException"/>.
+    /// <see cref="UnauthorizedAccessException"/>. A sign-in that finds no credential at all
+    /// (<see cref="CredentialUnavailableException"/>) is not a refusal: the provider throws
+    /// <see cref="InvalidOperationException"/> for it, as for a missing container.
     /// </summary>
     /// <param name="exception">The store's exception.</param>
     protected override bool IsAccessDenied(Exception exception) =>
-        exception is RequestFailedException { Status: 401 or 403 } or AuthenticationFailedException;
+        exception is RequestFailedException { Status: 401 or 403 } or (AuthenticationFailedException and not CredentialUnavailableException);
 
     private static BlobContainerClient CreateContainerClient(AzureFileProviderOptions options, BlobClientOptions? clientOptions, TokenCredential? credential)
     {
@@ -444,9 +446,18 @@ public sealed partial class WriteableAzureBlobFileProvider : WriteableFileProvid
         }
     }
 
+    // The root the provider was built with, which a later change to the options does not move.
+    private string[] RootSegments => Resolve(ProviderPath.Root).AbsoluteSegments;
+
     // A blob's name as a path of this provider, for messages.
-    private string ProviderPathOf(BlobBaseClient blob) =>
-        Options.RootDirectorySegments.Length == 0 ? blob.Name : blob.Name[(string.Join('/', Options.RootDirectorySegments).Length + 1)..];
+    private string ProviderPathOf(BlobBaseClient blob) => PathUnderRoot(blob.Name);
+
+    // A blob name under the root as a path of this provider.
+    private string PathUnderRoot(string blobName)
+    {
+        var root = RootSegments;
+        return root.Length == 0 ? blobName : blobName[(string.Join('/', root).Length + 1)..];
+    }
 
     /// <summary>
     /// Deletes exactly the one blob at <paramref name="path"/> through <see cref="DeleteFileCoreAsync"/>, the hook the base
@@ -486,7 +497,13 @@ public sealed partial class WriteableAzureBlobFileProvider : WriteableFileProvid
     private InvalidOperationException ContainerMissing(Exception? innerException) =>
         new($"The blob container '{_container.Name}' does not exist. Create it, or set AzureFileProviderOptions.{nameof(AzureFileProviderOptions.CreateContainerIfMissing)} so the first write creates it.", innerException);
 
-    // Every member: a missing container is an InvalidOperationException, never a missing path (P18).
+    // Microsoft Entra ID sign-in found no credential to use (Azure.Identity raises it inside each request): the store is
+    // not set up as configured, as a missing container is.
+    private static InvalidOperationException NoCredential(CredentialUnavailableException innerException) =>
+        new($"UseDefaultAzureCredential is set, but the Microsoft Entra ID sign-in found no credential to use (environment, workload or managed identity, developer sign-in). Configure one, or set AzureFileProviderOptions.{nameof(AzureFileProviderOptions.AccountKey)}.", innerException);
+
+    // Every member: a missing container is an InvalidOperationException, never a missing path (P18), and so is a sign-in
+    // that finds no credential.
     private async Task<T> GuardAsync<T>(Func<Task<T>> operation)
     {
         try
@@ -496,6 +513,10 @@ public sealed partial class WriteableAzureBlobFileProvider : WriteableFileProvid
         catch (RequestFailedException e) when (Is(e, BlobErrorCode.ContainerNotFound))
         {
             throw ContainerMissing(e);
+        }
+        catch (CredentialUnavailableException e)
+        {
+            throw NoCredential(e);
         }
     }
 
@@ -508,6 +529,10 @@ public sealed partial class WriteableAzureBlobFileProvider : WriteableFileProvid
         catch (RequestFailedException e) when (Is(e, BlobErrorCode.ContainerNotFound))
         {
             throw ContainerMissing(e);
+        }
+        catch (CredentialUnavailableException e)
+        {
+            throw NoCredential(e);
         }
     }
 
@@ -526,6 +551,10 @@ public sealed partial class WriteableAzureBlobFileProvider : WriteableFileProvid
                 catch (RequestFailedException e) when (Is(e, BlobErrorCode.ContainerNotFound))
                 {
                     throw ContainerMissing(e);
+                }
+                catch (CredentialUnavailableException e)
+                {
+                    throw NoCredential(e);
                 }
                 if (!hasNext)
                     yield break;

@@ -27,7 +27,8 @@ namespace WriteableFileProviders;
 /// root folder, or no credentials to find), <see cref="UnauthorizedAccessException"/> (the store refused the credential or
 /// the permission), <see cref="IOException"/> (any other failure of the store, the service or the network, timeouts
 /// included), <see cref="ObjectDisposedException"/>, and <see cref="OperationCanceledException"/> only for the caller's
-/// token. A store's or an SDK's exception is the <see cref="Exception.InnerException"/>, never the type thrown. The same
+/// token. A store's or an SDK's exception travels as the <see cref="Exception.InnerException"/>, unless it already derives
+/// from one of these types, which passes as it is; <see cref="OutOfMemoryException"/> passes unmapped. The same
 /// holds for the reads of a stream a member returns and for each step of an enumeration, and for a failure of the stream
 /// a caller gives to <see cref="UpdateFileAsync"/> that is not one of these types.
 /// </para>

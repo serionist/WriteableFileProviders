@@ -25,11 +25,14 @@ Every section has the same shape: what changed, then a table of each change with
    synchronous forms are extension methods in `WriteableFileProviderExtensions` (add `using WriteableFileProviders;`).
    Providers are disposable: `await using` the ones you create.
 5. **The serializer is System.Text.Json.** Newtonsoft.Json leaves every package. `ToJson` returns a `JsonObject`, and
-   `FromJson` takes text, a `JsonElement` or a `JsonObject`. Every configuration stored by 2026 reads the same; JSON
-   that 2027 writes is not promised to read back on 2026 (see [Stored configuration](#stored-configuration)).
+   `FromJson` takes text, a `JsonElement` or a `JsonObject`. Every configuration stored by 2026 reads the same, except
+   a root with a dot segment (`tenants/../other`), which no longer builds; JSON that 2027 writes is not promised to read
+   back on 2026 (see [Stored configuration](#stored-configuration)).
 6. **Provider classes are sealed.** To change what a provider does, wrap it (implement `IWriteableFileProvider` and
    delegate), or derive your own provider from `WriteableFileProvider<TOptions>`.
-7. **Each provider changed behaviour** to follow the contract. The short list; its section has the rest:
+7. **Each provider changed behaviour** to follow the contract. Every provider but Physical checks its root as a path
+   when it is built (`ArgumentException` for a root such as `tenants/../other`). The short list; its section has the
+   rest:
    - [Physical](#physical): writes and appends go through a temp file and a rename, so the file at the path is a new
      file after each write; readers no longer block writers and deletes.
    - [Azure Blob Storage](#azure-blob-storage): files are block blobs; a missing container is no longer created unless
@@ -113,7 +116,7 @@ the move and copy checks, preconditions, signed URL validity).
 | `watchAsync(string)` (abstract) | `WatchCore(string)`, optional | Override it only if the store can watch. |
 | `createLocalFileStreamAsync(bool, params string[])` (protected virtual), and overriding the public virtual `CreateLocalFileStreamAsync(bool, params string[])` | Removed: the public `CreateLocalFileStreamAsync(ProviderPath, bool, CancellationToken)` is not virtual, and how a local stream is made is not customisable in 2027.0.0. Every provider's local stream is a local temp copy, spooled through `ReadFileCoreAsync` and committed through `UpdateFileCoreAsync` | Drop the override; put what it did in those two members. |
 | Exceptions of the store reached callers as the provider let them out | The base class maps every exception that escapes a `...CoreAsync` member, or a stream or a listing it returns, and is not one of the contract's types ([What a member throws](#what-a-member-throws)): what `IsNotFound` recognises becomes `FileNotFoundException`, what the new `IsAccessDenied` recognises `UnauthorizedAccessException`, anything else `IOException`, the original inside | Override `IsNotFound` and `IsAccessDenied` for your SDK's exceptions, and throw a contract type yourself where you know better: it passes through. A public member of your own that reads goes through `ReadWithContractAsync`. |
-| `RootDirectorySegments` were used as given | The base constructor checks them as a path, unless `ValidatesRootDirectory` is overridden to false (a root that is not a path in your store, such as a folder of the disk) | Nothing, unless your root is not a store path. |
+| `RootDirectorySegments` were used as given | The base constructor checks them as a path, unless `ValidatesRootDirectory` is overridden to false (a root that is not a path in your store, such as a folder of the disk), and keeps a copy that `Resolve` uses, so a later change to the options does not move the provider | Read the root through `Resolve(ProviderPath.Root)`, not from `Options`. |
 | `isSegmentAllowed`, `validateSegments` | `IsSegmentAllowed`, `ValidateSegments` | Rename. |
 | `getRelativeSegments`, `isRootPath` | Removed | `ResolvedPath.RelativeSegments` and `ResolvedPath.IsRoot`. |
 | `normalizePem` | Removed | Keep your own helper. |
@@ -174,7 +177,8 @@ What changed: the base class enforces the contract on every provider, so these h
 What changed: 2026 let each SDK's exceptions out, so code that handled a failure depended on the provider: Azure's
 `RequestFailedException`, `AmazonS3Exception`, `GoogleApiException`, Box's `BoxException`, `HttpRequestException`, and a
 timeout as `TaskCanceledException`. In 2027 every member of every provider throws only these types, and the SDK's
-exception travels as the `InnerException`, never as the type thrown:
+exception travels as the `InnerException`, unless it already derives from one of the contract's types, which passes as
+it is (an `IOException` of the network, say); `OutOfMemoryException` passes unmapped:
 
 | Type | When |
 |---|---|

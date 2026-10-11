@@ -174,7 +174,8 @@ What every provider promises:
   `UnauthorizedAccessException` when the store refuses the credential or the permission, `InvalidOperationException`
   when it is not set up as configured, `IOException` for any other failure of the store, the service or the network,
   timeouts included, and `OperationCanceledException` only when your token cancels. The SDK's own exception is the
-  `InnerException`, never the type thrown. The [migration guide](docs/migration-2027.md#what-a-member-throws) lists them
+  `InnerException`, unless it already derives from one of these types, which passes as it is; `OutOfMemoryException`
+  passes unmapped. The [migration guide](docs/migration-2027.md#what-a-member-throws) lists them
   all.
 
 ## Providers

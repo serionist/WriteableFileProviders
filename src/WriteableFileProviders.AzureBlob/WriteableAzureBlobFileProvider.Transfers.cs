@@ -23,8 +23,9 @@ public sealed partial class WriteableAzureBlobFileProvider
     /// <summary>
     /// Copies on the server, then deletes the source only if it is still the version copied. A source that changed in
     /// between is kept, the copy is removed, and <see cref="PreconditionFailedException"/> is thrown. A source Azure
-    /// refuses to delete (it has snapshots, which are never deleted, or a lease) is kept too, the copy is removed, and
-    /// <see cref="IOException"/> is thrown.
+    /// refuses to delete is kept too, and the copy is removed: a refusal of the credential or the permission (401, 403)
+    /// throws <see cref="UnauthorizedAccessException"/>, any other (it has snapshots, which are never deleted, or a lease)
+    /// <see cref="IOException"/>.
     /// </summary>
     /// <param name="source">The file to move.</param>
     /// <param name="destination">Where it goes.</param>
@@ -55,14 +56,16 @@ public sealed partial class WriteableAzureBlobFileProvider
             }
             catch (RequestFailedException e) when (e.Status is >= 400 and < 500)
             {
-                // A definite refusal (snapshots, a lease): the source is as it was. A server or network error is left
-                // as it is, since the delete may have happened.
+                // A definite refusal (snapshots, a lease, the credential or the permission): the source is as it was. A
+                // server or network error is left as it is, since the delete may have happened.
                 failure = e;
             }
             var removed = await TryDeleteQuietlyAsync(Blob(destination), copy.ETag).ConfigureAwait(false);
             var copyFate = removed ? $"the copy at '{destination}' was removed" : $"the copy at '{destination}' could not be removed and is still there";
             if (IsConditionNotMet(failure))
                 throw new PreconditionFailedException($"The file '{source}' changed while it was moved: it keeps its new content, and {copyFate}.", failure);
+            if (failure.Status is 401 or 403)
+                throw new UnauthorizedAccessException($"Azure refused to delete '{source}' ({failure.ErrorCode ?? failure.Status.ToString(System.Globalization.CultureInfo.InvariantCulture)}): it was not moved, and {copyFate}.", failure);
             throw new IOException(Is(failure, BlobErrorCode.SnapshotsPresent)
                 ? $"The file '{source}' has snapshots, which {nameof(WriteableAzureBlobFileProvider)} never deletes: it was not moved, and {copyFate}."
                 : $"Azure refused to delete '{source}' ({failure.ErrorCode ?? failure.Status.ToString(System.Globalization.CultureInfo.InvariantCulture)}): it was not moved, and {copyFate}.", failure);

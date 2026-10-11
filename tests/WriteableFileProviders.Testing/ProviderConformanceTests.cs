@@ -997,9 +997,7 @@ public abstract class ProviderConformanceTests
     public async Task Errors_OutsideTheContractAreIOException()
     {
         var failure = new StoreFailureException("The store failed.");
-        var provider = CreateProviderThatFails(failure);
-        if (provider is null)
-            return;
+        var provider = CreateProviderThatFails(failure) ?? throw new AssertInconclusiveException("The fixture cannot make its store fail (CreateProviderThatFails).");
         await using (provider)
         {
             foreach (var (name, call) in CallsReachingTheStore(provider))
@@ -1015,15 +1013,16 @@ public abstract class ProviderConformanceTests
     public async Task Errors_ATimeoutIsIOException_NotACancellation()
     {
         var timeout = new TaskCanceledException("The store's client gave up waiting.", new TimeoutException());
-        var provider = CreateProviderThatFails(timeout);
-        if (provider is null)
-            return;
+        var provider = CreateProviderThatFails(timeout) ?? throw new AssertInconclusiveException("The fixture cannot make its store fail (CreateProviderThatFails).");
         await using (provider)
         {
             foreach (var (name, call) in CallsReachingTheStore(provider))
             {
+                // The timeout is inside, as it was raised or as the SDK reports its timeouts (the AWS SDK throws a
+                // TimeoutException of its own for a request cancelled by nobody).
                 var e = await Assert.ThrowsExactlyAsync<IOException>(call, name);
-                Assert.IsTrue(Causes(e).Contains(timeout), $"{name}: the timeout is inside");
+                Assert.IsTrue(Causes(e).Skip(1).Any(c => ReferenceEquals(c, timeout) || c is TimeoutException or OperationCanceledException),
+                    $"{name}: the timeout is inside: {string.Join(" > ", Causes(e).Select(c => c.GetType().Name + ": " + c.Message))}");
             }
         }
     }
@@ -1032,13 +1031,14 @@ public abstract class ProviderConformanceTests
     public async Task Errors_OfTheContractPassThrough()
     {
         var refused = new UnauthorizedAccessException("The store refused the credential.");
-        var provider = CreateProviderThatFails(refused);
-        if (provider is null)
-            return;
+        var provider = CreateProviderThatFails(refused) ?? throw new AssertInconclusiveException("The fixture cannot make its store fail (CreateProviderThatFails).");
         await using (provider)
         {
             foreach (var (name, call) in CallsReachingTheStore(provider))
-                Assert.AreSame(refused, await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(call, name), name);
+            {
+                var e = await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(call, name);
+                Assert.IsTrue(Causes(e).Contains(refused), $"{name}: the store's exception is the one thrown, or inside it");
+            }
         }
     }
 

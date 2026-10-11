@@ -215,3 +215,60 @@ the copy fails, the exception names the temporary blob holding the content. A 20
 block blob (`InvalidBlobType`), so a fleet that mixes the two lines must not append to shared files during the switch:
 upgrade every writer together. An upload SAS cannot replace an append blob either; write such a file once through the
 provider first.
+
+## SharePoint
+
+The SharePoint provider moves to Microsoft.Graph 6 and Microsoft.Graph.Core 4 (Kiota 2); code that uses those SDKs
+directly moves with it. `WriteableSharePointFileProvider` is now `sealed`: wrap an `IWriteableFileProvider` (or derive
+from `WriteableFileProvider<TOptions>`) instead of deriving from the provider. The public `UploadResult<T>` class is
+gone (F70).
+
+### The work folder is the start of the root (D7)
+
+The provider's root is `WorkFolderPath` followed by `RootDirectoryPath`. When `RootDirectoryPath` starts with the work
+folder (ignoring case), that one leading copy is dropped, so a configuration that set both to the same folder keeps its
+files. Caller paths are never rewritten any more. 2026 removed a leading copy of the work folder from every path, so
+these configurations place some files elsewhere now:
+
+| Configuration | Path | 2026 | 2027 |
+|---|---|---|---|
+| `WorkFolderPath` `Reports`, no root | `Reports/2026.csv` (any case) | `Reports/2026.csv` | `Reports/Reports/2026.csv` |
+| `WorkFolderPath` `Main/Work`, no root | `Main/Work/a.txt` | `Main/Work/a.txt` | `Main/Work/Main/Work/a.txt` |
+| `WorkFolderPath` `Main/Work`, no root | `Main/Work` (the work folder itself) | the root: refused for writes and deletes | a folder `Main/Work` inside the root |
+| `WorkFolderPath` `Main/Work`, `RootDirectoryPath` `Main` | `Work/a.txt` / `a.txt` | `Main/Work/a.txt` / `Main/Work/Main/a.txt` | refused at construction: `ArgumentException` |
+| `WorkFolderPath` or `RootDirectoryPath` holding a percent-escape, such as `Team%20Files` copied from a browser | any | under the decoded name, `Team Files` | refused at construction: `ArgumentException` asking to decode it |
+
+Every other shape places files where 2026 did: no work folder; a root inside the work folder; a root that repeats the
+work folder, in any case, with more after it; a root that shares only part of the work folder. To find what moves,
+search your code and stored paths for paths that start with the work folder's name, and drop that prefix, or move the
+files. A root that is the start of the work folder has no equivalent: set `RootDirectoryPath` to a folder inside the
+work folder (or leave it empty) and move the files that 2026 wrote under the second copy.
+
+The work folder is created on the first write instead of in the constructor; reading under a missing one finds nothing.
+
+### Behaviour
+
+| 2026 | 2027 |
+|---|---|
+| The constructor signed in and looked up the site, library and work folder, blocking on the network; a failure threw `InvalidOperationException("Failed to initialize SharePoint connection")` | No I/O in the constructor (F13). The site and library are looked up on the first call; a missing one throws `InvalidOperationException` naming `SiteUrl` or `DocumentLibraryName` from every member, and any other failure is retried on the next call |
+| A site URL with an escaped character (`Team%20Site`) was escaped twice and not found | It is found |
+| Every Graph error while reading file info meant "missing" or `FileNotFoundException` (F66) | Only a 404 means missing. 401 and 403 throw `UnauthorizedAccessException`; throttling after the SDK's retries, and every other error, `IOException`; each wraps Graph's error |
+| An empty folder listed as `Exists = false` (F43) | It exists |
+| A folder's `Length` was the size of its contents, a missing path's 0, and `PhysicalPath` held the path or the name (F20, F21) | -1, -1 and null |
+| Writes rewound the caller's stream, a simple upload disposed it, and a missing parent retried without end (F6, F8) | Writes read from the stream's position, leave it open, and create missing parents once |
+| Upload sessions of 3.2 MB slices with no retry, ending silently on a short read (F39) | 5 MiB fragments from a temp copy; a transient failure is resent once, any other cancels the session and throws |
+| Appends combined in memory or a temp file in two ways (F4) | One append by rewrite, with `If-Match` on the version read (D19) |
+| Reads downloaded the whole file to a temp file first; a 0-byte file threw `FileNotFoundException` | Reads stream; ranges are native; a 0-byte file reads empty |
+| Move was a lookup and a `PATCH` | One `PATCH` with the conflict behaviour `fail`: a taken destination throws `FileExistsException`. Copy runs on the server, waited for at most 10 minutes |
+| A path segment with a percent-escape (`a%41`) reached the service unescaped, which decoded it (`aA`) | The `%` is escaped, so `a%41` names an item called `a%41`. Files 2026 wrote through such a path are under the decoded name. `WorkFolderPath` and `RootDirectoryPath` with such an escape are refused instead, so a stored value never silently names another folder. Listings leave out names the provider cannot address, such as one that decodes to `..` |
+| `UpdateFileOptions` did not exist | `IfMatch` and `IfNotExists` are checked before the write and sent to the service; not promised atomic (D15). `ContentType` is ignored: SharePoint names the type from the file name |
+| `GetDownloadUrl` returned the download URL whatever validity was asked (F11) | A read URL (`SignedUrlKind.PreAuthenticated`, `ExpiresOn` null) only for a validity of an hour or more, and only with `AllowShorterValidity`; a shorter validity throws `NotSupportedException`, so the gateway can serve it (D18) |
+
+### Sign-in
+
+New options, all optional (D17): `ClientCertificateBase64` and `ClientCertificatePassword` (a base64 PKCS#12 file),
+and `UseDefaultAzureCredential` (managed identity, workload identity, environment, developer sign-in). The first one
+configured wins: `UseDefaultAzureCredential`, then the certificate, then `ClientSecret`. The new constructor
+`WriteableSharePointFileProvider(options, GraphServiceClient)` takes a client you build and own; the provider never
+disposes it. Stored 2026 configurations read unchanged. `ToJson` writes the three new keys only when they are set, so a
+configuration that uses none of them is written exactly as 2026 wrote it.

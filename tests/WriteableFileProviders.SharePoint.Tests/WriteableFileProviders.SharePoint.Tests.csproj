@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <!-- The configuration-shape golden of 2026, kept with the other goldens and read from here. -->
+    <Content Include="..\WriteableFileProviders.Common.Tests\Serialization\Golden\WriteableSharePointFileProvider.json" Link="Golden\WriteableSharePointFileProvider.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Remove="testsettings.json" />
+    <!-- Optional: real credentials for the live suite. Git-ignored; see testsettings.sample.json. -->
+    <Content Include="testsettings.json" Condition="Exists('testsettings.json')" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Configuration" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WriteableFileProviders.Testing\WriteableFileProviders.Testing.csproj" />
+    <ProjectReference Include="..\..\src\WriteableFileProviders.SharePoint\WriteableFileProviders.SharePoint.csproj" />
+  </ItemGroup>
+
+</Project>

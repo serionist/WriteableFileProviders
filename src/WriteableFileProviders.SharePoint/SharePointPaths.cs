@@ -1,48 +1,41 @@
-﻿using System;
-using System.Linq;
+namespace WriteableFileProviders.SharePoint;
 
-namespace WriteableFileProviders.SharePoint
+/// <summary>Where the provider's root sits in the document library: the work folder, then the root.</summary>
+internal static class SharePointPaths
 {
-    internal static class SharePointPaths
+    private static readonly char[] _separators = ['/', '\\'];
+
+    /// <summary>The work folder's segments: split on <c>/</c> and <c>\</c>, empty parts dropped.</summary>
+    public static string[] WorkFolderSegments(string? workFolderPath) =>
+        (workFolderPath ?? "").Split(_separators, StringSplitOptions.RemoveEmptyEntries);
+
+    /// <summary>
+    /// The library path of the provider root: the work folder followed by the root segments, after removing one leading
+    /// copy of the work folder from the root segments (compared without regard to case). Caller paths are never stripped.
+    /// Null when the root segments are a strict prefix of the work folder: the 2026 provider sent the caller paths that
+    /// continued the work folder into the work folder itself, and every other path below a copy of the root, so no single
+    /// root keeps both.
+    /// </summary>
+    public static string[]? RootSegments(string[] workFolder, string[] root)
     {
-        internal static string NormalizeWorkFolderPath(string path)
+        if (workFolder.Length == 0)
+            return root;
+        if (StartsWith(root, workFolder))
+            return [.. workFolder, .. root[workFolder.Length..]];
+        if (root.Length > 0 && StartsWith(workFolder, root))
+            return null;
+        return [.. workFolder, .. root];
+    }
+
+    private static bool StartsWith(string[] segments, string[] prefix)
+    {
+        if (segments.Length < prefix.Length)
+            return false;
+        for (var i = 0; i < prefix.Length; i++)
         {
-            if (string.IsNullOrEmpty(path))
-                return path;
-            return path.Replace('\\', '/').Trim('/');
+            if (!string.Equals(segments[i], prefix[i], StringComparison.OrdinalIgnoreCase))
+                return false;
         }
-
-        // Paths whose leading segments equal the work folder (case-insensitive) are made relative to it;
-        // any other path is used as-is, relative to the work folder.
-        internal static string[] StripWorkFolder(string workFolderPath, string[] absolutePathSegments)
-        {
-            if (string.IsNullOrEmpty(workFolderPath))
-                return absolutePathSegments;
-
-            var workFolderSegments = NormalizeWorkFolderPath(workFolderPath)
-                .Split('/', StringSplitOptions.RemoveEmptyEntries);
-
-            if (absolutePathSegments.Length < workFolderSegments.Length)
-                return absolutePathSegments;
-
-            for (int i = 0; i < workFolderSegments.Length; i++)
-            {
-                if (!absolutePathSegments[i].Equals(workFolderSegments[i], StringComparison.OrdinalIgnoreCase))
-                    return absolutePathSegments;
-            }
-            return absolutePathSegments.Skip(workFolderSegments.Length).ToArray();
-        }
-
-        internal static string GetRelativePath(string workFolderPath, string[] absolutePathSegments)
-        {
-            return string.Join("/", StripWorkFolder(workFolderPath, absolutePathSegments));
-        }
-
-        // True when the target is the work folder (or drive root) itself, or the provider root directory.
-        internal static bool IsProviderRoot(string workFolderPath, string[] rootDirectorySegments, string[] absolutePathSegments)
-        {
-            return absolutePathSegments.Length <= (rootDirectorySegments?.Length ?? 0)
-                || string.IsNullOrEmpty(GetRelativePath(workFolderPath, absolutePathSegments));
-        }
+        return true;
     }
 }

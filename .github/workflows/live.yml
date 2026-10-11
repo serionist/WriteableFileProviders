@@ -1,0 +1,266 @@
+# The live suites: the conformance suite of each cloud provider against a real account (TestCategory=Live), which CI
+# never runs. Started by hand, for the providers chosen, or every night on main for every provider whose account is set
+# up. Never on a pull request: the accounts' credentials must never reach code that has not been merged.
+#
+# What the maintainers configure, in this order (Settings > Environments > live-cloud). A workflow that names an
+# environment creates it, unprotected, the first time it runs, so protect the environment before any secret goes in:
+# 1. Deployment branches: main only, so the secrets reach only merged code. A branch's live suite runs on a
+#    maintainer's machine, with the same variables (AGENTS.md, Tests).
+# 2. No required reviewers, or the nightly run waits for one every night.
+# 3. Then the secrets: one per WFP_* variable of the "Run the live suite" step below, named as the variable, for an
+#    account the maintainers own and keep for this. Box takes the app's JSON configuration, as the Box developer
+#    console downloads it, as the one secret WFP_BOX_CONFIG_JSON. Google Cloud Storage takes the service account key's
+#    client_email and private_key as WFP_GCS_CLIENT_EMAIL and WFP_GCS_PRIVATE_KEY, never the whole key file. A provider
+#    without the secrets it needs is skipped at night, and fails a manual run that chose it.
+#
+# Logs: GitHub masks each secret as a whole, and the suite step also masks each part a test could print on its own
+# (every line of a private key, the Box app's client secret and passphrase). The results stay in the job's log, as in
+# CI, and the log is as public as the repository: at worst a failed test prints a signed URL there, which expires
+# within minutes and points at a test file the suite deletes.
+#
+# Cleanup: every test works under a folder of its own (wfp-test-<id>/ or wfp-live-<id>/) and deletes it, pass or fail.
+# A run that is cancelled or times out can leave one behind: check the account after such a run, and delete any
+# wfp-test-* or wfp-live-* folder older than a day. SharePoint keeps what the suite deletes in the site's recycle bin.
+name: Live
+
+on:
+  workflow_dispatch:
+    inputs:
+      azureblob:
+        description: AzureBlob
+        type: boolean
+        default: true
+      amazons3:
+        description: AmazonS3
+        type: boolean
+        default: true
+      minio:
+        description: Minio
+        type: boolean
+        default: true
+      googlecloudstorage:
+        description: GoogleCloudStorage
+        type: boolean
+        default: true
+      box:
+        description: Box
+        type: boolean
+        default: true
+      sharepoint:
+        description: SharePoint
+        type: boolean
+        default: true
+  schedule:
+    - cron: "41 2 * * *"
+
+permissions:
+  contents: read
+
+# One live run at a time: two runs against the same accounts would only compete for their rate limits.
+concurrency:
+  group: live
+  cancel-in-progress: false
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  select:
+    name: Select providers
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Forks have neither the accounts nor the environment.
+    if: github.repository == 'serionist/WriteableFileProviders'
+    environment: live-cloud
+    outputs:
+      providers: ${{ steps.select.outputs.providers }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: select
+        env:
+          SCHEDULED: ${{ github.event_name == 'schedule' }}
+          # Whether each provider was chosen, and whether the environment has what its suite needs at least. Only
+          # true or false reaches this step, never a secret.
+          AZUREBLOB: ${{ inputs.azureblob }}
+          AZUREBLOB_READY: >-
+            ${{ (secrets.WFP_AZURE_ACCOUNT_NAME != '' || secrets.WFP_AZURE_URL != '')
+            && secrets.WFP_AZURE_CONTAINER != '' && secrets.WFP_AZURE_ACCOUNT_KEY != '' }}
+          AMAZONS3: ${{ inputs.amazons3 }}
+          AMAZONS3_READY: >-
+            ${{ secrets.WFP_S3_BUCKET != '' && secrets.WFP_S3_REGION != ''
+            && secrets.WFP_S3_ACCESS_KEY != '' && secrets.WFP_S3_SECRET_KEY != '' }}
+          MINIO: ${{ inputs.minio }}
+          MINIO_READY: >-
+            ${{ secrets.WFP_MINIO_ENDPOINT != '' && secrets.WFP_MINIO_ACCESS_KEY != ''
+            && secrets.WFP_MINIO_SECRET_KEY != '' && secrets.WFP_MINIO_BUCKET != '' }}
+          GOOGLECLOUDSTORAGE: ${{ inputs.googlecloudstorage }}
+          GOOGLECLOUDSTORAGE_READY: >-
+            ${{ secrets.WFP_GCS_BUCKET != '' && secrets.WFP_GCS_CLIENT_EMAIL != ''
+            && secrets.WFP_GCS_PRIVATE_KEY != '' }}
+          BOX: ${{ inputs.box }}
+          BOX_READY: ${{ secrets.WFP_BOX_CONFIG_JSON != '' }}
+          SHAREPOINT: ${{ inputs.sharepoint }}
+          SHAREPOINT_READY: >-
+            ${{ secrets.WFP_SHAREPOINT_SITE_URL != '' && secrets.WFP_SHAREPOINT_TENANT_ID != ''
+            && secrets.WFP_SHAREPOINT_CLIENT_ID != ''
+            && (secrets.WFP_SHAREPOINT_CLIENT_SECRET != '' || secrets.WFP_SHAREPOINT_CERTIFICATE_BASE64 != '') }}
+        run: |
+          selected=()
+          failed=
+          # A provider runs when it was chosen (every provider at night), its secrets are set and its live suite has
+          # moved to a test project of its own (each provider's step of #3 does that). What cannot run fails a manual
+          # run and is skipped at night.
+          consider() {
+            local provider=$1 chosen=$2 ready=$3 needs=$4 project="tests/WriteableFileProviders.$1.Tests" reason=
+            [ "$SCHEDULED" = true ] || [ "$chosen" = true ] || return 0
+            if [ "$ready" != true ]; then
+              reason="the live-cloud environment lacks $needs"
+            elif [ ! -d "$project" ]; then
+              reason="$project does not exist yet"
+            fi
+            if [ -z "$reason" ]; then
+              selected+=("$provider")
+            elif [ "$SCHEDULED" = true ]; then
+              echo "::warning::$provider skipped: $reason."
+            else
+              echo "::error::$provider cannot run: $reason."
+              failed=1
+            fi
+          }
+          consider AzureBlob "$AZUREBLOB" "$AZUREBLOB_READY" \
+            "WFP_AZURE_ACCOUNT_NAME (or WFP_AZURE_URL), WFP_AZURE_CONTAINER and WFP_AZURE_ACCOUNT_KEY"
+          consider AmazonS3 "$AMAZONS3" "$AMAZONS3_READY" \
+            "WFP_S3_BUCKET, WFP_S3_REGION, WFP_S3_ACCESS_KEY and WFP_S3_SECRET_KEY"
+          consider Minio "$MINIO" "$MINIO_READY" \
+            "WFP_MINIO_ENDPOINT, WFP_MINIO_ACCESS_KEY, WFP_MINIO_SECRET_KEY and WFP_MINIO_BUCKET"
+          consider GoogleCloudStorage "$GOOGLECLOUDSTORAGE" "$GOOGLECLOUDSTORAGE_READY" \
+            "WFP_GCS_BUCKET, WFP_GCS_CLIENT_EMAIL and WFP_GCS_PRIVATE_KEY"
+          consider Box "$BOX" "$BOX_READY" \
+            "WFP_BOX_CONFIG_JSON"
+          consider SharePoint "$SHAREPOINT" "$SHAREPOINT_READY" \
+            "WFP_SHAREPOINT_SITE_URL, _TENANT_ID, _CLIENT_ID and _CLIENT_SECRET (or _CERTIFICATE_BASE64)"
+          if [ -n "$failed" ]; then exit 1; fi
+          if [ ${#selected[@]} -eq 0 ] && [ "$SCHEDULED" != true ]; then
+            echo "::error::Choose at least one provider."
+            exit 1
+          fi
+          # A JSON array of the names, for the matrix; the names are fixed words, so nothing needs escaping.
+          providers='[]'
+          if [ ${#selected[@]} -gt 0 ]; then
+            providers=$(printf '"%s",' "${selected[@]}")
+            providers="[${providers%,}]"
+          fi
+          echo "providers=$providers" >> "$GITHUB_OUTPUT"
+
+  live:
+    name: Live (${{ matrix.provider }})
+    needs: select
+    if: needs.select.outputs.providers != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: live-cloud
+    strategy:
+      fail-fast: false
+      matrix:
+        provider: ${{ fromJSON(needs.select.outputs.providers) }}
+    env:
+      PROVIDER: ${{ matrix.provider }}
+      PROJECT: tests/WriteableFileProviders.${{ matrix.provider }}.Tests
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # MinVer versions the assemblies from the git history and tags.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+      - name: Restore (locked)
+        run: dotnet restore WriteableFileProviders.slnx --locked-mode
+      - name: Build
+        run: dotnet build "$PROJECT" --no-restore -c Release
+
+      # Only this job's provider gets its secrets; every other variable stays empty, so no suite can read another
+      # account's credentials. The names are those the live test classes read.
+      - name: Run the live suite
+        # bash -eo pipefail (the default shell has no pipefail), so a jq that fails in a masking pipeline stops the
+        # step before any test runs.
+        shell: bash
+        env:
+          WFP_LIVE: "1"
+          WFP_AZURE_ACCOUNT_NAME: ${{ matrix.provider == 'AzureBlob' && secrets.WFP_AZURE_ACCOUNT_NAME || '' }}
+          WFP_AZURE_ACCOUNT_KEY: ${{ matrix.provider == 'AzureBlob' && secrets.WFP_AZURE_ACCOUNT_KEY || '' }}
+          WFP_AZURE_CONTAINER: ${{ matrix.provider == 'AzureBlob' && secrets.WFP_AZURE_CONTAINER || '' }}
+          WFP_AZURE_URL: ${{ matrix.provider == 'AzureBlob' && secrets.WFP_AZURE_URL || '' }}
+          WFP_AZURE_ROOT: ${{ matrix.provider == 'AzureBlob' && secrets.WFP_AZURE_ROOT || '' }}
+          WFP_S3_BUCKET: ${{ matrix.provider == 'AmazonS3' && secrets.WFP_S3_BUCKET || '' }}
+          WFP_S3_REGION: ${{ matrix.provider == 'AmazonS3' && secrets.WFP_S3_REGION || '' }}
+          WFP_S3_ACCESS_KEY: ${{ matrix.provider == 'AmazonS3' && secrets.WFP_S3_ACCESS_KEY || '' }}
+          WFP_S3_SECRET_KEY: ${{ matrix.provider == 'AmazonS3' && secrets.WFP_S3_SECRET_KEY || '' }}
+          WFP_MINIO_ENDPOINT: ${{ matrix.provider == 'Minio' && secrets.WFP_MINIO_ENDPOINT || '' }}
+          WFP_MINIO_ACCESS_KEY: ${{ matrix.provider == 'Minio' && secrets.WFP_MINIO_ACCESS_KEY || '' }}
+          WFP_MINIO_SECRET_KEY: ${{ matrix.provider == 'Minio' && secrets.WFP_MINIO_SECRET_KEY || '' }}
+          WFP_MINIO_BUCKET: ${{ matrix.provider == 'Minio' && secrets.WFP_MINIO_BUCKET || '' }}
+          WFP_MINIO_USE_SSL: ${{ matrix.provider == 'Minio' && secrets.WFP_MINIO_USE_SSL || '' }}
+          WFP_MINIO_REGION: ${{ matrix.provider == 'Minio' && secrets.WFP_MINIO_REGION || '' }}
+          WFP_GCS_BUCKET: ${{ matrix.provider == 'GoogleCloudStorage' && secrets.WFP_GCS_BUCKET || '' }}
+          WFP_GCS_CLIENT_EMAIL: ${{ matrix.provider == 'GoogleCloudStorage' && secrets.WFP_GCS_CLIENT_EMAIL || '' }}
+          WFP_GCS_PRIVATE_KEY: ${{ matrix.provider == 'GoogleCloudStorage' && secrets.WFP_GCS_PRIVATE_KEY || '' }}
+          WFP_GCS_PROJECT_ID: ${{ matrix.provider == 'GoogleCloudStorage' && secrets.WFP_GCS_PROJECT_ID || '' }}
+          WFP_GCS_ROOT: ${{ matrix.provider == 'GoogleCloudStorage' && secrets.WFP_GCS_ROOT || '' }}
+          # The Box suite reads the app's JSON configuration from the file in WFP_BOX_CONFIG_FILE; the step writes it.
+          WFP_BOX_CONFIG_JSON: ${{ matrix.provider == 'Box' && secrets.WFP_BOX_CONFIG_JSON || '' }}
+          WFP_BOX_ROOT_FOLDER_ID: ${{ matrix.provider == 'Box' && secrets.WFP_BOX_ROOT_FOLDER_ID || '' }}
+          WFP_SHAREPOINT_SITE_URL: ${{ matrix.provider == 'SharePoint' && secrets.WFP_SHAREPOINT_SITE_URL || '' }}
+          WFP_SHAREPOINT_LIBRARY: ${{ matrix.provider == 'SharePoint' && secrets.WFP_SHAREPOINT_LIBRARY || '' }}
+          WFP_SHAREPOINT_TENANT_ID: ${{ matrix.provider == 'SharePoint' && secrets.WFP_SHAREPOINT_TENANT_ID || '' }}
+          WFP_SHAREPOINT_CLIENT_ID: ${{ matrix.provider == 'SharePoint' && secrets.WFP_SHAREPOINT_CLIENT_ID || '' }}
+          WFP_SHAREPOINT_CLIENT_SECRET: ${{ matrix.provider == 'SharePoint' && secrets.WFP_SHAREPOINT_CLIENT_SECRET || '' }}
+          WFP_SHAREPOINT_CERTIFICATE_BASE64: ${{ matrix.provider == 'SharePoint' && secrets.WFP_SHAREPOINT_CERTIFICATE_BASE64 || '' }}
+          WFP_SHAREPOINT_CERTIFICATE_PASSWORD: ${{ matrix.provider == 'SharePoint' && secrets.WFP_SHAREPOINT_CERTIFICATE_PASSWORD || '' }}
+          WFP_SHAREPOINT_WORK_FOLDER: ${{ matrix.provider == 'SharePoint' && secrets.WFP_SHAREPOINT_WORK_FOLDER || '' }}
+        run: |
+          # GitHub masks a secret only as a whole. Mask each line of every credential a test could print on its own,
+          # before anything runs.
+          mask_lines() {
+            local line
+            while IFS= read -r line; do
+              line=${line%$'\r'}
+              if [ -n "$line" ]; then echo "::add-mask::${line//%/%25}"; fi
+            done
+          }
+          case "$PROVIDER" in
+            Box)
+              for field in .boxAppSettings.clientSecret .boxAppSettings.appAuth.passphrase \
+                .boxAppSettings.appAuth.privateKey; do
+                jq -r "$field // empty" <<< "$WFP_BOX_CONFIG_JSON" | mask_lines
+              done
+              export WFP_BOX_CONFIG_FILE="$RUNNER_TEMP/box-config.json"
+              (umask 077 && printf '%s' "$WFP_BOX_CONFIG_JSON" > "$WFP_BOX_CONFIG_FILE")
+              unset WFP_BOX_CONFIG_JSON
+              ;;
+            GoogleCloudStorage)
+              # The key as the key file holds it, with \n escapes, or with real line breaks.
+              printf '%s\n' "${WFP_GCS_PRIVATE_KEY//\\n/$'\n'}" | mask_lines
+              ;;
+          esac
+          # The minimum after "--" counts per test module and leaves out skipped tests, so a suite whose every test is
+          # inconclusive (no settings reached it) fails instead of passing green.
+          dotnet test --project "$PROJECT" --no-build -c Release --filter "TestCategory=Live" \
+            -- --minimum-expected-tests 1
+
+      - name: Delete the Box configuration
+        if: always() && matrix.provider == 'Box'
+        run: rm -f "$RUNNER_TEMP/box-config.json"
+
+      - name: Cleanup note
+        if: failure() || cancelled()
+        run: |
+          {
+            echo "### $PROVIDER: check the account"
+            echo "The live run failed or was cancelled. A test stopped halfway can leave its wfp-test-* or wfp-live-*"
+            echo "folder behind: delete any that is older than a day."
+          } >> "$GITHUB_STEP_SUMMARY"

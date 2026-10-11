@@ -25,9 +25,12 @@ and what never to do.
 | `Directory.Build.props`, `Directory.Build.targets` | Settings every project shares; `src/` and `tests/` add their own (packaging; test project settings). The `.targets` file holds the strictness switch. |
 | `Directory.Packages.props` | Every package version, once (central package management). A `.csproj` names packages without versions. |
 | `global.json`, `nuget.config` | The SDK and the test runner; the package source (nuget.org only). |
-| `eng/` | `coverage-gate.cs`, the coverage gate, and `coverage.json`, the floor of each assembly. |
+| `eng/` | `coverage-gate.cs`, the coverage gate, and `coverage.json`, the floor of each assembly; `package-check.cs`, which checks a release's packages before they are pushed. |
 | `tests/coverage.runsettings` | What the coverage run measures. |
-| `.github/workflows/` | CI (`ci.yml`). |
+| `.github/workflows/` | `ci.yml`, CI on every PR and on `main`; `codeql.yml`, code scanning; `live.yml`, the live suites, by hand or nightly on `main`; `release.yml`, the release of a `v*` tag. |
+| `.github/dependabot.yml` | Weekly update PRs for the NuGet packages (grouped), the actions and the SDK. |
+| `.github/ISSUE_TEMPLATE/`, `.github/pull_request_template.md` | The bug and feature forms; the PR template. |
+| `CONTRIBUTING.md`, `SECURITY.md` | A first contribution's short path through this file; how to report a vulnerability, and the supported versions. |
 
 Every project targets `net10.0`. A project still holding code from before the modernization (#3) sets
 `<WfpLegacy>true</WfpLegacy>`, which turns off nullable analysis, implicit usings, warnings as errors and the style
@@ -63,6 +66,9 @@ Run everything from the repo root, with a .NET 10 SDK (`global.json`).
   lower one to pass. The goal is 90% of lines on every assembly.
 - **CI** (`.github/workflows/ci.yml`) runs the build, the tests with coverage, the gate and the pack on Linux, where
   Docker is available and a missing emulator fails the run (`WFP_REQUIRE_DOCKER=1`), and the build and tests on Windows.
+- **Release:** a maintainer tags `v<version>` on `main`. `release.yml` builds, tests and packs, checks that every
+  package has that version (`eng/package-check.cs`), and once a maintainer approves the `nuget` environment, pushes
+  the packages to nuget.org through trusted publishing and creates the GitHub release.
 
 ### Tests
 

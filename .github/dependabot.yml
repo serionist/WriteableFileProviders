@@ -1,0 +1,95 @@
+# Dependabot version updates, weekly: the NuGet packages (one version each, in Directory.Packages.props), the actions
+# the workflows pin by SHA, and the .NET SDK in global.json. Security updates are separate: they come as soon as an
+# advisory is published, whatever the schedule, once the maintainers turn them on in the repository settings.
+#
+# Alerts and security updates come from the dependency graph, which does not read the versions that central package
+# management keeps in Directory.Packages.props. The maintainers turn on the dependency graph and Automatic dependency
+# submission (Settings > Code security), which resolves the packages from a restore and submits them. NuGetAudit
+# (Directory.Build.props) stays the guard at restore time: a package with a known advisory, direct or transitive, shows
+# in every build and fails it where warnings are errors.
+#
+# Every update is a PR like any other: CI must pass and a maintainer merges it (AGENTS.md, How a change lands).
+# CI restores in locked mode. Dependabot rewrites the lock files of the projects that reference a bumped package, but
+# can miss a project that only gets it through a ProjectReference (dependabot/dependabot-core#13950). When its PR fails
+# restore with NU1004, check out the branch, run `dotnet restore WriteableFileProviders.slnx --force-evaluate` and push
+# the lock files it changes.
+version: 2
+
+updates:
+  - package-ecosystem: nuget
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    # Wait a week after a version is published before proposing it, so a broken or compromised release is pulled first.
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 10
+    # A group takes the packages it matches, in this order; the first match wins. The provider SDKs group minor and
+    # patch updates only: a major comes on its own PR, because SDK types in public signatures make an SDK major a
+    # WriteableFileProviders major (D17).
+    groups:
+      azure:
+        patterns: ["Azure.*"]
+        update-types: [minor, patch]
+      aws:
+        patterns: ["AWSSDK.*"]
+        update-types: [minor, patch]
+      google:
+        patterns: ["Google.*"]
+        update-types: [minor, patch]
+      box:
+        patterns: ["Box.*"]
+        update-types: [minor, patch]
+      msgraph:
+        patterns: ["Microsoft.Graph*", "Microsoft.Kiota.*"]
+        update-types: [minor, patch]
+      test:
+        patterns:
+          - "MSTest*"
+          - "Microsoft.Testing.*"
+          - "Microsoft.NET.Test.Sdk"
+          - "Testcontainers*"
+          - "Microsoft.AspNetCore.TestHost"
+          - "Microsoft.AspNetCore.Mvc.Testing"
+      microsoft-extensions:
+        patterns: ["Microsoft.Extensions.*", "Microsoft.AspNetCore.*"]
+      build:
+        patterns:
+          - "MinVer"
+          - "Microsoft.SourceLink.*"
+          - "Microsoft.CodeAnalysis.*"
+          - "Microsoft.DotNet.*"
+    ignore:
+      # Every package targets net10.0 and depends on the 10.x line of these, so a consumer on .NET 10 is never forced
+      # onto a newer runtime's packages. A major moves with the target framework, by a maintainer.
+      - dependency-name: "Microsoft.Extensions.*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "Microsoft.AspNetCore.*"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    # Dependabot moves the pinned SHA and the version comment beside it together.
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: dotnet-sdk
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 2
+    ignore:
+      # The SDK major moves with the target framework (D2), by a maintainer.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]

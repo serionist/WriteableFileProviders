@@ -185,6 +185,13 @@ internal sealed class GraphFake
             return Resolve(_root, Split(libraryPath)) is { IsFolder: false } file ? file.Content : null;
     }
 
+    /// <summary>The id of the item at a library path.</summary>
+    public string IdOf(string libraryPath)
+    {
+        lock (_lock)
+            return Resolve(_root, Split(libraryPath))?.Id ?? throw new InvalidOperationException($"Nothing at '{libraryPath}'.");
+    }
+
     /// <summary>Whether a folder exists at the library path.</summary>
     public bool IsFolder(string libraryPath)
     {

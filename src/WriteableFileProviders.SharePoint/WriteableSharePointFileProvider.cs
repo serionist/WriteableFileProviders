@@ -22,7 +22,7 @@ namespace WriteableFileProviders.SharePoint;
 /// case, so moving <c>a.txt</c> to <c>A.txt</c> renames it. Deleted items go to the site's recycle bin. Path segments may
 /// not contain <c>:</c>, Graph's path syntax; a <c>%</c> is sent escaped, so <c>a%41</c> names an item literally called
 /// <c>a%41</c>. Listings leave out items whose names the provider cannot address, such as one that decodes to
-/// <c>..</c>. A file whose size Graph does not report has a length of -1.
+/// <c>..</c>. A file whose size Graph does not report is measured, with one ranged request, so its length is real.
 /// </para>
 /// <para>
 /// Preconditions are checked, not atomic: <see cref="UpdateFileOptions.IfMatch"/> and
@@ -170,7 +170,8 @@ public sealed partial class WriteableSharePointFileProvider : WriteableFileProvi
         ArgumentNullException.ThrowIfNull(path);
         var driveId = await DriveIdAsync(cancellationToken).ConfigureAwait(false);
         var item = await TryGetItemAsync(driveId, LibrarySegments(path), _itemFields, $"Reading '{path}'", cancellationToken).ConfigureAwait(false);
-        return item is null ? WriteableFileInfo.Missing(this, path.Path) : ToInfo(path.Path, item);
+        return (item is null ? null : await ToInfoAsync(driveId, path, item, cancellationToken).ConfigureAwait(false))
+            ?? WriteableFileInfo.Missing(this, path.Path);
     }
 
     /// <inheritdoc />
@@ -184,8 +185,12 @@ public sealed partial class WriteableSharePointFileProvider : WriteableFileProvi
         {
             foreach (var item in page.Value ?? [])
             {
-                if (item.Name is { Length: > 0 } name && IsAddressable(name))
-                    yield return ToInfo(path.Child(name).Path, item);
+                // An entry measured as gone (deleted while listed) is left out.
+                if (item.Name is { Length: > 0 } name && IsAddressable(name)
+                    && await ToInfoAsync(driveId, path.Child(name), item, cancellationToken).ConfigureAwait(false) is { } entry)
+                {
+                    yield return entry;
+                }
             }
             page = page.OdataNextLink is { } next ? await GetPageAsync(request, next, path, cancellationToken).ConfigureAwait(false) : null;
         }
@@ -464,11 +469,20 @@ public sealed partial class WriteableSharePointFileProvider : WriteableFileProvi
         }
     }
 
-    private WriteableFileInfo ToInfo(ProviderPath path, DriveItem item) =>
-        item.Folder is not null
-            ? WriteableFileInfo.Folder(this, path, item.LastModifiedDateTime)
-            : new WriteableFileInfo(this, path, true, false, item.Size ?? -1, item.LastModifiedDateTime ?? _unknownTime,
-                physicalPath: null, etag: item.ETag, contentType: item.File?.MimeType);
+    /// <summary>
+    /// The entry for an item: a folder, or a file with its real length, measured when Graph does not report its size.
+    /// Null when the file is gone by the time it is measured.
+    /// </summary>
+    private async ValueTask<WriteableFileInfo?> ToInfoAsync(string driveId, ResolvedPath path, DriveItem item, CancellationToken cancellationToken)
+    {
+        if (item.Folder is not null)
+            return WriteableFileInfo.Folder(this, path.Path, item.LastModifiedDateTime);
+        var length = item.Size ?? await MeasureAsync(driveId, path, cancellationToken).ConfigureAwait(false);
+        return length is { } known
+            ? new WriteableFileInfo(this, path.Path, true, false, known, item.LastModifiedDateTime ?? _unknownTime,
+                physicalPath: null, etag: item.ETag, contentType: item.File?.MimeType)
+            : null;
+    }
 
     /// <summary>
     /// Makes sure the folder exists, creating what is missing one level at a time, and returns its id. No request is

@@ -1023,8 +1023,10 @@ public sealed class SharePointProviderTests
     }
 
     [TestMethod]
-    public async Task UnknownSize_IsMinusOne_AndASeekableReadMeasuresTheFile()
+    public async Task UnknownSize_IsMeasured_InInfoAndListings()
     {
+        // The measuring request is answered 206 (with Content-Range), 416 for an empty file, or 200 where ranges are
+        // ignored.
         foreach (var ignoreRanges in new[] { false, true })
         {
             var (provider, fake) = Create(configure: f => f.IgnoreRanges = ignoreRanges);
@@ -1032,7 +1034,17 @@ public sealed class SharePointProviderTests
             await provider.UpdateFileAsync("f.bin", new MemoryStream(bytes));
             await provider.UpdateFileAsync("empty.bin", new MemoryStream());
             fake.OmitSizes = true;
-            Assert.AreEqual(-1, (await provider.GetFileInfoAsync("f.bin")).Length);
+            fake.ClearRequests();
+            Assert.AreEqual(1000, (await provider.GetFileInfoAsync("f.bin")).Length);
+            Assert.AreEqual(0, (await provider.GetFileInfoAsync("empty.bin")).Length);
+            var listed = (await provider.GetDirectoryContentsAsync("")).ToDictionary(e => e.Name, e => e.Length);
+            Assert.AreEqual(1000, listed["f.bin"]);
+            Assert.AreEqual(0, listed["empty.bin"]);
+            Assert.IsTrue(fake.Requests.Where(r => r.Host == GraphFake.DownloadHost).All(r => r.Header("Range") == "bytes=0-0"));
+            if (!ignoreRanges)
+                Assert.IsTrue(fake.Requests.Any(r => r.Host == GraphFake.DownloadHost), "The sizes were measured");
+
+            // The base's seekable read takes the measured length.
             await using (var stream = await provider.OpenReadSeekableAsync("f.bin", new SeekableReadOptions { BufferSize = 64 }))
             {
                 Assert.AreEqual(1000, stream.Length);
@@ -1041,35 +1053,49 @@ public sealed class SharePointProviderTests
                 await stream.ReadExactlyAsync(buffer);
                 CollectionAssert.AreEqual(bytes[900..950], buffer);
             }
-            await using var empty = await provider.OpenReadSeekableAsync("empty.bin", new SeekableReadOptions { AllowModifications = true });
-            Assert.AreEqual(0, empty.Length);
+
+            // A file Graph gives the size of costs nothing more.
+            fake.OmitSizes = false;
+            fake.ClearRequests();
+            await provider.GetFileInfoAsync("f.bin");
+            await provider.GetDirectoryContentsAsync("");
+            Assert.IsFalse(fake.Requests.Any(r => r.Host == GraphFake.DownloadHost || (r.Query.TryGetValue("$select", out var select) && select.Contains("downloadUrl", StringComparison.Ordinal))));
         }
     }
 
     [TestMethod]
-    public async Task UnknownSize_Measuring_ChecksThePin_AndNeedsALength()
+    public async Task UnknownSize_Measuring_FindsGoneFiles_AndNeedsALength()
     {
         var (provider, fake) = Create();
         await Write(provider, "f.txt", "0123456789");
+        await Write(provider, "g.txt", "keep");
         fake.OmitSizes = true;
+
+        // A 404 while measuring means not found: the info is missing, and a listing leaves the entry out.
+        fake.Intercept = r => r.Host == GraphFake.DownloadHost && r.Path.EndsWith(FileId(fake, "r/f.txt"), StringComparison.Ordinal) ? new HttpResponseMessage(HttpStatusCode.NotFound) : null;
+        Assert.IsFalse((await provider.GetFileInfoAsync("f.txt")).Exists);
+        CollectionAssert.AreEqual(new[] { "g.txt" }, (await provider.GetDirectoryContentsAsync("")).Select(e => e.Name).ToArray());
+        fake.Intercept = null;
+
+        // So does a file deleted between its listing and its measuring.
         fake.OnRequest = r =>
         {
             if (r.Method == "GET" && r.Query.TryGetValue("$select", out var select) && select.Contains("downloadUrl", StringComparison.Ordinal))
             {
                 fake.OnRequest = null;
-                fake.SetFile("r/f.txt", Encoding.UTF8.GetBytes("changed"));
+                fake.Delete("r/f.txt");
             }
         };
-        await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => provider.OpenReadSeekableAsync("f.txt"));
+        Assert.IsFalse((await provider.GetFileInfoAsync("f.txt")).Exists);
+        await Write(provider, "f.txt", "0123456789");
 
+        // An answer that does not give the length, or no download URL, is an error.
         fake.Intercept = r => r.Host == GraphFake.DownloadHost ? new HttpResponseMessage(HttpStatusCode.PartialContent) { Content = new ByteArrayContent([0x30]) } : null;
-        await Assert.ThrowsExactlyAsync<IOException>(() => provider.OpenReadSeekableAsync("f.txt"));
-        fake.Intercept = r => r.Host == GraphFake.DownloadHost ? new HttpResponseMessage(HttpStatusCode.NotFound) : null;
-        await Assert.ThrowsExactlyAsync<FileNotFoundException>(() => provider.OpenReadSeekableAsync("f.txt"));
+        await Assert.ThrowsExactlyAsync<IOException>(() => provider.GetFileInfoAsync("f.txt"));
         fake.Intercept = null;
         fake.OmitDownloadUrls = true;
-        await Assert.ThrowsExactlyAsync<IOException>(() => provider.OpenReadSeekableAsync("f.txt"));
-        await Assert.ThrowsExactlyAsync<FileNotFoundException>(() => provider.OpenReadSeekableAsync("missing.txt"));
+        await Assert.ThrowsExactlyAsync<IOException>(() => provider.GetFileInfoAsync("f.txt"));
+        fake.OmitDownloadUrls = false;
 
         // A file Graph gives no ETag cannot be pinned.
         fake.Intercept = r => r.Method == "GET" && r.Path.EndsWith("/f.txt:", StringComparison.Ordinal)
@@ -1077,6 +1103,8 @@ public sealed class SharePointProviderTests
             : null;
         await Assert.ThrowsExactlyAsync<NotSupportedException>(() => provider.OpenReadSeekableAsync("f.txt"));
     }
+
+    private static string FileId(GraphFake fake, string libraryPath) => fake.IdOf(libraryPath);
 
     private static HttpResponseMessage Answer(HttpStatusCode code, string json) =>
         new(code) { Content = new StringContent(json, Encoding.UTF8, "application/json") };

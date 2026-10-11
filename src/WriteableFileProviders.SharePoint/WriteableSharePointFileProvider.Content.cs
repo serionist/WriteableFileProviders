@@ -42,32 +42,19 @@ public sealed partial class WriteableSharePointFileProvider
             : await DownloadAsync(path, item, offset, length, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <inheritdoc />
-    /// <remarks>
-    /// Pinned to the file's ETag unless modifications are allowed, checked before each fetch (not atomic). A file whose
-    /// size Graph does not report is measured first, from one byte of its download.
-    /// </remarks>
-    protected override async Task<Stream> OpenReadSeekableCoreAsync(ResolvedPath path, SeekableReadOptions options, CancellationToken cancellationToken)
+    /// <summary>
+    /// The length of a file whose size Graph does not report, or null when the file is gone: its download URL, then one
+    /// ranged request for its first byte, whose answer gives the length (a 206's <c>Content-Range</c>, a 416's for an
+    /// empty file, or a 200's <c>Content-Length</c> where the range is ignored). Only such a file pays for it.
+    /// </summary>
+    private async Task<long?> MeasureAsync(string driveId, ResolvedPath path, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(path);
-        ArgumentNullException.ThrowIfNull(options);
-        var info = await GetFileInfoCoreAsync(path, cancellationToken).ConfigureAwait(false);
-        if (!info.Exists || info.IsDirectory)
-            throw NotFound(path);
-        if (!options.AllowModifications && info.ETag is null)
-            throw new NotSupportedException($"{GetType().Name} keeps no version of '{path}', so a read cannot be pinned to one; allow modifications to read it unpinned.");
-        var pin = options.AllowModifications ? null : info.ETag;
-        var length = info.Length >= 0 ? info.Length : await MeasureAsync(path, pin, cancellationToken).ConfigureAwait(false);
-        return new RangeReadStream(length, (offset, count, token) => ReadRangeCoreAsync(path, offset, count, pin, token), options.BufferSize);
-    }
-
-    /// <summary>The length of a file whose size Graph does not report: from the answer to a request for its first byte.</summary>
-    private async Task<long> MeasureAsync(ResolvedPath path, string? pin, CancellationToken cancellationToken)
-    {
-        var item = await GetDownloadableAsync(path, cancellationToken).ConfigureAwait(false);
-        if (pin is not null && !string.Equals(item.ETag, pin, StringComparison.Ordinal))
-            throw new PreconditionFailedException($"The file '{path}' changed: its version is no longer '{pin}'.");
-        var url = DownloadUrlOf(item) ?? throw new IOException($"Reading '{path}' failed: Microsoft Graph gave no download URL for it.");
+        var item = await TryGetItemAsync(driveId, LibrarySegments(path), _downloadFields, $"Reading '{path}'", cancellationToken).ConfigureAwait(false);
+        if (item is null || item.Folder is not null)
+            return null;
+        if (item.Size is { } size)
+            return size;
+        var url = DownloadUrlOf(item) ?? throw new IOException($"Reading '{path}' failed: Microsoft Graph gave neither its size nor a download URL.");
         var request = new RequestInformation { HttpMethod = Method.GET, URI = url };
         request.Headers.Add("Range", "bytes=0-0");
         using var response = await SendRawAsync(request, $"Reading '{path}'", streamed: true, cancellationToken).ConfigureAwait(false);
@@ -76,7 +63,7 @@ public sealed partial class WriteableSharePointFileProvider
             HttpStatusCode.PartialContent when response.Content.Headers.ContentRange?.Length is { } total => total,
             HttpStatusCode.RequestedRangeNotSatisfiable => response.Content.Headers.ContentRange?.Length ?? 0,
             HttpStatusCode.OK when response.Content.Headers.ContentLength is { } whole => whole,
-            HttpStatusCode.NotFound => throw NotFound(path),
+            HttpStatusCode.NotFound => null,
             _ => throw new IOException($"Reading '{path}' failed: the service did not say how long the file is ({(int)response.StatusCode})."),
         };
     }

@@ -102,6 +102,9 @@ found. Dispose the provider to release the HTTP client and certificate it create
 - **Reads** stream from the file's pre-authenticated download URL, with nothing buffered on disk. Ranges are read
   natively, and a range the service ignores is cut from the whole file. A read pinned to an ETag (`ReadOptions.IfMatch`,
   the seekable stream) checks it before each fetch, which is not atomic.
+- **Sizes:** a file's `Length` is always its real length. For a file whose size Graph does not report, reading its info
+  or listing it costs one extra ranged request for its first byte (after a request for its download URL), whose answer
+  gives the length; every other file costs nothing more.
 - **Move** is one request, which refuses a destination that exists. **Copy** runs on the server and is polled until it
   completes, for at most 10 minutes; then it throws `IOException` naming the copy's last status. The service may still
   finish that copy afterwards and create the destination.

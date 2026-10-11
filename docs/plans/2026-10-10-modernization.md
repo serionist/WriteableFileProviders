@@ -1220,6 +1220,17 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
   - SharePoint.Tests runs 255 offline tests. Coverage on Windows: 99.88% of lines and 91.74% of branches; the floor
     stays 99/91. The full non-Live run after the rebase passes (856 tests, 0 failed).
 
+- **2026-10-11, S9 review round 3 (PR #28):** every round-2 fix verified; one minor and one nit, fixed:
+  - **R3-1 (option a):** a file whose size Graph does not report is measured, unpinned, when its info is read or it is
+    listed (its download URL, then one ranged request for its first byte: a 206's `Content-Range`, a 416's for an
+    empty file, or a 200's `Content-Length`), so `Length` is always the real length, as Common's contract and the
+    gateway's `Content-Length` need; a file gone by then reads as missing and is left out of the listing. Files with
+    a size cost nothing more. The `OpenReadSeekableCoreAsync` override, which only existed for the -1, is gone; the
+    base handles seekable reads. The README says what the measurement costs.
+  - **R3-2:** a 173-character line in `SharePointLiveTests` is wrapped.
+  - SharePoint.Tests runs 257 offline tests. Coverage on Windows: 99.76% of lines and 91.22% of branches; the floor
+    stays 99/91.
+
 ### For the maintainers
 
 What this session cannot do, kept current as the work goes on:

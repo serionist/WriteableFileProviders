@@ -6,8 +6,9 @@ namespace WriteableFileProviders.SharePoint.Tests;
 
 /// <summary>
 /// The conformance suite against a real SharePoint document library. Without <c>WFP_LIVE=1</c> it is inconclusive; with
-/// it, a missing account fails the run, naming what is missing. The account comes from environment variables (<c>WFP_SHAREPOINT_SITE_URL</c>, <c>WFP_SHAREPOINT_LIBRARY</c>,
-/// <c>WFP_SHAREPOINT_TENANT_ID</c>, <c>WFP_SHAREPOINT_CLIENT_ID</c>, <c>WFP_SHAREPOINT_CLIENT_SECRET</c>,
+/// it, a missing account fails the run, naming what is missing. The account comes from environment variables
+/// (<c>WFP_SHAREPOINT_SITE_URL</c>, <c>WFP_SHAREPOINT_LIBRARY</c>, <c>WFP_SHAREPOINT_TENANT_ID</c>,
+/// <c>WFP_SHAREPOINT_CLIENT_ID</c>, <c>WFP_SHAREPOINT_CLIENT_SECRET</c>,
 /// <c>WFP_SHAREPOINT_CERTIFICATE_BASE64</c>, <c>WFP_SHAREPOINT_CERTIFICATE_PASSWORD</c>,
 /// <c>WFP_SHAREPOINT_USE_DEFAULT_CREDENTIAL</c>, <c>WFP_SHAREPOINT_WORK_FOLDER</c>) or from an optional
 /// <c>testsettings.json</c> next to this project (see testsettings.sample.json; git-ignored). Each test works in a

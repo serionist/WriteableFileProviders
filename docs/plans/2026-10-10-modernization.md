@@ -1862,6 +1862,28 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     Left for the final review: `StorageClassForNewFiles` in its 2026 object form is ignored without an error by
     `FromConfiguration` (as in 2026).
 
+- **2026-10-11, S12 part 2, docs, review round 1 (PR #40, read at `432771e`):** needs-fixes, one major; the rest of the
+  docs confirmed (every matrix cell but the gateway column's, D28, the S3 endpoint rule, Physical's links, the
+  constructors, the options, the gateway, all 24 code samples compiled, the metadata and links). Fixed:
+  - **F1 (major, build):** a stable release could not pack. The upper bound's `-0` makes NuGet raise NU5104 (a stable
+    package with a prerelease dependency), an error with warnings as errors, so `v2027.0.0` would have failed in
+    `release.yml`. `src/Directory.Build.targets` suppresses NU5104, saying why: the `-0` is only the exclusive upper
+    bound. `ci.yml`'s Linux job now packs the commit's version without its prerelease suffix
+    (`MinVerVersionOverride`) into a folder of its own and runs the package check on it, so a stable pack is proven on
+    every PR. Checked: the stable pack failed before the fix and passes after it, its nuspecs say
+    `[2027.0.0, 2028.0.0-0)`, and actionlint 1.7.12 with shellcheck finds nothing in `ci.yml`.
+  - **F2:** mixing majors from 2027 on gives NU1608 or fails the restore (NU1107); the 2026.10.10.x providers carry no
+    upper bound, so nothing warns there.
+  - **F3, F4 (this plan):** the S0 patch is published (Common 2026.10.10.6, AmazonS3 2026.10.10.3, every provider again
+    on it); the advisory names those versions; a decision whether to bound the 2026 providers below Common 2027; the
+    unlist item names every version nuget.org has before the 2026.10.10 line; the review list names #17, #22 (which
+    lowered two branch floors), #25 to #30 and #32; private vulnerability reporting is under "Security, now".
+  - **F5 to F11 and the nits:** the gateway column (upload URLs with a file name, GCS under one second), GCS's
+    `ProjectId`, Physical's followed links in the path promise, a non-obsolete `ManagedIdentityCredential`, Box's
+    `IfMatch` without a promised date, `LocalFileStream`'s internal constructor for a provider of your own, the
+    serializer's options-only constructor, and smaller wording; two plan ids left the Azure provider's XML docs.
+  - Left for the final PR (N1): S3's FIPS host names (`s3-fips`) as S3's own.
+
 ### For the maintainers
 
 What this session cannot do, in the order to do it: first what closes a security exposure, then the review of what

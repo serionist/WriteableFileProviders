@@ -2,9 +2,13 @@
 
   <PropertyGroup>
     <PackageId>WriteableFileProviders.GoogleCloudStorage</PackageId>
-    <Description>WriteableFileProviders for Google Cloud Storage: a writeable IFileProvider over a bucket.</Description>
-    <WfpLegacy>true</WfpLegacy>
+    <Description>WriteableFileProviders for Google Cloud Storage: a writeable IFileProvider over a bucket, with ranged reads, generation preconditions and V4 signed URLs.</Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Google.Cloud.Storage.V1" />
@@ -15,7 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="WriteableFileProviders.Tests" />
+    <InternalsVisibleTo Include="WriteableFileProviders.GoogleCloudStorage.Tests" />
   </ItemGroup>
 
 </Project>

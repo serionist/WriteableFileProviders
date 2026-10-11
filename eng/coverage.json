@@ -4,7 +4,7 @@
   "WriteableFileProviders.AzureBlob": { "lines": 80, "branches": 65 },
   "WriteableFileProviders.Box": { "lines": 72, "branches": 61 },
   "WriteableFileProviders.Common": { "lines": 95, "branches": 90 },
-  "WriteableFileProviders.GoogleCloudStorage": { "lines": 27, "branches": 14 },
+  "WriteableFileProviders.GoogleCloudStorage": { "lines": 98, "branches": 94 },
   "WriteableFileProviders.Minio": { "lines": 93, "branches": 70 },
   "WriteableFileProviders.Physical": { "lines": 98, "branches": 86 },
   "WriteableFileProviders.SharePoint": { "lines": 20, "branches": 15 }

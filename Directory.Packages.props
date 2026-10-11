@@ -21,7 +21,7 @@
     <PackageVersion Include="Azure.Identity" Version="1.21.0" />
     <PackageVersion Include="Azure.Storage.Blobs" Version="12.23.0" />
     <PackageVersion Include="Box.V2.Core" Version="5.8.0" />
-    <PackageVersion Include="Google.Cloud.Storage.V1" Version="4.15.0" />
+    <PackageVersion Include="Google.Cloud.Storage.V1" Version="5.0.0" />
     <PackageVersion Include="Microsoft.Graph" Version="5.85.0" />
     <!-- 3.2.6 is unlisted, but it is the only 3.x that brings Kiota 1.22, which fixes GHSA-7j59-v9qr-6fq9. It goes with
          the move to Microsoft.Graph 6. -->
@@ -45,6 +45,7 @@
     <PackageVersion Include="Microsoft.Testing.Extensions.TrxReport" Version="2.5.1" />
     <PackageVersion Include="Testcontainers" Version="4.16.0" />
     <PackageVersion Include="Testcontainers.Azurite" Version="4.16.0" />
+    <PackageVersion Include="Testcontainers.FakeGcsServer" Version="4.16.0" />
   </ItemGroup>
 
 </Project>

@@ -260,7 +260,8 @@ public abstract partial class WriteableFileProvider<TOptions>
 
     /// <summary>
     /// Copies the file to a local temp file and opens it, uploading on commit unless read-only. The default spools through
-    /// <see cref="ReadFileCoreAsync"/> and commits with <see cref="UpdateFileCoreAsync"/>.
+    /// <see cref="ReadFileCoreAsync"/> and commits with <see cref="UpdateFileCoreAsync"/>, keeping the content type the
+    /// file had when it was opened.
     /// </summary>
     /// <param name="path">The file.</param>
     /// <param name="readOnly">Whether the stream is read-only.</param>
@@ -284,8 +285,10 @@ public abstract partial class WriteableFileProvider<TOptions>
             {
                 throw NotFound(path);
             }
+            // Editing a file does not change what it is: the commit keeps its content type.
+            var commit = info.ContentType is { } contentType ? new UpdateFileOptions { ContentType = contentType } : UpdateFileOptions.Overwrite;
             return new LocalFileStream(temp, this, path.Path, readOnly,
-                readOnly ? null : (content, token) => UpdateWithPreconditionsAsync(path, content, UpdateFileOptions.Overwrite, token));
+                readOnly ? null : (content, token) => UpdateWithPreconditionsAsync(path, content, commit, token));
         }
         catch
         {
@@ -326,8 +329,8 @@ public abstract partial class WriteableFileProvider<TOptions>
     /// Appends by rewriting, for a store with no native append: the existing content and <paramref name="contents"/> are
     /// spooled to a temp file, which then replaces the file with <see cref="UpdateFileOptions.IfMatch"/> on the version
     /// that was read, so a concurrent change throws <see cref="PreconditionFailedException"/> instead of being lost. It
-    /// needs the file's <see cref="IWriteableFileInfo.ETag"/>: an existing file without one throws
-    /// <see cref="NotSupportedException"/>.
+    /// keeps the file's content type unless the caller gives one. It needs the file's
+    /// <see cref="IWriteableFileInfo.ETag"/>: an existing file without one throws <see cref="NotSupportedException"/>.
     /// </summary>
     /// <param name="path">The file.</param>
     /// <param name="contents">The content to add.</param>
@@ -360,6 +363,8 @@ public abstract partial class WriteableFileProvider<TOptions>
                 Mode = UpdateFileMode.Overwrite,
                 IfMatch = info.Exists ? info.ETag : null,
                 IfNotExists = !info.Exists,
+                // An append does not change what the file is.
+                ContentType = options.ContentType ?? info.ContentType,
             };
             await UpdateWithPreconditionsAsync(path, temp, rewrite, cancellationToken).ConfigureAwait(false);
         }

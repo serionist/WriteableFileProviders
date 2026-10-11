@@ -23,5 +23,6 @@
     <Project Path="tests/WriteableFileProviders.Common.Tests/WriteableFileProviders.Common.Tests.csproj" />
     <Project Path="tests/WriteableFileProviders.Tests/WriteableFileProviders.Tests.csproj" />
     <Project Path="tests/WriteableFileProviders.AspNetCore.Tests/WriteableFileProviders.AspNetCore.Tests.csproj" />
+    <Project Path="tests/WriteableFileProviders.GoogleCloudStorage.Tests/WriteableFileProviders.GoogleCloudStorage.Tests.csproj" />
   </Folder>
 </Solution>

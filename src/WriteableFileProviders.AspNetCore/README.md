@@ -18,11 +18,16 @@ dotnet add package WriteableFileProviders.AspNetCore
 ```
 
 ```csharp
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using WriteableFileProviders;
 using WriteableFileProviders.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme).AddCookie();   // or your own scheme
+builder.Services.AddAuthorization();
+builder.Services.AddSingleton<IReportAccess, ReportAccess>();
 builder.Services.AddWriteableFileProvider("files", builder.Configuration.GetSection("Files"));
 builder.Services.AddWriteableFileProviderGateway(options =>
 {
@@ -51,9 +56,20 @@ app.MapGet("/reports/{id}/link", async (string id, ClaimsPrincipal user, IReport
 }).RequireAuthorization();
 
 app.Run();
+
+// Your own rule for who may read which report.
+interface IReportAccess
+{
+    Task<bool> CanReadAsync(ClaimsPrincipal user, string id);
+}
+
+sealed class ReportAccess : IReportAccess
+{
+    public Task<bool> CanReadAsync(ClaimsPrincipal user, string id) => Task.FromResult(user.IsInRole("reports"));
+}
 ```
 
-`IReportAccess` stands for your own check that this user may see this report. The gateway's URLs need no sign-in:
+`ReportAccess` stands for your own check that this user may see this report. The gateway's URLs need no sign-in:
 whoever holds one can use it until it expires, so the endpoint that hands them out is where access is decided.
 
 An upload URL works the same way: `Permission = SignedUrlAccess.Create` (only if the file does not exist yet) or

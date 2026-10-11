@@ -13,12 +13,15 @@ namespace WriteableFileProviders.AspNetCore;
 /// <param name="provider">The provider.</param>
 /// <param name="path">The file.</param>
 /// <param name="length">The file's length, as read with <paramref name="etag"/>.</param>
-/// <param name="etag">The version to pin.</param>
+/// <param name="etag">
+/// The version to pin, or null for a store that keeps none: the gateway then serves the file whole, without ranges, so it
+/// is read once from the start.
+/// </param>
 /// <param name="window">
 /// The span a single HTTP range asks for: a read that starts inside it opens a range that ends where it ends, so the store
 /// sends no more than is served. Null opens every range to the end of the file.
 /// </param>
-internal sealed class PinnedRangeStream(IWriteableFileProvider provider, ProviderPath path, long length, string etag, (long Start, long End)? window) : Stream
+internal sealed class PinnedRangeStream(IWriteableFileProvider provider, ProviderPath path, long length, string? etag, (long Start, long End)? window) : Stream
 {
     private Stream? _source;
     private long _sourcePosition;

@@ -205,7 +205,6 @@ public sealed class GatewayReadTests
         Assert.AreEqual("attachment", response.Content.Headers.ContentDisposition?.DispositionType);
     }
 
-
     [TestMethod]
     public async Task Get_FileDeletedAfterTheUrlWasIssued_Answers404()
     {
@@ -259,9 +258,22 @@ public sealed class GatewayReadTests
         Assert.AreEqual(0, response.Headers.AcceptRanges.Count);
         Assert.IsNull(response.Headers.ETag);
         Assert.AreEqual("attachment", response.Content.Headers.ContentDisposition?.DispositionType);
-        Assert.AreEqual(1, host.Files.FileReads);
-        Assert.AreEqual(0, host.Files.RangeReads.Count);
+        Assert.AreEqual(10, response.Content.Headers.ContentLength);
+        CollectionAssert.AreEqual(new (long, long?)[] { (0, 10) }, host.Files.RangeReads.ToArray());
         Assert.IsTrue(await host.Files.AllStreamsDisposedAsync());
+    }
+
+    [TestMethod]
+    public async Task Head_ProviderThatCannotPin_ReadsNothing()
+    {
+        await using var host = await GatewayHost.StartAsync(canPin: false);
+        await host.WriteAsync("doc.txt", "0123456789");
+
+        using var response = await host.Client.SendAsync(new HttpRequestMessage(HttpMethod.Head, await host.UrlAsync("doc.txt")));
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        Assert.AreEqual(10, response.Content.Headers.ContentLength);
+        Assert.AreEqual(0, host.Files.RangeReads.Count + host.Files.FileReads);
     }
 
     [TestMethod]
@@ -330,7 +342,7 @@ public sealed class GatewayReadTests
         }
         Assert.AreEqual(1, _host.Files.RangeReads.Count);
 
-        // A range whose If-Range no longer matches is served whole: the read reaches past the range's span.
+        // A range whose If-Range no longer matches is served whole, in one read of the whole file.
         using (var stale = new HttpRequestMessage(HttpMethod.Get, url))
         {
             stale.Headers.Range = new RangeHeaderValue(2, 4);
@@ -339,13 +351,27 @@ public sealed class GatewayReadTests
             Assert.AreEqual(HttpStatusCode.OK, whole.StatusCode);
             Assert.AreEqual("0123456789", await whole.Content.ReadAsStringAsync());
         }
+        Assert.AreEqual((0L, (long?)10L), _host.Files.RangeReads.Last());
+
+        // One whose If-Range matches reads just its span.
+        using (var current = new HttpRequestMessage(HttpMethod.Get, url))
+        {
+            current.Headers.Range = new RangeHeaderValue(2, 4);
+            current.Headers.IfRange = new RangeConditionHeaderValue(etag);
+            using var partial = await _host.Client.SendAsync(current);
+            Assert.AreEqual(HttpStatusCode.PartialContent, partial.StatusCode);
+            Assert.AreEqual("234", await partial.Content.ReadAsStringAsync());
+        }
+        Assert.AreEqual((2L, (long?)3L), _host.Files.RangeReads.Last());
         Assert.IsTrue(await _host.Files.AllStreamsDisposedAsync());
     }
 
     [TestMethod]
-    public async Task Get_ProviderThatCannotPin_FileGoneBeforeItIsRead_Answers404()
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task Get_FileGoneBeforeItIsRead_Answers404(bool canPin)
     {
-        await using var host = await GatewayHost.StartAsync(canPin: false);
+        await using var host = await GatewayHost.StartAsync(canPin: canPin);
         await host.WriteAsync("doc.txt", "x");
         var url = await host.UrlAsync("doc.txt");
         host.Files.AfterGetFileInfo = async () => await host.Provider().DeleteAsync("doc.txt");
@@ -353,6 +379,11 @@ public sealed class GatewayReadTests
         using var response = await host.Client.GetAsync(url);
 
         Assert.AreEqual(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.AreEqual(0, (await response.Content.ReadAsByteArrayAsync()).Length);
+        Assert.AreEqual("default-src 'none'; sandbox", Single(response, "Content-Security-Policy"));
+        Assert.AreEqual("nosniff", Single(response, "X-Content-Type-Options"));
+        Assert.IsNull(response.Content.Headers.ContentDisposition);
+        Assert.IsTrue(await host.Files.AllStreamsDisposedAsync());
     }
 
     [TestMethod]

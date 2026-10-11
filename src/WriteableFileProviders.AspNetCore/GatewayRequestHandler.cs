@@ -54,23 +54,17 @@ internal sealed class GatewayRequestHandler(GatewayTokenCodec codec, IGatewayRep
 
         if (info.ETag is not { } version)
         {
-            // The store keeps no version of the file, so nothing can pin a read: serve it whole, without ranges or an ETag.
-            Stream whole;
-            try
-            {
-                whole = await provider.ReadFileAsync(path, cancellationToken).ConfigureAwait(false);
-            }
-            catch (FileNotFoundException)
-            {
-                return Results.NotFound();
-            }
-            return Results.Stream(whole, contentType, fileName, lastModified, entityTag: null, enableRangeProcessing: false);
+            // The store keeps no version of the file, so nothing can pin a read: serve it whole, without ranges or an ETag,
+            // in one read from the start, opened only when the body is written (a HEAD reads nothing).
+            var whole = new PinnedRangeStream(provider, path, info.Length, etag: null, window: null);
+            return new NotFoundIfGoneResult(Results.Stream(whole, contentType, fileName, lastModified, entityTag: null, enableRangeProcessing: false));
         }
 
         // One ranged read of the store per contiguous span, pinned to the version read above: the whole file or one HTTP
         // range costs one request, and a file that changes meanwhile fails the response rather than mixing versions.
-        var stream = new PinnedRangeStream(provider, path, info.Length, version, RangeWindow(context.Request, info.Length));
-        return Results.Stream(stream, contentType, fileName, lastModified, EntityTag(version), enableRangeProcessing: true);
+        var entityTag = EntityTag(version);
+        var stream = new PinnedRangeStream(provider, path, info.Length, version, RangeWindow(context.Request, info.Length, entityTag, lastModified));
+        return new NotFoundIfGoneResult(Results.Stream(stream, contentType, fileName, lastModified, entityTag, enableRangeProcessing: true));
     }
 
     /// <summary>PUT: stores the body, creating the file only if absent (Create) or replacing it (Write).</summary>
@@ -128,7 +122,7 @@ internal sealed class GatewayRequestHandler(GatewayTokenCodec codec, IGatewayRep
     private static IWriteableFileProvider? ProviderFor(HttpContext context, GatewayToken token) =>
         context.RequestServices.GetKeyedService<IWriteableFileProvider>(token.ProviderName);
 
-    private static void SetSecurityHeaders(HttpResponse response)
+    internal static void SetSecurityHeaders(HttpResponse response)
     {
         // A response is never a document: no script, style or plugin runs from it, even when a browser renders it.
         response.Headers.ContentSecurityPolicy = "default-src 'none'; sandbox";
@@ -155,14 +149,20 @@ internal sealed class GatewayRequestHandler(GatewayTokenCodec codec, IGatewayRep
 
     /// <summary>
     /// The span of the file a request's single <c>Range</c> asks for, as a hint for how far the first read reaches; null
-    /// when there is none, or several. ASP.NET Core decides what is served: a read outside the hint opens another range.
+    /// when there is none, or several, or when an <c>If-Range</c> does not match, so the whole file is served. ASP.NET
+    /// Core decides what is served: a read outside the hint opens another range.
     /// </summary>
     /// <param name="request">The request.</param>
     /// <param name="length">The file's length.</param>
-    internal static (long Start, long End)? RangeWindow(HttpRequest request, long length)
+    /// <param name="entityTag">The file's entity tag, as sent.</param>
+    /// <param name="lastModified">The file's last-modified time, as sent.</param>
+    internal static (long Start, long End)? RangeWindow(HttpRequest request, long length, EntityTagHeaderValue? entityTag, DateTimeOffset? lastModified)
     {
-        var range = request.GetTypedHeaders().Range;
+        var headers = request.GetTypedHeaders();
+        var range = headers.Range;
         if (range is null || !string.Equals(range.Unit.Value, "bytes", StringComparison.OrdinalIgnoreCase) || range.Ranges.Count != 1)
+            return null;
+        if (headers.IfRange is { } ifRange && !IfRangeMatches(ifRange, entityTag, lastModified))
             return null;
         var item = range.Ranges.First();
         long start, end;
@@ -177,6 +177,15 @@ internal sealed class GatewayRequestHandler(GatewayTokenCodec codec, IGatewayRep
             end = length - 1;
         }
         return start <= end ? (start, end) : null;
+    }
+
+    // As ASP.NET Core judges it: a date no earlier than the file's last change (HTTP dates carry whole seconds), or an
+    // entity tag compared strongly; with nothing sent to compare against, the range stands.
+    private static bool IfRangeMatches(RangeConditionHeaderValue ifRange, EntityTagHeaderValue? entityTag, DateTimeOffset? lastModified)
+    {
+        if (ifRange.LastModified is { } date)
+            return lastModified is not { } modified || new DateTimeOffset(modified.UtcTicks - modified.UtcTicks % TimeSpan.TicksPerSecond, TimeSpan.Zero) <= date;
+        return entityTag is null || ifRange.EntityTag is not { } tag || tag.Compare(entityTag, useStrongComparison: true);
     }
 
     private static string? ValidContentType(string? contentType) =>

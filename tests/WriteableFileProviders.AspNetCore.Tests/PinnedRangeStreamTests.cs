@@ -151,10 +151,42 @@ public sealed class PinnedRangeStreamTests
         if (header is not null)
             context.Request.Headers.Range = header;
 
-        var window = GatewayRequestHandler.RangeWindow(context.Request, length);
+        var window = GatewayRequestHandler.RangeWindow(context.Request, length, null, null);
 
         Assert.AreEqual(start, window?.Start);
         Assert.AreEqual(end, window?.End);
+    }
+
+    [TestMethod]
+    [DataRow("\"v1\"", "\"v1\"", null, true)]
+    [DataRow("\"v2\"", "\"v1\"", null, false)]
+    [DataRow("W/\"v1\"", "\"v1\"", null, false)]
+    [DataRow("\"v1\"", null, null, true)]
+    [DataRow("Tue, 01 Jan 2030 00:00:00 GMT", "\"v1\"", "2030-01-01T00:00:00.9Z", true)]
+    [DataRow("Tue, 01 Jan 2030 00:00:00 GMT", "\"v1\"", "2030-01-01T00:00:01Z", false)]
+    [DataRow("Tue, 01 Jan 2030 00:00:00 GMT", "\"v1\"", null, true)]
+    public void RangeWindow_IsNull_WhenIfRangeDoesNotMatch(string ifRange, string? etag, string? lastModified, bool kept)
+    {
+        var context = new DefaultHttpContext();
+        context.Request.Headers.Range = "bytes=2-4";
+        context.Request.Headers.IfRange = ifRange;
+
+        var window = GatewayRequestHandler.RangeWindow(
+            context.Request, 10,
+            etag is null ? null : Microsoft.Net.Http.Headers.EntityTagHeaderValue.Parse(etag),
+            lastModified is null ? null : DateTimeOffset.Parse(lastModified, System.Globalization.CultureInfo.InvariantCulture));
+
+        Assert.AreEqual(kept, window is not null);
+    }
+
+    [TestMethod]
+    public async Task WithoutAPin_ReadsOnceFromTheStart()
+    {
+        await using var stream = new PinnedRangeStream(_files, "doc.txt", 10, null, null);
+        await _files.UpdateFileAsync("doc.txt", TestStreams.Text("abcdefghij"));
+
+        Assert.AreEqual("abcdefghij", await ReadAsync(stream, 20));
+        CollectionAssert.AreEqual(new (long, long?)[] { (0, 10) }, _files.RangeReads.ToArray());
     }
 
     private PinnedRangeStream Open((long, long)? window = null) => new(_files, "doc.txt", 10, _etag, window);

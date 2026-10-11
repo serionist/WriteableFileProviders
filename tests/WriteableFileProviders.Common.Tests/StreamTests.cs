@@ -102,53 +102,6 @@ public sealed class StreamTests
     }
 
     [TestMethod]
-    public async Task BoundedReadStream_StopsAtItsLength()
-    {
-        var inner = new MemoryStream(Encoding.UTF8.GetBytes("0123456789"));
-        await using var bounded = new BoundedReadStream(inner, 4);
-        Assert.IsTrue(bounded.CanRead);
-        Assert.IsFalse(bounded.CanSeek);
-        Assert.IsFalse(bounded.CanWrite);
-        var buffer = new byte[10];
-        Assert.AreEqual(4, await bounded.ReadAsync(buffer.AsMemory(0, 10)));
-        Assert.AreEqual(0, await bounded.ReadAsync(buffer));
-        Assert.AreEqual("0123", Encoding.UTF8.GetString(buffer, 0, 4));
-        Assert.ThrowsExactly<NotSupportedException>(() => bounded.Length);
-        Assert.ThrowsExactly<NotSupportedException>(() => bounded.Position);
-        Assert.ThrowsExactly<NotSupportedException>(() => bounded.Position = 1);
-        Assert.ThrowsExactly<NotSupportedException>(() => bounded.Seek(0, SeekOrigin.Begin));
-        Assert.ThrowsExactly<NotSupportedException>(() => bounded.SetLength(1));
-        Assert.ThrowsExactly<NotSupportedException>(() => bounded.Write([1], 0, 1));
-        bounded.Flush();
-    }
-
-    [TestMethod]
-    public void BoundedReadStream_ReadsSynchronouslyAndDisposesItsInnerStream()
-    {
-        var inner = new MemoryStream(Encoding.UTF8.GetBytes("0123456789"));
-        var bounded = new BoundedReadStream(inner, 3);
-        var buffer = new byte[10];
-        Assert.AreEqual(3, bounded.Read(buffer, 0, 10));
-        Assert.AreEqual(0, bounded.Read(buffer, 0, 10));
-        bounded.Dispose();
-        Assert.IsFalse(inner.CanRead);
-    }
-
-    [TestMethod]
-    public async Task SkipAsync_SkipsByReadingWhenTheStreamCannotSeek()
-    {
-        var failing = new FailingStream(Encoding.UTF8.GetBytes("0123456789"));
-        await StreamUtilities.SkipAsync(failing, 4, default);
-        Assert.AreEqual(4, failing.Position);
-        await StreamUtilities.SkipAsync(failing, 0, default);
-        var seekable = new MemoryStream(new byte[5]);
-        await StreamUtilities.SkipAsync(seekable, 50, default);
-        Assert.AreEqual(5, seekable.Position);
-        var ended = new BoundedReadStream(new MemoryStream(new byte[3]), 3);
-        await StreamUtilities.SkipAsync(ended, 50, default);
-    }
-
-    [TestMethod]
     public void TempFile_IsOwnerOnlyOnUnixAndDeletedOnDispose()
     {
         string name;

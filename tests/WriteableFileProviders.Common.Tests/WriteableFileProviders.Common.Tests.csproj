@@ -11,6 +11,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The tests of the download stream this package compiles its own copy of (src/Shared). -->
+    <Compile Include="..\Shared\SliceReadStreamTests.cs" Link="Shared\SliceReadStreamTests.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\WriteableFileProviders.Testing\WriteableFileProviders.Testing.csproj" />
     <!-- The configuration-shape tests read every provider's options. -->
     <ProjectReference Include="..\..\src\WriteableFileProviders.AmazonS3\WriteableFileProviders.AmazonS3.csproj" />

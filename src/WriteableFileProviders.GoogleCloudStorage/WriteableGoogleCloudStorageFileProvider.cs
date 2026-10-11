@@ -572,10 +572,13 @@ public sealed class WriteableGoogleCloudStorageFileProvider : WriteableFileProvi
             {
                 case HttpStatusCode.OK or HttpStatusCode.PartialContent:
                     var body = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-                    // A whole object for a ranged request: the server ignored the range (a transcoded object).
+                    // A whole object for a ranged request: the server ignored the range (a transcoded object), so the
+                    // stream skips to the offset and stops after the length.
                     var ignored = ranged && response.StatusCode == HttpStatusCode.OK;
+                    var skip = ignored ? offset : 0;
+                    var limit = ignored ? length : null;
                     owned = true;
-                    return new ResponseReadStream(response, body, ignored ? offset : 0, ignored ? length : null);
+                    return new SliceReadStream(body, skip, limit, response, KnownLength(response, skip, limit));
                 case HttpStatusCode.RequestedRangeNotSatisfiable:
                     return Stream.Null;
                 case HttpStatusCode.PreconditionFailed when generation is { } pinned:
@@ -591,6 +594,15 @@ public sealed class WriteableGoogleCloudStorageFileProvider : WriteableFileProvi
             if (!owned)
                 response.Dispose();
         }
+    }
+
+    // How many bytes a download returns, when the response says its length: what is left after the skip, up to the limit.
+    private static long? KnownLength(HttpResponseMessage response, long skip, long? limit)
+    {
+        if (response.Content.Headers.ContentLength is not { } contentLength)
+            return null;
+        var available = Math.Max(0, contentLength - skip);
+        return limit is { } max ? Math.Min(max, available) : available;
     }
 
     private async Task<StorageObject> CopyAsync(State state, ResolvedPath source, ResolvedPath destination, long? sourceGeneration, CancellationToken cancellationToken)

@@ -104,15 +104,15 @@ public abstract partial class WriteableFileProvider<TOptions>
             if (!string.Equals(info.ETag, ifMatch, StringComparison.Ordinal))
                 throw new PreconditionFailedException($"The file '{path}' changed: its version is no longer '{ifMatch}'.");
         }
-        var stream = await ReadFileCoreAsync(path, cancellationToken).ConfigureAwait(false);
+        var slice = new SliceReadStream(await ReadFileCoreAsync(path, cancellationToken).ConfigureAwait(false), offset, length);
         try
         {
-            await StreamUtilities.SkipAsync(stream, offset, cancellationToken).ConfigureAwait(false);
-            return length is { } count ? new BoundedReadStream(stream, count) : stream;
+            await slice.SkipAsync(cancellationToken).ConfigureAwait(false);
+            return slice;
         }
         catch
         {
-            await stream.DisposeAsync().ConfigureAwait(false);
+            await slice.DisposeAsync().ConfigureAwait(false);
             throw;
         }
     }

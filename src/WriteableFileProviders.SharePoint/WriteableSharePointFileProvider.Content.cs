@@ -98,11 +98,11 @@ public sealed partial class WriteableSharePointFileProvider
             {
                 case HttpStatusCode.OK:
                     // The service may ignore a range it cannot serve and send the whole file.
-                    var whole = new DownloadStream(response, await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false), length);
-                    await whole.SkipAsync(offset, cancellationToken).ConfigureAwait(false);
+                    var whole = new SliceReadStream(await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false), offset, length, response);
+                    await whole.SkipAsync(cancellationToken).ConfigureAwait(false);
                     return whole;
                 case HttpStatusCode.PartialContent when !ranged || response.Content.Headers.ContentRange?.From == offset:
-                    return new DownloadStream(response, await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false), length);
+                    return new SliceReadStream(await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false), 0, length, response);
                 case HttpStatusCode.PartialContent:
                     throw new IOException($"Reading '{path}' failed: the service sent another range than the one asked.");
                 case HttpStatusCode.RequestedRangeNotSatisfiable:

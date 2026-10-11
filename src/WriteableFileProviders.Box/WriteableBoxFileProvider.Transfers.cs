@@ -206,7 +206,7 @@ public sealed partial class WriteableBoxFileProvider
         if (!ranged)
             return body;
         // 206 is the range; any other success is the whole file, which the stream then skips into.
-        return new SliceStream(body, response.Status == 206 ? 0 : offset, count);
+        return new SliceReadStream(body, response.Status == 206 ? 0 : offset, count);
     }
 
     private async Task<string> GetDownloadUrlAsync(ResolvedPath path, Entry file, CancellationToken cancellationToken)

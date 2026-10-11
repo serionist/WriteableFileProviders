@@ -530,7 +530,7 @@ Each step is an issue under #3, a branch `<issue>-<slug>`, and a PR that builds 
 | S9 SharePoint | #13 | #28 | The SharePoint row, with the Graph fake; its live run is outstanding for the maintainers (D21). | F4 F6 F7 F8 F11 F13 F17–F21 F26 F39 F43 F49 F53 F62 F66 F70 F74 F77 | done (#28, 70e3f74); live suite not run (D21) |
 | S10 Box | #14 | #25 | The Box row, with the Box fake; its live run is outstanding for the maintainers (D21). | F4 F6 F11 F13 F17–F21 F25 F32 F53 F63 F67 F74 F77, Box's part of F56 | done (#25, 3ce3b89); live suites not run (D21) |
 | S11 AspNetCore gateway | #15 | #24 | The new package, the URL service, endpoints, the gateway tests and defaults (D22, P13, P27); its README, migration entry and AGENTS.md entry; whether the token purpose string and URL shape are a one-way door (they are: tokens issued by one version must redeem on the next minor; recorded under One-way doors in AGENTS.md). | F11 | done (#24, bce935c) |
-| S12 Docs, CI, launch prep | #16 | #31; part 2: #41 (`16-harmonize`) and the PR of `16-docs` | The root README, the migration guide's final pass, CONTRIBUTING, SECURITY, AGENTS.md and REVIEW.md, codeql, dependabot, `live.yml`, the release workflow, every floor at 90% or more, a check that no project sets `WfpLegacy`, the removal of the `[Obsolete]` 2026 helpers in Common (`GetRelativeSegments`, `IsRootPath`, `NormalizePem`, which Box and GCS take over), the PublicAPI files, and a final deep `review-code` of the whole repo. | F12 F76 | part 1 done (#31, 65cfd40: codeql, dependabot, `live.yml`, the release workflow, CONTRIBUTING, SECURITY, the issue forms). Part 2 in review, in two halves built in parallel: `16-harmonize` (D27 on Box and Physical, the live-class rule, D25 and D26 checked, the `[Obsolete]` helpers removed, no `WfpLegacy`, the old test project retired, the PublicAPI files, the floors) and `16-docs` (the root README and its provider matrix, the package READMEs and metadata, the migration guide's final pass, D28, REVIEW.md, this plan's statuses). Then the final deep `review-code` of the whole repo: todo. The packed upper bound on Common (Compatibility, P21) is done in #41 |
+| S12 Docs, CI, launch prep | #16 | #31; part 2: #41 (`16-harmonize`) and the PR of `16-docs` | The root README, the migration guide's final pass, CONTRIBUTING, SECURITY, AGENTS.md and REVIEW.md, codeql, dependabot, `live.yml`, the release workflow, every floor at 90% or more, a check that no project sets `WfpLegacy`, the removal of the `[Obsolete]` 2026 helpers in Common (`GetRelativeSegments`, `IsRootPath`, `NormalizePem`, which Box and GCS take over), the PublicAPI files, and a final deep `review-code` of the whole repo. | F12 F76 | part 1 done (#31, 65cfd40: codeql, dependabot, `live.yml`, the release workflow, CONTRIBUTING, SECURITY, the issue forms). Part 2 in two halves built in parallel: `16-harmonize` done (#41, 581e050: D27 on Box and Physical, the live-class rule, D25 and D26 checked, the `[Obsolete]` helpers removed, no `WfpLegacy`, the old test project retired, the PublicAPI files, the floors, the options first in every client constructor, `IsAddressable`) and `16-docs` in review (the root README and its provider matrix, the package READMEs and metadata, the migration guide's final pass, D28, REVIEW.md, this plan's statuses). Then the final deep `review-code` of the whole repo: todo. The packed upper bound on Common (Compatibility, P21) is done in #41 |
 
 The provider steps S5–S10 are independent once S4 is merged. They may run in parallel agents, each in its own worktree,
 touching only their provider's folders, but they merge one at a time (P41): each rebases onto main before its PR and
@@ -1889,10 +1889,11 @@ merged, the repository's settings, the live runs, and the release. Kept current 
 **Review what merged (D13):**
 
 - [ ] Review the merged PRs of #3 after the fact: #17 (S0), #18 (S1), #19 (S2), #20 and #22 (S3), #21 (plan round 2),
-  #23 (S4), #24 (S11), #25 (S10), #26 (S5), #27 (S8), #28 (S9), #29 (S6), #30 (S7), #31 (S12 part 1), the two PRs of
-  S12 part 2 and the final review's, as they merge; and Dependabot's #32 (the SDK in `global.json`). These touch the
-  harness or a one-way door: #19, #20, #23 (the Common API and the configuration shape), #24 (the gateway's URLs),
-  #31 and S12 part 2 (AGENTS.md, REVIEW.md, the workflows, D28).
+  #23 (S4), #24 (S11), #25 (S10), #26 (S5), #27 (S8), #28 (S9), #29 (S6), #30 (S7), #31 (S12 part 1), #41 (S12 part 2,
+  harmonize), the docs PR of S12 part 2 and the final review's, as they merge; and Dependabot's #32 (the SDK in
+  `global.json`). These touch the harness or a one-way door: #19, #20, #23 (the Common API and the configuration
+  shape), #24 (the gateway's URLs), #31, #41 (the client constructors, the PublicAPI files, AGENTS.md) and the docs PR
+  (AGENTS.md, REVIEW.md, D28).
 
 **The repository's settings** (Settings > Code security, and the rulesets):
 

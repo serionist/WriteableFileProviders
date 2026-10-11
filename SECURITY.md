@@ -31,7 +31,7 @@ the SDK.
 |---|---|
 | The latest major (2027.x today) | Every fix, in its next minor or patch release |
 | The previous major | Security fixes for 6 months after the next major ships (none yet: 2027 is the first) |
-| 2026.10.10.x (.NET 8) | Security fixes only, until a date the maintainers will announce here |
+| 2026.10.10.x (.NET 8) | Security fixes only, until a date the maintainers will announce here. Unlisted on nuget.org: reference it by version. |
 | Older | No: move to 2027.x, or to 2026.10.10.x on .NET 8 |
 
 Every package of a release has the same version, and an application's packages must all come from one major: a

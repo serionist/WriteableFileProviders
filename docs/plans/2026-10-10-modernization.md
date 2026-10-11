@@ -2468,6 +2468,8 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
 
 - **2026-10-11, 2027.0.0 released:** v2027.0.0-rc.2 (35cb6f4) published all nine packages to nuget.org and a GitHub prerelease, and installed from nuget.org into a fresh app that built and ran. v2027.0.0 followed on the same commit: nine packages at 2027.0.0, each provider on Common `[2027.0.0, 2028.0.0-alpha)`, and the GitHub release with the CHANGELOG section as its notes and the 18 package files. Both were approved in the `nuget` environment on @serionist's go. Package validation's baseline is now 2027.0.0 (`src/Directory.Build.props`), the runbook's last step.
 
+- **2026-10-11, the 2018–2026 versions unlisted:** at @serionist's request, every version before 2027.0.0 of the eight packages that had them, 135 in all, through an API key with the Unlist scope that the maintainer created for this and that was deleted after. Restore is unaffected: an unlisted version still installs by its version, and a range still resolves to it. The README, the migration guide and SECURITY.md tell .NET 8 apps to reference 2026.10.10.x by version. 2026.10.10.7 is not shipped. The README's table dropped its per-package version column (every package is at one version) for one version badge, and its static badges are files in `docs/assets/badges/`: right after the release, GitHub's image proxy timed out on about a third of the shields.io badges.
+
 ### For the maintainers
 
 What this session cannot do, in the order to do it: first what closes a security exposure, then the review of what
@@ -2487,14 +2489,13 @@ merged, the repository's settings, the live runs, and the release. Kept current 
   Common 2026.10.10.5 and AmazonS3 2026.10.10.2 went out before #17 merged.
 - [ ] Publish a GitHub security advisory for F1, F2 and F47, naming the fixed versions: `WriteableFileProviders.Common`
   2026.10.10.6 and `WriteableFileProviders.AmazonS3` 2026.10.10.3.
-- [ ] Decide whether to ship 2026.10.10.7 of every provider with Common pinned `[2026.10.10.6, 2027.0.0-alpha)` (not
+- [x] Decide whether to ship 2026.10.10.7 of every provider with Common pinned `[2026.10.10.6, 2027.0.0-alpha)` (not
   `-0`, which nuget.org refuses), so a 2026
   provider cannot restore against Common 2027: today's 2026.10.10.x providers carry no upper bound, so an application
   that mixes in a 2027 package gets no restore warning, only a type load failure at run time (the root README's
-  Versioning section says to update every package together).
+  Versioning section says to update every package together). Decided 2026-10-11 by @serionist: not shipped.
 
 **Review what merged (D13):**
-
 - [ ] Review the merged PRs of #3 after the fact: #17 (S0), #18 (S1), #19 (S2), #20 and #22 (S3), #21 (plan round 2),
   #23 (S4), #24 (S11), #25 (S10), #26 (S5), #27 (S8), #28 (S9), #29 (S6), #30 (S7), #31 (S12 part 1), #41 (S12 part 2,
   harmonize), the docs PR of S12 part 2 and the final review's, as they merge; and Dependabot's #32 (the SDK in

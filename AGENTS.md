@@ -16,15 +16,15 @@ and what never to do.
 | `tests/WriteableFileProviders.Testing/` | Shared test code: `ProviderConformanceTests`, the contract every provider passes, and `InMemoryFileProvider`, the reference provider that passes it. |
 | `tests/WriteableFileProviders.Common.Tests/` | Common's tests: the conformance suite on the in-memory provider, unit tests, and the configuration-shape goldens. |
 | `tests/WriteableFileProviders.AspNetCore.Tests/` | The gateway and the URL service, end to end on TestServer over the in-memory provider. |
-| `tests/WriteableFileProviders.Tests/` | The provider tests from before the modernization; each provider's rewrite moves its tests to a project of its own on the conformance suite. |
-| `tests/WriteableFileProviders.<Provider>.Tests/` | A rewritten provider's tests: the conformance suite on its store, emulator or fake, its own cases, and a `Live` suite (see Tests). |
+| `tests/WriteableFileProviders.<Provider>.Tests/` | A provider's tests: the conformance suite on its store, emulator or fake, its own cases, and a `Live` suite (see Tests). |
 | `docs/migration-2027.md` | What 2027.0.0 breaks and how to move over; each change of the release adds its part. |
 | `REVIEW.md` | The questions every review answers. |
 | `docs/plans/` | The plan of each non-trivial change, and the template (`docs/plans/README.md`). |
 | `docs/reviews/` | Reports of whole-repo or whole-folder reviews. A change's own review goes in its PR. |
 | `.claude/skills/` | The work loop: `start-work`, `review-plan`, `review-code`, `finish-work`. |
 | `WriteableFileProviders.slnx` | The solution. |
-| `Directory.Build.props`, `Directory.Build.targets` | Settings every project shares; `src/` and `tests/` add their own (packaging; test project settings). The `.targets` file holds the strictness switch. |
+| `Directory.Build.props`, `Directory.Build.targets` | Settings every project shares; `src/` and `tests/` add their own (for `src/`, packaging, the public API files, and the upper bound of a packed dependency on one of our packages, `[V, NextMajor.0.0)`; for `tests/`, test project settings). The root `.targets` file holds the strictness settings, where no project can turn them off. |
+| `src/*/PublicAPI.Shipped.txt`, `src/*/PublicAPI.Unshipped.txt` | Each package's public API, as released and as new since (see below). |
 | `Directory.Packages.props` | Every package version, once (central package management). A `.csproj` names packages without versions. |
 | `global.json`, `nuget.config` | The SDK and the test runner; the package source (nuget.org only). |
 | `eng/` | `coverage-gate.cs`, the coverage gate, and `coverage.json`, the floor of each assembly; `package-check.cs`, which checks a release's packages before they are pushed. |
@@ -34,22 +34,27 @@ and what never to do.
 | `.github/ISSUE_TEMPLATE/`, `.github/pull_request_template.md` | The bug and feature forms; the PR template. |
 | `CONTRIBUTING.md`, `SECURITY.md` | A first contribution's short path through this file; how to report a vulnerability, and the supported versions. |
 
-Every project targets `net10.0`. A project still holding code from before the modernization (#3) sets
-`<WfpLegacy>true</WfpLegacy>`, which turns off nullable analysis, implicit usings, warnings as errors and the style
-checks in the build, lowers the analysis level to the minimum and silences missing-docs warnings; its rewrite removes the
-flag. New code follows `.editorconfig` either way, and nothing reformats a file it does not
-otherwise change.
+Every project targets `net10.0` and builds strict: nullable analysis, warnings as errors, the analyzers at
+`latest-recommended` and the `.editorconfig` style enforced in the build. Code follows `.editorconfig`, and nothing
+reformats a file it does not otherwise change.
+
+Each package under `src/` declares its public API in `PublicAPI.Shipped.txt` and `PublicAPI.Unshipped.txt`
+(Microsoft.CodeAnalysis.PublicApiAnalyzers). A change to the public API updates `PublicAPI.Unshipped.txt` in the same
+change, or the build fails (RS0016 for a member missing from the files, RS0017 for a line with no member left; the code
+fix, or `dotnet format analyzers <project> --diagnostics RS0016`, writes the lines, and a shipped member that goes is
+written `*REMOVED*` followed by its line). When a release ships, starting with 2027.0.0, the lines of
+`PublicAPI.Unshipped.txt` move to `PublicAPI.Shipped.txt`, so the next change shows what it adds or removes against what
+consumers have.
 
 ## Build and test
 
 Run everything from the repo root, with a .NET 10 SDK (`global.json`).
 
 - **Once per clone:**
-  - Only for the live suites: copy `tests/WriteableFileProviders.Tests/testsettings.sample.json` to `testsettings.json`
-    next to it and fill in the accounts you own. It is git-ignored: real credentials go there and nowhere else. Nothing
-    else needs it. The Azure Blob live suite reads its own,
-    `tests/WriteableFileProviders.AzureBlob.Tests/testsettings.json` (sample next to it), or the `WFP_AZURE_*`
-    variables.
+  - Only for the live suites, and only for the accounts you own: each provider's test project reads its live settings
+    from `WFP_*` environment variables, or from a `testsettings.json` next to that project, which you copy from the
+    `testsettings.sample.json` there and fill in (see Tests, Live suites). It is git-ignored: real credentials go there
+    or in the environment, nowhere else. Nothing else needs it.
   - With Claude Code: install the C# language server its plugin runs, `dotnet tool install --global csharp-ls`. Claude
     Code asks before it loads the docs servers in `.mcp.json`; to approve them once for this clone, copy
     `.claude/settings.local.json.example` to `.claude/settings.local.json`.
@@ -71,103 +76,88 @@ Run everything from the repo root, with a .NET 10 SDK (`global.json`).
 - **CI** (`.github/workflows/ci.yml`) runs the build, the tests with coverage, the gate and the pack on Linux, where
   Docker is available and a missing emulator fails the run (`WFP_REQUIRE_DOCKER=1`), and the build and tests on Windows.
 - **Release:** a maintainer tags `v<version>` on `main`. `release.yml` builds, tests and packs, checks that every
-  package has that version (`eng/package-check.cs`), and once a maintainer approves the `nuget` environment, pushes
-  the packages to nuget.org through trusted publishing and creates the GitHub release.
+  package has that version and depends on our other packages within its major (`eng/package-check.cs`), and once a
+  maintainer approves the `nuget` environment, pushes the packages to nuget.org through trusted publishing and creates
+  the GitHub release.
 
 ### Tests
 
 `ProviderConformanceTests` (tests/WriteableFileProviders.Testing) is the contract: one test per rule of "The behaviour
 contract" in the modernization plan. A provider's test project derives a `[TestClass]` from it, says how to build the
-provider and what the store can do (real folders, case, signed URLs, the large-file size), and so runs every rule. It
-passes today against `InMemoryFileProvider` in `WriteableFileProviders.Common.Tests`; each provider joins it in its own
-step of #3, in a test project of its own:
+provider and what the store can do (real folders, case, signed URLs, the large-file size, the emulator bugs it must step
+around), and so runs every rule. Where the fixture can reach the store past the provider, it also stores files under
+names the provider refuses (`StoreRawFileAsync`), so the suite checks that listings leave them out and everything listed
+reads back (D27). `InMemoryFileProvider`, the reference provider, passes it in `WriteableFileProviders.Common.Tests`.
 
-- **Azure Blob**, `tests/WriteableFileProviders.AzureBlob.Tests`. On Azurite, which `Azurite` starts once per run through
-  Testcontainers (inconclusive without Docker, unless `WFP_REQUIRE_DOCKER=1`): `AzuriteConformanceTests`, the suite on
-  providers built from options; `AzuriteStrictConformanceTests`, the suite again over a container client whose pipeline
-  (`AzureHandler`) refuses what Azure refuses and Azurite allows (replacing an append blob, more blocks than the limit,
-  here lowered to 6); and `AzureBlobProviderTests`: 2026 append blobs, block restaging, races injected through the
-  pipeline, missing containers, signed URLs used over HTTP. Offline: `AzureBlobOptionsTests`, `SignedUrlTests`,
-  `AzureConfigurationShapeTests`. Live: `AzureBlobLiveTests`, only with `WFP_LIVE=1` (inconclusive without it) and an
-  account in the `WFP_AZURE_*` variables or in `testsettings.json` next to the project (see `testsettings.sample.json`
-  there).
-- **SharePoint**, `tests/WriteableFileProviders.SharePoint.Tests`: the suite runs offline against `GraphFake`, a stateful
-  in-memory Microsoft Graph at the end of the SDK's own HTTP pipeline, through both constructors (a caller's
-  `GraphServiceClient`, and options with a work folder). Unit tests cover the requests sent, upload sessions, races the
-  service settles, faults and the options; `SharePointConfigurationShapeTests` adds the 2027 sign-in keys to the
-  configuration-shape checks. `SharePointLiveTests` (`Live`) runs the suite against a real library: it is
-  inconclusive without `WFP_LIVE=1`, and with it fails, naming what is missing, unless an account is configured in the
-  `WFP_SHAREPOINT_*` variables or a `testsettings.json` next to its project (`testsettings.sample.json` lists the
-  keys).
-- **Physical**, `tests/WriteableFileProviders.Physical.Tests`: `PhysicalConformanceTests` runs the suite on the local
-  disk, under a temp folder of its own that the class deletes when it ends; `PhysicalProviderTests` and
-  `PhysicalOptionsTests` cover the temp files, the races, the rules that differ by OS and the stored root forms.
-  `PhysicalLiveTests` (`Live`) runs the suite in a folder you name, such as a network share, through
-  `WFP_PHYSICAL_ROOT` or `PhysicalFileProvider_RootPath` in a `testsettings.json` next to that project; it is not in
-  `live.yml`. CI runs the project on Linux and Windows.
+Each package has a test project of its own, `tests/WriteableFileProviders.<Package>.Tests`:
 
-`WriteableFileProviders.AspNetCore.Tests` runs the gateway end to end on TestServer (`Microsoft.AspNetCore.TestHost`),
-with ephemeral Data Protection keys, over `InMemoryFileProvider` and a delegating provider that signs no URLs natively
-or keeps no version to pin; it needs no outside service. It covers every token refusal (tampered, expired, wrong
-purpose, provider or access, `..` and out-of-root payloads), one-time tokens under concurrent `PUT`s, ranges and
-headers, the size cap and content type of uploads, the URL service's choice between native and gateway URLs, the
-options, and the app pipeline (HTTP logging, output caching, a fallback authorization policy).
-`GatewayTokenGoldenTests` pins the gateway's one-way door with tokens issued by a test-only key: they are never
-regenerated.
+- **Common:** the conformance suite on the in-memory provider (twice: as an object store, and case-insensitive with
+  fixed-lifetime URLs as Box and SharePoint are), the base class, the path rules, the serializer, and the configuration
+  shape: `ConfigurationShapeTests` pins that one-way door with the files in `Serialization/Golden/`. `Writeable*.json`
+  were written by the 2026.10.10.x serializer and are never regenerated; `Lenient.*.json` and `Config.*.json` are
+  hand-written inputs the 2026.10.10.x readers accept (JSON and configuration), which every later reader must accept
+  too. A provider's own project may add checks on the same files (`AzureConfigurationShapeTests`,
+  `SharePointConfigurationShapeTests`).
+- **AspNetCore:** the gateway end to end on TestServer (`Microsoft.AspNetCore.TestHost`), with ephemeral Data Protection
+  keys, over `InMemoryFileProvider` and a delegating provider that signs no URLs natively or keeps no version to pin; it
+  needs no outside service. It covers every token refusal (tampered, expired, wrong purpose, provider or access, `..`
+  and out-of-root payloads), one-time tokens under concurrent `PUT`s, ranges and headers, the size cap and content type
+  of uploads, the URL service's choice between native and gateway URLs, the options, and the app pipeline (HTTP logging,
+  output caching, a fallback authorization policy). `GatewayTokenGoldenTests` pins the gateway's one-way door with
+  tokens issued by a test-only key: they are never regenerated.
+- **Physical:** the suite on the local disk, under a temp folder of its own that the class deletes when it ends;
+  `PhysicalProviderTests` and `PhysicalOptionsTests` cover the temp files, the races, links, the rules that differ by OS
+  and the stored root forms. CI runs it on Linux and Windows.
+- **Azure Blob**, on Azurite: `AzuriteConformanceTests` (providers built from options) and
+  `AzuriteStrictConformanceTests` (over a container client whose pipeline, `AzureHandler`, refuses what Azure refuses
+  and Azurite allows: replacing an append blob, more blocks than the limit, here lowered to 6), and
+  `AzureBlobProviderTests` (2026 append blobs, block restaging, races injected through the pipeline, missing
+  containers, signed URLs used over HTTP); `AzureBlobOptionsTests` and `SignedUrlTests` offline.
+- **Amazon S3 and MinIO:** each runs the suite and the shared S3 behaviour tests (`tests/Shared/S3`, linked into both)
+  against S3Mock 5.2.3 and MinIO (`cgr.dev/chainguard/minio`, pinned by digest, run as root), and offline tests that
+  fake S3 behind the AWS SDK's HTTP layer. The S3Mock fixtures declare its two bugs as capabilities: an aborted
+  multipart upload deletes the object, and a multipart completion with the right `If-Match` answers 404.
+- **Google Cloud Storage**, on fake-gcs-server: `GcsConformanceTests` (through the options, with a service account key
+  generated for the run and the `Endpoint` option), `GcsClientConformanceTests` (over a `StorageClient` the test built,
+  which cannot sign) and `GcsProviderTests` (the missing bucket, bucket creation, signed URLs used for real, races and
+  server answers injected through the client's HTTP seam); `GcsOptionsTests` offline.
+- **SharePoint**, offline against `GraphFake`, a stateful in-memory Microsoft Graph at the end of the SDK's own HTTP
+  pipeline: the suite through both constructors (a caller's `GraphServiceClient`, and options with a work folder), and
+  unit tests of the requests sent, upload sessions, races the service settles, faults and the options.
+- **Box**, offline against `FakeBox`, an in-memory Box API behind the SDK's network client (`FakeNetworkClient`; the SDK
+  has no HttpClient seam): `BoxConformanceTests` (the provider as it ships, signing in through the fake's token
+  endpoint), `BoxAtomicConformanceTests` (a ready client, with the `If-Match` header on) and the unit tests.
 
-**Amazon S3 and MinIO** (`tests/WriteableFileProviders.AmazonS3.Tests`, `tests/WriteableFileProviders.Minio.Tests`):
-each runs the conformance suite and the shared S3 behaviour tests (`tests/Shared/S3`, linked into both) against S3Mock
-5.2.3 and MinIO (`cgr.dev/chainguard/minio`, pinned by digest, run as root), both started through Testcontainers, and
-offline tests that fake S3 behind the AWS SDK's HTTP layer. The S3Mock fixtures declare its two bugs as capabilities: an
-aborted multipart upload deletes the object, and a multipart completion with the right `If-Match` answers 404. Their
-live suites, `AmazonS3LiveTests` and `MinioLiveTests`, run only with `WFP_LIVE=1` and the `WFP_S3_*` or `WFP_MINIO_*`
-settings their docs list, from the environment or a `testsettings.json` next to the test project (see its
-`testsettings.sample.json`).
+**Emulators** start through Testcontainers, once per run, from each project's fixture (`Azurite`, `S3Emulators`,
+`FakeGcs`), and the containers go when the run ends. Without Docker their tests are inconclusive, not failed, unless
+`WFP_REQUIRE_DOCKER=1` (CI), which makes them fail.
 
-`TestBase`, in tests/WriteableFileProviders.Tests, is the older shared suite (create, overwrite, append, move, delete,
-listing, local stream, download URL and 100 MB tests). Every provider has moved to a project of its own, so that
-project holds no test any more; S12 deletes it. The other tests fall in three groups:
+**Live suites** are the classes marked `[TestCategory("Live")]`, which the filter above leaves out: the conformance
+suite (and, where a class says so, checks only a real service can settle) against an account you own. Every one follows
+the same rule:
 
-- **Emulator tests**, in each provider's own test project: its fixture starts the emulator once per run through
-  Testcontainers, and the container goes when the run ends. Without Docker they are inconclusive, not failed, unless
-  `WFP_REQUIRE_DOCKER=1` (CI). This project starts none any more.
-  - Google Cloud Storage against fake-gcs-server, which `FakeGcs` starts the same way, in
-    `tests/WriteableFileProviders.GoogleCloudStorage.Tests`: the conformance suite twice (`GcsConformanceTests`
-    through the options, with a service account key generated for the run and the `Endpoint` option;
-    `GcsClientConformanceTests` over a `StorageClient` the test built, which cannot sign), and `GcsProviderTests` (the
-    missing bucket, bucket creation, signed URLs used for real, and races and server answers injected through the
-    client's HTTP seam). `GcsOptionsTests` there runs offline.
-- **Live suites**, `[TestCategory("Live")]`, which the filter above leaves out: the shared suite against a real
-  account, with the credentials from `testsettings.json`. They fail without them. Run one only against an account you
-  own (`--filter "TestCategory=Live&FullyQualifiedName~<Provider>"`, with the package's name such as `AzureBlob`,
-  `GoogleCloudStorage` or `SharePoint`), and check it is clean afterwards. Google Cloud Storage's
-  (`GcsLiveConformanceTests`, and `GcsLiveAtomicityTests` for what the emulator does not enforce) run only with
-  `WFP_LIVE=1` and a bucket and service account key in `WFP_GCS_*` variables or a `testsettings.json` next to its test
-  assembly (see `GcsLive`); otherwise they are inconclusive. Azure Blob's (`AzureBlobLiveTests`) runs only with
-  `WFP_LIVE=1`, and is inconclusive without it; with it, it needs an account in the `WFP_AZURE_*` variables or a
-  `testsettings.json` next to its project, and fails without one. SharePoint's, `SharePointLiveTests`, is described
-  with its project above.
-- **Configuration shape**: `ConfigurationShapeTests`, in WriteableFileProviders.Common.Tests, pins the one-way door with
-  the files in `Serialization/Golden/` (a provider's own project may add its checks on the same files, as
-  `SharePointConfigurationShapeTests` does):
-  `Writeable*.json` were written by the 2026.10.10.x serializer and are never regenerated; `Lenient.*.json` and
-  `Config.*.json` are hand-written inputs the 2026.10.10.x readers accept (JSON and configuration), which every later
-  reader must accept too.
+- without `WFP_LIVE=1` its tests are inconclusive;
+- with it, it reads its settings from `WFP_*` environment variables, or from a `testsettings.json` next to its test
+  project (copy the `testsettings.sample.json` there, which lists the keys), and fails, naming each missing setting,
+  when the account is not configured. Each class's docs name its variables.
 
-**Box** has moved to its own project, `tests/WriteableFileProviders.Box.Tests`, and needs neither Docker nor an
-account. `BoxConformanceTests` (the provider as it ships, signing in through the fake's token endpoint) and
-`BoxAtomicConformanceTests` (a ready client, with the `If-Match` header on) run the conformance suite, and the unit
-tests run, against `FakeBox`: an in-memory Box API behind the SDK's network client (`FakeNetworkClient`; the SDK has
-no HttpClient seam). Its live suites, `BoxLiveTests`, `BoxLiveAtomicTests` and `BoxLiveChecks`, run only with
-`WFP_LIVE=1` and a Box app: `WFP_BOX_CONFIG_FILE`, the path of the app's JSON configuration from Box's developer
-console (`live.yml` writes it from the `WFP_BOX_CONFIG_JSON` secret), and optionally `WFP_BOX_ROOT_FOLDER_ID`, or a
-`testsettings.json` next to that project (from its `testsettings.sample.json`). Run them with
-`dotnet test --project tests/WriteableFileProviders.Box.Tests --filter "TestCategory=Live"`; Box keeps what they delete
-in its trash.
+Run one only against an account you own, and check it is clean afterwards:
+
+```
+WFP_LIVE=1 dotnet test --project tests/WriteableFileProviders.<Package>.Tests --filter "TestCategory=Live"
+```
+
+Each test works under a folder of its own and deletes it; Box keeps what it deletes in its trash, and SharePoint in the
+site's recycle bin. The live classes are `AzureBlobLiveTests`, `AmazonS3LiveTests`, `MinioLiveTests`,
+`GcsLiveConformanceTests` and `GcsLiveAtomicityTests` (what fake-gcs-server does not enforce), `SharePointLiveTests`,
+`BoxLiveTests`, `BoxLiveAtomicTests` and `BoxLiveChecks` (what the fake assumes), and `PhysicalLiveTests` (a folder you
+name, such as a network share). `live.yml` runs them, by hand or nightly on `main`, where their secrets are set; it
+writes Box's app configuration from the `WFP_BOX_CONFIG_JSON` secret to the file `WFP_BOX_CONFIG_FILE` names, and leaves
+Physical's out.
 
 A change to a provider runs that provider's emulator suite, or its live suite where there is no emulator (Box,
-SharePoint), and its PR says which ran, or that it did not run and why. Box's offline suite runs on top, on every
-change: a fake is no emulator, so it does not stand in for the live suite (D21).
+SharePoint), and its PR says which ran, or that it did not run and why. The offline suites of Box and SharePoint run on
+top, on every change: a fake is no emulator, so it does not stand in for the live suite (D21).
 
 ## How a change lands
 

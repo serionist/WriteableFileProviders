@@ -1,8 +1,8 @@
 # The release: pushing a tag v<version> on main builds, tests with coverage and the coverage gate, and packs every
 # package at <version> (MinVer reads the tag), checks them, pushes them to nuget.org and creates the GitHub release with
-# the packages attached. Nothing is pushed unless ci.yml concluded success on the tagged commit, which covers what this
-# workflow does not run (the Windows build and tests). A tag with a prerelease suffix (v2027.1.0-rc.1) makes a
-# prerelease on both.
+# the packages attached and the version's section of CHANGELOG.md as its notes. Nothing is pushed unless ci.yml
+# concluded success on the tagged commit, which covers what this workflow does not run (the Windows build and tests). A
+# tag with a prerelease suffix (v2027.1.0-rc.1) makes a prerelease on both. docs/releasing.md is the runbook.
 #
 # What the maintainers configure once, in this order. A workflow that names an environment creates it, unprotected, the
 # first time it runs, so the environment is protected before it holds a secret or nuget.org trusts it:
@@ -163,15 +163,40 @@ jobs:
       # Creates the release and uploads the packages to it.
       contents: write
     steps:
+      # Only CHANGELOG.md, for the notes.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: CHANGELOG.md
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: packages
           path: artifacts/packages
+      # The notes are the section of CHANGELOG.md headed with this version (## 2027.0.0, or ## [2027.0.0], with anything
+      # after it), up to the next ## heading. A prerelease without a section of its own takes its release's
+      # (v2027.0.0-rc.1 takes 2027.0.0's). Without either, GitHub generates notes from the merged pull requests.
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          prerelease=
-          case "$GITHUB_REF_NAME" in *-*) prerelease=--prerelease ;; esac
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          section() {
+            awk -v version="$1" '
+              /^## / { if (found) exit; heading = $2; gsub(/[][]/, "", heading); if (heading == version) { found = 1; next } }
+              found { print }
+            ' CHANGELOG.md
+          }
+          section "$version" > release-notes.md
+          grep -q '[^[:space:]]' release-notes.md || section "${version%%-*}" > release-notes.md
+          if grep -q '[^[:space:]]' release-notes.md; then
+            notes=(--notes-file release-notes.md)
+          else
+            echo "::warning::CHANGELOG.md has no section for $version; the release's notes are generated instead."
+            notes=(--generate-notes)
+          fi
+          prerelease=()
+          case "$GITHUB_REF_NAME" in *-*) prerelease=(--prerelease) ;; esac
           gh release create "$GITHUB_REF_NAME" artifacts/packages/*.nupkg artifacts/packages/*.snupkg \
-            --repo "$GITHUB_REPOSITORY" --verify-tag --title "$GITHUB_REF_NAME" --generate-notes $prerelease
+            --repo "$GITHUB_REPOSITORY" --verify-tag --title "$GITHUB_REF_NAME" "${notes[@]}" "${prerelease[@]}"

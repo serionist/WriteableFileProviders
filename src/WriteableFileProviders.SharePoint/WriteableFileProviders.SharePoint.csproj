@@ -2,8 +2,8 @@
 
   <PropertyGroup>
     <PackageId>WriteableFileProviders.SharePoint</PackageId>
-    <Description>WriteableFileProviders for SharePoint document libraries: a writeable IFileProvider over a library through Microsoft Graph, with upload sessions, ranged reads, server-side copies and moves, and pre-authenticated download URLs.</Description>
-    <PackageTags>$(PackageTags);sharepoint;microsoft-graph;office365;m365</PackageTags>
+    <Description>SharePoint document libraries as a writeable IFileProvider: read, write, append, list, copy and move files through IWriteableFileProvider and Microsoft Graph, with upload sessions, byte ranges, sign-in by secret, certificate or managed identity, and download URLs. The same API as the local disk, Azure Blob, Amazon S3, MinIO, Google Cloud Storage and Box providers.</Description>
+    <PackageTags>$(PackageTags);sharepoint;microsoft-graph;m365;office365;document-library</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 

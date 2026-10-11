@@ -16,13 +16,16 @@ acceptable.
 2. **One-way doors.** Does the change leave the one-way doors in `AGENTS.md` alone, or does its PR name the one it
    changes and link the issue where the maintainers agreed?
 3. **Every provider.** Is a change to Common's contract or to shared behaviour made in all seven providers, tested on
-   each that can run, with each member still meaning the same thing on every provider?
+   each that can run, with each member still meaning the same thing on every provider? Where a store does it
+   differently, does [the provider comparison](docs/guide/providers.md) say so?
 4. **Tests.** Is new behaviour covered by a test that fails without it? Is a bug fix pinned by a test that reproduced
    the bug? Do the tests clean up what they create, on disk and in the cloud?
 5. **Secrets.** No keys, tokens, passwords, connection strings or private endpoints in code, comments, settings files,
    tests or logs?
-6. **Docs.** Did the docs that describe the change move with it: the XML docs of public members, `AGENTS.md` when a
-   path, a command or a rule changed, the plan when the change departs from it?
+6. **Docs.** Did the docs that describe the change move with it: the XML docs of public members, the package README,
+   the guide page that explains the behaviour (`docs/guide/`), a line in `CHANGELOG.md` when consumers notice it, the
+   migration guide for a break, `AGENTS.md` when a path, a command or a rule changed, the plan when the change departs
+   from it?
 7. **Dependencies.** Is each new or bumped package needed, free of known advisories (the build's NuGet audit), and
    under a licence that lets consumers redistribute it?
 8. **The PR.** Does the title read as a plain imperative sentence (it becomes the commit on `main`), does the

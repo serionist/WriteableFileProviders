@@ -120,34 +120,17 @@ anything else, pass your own `IAmazonS3` (see Use).
   it.
 - **Versions:** `ReadFileVersionAsync(versionId, path)` reads a version in a bucket with versioning.
 - Nothing touches the network before the first call, which resolves the credentials (if asked) and checks the bucket.
-- **Errors** are the contract's types: S3's 401 and 403, whatever the code (`AccessDenied`, `InvalidAccessKeyId`,
-  `SignatureDoesNotMatch`, `InvalidPayer` and the like, or none, as a HEAD answers), and a session token that expired or
-  is not valid (`ExpiredToken`, `InvalidToken`, a 400), throw `UnauthorizedAccessException`, for a file delete as for a
-  folder's, except an archived object (`InvalidObjectState`, `ObjectNotInActiveTierError`) and a skewed clock
-  (`RequestTimeTooSkewed`); a bucket name another account owns, with `CreateBucketIfMissing`, or no credentials for
-  `UseDefaultCredentials` to find, `InvalidOperationException`; any other failure of S3 or the network, after the SDK's
-  retries, `IOException`: timeouts, the archived object and the skewed clock included. The SDK's `AmazonS3Exception`, or
-  what it threw, is the `InnerException`.
+- **Errors:** S3's 401 and 403, and an expired or invalid session token, throw `UnauthorizedAccessException`, and any
+  other failure of S3 or the network, after the SDK's retries, `IOException`
+  ([Errors](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/errors.md#amazon-s3) has the codes).
 
 ## Signed URLs
 
-`GetSignedUrlAsync` presigns read (GET), create (PUT with a signed `If-None-Match: *`) and write (PUT) URLs, SigV4,
-for at most 7 days. A longer validity throws `NotSupportedException`, so WriteableFileProviders.AspNetCore can issue a
-gateway URL instead.
-
-- A create URL is issued only on AWS (no `ServiceUrl`, no client with its own `ServiceURL`, and no endpoint in the
-  SDK's configuration), which enforces the `If-None-Match: *` it signs. Toward a named endpoint, a server may ignore
-  that header and let the URL overwrite a file, so a create URL throws `NotSupportedException` there, and the gateway
-  issues one, which checks the condition before the write (as `IfNotExists` does toward that endpoint). Read and write
-  URLs stay native.
-- A read URL can carry a download file name and a content type (`response-content-disposition`, `-type`), and needs
-  the file to exist (`FileNotFoundException`). An upload URL with a download file name throws
-  `NotSupportedException`.
-- An upload URL with a `ContentType` signs it. The upload must send every header in `SignedUrl.Headers`.
-- A URL never outlives the credential that signs it. Long-term keys live as asked. A credential that expires sooner (STS,
-  instance metadata), or whose expiry cannot be known (a session token, a client you passed in), makes the URL shorter
-  than asked: it is issued only with `AllowShorterValidity`, with `ExpiresOn` set when the expiry is known.
-- Anonymous providers cannot presign.
+Presigned (SigV4) URLs for reading and writing, for up to 7 days, and for creating on AWS only: toward a named
+endpoint, which may ignore the condition that guards a create URL, the gateway issues those. A URL never outlives the
+credential that signs it, so a credential that expires sooner, or whose expiry cannot be known, needs
+`AllowShorterValidity`; anonymous providers cannot presign. The details are in
+[Signed URLs](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/signed-urls.md#amazon-s3).
 
 ## Limits
 
@@ -172,9 +155,12 @@ gateway URL instead.
   SDK ignore it.
 - Change notifications (`Watch`) are not supported.
 
-## More
+## Learn more
 
-- [WriteableFileProviders](https://github.com/serionist/WriteableFileProviders#readme): every package, the provider
-  matrix, versioning.
+- [Providers compared](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/providers.md): what
+  every store can do, side by side.
+- The guide's [reading and writing](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/reading-and-writing.md),
+  [paths and listings](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/paths-and-listings.md)
+  and [dependency injection](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/dependency-injection.md).
 - [Moving from 2026](https://github.com/serionist/WriteableFileProviders/blob/main/docs/migration-2027.md#amazon-s3):
   what 2027.0.0 changed for this provider.

@@ -2,8 +2,8 @@
 
   <PropertyGroup>
     <PackageId>WriteableFileProviders.AmazonS3</PackageId>
-    <Description>WriteableFileProviders for Amazon S3 and S3-compatible servers: a writeable IFileProvider over a bucket, on the AWS SDK for .NET v4, with multipart uploads, conditional writes, ranged reads, server-side copies and presigned URLs.</Description>
-    <PackageTags>$(PackageTags);aws;amazon;s3;amazon-s3</PackageTags>
+    <Description>Amazon S3 and S3-compatible storage as a writeable IFileProvider: read, write, append, list, copy and move objects in a bucket through IWriteableFileProvider, on the AWS SDK for .NET v4, with multipart uploads, conditional writes, byte ranges and presigned URLs. The same API as the local disk, Azure Blob, MinIO, Google Cloud Storage, Box and SharePoint providers.</Description>
+    <PackageTags>$(PackageTags);aws;amazon;s3;amazon-s3;s3-compatible;presigned-url;object-storage</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 

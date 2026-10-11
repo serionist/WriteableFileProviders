@@ -111,26 +111,16 @@ A MinIO key pair (`AccessKey`, `SecretKey`), or none for anonymous access. For a
 - No storage class is sent: MinIO refuses the ones it does not know.
 - Nothing touches the network before the first call, which asks for the region (unless `Region` names it) and checks
   the bucket.
-- **Errors** are the contract's types: the server's 401 and 403, whatever the code (`AccessDenied`,
-  `InvalidAccessKeyId`, `SignatureDoesNotMatch`, a code of the server's own, or none, as a HEAD answers), and a session
-  token that expired or is not valid (`ExpiredToken`, `InvalidToken`, a 400), throw `UnauthorizedAccessException`,
-  except an archived object (`InvalidObjectState`, `ObjectNotInActiveTierError`) and a skewed clock
-  (`RequestTimeTooSkewed`); a bucket name another account owns, with `CreateBucketIfMissing`,
-  `InvalidOperationException`; any other failure of the server or the network, after the SDK's retries, `IOException`:
-  timeouts, a wrong `Region`, the archived object and the skewed clock included. The SDK's `AmazonS3Exception`, or what
-  it threw, is the `InnerException`.
+- **Errors:** the server's 401 and 403, and an expired or invalid session token, throw `UnauthorizedAccessException`,
+  and any other failure of the server or the network, after the SDK's retries, `IOException`, a wrong `Region` included
+  ([Errors](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/errors.md#minio) has the codes).
 
 ## Signed URLs
 
-`GetSignedUrlAsync` presigns read (GET) and write (PUT) URLs for at most 7 days, over the scheme `UseSSL` chooses. A
-longer validity throws `NotSupportedException`, so WriteableFileProviders.AspNetCore can issue a gateway URL instead. A
-read URL can carry a download file name and a content type, and needs the file to exist; an upload URL with a download
-file name throws `NotSupportedException`, and an upload must send every header in `SignedUrl.Headers`. URLs from a
-client you passed in need `AllowShorterValidity`, since the provider cannot see when its credentials expire.
-
-A create URL (only if the file does not exist yet) throws `NotSupportedException`: its only guard would be the
-`If-None-Match: *` it signs, which MinIO releases without conditional writes ignore, so it could overwrite a file. The
-gateway issues create URLs instead, and checks the condition before the write (as `IfNotExists` does here).
+Presigned URLs for reading and writing, for up to 7 days, over the scheme `UseSSL` chooses; URLs from a client you
+passed in need `AllowShorterValidity`. Create URLs come from the gateway: a MinIO release without conditional writes
+ignores the condition that would guard them. The details are in
+[Signed URLs](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/signed-urls.md#minio).
 
 ## Limits
 
@@ -142,9 +132,12 @@ gateway issues create URLs instead, and checks the condition before the write (a
 - 10,000 parts per file, as on S3.
 - Change notifications (`Watch`) are not supported.
 
-## More
+## Learn more
 
-- [WriteableFileProviders](https://github.com/serionist/WriteableFileProviders#readme): every package, the provider
-  matrix, versioning.
+- [Providers compared](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/providers.md): what
+  every store can do, side by side.
+- The guide's [reading and writing](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/reading-and-writing.md),
+  [paths and listings](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/paths-and-listings.md)
+  and [dependency injection](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/dependency-injection.md).
 - [Moving from 2026](https://github.com/serionist/WriteableFileProviders/blob/main/docs/migration-2027.md#minio): what
   2027.0.0 changed for this provider.

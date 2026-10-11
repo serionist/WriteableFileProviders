@@ -37,7 +37,7 @@ using WriteableFileProviders;
 
 services.AddWriteableFileProvider(configuration.GetSection("Files"));
 
-// then inject IWriteableFileProvider files
+// then, with IWriteableFileProvider files injected:
 await files.UpdateFileAsync("reports/2026.csv", stream);              // parent folders are created
 await using var slice = await files.ReadRangeAsync("big.bin", 1_000_000, 4096);
 await files.MoveAsync("reports/2026.csv", "archive/2026.csv");         // on the server
@@ -125,16 +125,11 @@ the SDK's `BoxApiException` inside, without the token request it sent.
   the version it opened, unless `AllowModifications` is set, and throws `PreconditionFailedException` once the file has
   changed. The download itself, from Box's pre-authenticated URL, throws `FileNotFoundException` or `IOException` with
   its HTTP status only: that URL is a credential, so no error carries it.
-- **Errors** are the contract's types: Box's 401 and 403, and a sign-in Box refuses (a 400 from its token endpoint),
-  throw `UnauthorizedAccessException`; any other failure of Box or the network, `IOException`; with the SDK's
-  `BoxApiException` (its status in `ResponseInfo.StatusCode`) or network exception as the `InnerException`. That
-  `BoxApiException` keeps the request it sent: the access token in its `Authorization` header, any extra header the
-  client was built with (such as a `BoxApi` shared-link password), the query string, and the body (a token request's
-  holds the client secret). When the provider built its client, or was given exactly a `BoxClient`, every
-  `BoxApiException` it wraps keeps Box's status, code and message, and of the request only its method, its URL without
-  the query, and the headers and parameters that diagnose it (`As-User`, `If-Match`, `Range`, the digests, the content
-  type; the listing and version parameters). A provider given any other `IBoxClient`, a class derived from `BoxClient`
-  included, uses that client as it is: its errors are the client's own and may carry its credentials.
+- **Errors:** Box's 401 and 403, and a sign-in Box refuses, throw `UnauthorizedAccessException`, and any other failure
+  of Box or the network `IOException`, with the SDK's `BoxApiException` inside. That exception can carry the request's
+  credentials, which the provider strips from the errors of the clients it builds or copies
+  ([Errors](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/errors.md#box) says exactly what
+  each keeps).
 - **Move and copy** run on the server, on files only; they create the destination's folders and refuse an existing
   destination with `FileExistsException`. A move is one call, or, when Box refuses a case-only rename, three through a
   temporary name (`.wfp-rename-<guid>.tmp`), the old name put back if the last one fails.
@@ -144,16 +139,11 @@ the SDK's `BoxApiException` inside, without the token request it sent.
 
 ## Signed URLs
 
-Read only: Box's pre-authenticated download URL (`dl.boxcloud.com`) for the file's current version, which Box makes
-valid for about 15 minutes whatever is asked. Since a URL must never outlive what was asked:
-
-- a validity under 15 minutes throws `NotSupportedException` (with the ASP.NET Core gateway, its URL is used instead);
-- a validity from 15 minutes to 7 days throws `NotSupportedException` unless `AllowShorterValidity` is set; then the
-  URL is returned with `ExpiresOn` 15 minutes after the call and `Kind` `PreAuthenticated`. Over 7 days always throws;
-- `DownloadFileName` and `ContentType` cannot be set on Box's URL, and throw `NotSupportedException`;
-- write and create URLs are not supported.
-
-Anyone holding the URL can download that version of the file until it expires.
+Read only: Box's pre-authenticated download URL, which Box makes valid for about 15 minutes whatever is asked. It is
+returned only for a validity from 15 minutes to 7 days with `AllowShorterValidity`, and never with a download file
+name or content type; every other URL comes from the gateway. Anyone holding the URL can download that version of the
+file until it expires. The details are in
+[Signed URLs](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/signed-urls.md#box).
 
 ## Limits
 
@@ -165,9 +155,12 @@ Anyone holding the URL can download that version of the file until it expires.
 - Every operation on a path walks the path from the root folder, so latency grows with depth.
 - The `PublicKeyId` is not sent in the JWT header by the Box SDK; Box accepts that while the app has one public key.
 
-## More
+## Learn more
 
-- [WriteableFileProviders](https://github.com/serionist/WriteableFileProviders#readme): every package, the provider
-  matrix, versioning.
+- [Providers compared](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/providers.md): what
+  every store can do, side by side.
+- The guide's [reading and writing](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/reading-and-writing.md),
+  [paths and listings](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/paths-and-listings.md)
+  and [dependency injection](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/dependency-injection.md).
 - [Moving from 2026](https://github.com/serionist/WriteableFileProviders/blob/main/docs/migration-2027.md#box): what
   2027.0.0 changed for this provider.

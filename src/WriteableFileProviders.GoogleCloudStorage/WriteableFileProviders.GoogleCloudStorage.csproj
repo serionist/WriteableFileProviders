@@ -2,8 +2,8 @@
 
   <PropertyGroup>
     <PackageId>WriteableFileProviders.GoogleCloudStorage</PackageId>
-    <Description>WriteableFileProviders for Google Cloud Storage: a writeable IFileProvider over a bucket, with resumable uploads, generation preconditions, ranged reads, server-side copies and V4 signed URLs.</Description>
-    <PackageTags>$(PackageTags);gcp;google-cloud;google-cloud-storage;gcs</PackageTags>
+    <Description>Google Cloud Storage as a writeable IFileProvider: read, write, append, list, copy and move objects in a bucket through IWriteableFileProvider, with resumable uploads, generation preconditions, byte ranges and V4 signed URLs. The same API as the local disk, Azure Blob, Amazon S3, MinIO, Box and SharePoint providers.</Description>
+    <PackageTags>$(PackageTags);gcs;gcp;google-cloud;google-cloud-storage;object-storage</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 

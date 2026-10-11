@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="72" viewBox="0 0 480 72" role="img" aria-label="WriteableFileProviders">
+  <!-- The logo, for light backgrounds; logo-dark.svg is the same for dark ones. The mark is icon.svg's; textLength keeps the wordmark's width whatever font the viewer has. -->
+  <g transform="translate(0 4) scale(0.5)">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#512BD4"/>
+      <stop offset="1" stop-color="#2F6FE4"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="url(#tile)"/>
+  <path d="M35 26H66L80 40V93Q80 100 73 100H35Q28 100 28 93V33Q28 26 35 26Z" fill="#FFFFFF"/>
+  <path d="M66 26V36Q66 40 70 40H80Z" fill="#C7D2FE"/>
+  <rect x="37" y="50" width="32" height="6" rx="3" fill="#AAB6F5"/>
+  <rect x="37" y="62" width="32" height="6" rx="3" fill="#AAB6F5"/>
+  <rect x="37" y="74" width="17" height="6" rx="3" fill="#AAB6F5"/>
+  <g transform="translate(58 77) rotate(-45)">
+    <path d="M0 0L12 -7H55Q58 -7 58 -4V4Q58 7 55 7H12Z" fill="#4150DC" stroke="#4150DC" stroke-width="5" stroke-linejoin="round"/>
+    <path d="M0 0L12 -7V7Z" fill="#FDE7B0"/>
+    <path d="M0 0L4.6 -2.7V2.7Z" fill="#1E1B4B"/>
+    <rect x="12" y="-7" width="32" height="14" fill="#F59E0B"/>
+    <rect x="12" y="-7" width="32" height="7" fill="#FBBF24"/>
+    <rect x="44" y="-7" width="5" height="14" fill="#CBD5E1"/>
+    <path d="M49 -7H55Q58 -7 58 -4V4Q58 7 55 7H49Z" fill="#F472B6"/>
+  </g>
+  </g>
+  <text x="80" y="49" font-family="Inter, 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif" font-size="36" font-weight="600" textLength="394" lengthAdjust="spacingAndGlyphs"><tspan fill="#4338CA">Writeable</tspan><tspan fill="#1F2937">FileProviders</tspan></text>
+</svg>

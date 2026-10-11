@@ -130,31 +130,30 @@ provider to release the HTTP client and certificate it created.
   at most; then it throws `IOException` naming the copy's last status. The service may still finish that copy
   afterwards and create the destination.
 - **Delete** sends items to the site's recycle bin.
-- **Errors:** only a 404 means "not found". The SDK retries 429, 503 and 504 three times, honouring `Retry-After`;
-  then the call throws `IOException`. 401 and 403 throw `UnauthorizedAccessException`, and so does a sign-in Microsoft
-  Entra ID refuses (Azure.Identity's `AuthenticationFailedException`, inside); other failures `IOException`, timeouts
-  included; the message names Graph's error, and the SDK's or the network's exception is inside where there is one. A
-  missing site or library throws `InvalidOperationException` naming `SiteUrl` or `DocumentLibraryName` from every member
-  that reaches the library, and so does a sign-in that finds no credential to use (`CredentialUnavailableException`,
-  with `UseDefaultAzureCredential`).
+- **Errors:** only a 404 means "not found". 401 and 403, and a refused sign-in, throw `UnauthorizedAccessException`;
+  throttling after the SDK's retries, and other failures, `IOException`; a missing site or library
+  `InvalidOperationException`
+  ([Errors](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/errors.md#sharepoint)).
 
 ## Signed URLs
 
-`GetSignedUrlAsync` issues read URLs only (`SignedUrlKind.PreAuthenticated`): the file's download URL, which Graph says
-lives up to an hour and may stop working within minutes. A URL never lives longer than asked, so a validity under an
-hour throws `NotSupportedException` (the WriteableFileProviders.AspNetCore gateway can serve those), one from an hour
-to 7 days needs `SignedUrlOptions.AllowShorterValidity`, and one over 7 days always throws. `ExpiresOn` is null, because
-the service does not say. Anyone holding the URL can download the file until it ends, and removing someone's access may
-not end a URL already issued. `DownloadFileName` and `ContentType` are not supported on these URLs.
+Read only: the file's download URL, which Graph says lives up to an hour and may stop working within minutes. It is
+returned only for a validity from an hour to 7 days with `AllowShorterValidity`, with `ExpiresOn` null, and never with
+a download file name or content type; every other URL comes from the gateway. Removing someone's access may not end a
+URL already issued. The details are in
+[Signed URLs](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/signed-urls.md#sharepoint).
 
 ## Limits
 
 - Graph's own: a fragment under 60 MiB, a simple upload up to 250 MB, SharePoint's name and path length limits.
 - `Watch` is not supported, and version history is not exposed.
 
-## More
+## Learn more
 
-- [WriteableFileProviders](https://github.com/serionist/WriteableFileProviders#readme): every package, the provider
-  matrix, versioning.
+- [Providers compared](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/providers.md): what
+  every store can do, side by side.
+- The guide's [reading and writing](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/reading-and-writing.md),
+  [paths and listings](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/paths-and-listings.md)
+  and [dependency injection](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/dependency-injection.md).
 - [Moving from 2026](https://github.com/serionist/WriteableFileProviders/blob/main/docs/migration-2027.md#sharepoint):
   what 2027.0.0 changed for this provider.

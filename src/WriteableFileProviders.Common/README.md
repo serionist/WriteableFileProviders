@@ -32,11 +32,10 @@ var url = await files.GetSignedUrlAsync("archive/2026.csv", new SignedUrlOptions
 ```
 
 Every path is a `ProviderPath` relative to the provider's root, which a string or a string array converts to; nothing
-outside the root can be reached by a path (on Physical, symbolic links and junctions inside the root are followed
-wherever they point: see its README). Every async member takes a `CancellationToken`. The only synchronous members
-are the three `IFileProvider` itself has (`GetFileInfo`, `GetDirectoryContents`, `Watch`). The 2026 synchronous forms
-(`ReadFile`, `UpdateFile`, `Delete`, `Move`, `CreateLocalFileStream`), the `IFileInfo` overloads and `GetDownloadUrl`
-still compile, with a warning that names the async member to call, and go in 2028.0.0.
+outside the root can be reached by a path. Every member is async and takes a `CancellationToken`, except the three
+`IFileProvider` itself has (`GetFileInfo`, `GetDirectoryContents`, `Watch`). The 2026 synchronous forms (`ReadFile`,
+`UpdateFile`, `Delete`, `Move`, `CreateLocalFileStream`), the `IFileInfo` overloads and `GetDownloadUrl` still compile,
+with a warning that names the async member to call, and go in 2028.0.0.
 
 ## Configuration
 
@@ -49,72 +48,29 @@ With dependency injection, as a singleton `IWriteableFileProvider` the container
 
 ```csharp
 services.AddWriteableFileProvider(configuration.GetSection("Files"));
-// then inject IWriteableFileProvider; for several, use keyed services, GetServices or interfaces of your own
+// then inject IWriteableFileProvider; for several, use keyed services, GetServices or types of your own
 ```
 
 `WriteableFileProviderSerializer` also builds a provider from JSON (`FromJson`) and writes one back (`ToJson`,
-`ToJsonString`); the JSON holds the options' secrets, so never log it. It finds this library's providers by their class
-name; a provider from elsewhere is registered with `WriteableFileProviderSerializer.Register<TProvider>()`, or its
-assembly passed in. Configurations stored by the 2026 versions read unchanged.
+`ToJsonString`); the JSON holds the options' secrets, so never log it. A provider from elsewhere is registered with
+`WriteableFileProviderSerializer.Register<TProvider>()`, or its assembly passed in. Configurations stored by the 2026
+versions read unchanged.
 
-## How it behaves
+## Learn more
 
-Every provider runs the same conformance suite, the written contract, declaring what its store cannot do:
+The guide, on GitHub:
 
-- **Paths:** a segment that is empty, only dots and spaces, holds a control character, or becomes one of those when
-  percent-decoded throws `ArgumentException`. The root is a folder: it cannot be written, moved or deleted
-  (`InvalidOperationException`), nor read as a file. The root the options name goes through the same rules when the
-  provider is built, so `RootDirectoryPath` `tenants/../other` throws `ArgumentException` (Physical excepted: its root
-  is a folder of the disk).
-- **Writes:** atomic, so a write that fails leaves the old content. They create parent folders, read the caller's
-  stream from its position, and leave it open. `UpdateFileOptions.IfMatch` and `IfNotExists` throw
-  `PreconditionFailedException` when they do not hold; each provider's README says whether its store checks them
-  atomically.
-- **Missing things:** a read of a missing file, or of a folder, throws `FileNotFoundException`; `GetFileInfoAsync`
-  returns `Exists` false; a missing folder lists as not existing and empty; `DeleteAsync` returns false. A missing
-  bucket or container throws `InvalidOperationException`, naming the option that creates it.
-- **Moves and copies** refuse an existing destination with `FileExistsException` and leave it unchanged.
-- **Listings** show only names a path can address, so everything listed can be read back.
-- **Signed URLs** never live longer than asked: what a provider cannot sign throws `NotSupportedException`, which lets
-  `WriteableFileProviders.AspNetCore` serve a gateway URL instead.
-- **Unsupported operations** throw `NotSupportedException`.
-- **Failures** throw only these types, on every provider: `ArgumentException` (a path or an option),
-  `FileNotFoundException`, `FileExistsException`, `PreconditionFailedException`, `NotSupportedException`,
-  `InvalidOperationException` (the store is not set up as configured: a missing container, bucket, library or root
-  folder, or no credentials to find), `UnauthorizedAccessException` (the store refused the credential or the
-  permission), `IOException` (any other failure of the store, the service or the network, timeouts included),
-  `ObjectDisposedException`, and `OperationCanceledException` only when your token cancels. The SDK's exception is the
-  `InnerException`, unless it already derives from one of these types, which passes as it is (`OutOfMemoryException`
-  passes unmapped); the same holds for reads of a stream a member returned, and for each step of
-  a listing.
-
-`IWriteableFileProvider`'s documentation says what each member does.
-
-## Writing a provider
-
-Derive from `WriteableFileProvider<TOptions>`: it validates and resolves every path, protects the root, checks moves,
-copies and conditions, and calls the protected `...CoreAsync` members you implement. For the serializer and
-`AddWriteableFileProvider` to build it, give it a public constructor that takes only its `TOptions` (a class with a
-public parameterless constructor and settable properties) and does no network I/O. Its protected helpers:
-`AppendByRewriteAsync` (an append for a store without one, conditional on the version read), `SpoolToTempFileAsync`,
-`NotFound`, and `IsAddressable(name)`, true when the provider's own path validation (`IsSegmentAllowed` included) would
-accept the name as one path segment: leave the names it refuses out of your listings, so everything listed can be read
-back.
-
-The base class keeps the error contract for you: an exception that escapes a `...CoreAsync` member, a stream or a
-listing it returns, and is not one of the types above, is turned into one, with it inside. Override `IsNotFound` and
-`IsAccessDenied` to say which of your SDK's exceptions mean "missing" and "refused"; anything else becomes
-`IOException`, and a cancellation your caller's token did not ask for (a timeout) too. Throw a contract type yourself
-where you know better: it passes through as it is. A public member of your own runs through `ReadWithContractAsync`
-for a read. The root is checked when the provider is built, and kept: read it through `Resolve(ProviderPath.Root)`, not
-from the options, which a caller can still change; a provider whose root is not a path in its store overrides
-`ValidatesRootDirectory`. How a local stream is made (`CreateLocalFileStreamAsync`) is not customisable. Run your
-provider against `ProviderConformanceTests` (in the repository's `tests/WriteableFileProviders.Testing`) to check it
-meets the contract.
-
-## More
-
-- [WriteableFileProviders](https://github.com/serionist/WriteableFileProviders#readme): every package, the provider
-  matrix, versioning.
-- [Moving from 2026](https://github.com/serionist/WriteableFileProviders/blob/main/docs/migration-2027.md): what
-  2027.0.0 changed, starting with the steps every application takes.
+- [Paths and listings](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/paths-and-listings.md):
+  the root, folders, case, and what a listing shows.
+- [Reading and writing](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/reading-and-writing.md):
+  conditions, appends, ranges, seekable reads, local streams.
+- [Signed URLs](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/signed-urls.md), and the
+  gateway that issues them for every provider.
+- [Dependency injection and configuration](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/dependency-injection.md):
+  one provider or several, and the serializer.
+- [Errors](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/errors.md): the exceptions every
+  member of every provider throws.
+- [Writing a provider](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/writing-a-provider.md):
+  `WriteableFileProvider<TOptions>`, its members and its conformance suite.
+- [Providers compared](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/providers.md), and
+  [moving from 2026](https://github.com/serionist/WriteableFileProviders/blob/main/docs/migration-2027.md).

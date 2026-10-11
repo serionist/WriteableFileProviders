@@ -2,7 +2,8 @@
 
 Thank you for helping. [AGENTS.md](AGENTS.md) holds the rules every change follows, for people and agents alike:
 where things are, how to build and test, how a change lands, the one-way doors and what never to do. This page is the
-short path through it for a first contribution.
+short path through it for a first contribution. What the packages do, and the rules every provider follows, are in
+the guide, `docs/guide/`, which the README's [Learn more](README.md#learn-more) lists.
 
 ## Before you start
 
@@ -16,9 +17,11 @@ short path through it for a first contribution.
   the maintainers' agreement in its issue first, and ships only in the next major version.
 - **Versions** are not yours to set: every package is released together, at the version of the release tag. A change
   that breaks consumers (a one-way door, a dropped target framework, a dependency change that breaks their builds)
-  waits for the next major; a new feature or target framework goes into a minor, a fix into a patch. See the README's
-  [Versioning](README.md#versioning) section.
+  waits for the next major; a new feature or target framework goes into a minor, a fix into a patch. See the
+  [versioning policy](docs/guide/versioning.md).
 - **Security issues** never go in an issue: see [SECURITY.md](SECURITY.md).
+- **Your contribution is MIT licensed:** by opening a pull request you agree that what you contribute is licensed
+  under the repository's [MIT licence](LICENSE), as the rest of the code is.
 
 ## Build and test
 
@@ -44,8 +47,9 @@ why (no account, for example); the maintainers run it with the `live.yml` workfl
 ## Opening the pull request
 
 1. Fork, and branch from `main` as `<issue>-<slug>`, for example `42-sharepoint-paging`.
-2. Make the change with its tests and its docs: XML docs on public members, the package README, AGENTS.md when a path,
-   a command or a rule changes.
+2. Make the change with its tests and its docs: XML docs on public members, the package README, the guide page that
+   describes the behaviour (`docs/guide/`), a line in [CHANGELOG.md](CHANGELOG.md) when consumers notice the change,
+   and AGENTS.md when a path, a command or a rule changes.
 3. Commit with a subject in the imperative that says what changed, and a body that says why. No AI co-author trailers
    or "Generated with" lines.
 4. Open the PR with the template filled in, ending `Closes #<issue>`. Its title becomes the commit on `main`.

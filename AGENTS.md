@@ -3,7 +3,8 @@
 Writeable `IFileProvider` implementations for .NET: one interface, `IWriteableFileProvider`, over the local disk, Azure
 Blob Storage, Amazon S3, MinIO, Box, SharePoint and Google Cloud Storage, each shipped as its own NuGet package. This
 file is for anyone who changes the repo, person or agent: where things are, how to build and test, how a change lands,
-and what never to do. What the packages do for those who use them is in [README.md](README.md).
+and what never to do. What the packages do for those who use them is in [README.md](README.md) and the guide it
+links, `docs/guide/`.
 
 ## Where things are
 
@@ -17,7 +18,10 @@ and what never to do. What the packages do for those who use them is in [README.
 | `tests/WriteableFileProviders.Common.Tests/` | Common's tests: the conformance suite on the in-memory provider, unit tests, and the configuration-shape goldens. |
 | `tests/WriteableFileProviders.AspNetCore.Tests/` | The gateway and the URL service, end to end on TestServer over the in-memory provider. |
 | `tests/WriteableFileProviders.<Provider>.Tests/` | A provider's tests: the conformance suite on its store, emulator or fake, its own cases, and a `Live` suite (see Tests). |
+| `docs/guide/` | The user guide, one topic a page, each linked from the README: `providers.md` (the comparison matrix), `paths-and-listings.md`, `reading-and-writing.md`, `signed-urls.md` (native URLs and the gateway), `dependency-injection.md`, `errors.md`, `writing-a-provider.md`, `versioning.md` (the versioning policy). |
 | `docs/migration-2027.md` | What 2027.0.0 breaks and how to move over; each change of the release adds its part. |
+| `docs/releasing.md` | The release runbook: the one-time setup, tagging and approving a release, what to check on nuget.org, moving the public API files to shipped, the package validation baseline. |
+| `docs/assets/` | The logo (`logo.svg`, `logo-dark.svg`), the mark (`icon.svg`) and the social preview, with the PNGs `eng/render-assets.sh` renders from them: `icon.png` is every package's icon. |
 | `REVIEW.md` | The questions every review answers. |
 | `docs/plans/` | The plan of each non-trivial change, and the template (`docs/plans/README.md`). |
 | `docs/reviews/` | Reports of whole-repo or whole-folder reviews. A change's own review goes in its PR. |
@@ -27,12 +31,13 @@ and what never to do. What the packages do for those who use them is in [README.
 | `src/*/PublicAPI.Shipped.txt`, `src/*/PublicAPI.Unshipped.txt` | Each package's public API, as released and as new since (see below). |
 | `Directory.Packages.props` | Every package version, once (central package management). A `.csproj` names packages without versions. |
 | `global.json`, `nuget.config` | The SDK and the test runner; the package source (nuget.org only). |
-| `eng/` | `coverage-gate.cs`, the coverage gate, and `coverage.json`, the floor of each assembly; `package-check.cs`, which checks a release's packages before they are pushed. |
+| `eng/` | `coverage-gate.cs`, the coverage gate, and `coverage.json`, the floor of each assembly; `package-check.cs`, which checks a release's packages before they are pushed; `render-assets.sh`, which renders the PNGs in `docs/assets/` with Docker. |
 | `tests/coverage.runsettings` | What the coverage run measures. |
 | `.github/workflows/` | `ci.yml`, CI on every PR and on `main`; `codeql.yml`, code scanning; `live.yml`, the live suites, by hand or nightly on `main`; `release.yml`, the release of a `v*` tag. |
 | `.github/dependabot.yml` | Weekly update PRs for the NuGet packages (grouped), the actions and the SDK. |
 | `.github/ISSUE_TEMPLATE/`, `.github/pull_request_template.md` | The bug and feature forms; the PR template. |
-| `README.md`, `src/*/README.md` | For the packages' users: the root README (what the library is, a quick start, the provider matrix, versioning) and one README per package, packed into its `.nupkg`. A change to what a package does updates its README, and the matrix when a cell changes. |
+| `README.md`, `src/*/README.md` | For the packages' users: the root README (what the library is, install, a four-step tutorial, the packages, links to the guide) and one README per package (install, a short use, the provider's own options, behaviour and limits), packed into its `.nupkg`. A change to what a package does updates its README, the guide page that explains it, and the matrix in `docs/guide/providers.md` when a cell changes. |
+| `CHANGELOG.md`, `LICENSE` | What each release changed: a change consumers notice adds its line under the next version, and `release.yml` publishes that version's section as the GitHub release's notes. The MIT licence. |
 | `CONTRIBUTING.md`, `SECURITY.md` | A first contribution's short path through this file; how to report a vulnerability, and the supported versions. |
 
 Every project targets `net10.0` and builds strict: nullable analysis, warnings as errors, the analyzers at
@@ -80,7 +85,8 @@ Run everything from the repo root, with a .NET 10 SDK (`global.json`).
   coverage gate, packs, checks that every package has that version and depends on our other packages within its major
   (`eng/package-check.cs`), and requires that `ci.yml` concluded success on the tagged commit (its Windows job included);
   then, once a maintainer approves the `nuget` environment, it pushes the packages to nuget.org through trusted
-  publishing and creates the GitHub release.
+  publishing and creates the GitHub release, with the version's section of `CHANGELOG.md` as its notes.
+  [docs/releasing.md](docs/releasing.md) is the runbook: the one-time setup, each release, and what follows it.
 
 ### Tests
 
@@ -181,7 +187,8 @@ steps belong to a maintainer alone, approving a plan and merging, and the skills
 1. **Start** (`start-work`): an issue for anything beyond a typo, and a branch from `origin/main` named
    `<issue>-<slug>` (`42-sharepoint-paging`). A non-trivial change gets a plan in `docs/plans/`, reviewed with
    `review-plan` and approved by a maintainer before any code.
-2. **Build it**, with its tests and its docs in the same change.
+2. **Build it**, with its tests and its docs in the same change, and a line in `CHANGELOG.md` when consumers notice
+   it.
 3. **Finish** (`finish-work`): the build and the offline tests pass, `review-code` is clean, and the PR follows the
    template and says `Closes #<n>`.
 
@@ -202,7 +209,7 @@ While you build:
 ## One-way doors
 
 Consumers depend on these. Change one only in a PR that says so in its title and description, after the maintainers
-agree in its issue. Versions follow the policy in [README.md, Versioning](README.md#versioning): a change to a one-way
+agree in its issue. Versions follow the [versioning policy](docs/guide/versioning.md): a change to a one-way
 door, a dropped target framework or a dependency change that breaks consumers' builds ships only in the next major; a
 feature or a new target framework in a minor; a fix in a patch.
 

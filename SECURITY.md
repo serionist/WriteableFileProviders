@@ -37,5 +37,5 @@ affected.
 
 From 2027.0.0, every package of a release has the same version, and the major is a sequence number, not a date: the
 next breaking release is 2028.0.0, whenever it ships. The packages in one application must all come from the same
-major: a 2026.10.10.x provider does not load against Common 2027. The README's [Versioning](README.md#versioning)
-section has the whole policy.
+major: a 2026.10.10.x provider does not load against Common 2027. The [versioning policy](docs/guide/versioning.md)
+has the whole of it.

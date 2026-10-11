@@ -22,7 +22,8 @@ namespace WriteableFileProviders.SharePoint;
 /// case, so moving <c>a.txt</c> to <c>A.txt</c> renames it. Deleted items go to the site's recycle bin. Path segments may
 /// not contain <c>:</c>, Graph's path syntax; a <c>%</c> is sent escaped, so <c>a%41</c> names an item literally called
 /// <c>a%41</c>. Listings leave out items whose names the provider cannot address, such as one that decodes to
-/// <c>..</c>. A file whose size Graph does not report is measured, with one ranged request, so its length is real.
+/// <c>..</c>. A file whose size Graph does not report is measured (its download URL, then a request for its first
+/// byte), so its length is real.
 /// </para>
 /// <para>
 /// Preconditions are checked, not atomic: <see cref="UpdateFileOptions.IfMatch"/> and

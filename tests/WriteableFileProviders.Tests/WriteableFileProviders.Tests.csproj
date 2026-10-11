@@ -2,6 +2,12 @@
 
   <PropertyGroup>
     <WfpLegacy>true</WfpLegacy>
+    <!-- No test is left here: every provider has moved to a test project of its own, Physical last (#9). It builds as a
+         plain library, not a test application, so dotnet test does not fail on a run of zero tests (exit code 8); S12
+         deletes the project. -->
+    <IsTestProject>false</IsTestProject>
+    <EnableMSTestRunner>false</EnableMSTestRunner>
+    <OutputType>Library</OutputType>
   </PropertyGroup>
 
   <ItemGroup>

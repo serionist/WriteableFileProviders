@@ -22,7 +22,7 @@ namespace WriteableFileProviders.SharePoint;
 /// case, so moving <c>a.txt</c> to <c>A.txt</c> renames it. Deleted items go to the site's recycle bin. Path segments may
 /// not contain <c>:</c>, Graph's path syntax; a <c>%</c> is sent escaped, so <c>a%41</c> names an item literally called
 /// <c>a%41</c>. Listings leave out items whose names the provider cannot address, such as one that decodes to
-/// <c>..</c>.
+/// <c>..</c>. A file whose size Graph does not report has a length of -1.
 /// </para>
 /// <para>
 /// Preconditions are checked, not atomic: <see cref="UpdateFileOptions.IfMatch"/> and
@@ -240,6 +240,17 @@ public sealed partial class WriteableSharePointFileProvider : WriteableFileProvi
     private string[] ResolveRoot(SharePointFileProviderOptions options)
     {
         var workFolder = SharePointPaths.WorkFolderSegments(options.WorkFolderPath);
+        // A value copied from a browser holds escapes such as %20. 2026 sent them on and the service decoded them; 2027
+        // sends every '%' as itself, so the same value would name another folder. Refused rather than reinterpreted.
+        foreach (var (name, segments) in new[] { ("WorkFolderPath", workFolder), ("RootDirectoryPath", options.RootDirectorySegments) })
+        {
+            if (segments.FirstOrDefault(HasPercentEscape) is { } escaped)
+            {
+                throw new ArgumentException(
+                    $"{name} holds the percent-escape in '{escaped}': decode it (write '%20' as a space), because the provider sends '%' as itself.",
+                    nameof(options));
+            }
+        }
         var root = SharePointPaths.RootSegments(workFolder, options.RootDirectorySegments)
             ?? throw new ArgumentException(
                 $"RootDirectoryPath '{string.Join('/', options.RootDirectorySegments)}' is the start of WorkFolderPath '{string.Join('/', workFolder)}'. "
@@ -456,7 +467,7 @@ public sealed partial class WriteableSharePointFileProvider : WriteableFileProvi
     private WriteableFileInfo ToInfo(ProviderPath path, DriveItem item) =>
         item.Folder is not null
             ? WriteableFileInfo.Folder(this, path, item.LastModifiedDateTime)
-            : new WriteableFileInfo(this, path, true, false, item.Size ?? 0, item.LastModifiedDateTime ?? _unknownTime,
+            : new WriteableFileInfo(this, path, true, false, item.Size ?? -1, item.LastModifiedDateTime ?? _unknownTime,
                 physicalPath: null, etag: item.ETag, contentType: item.File?.MimeType);
 
     /// <summary>
@@ -520,6 +531,16 @@ public sealed partial class WriteableSharePointFileProvider : WriteableFileProvi
         item.Folder is null
             ? throw new IOException($"{what} failed: '{string.Join('/', segments)}' is a file, so it cannot hold a folder or a file.")
             : item.Id ?? throw new IOException($"{what} failed: Microsoft Graph returned no id for '{string.Join('/', segments)}'.");
+
+    private static bool HasPercentEscape(string segment)
+    {
+        for (var i = segment.IndexOf('%', StringComparison.Ordinal); i >= 0; i = segment.IndexOf('%', i + 1))
+        {
+            if (i + 2 < segment.Length && Uri.IsHexDigit(segment[i + 1]) && Uri.IsHexDigit(segment[i + 2]))
+                return true;
+        }
+        return false;
+    }
 
     /// <summary>
     /// Whether a listed name can be addressed through this provider: it passes the same segment validation as a caller's

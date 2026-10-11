@@ -109,6 +109,12 @@ internal sealed class GraphFake
     /// <summary>Answers a request in place of the fake when it returns a response.</summary>
     public Func<RecordedRequest, HttpResponseMessage?>? Intercept { get; set; }
 
+    /// <summary>
+    /// Replaces the fake's answer after it has handled the request when it returns a response: a request the service
+    /// carried out but answered with an error.
+    /// </summary>
+    public Func<RecordedRequest, HttpResponseMessage, HttpResponseMessage?>? Rewrite { get; set; }
+
     /// <summary>Every request received, in order.</summary>
     public ConcurrentQueue<RecordedRequest> Requests { get; } = new();
 
@@ -267,7 +273,7 @@ internal sealed class GraphFake
                 faulted.Headers.RetryAfter = new RetryConditionHeaderValue(TimeSpan.Zero);
                 return faulted;
             }
-            return uri.Host switch
+            var answer = uri.Host switch
             {
                 GraphHost when segments is ["v1.0", "sites", ..] => Sites(recorded, segments[2..]),
                 GraphHost when segments is ["v1.0", "drives", var drive, .. var rest] => drive == DriveId
@@ -278,6 +284,7 @@ internal sealed class GraphFake
                 MonitorHost when segments is ["_api", "v2.0", "monitor", var id] => Monitor(id),
                 _ => Error(HttpStatusCode.BadRequest, "invalidRequest", $"The fake does not serve {recorded.Method} {uri.Host}{recorded.Path}."),
             };
+            return Rewrite?.Invoke(recorded, answer) ?? answer;
         }
     }
 

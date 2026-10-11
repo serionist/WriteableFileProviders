@@ -236,6 +236,7 @@ these configurations place some files elsewhere now:
 | `WorkFolderPath` `Main/Work`, no root | `Main/Work/a.txt` | `Main/Work/a.txt` | `Main/Work/Main/Work/a.txt` |
 | `WorkFolderPath` `Main/Work`, no root | `Main/Work` (the work folder itself) | the root: refused for writes and deletes | a folder `Main/Work` inside the root |
 | `WorkFolderPath` `Main/Work`, `RootDirectoryPath` `Main` | `Work/a.txt` / `a.txt` | `Main/Work/a.txt` / `Main/Work/Main/a.txt` | refused at construction: `ArgumentException` |
+| `WorkFolderPath` or `RootDirectoryPath` holding a percent-escape, such as `Team%20Files` copied from a browser | any | under the decoded name, `Team Files` | refused at construction: `ArgumentException` asking to decode it |
 
 Every other shape places files where 2026 did: no work folder; a root inside the work folder; a root that repeats the
 work folder, in any case, with more after it; a root that shares only part of the work folder. To find what moves,
@@ -259,7 +260,7 @@ The work folder is created on the first write instead of in the constructor; rea
 | Appends combined in memory or a temp file in two ways (F4) | One append by rewrite, with `If-Match` on the version read (D19) |
 | Reads downloaded the whole file to a temp file first; a 0-byte file threw `FileNotFoundException` | Reads stream; ranges are native; a 0-byte file reads empty |
 | Move was a lookup and a `PATCH` | One `PATCH` with the conflict behaviour `fail`: a taken destination throws `FileExistsException`. Copy runs on the server, waited for at most 10 minutes |
-| A path segment with a percent-escape (`a%41`) reached the service unescaped, which decoded it (`aA`) | The `%` is escaped, so `a%41` names an item called `a%41`. Files 2026 wrote through such a path are under the decoded name. Listings leave out names the provider cannot address, such as one that decodes to `..` |
+| A path segment with a percent-escape (`a%41`) reached the service unescaped, which decoded it (`aA`) | The `%` is escaped, so `a%41` names an item called `a%41`. Files 2026 wrote through such a path are under the decoded name. `WorkFolderPath` and `RootDirectoryPath` with such an escape are refused instead, so a stored value never silently names another folder. Listings leave out names the provider cannot address, such as one that decodes to `..` |
 | `UpdateFileOptions` did not exist | `IfMatch` and `IfNotExists` are checked before the write and sent to the service; not promised atomic (D15). `ContentType` is ignored: SharePoint names the type from the file name |
 | `GetDownloadUrl` returned the download URL whatever validity was asked (F11) | A read URL (`SignedUrlKind.PreAuthenticated`, `ExpiresOn` null) only for a validity of an hour or more, and only with `AllowShorterValidity`; a shorter validity throws `NotSupportedException`, so the gateway can serve it (D18) |
 

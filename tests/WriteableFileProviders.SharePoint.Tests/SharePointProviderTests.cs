@@ -172,8 +172,14 @@ public sealed class SharePointProviderTests
     [DataRow("a:b")]
     [DataRow("a%3Ab")]
     [DataRow("a%253Ab")]
+    public async Task Segments_WithAColon_EvenEscaped_AreRefusedBeforeAnyRequest(string path) => await AssertRefusedBeforeAnyRequest(path);
+
+    [TestMethod]
     [DataRow("dir/%2E%2E")]
-    public async Task Segments_WithAColon_EvenEscaped_AreRefusedBeforeAnyRequest(string path)
+    [DataRow("%252E%252E/f.txt")]
+    public async Task Segments_ThatDecodeToADotDot_AreRefusedBeforeAnyRequest(string path) => await AssertRefusedBeforeAnyRequest(path);
+
+    private async Task AssertRefusedBeforeAnyRequest(string path)
     {
         var (provider, fake) = Create();
         await Assert.ThrowsAsync<ArgumentException>(() => provider.GetFileInfoAsync(path));
@@ -965,6 +971,111 @@ public sealed class SharePointProviderTests
             await given.GetFileInfoAsync("x");
         Assert.AreEqual(0, callerFake.DisposedHandlers, "The caller's client is left alone");
         client.Dispose();
+    }
+
+    // ----- Review round 2 -----
+
+    [TestMethod]
+    public async Task UploadSession_ThatKeepsSendingTheUploadBack_EndsInsteadOfLooping()
+    {
+        // The service accepts the first fragment, fails the second (or answers it without progress), and its status
+        // sends the upload back to byte 0: one resend of the second fragment, then the upload ends.
+        foreach (var secondFails in new[] { true, false })
+        {
+            var (provider, fake) = Create();
+            fake.Intercept = r =>
+            {
+                if (r.Host == GraphFake.UploadHost && r.Method == "GET")
+                    return Answer(HttpStatusCode.OK, "{\"nextExpectedRanges\":[\"0-\"]}");
+                if (!IsFragment(r))
+                    return null;
+                if (r.Header("Content-Range")!.StartsWith("bytes 0-", StringComparison.Ordinal))
+                    return Answer(HttpStatusCode.Accepted, "{\"nextExpectedRanges\":[\"327680-\"]}");
+                return secondFails
+                    ? Answer(HttpStatusCode.InternalServerError, GraphFake.ErrorJson("generalException", "No"))
+                    : Answer(HttpStatusCode.Accepted, "{\"nextExpectedRanges\":[\"0-\"]}");
+            };
+            await Assert.ThrowsExactlyAsync<IOException>(() => provider.UpdateFileAsync("a.bin", new MemoryStream(TestStreams.Bytes(700_000))));
+            Assert.AreEqual(4, fake.Requests.Count(IsFragment), "0, 327680, then 0 and 327680 once more: no loop");
+        }
+    }
+
+    [TestMethod]
+    public async Task UploadSession_ForwardResync_LeavesTheNextFragmentItsOwnResend()
+    {
+        var (provider, fake) = Create();
+        var data = TestStreams.Bytes(1_000_000, seed: 12);
+        // The service stores the first fragment but answers 500, so its status moves the upload forward; the next
+        // fragment then fails once and is still resent.
+        var firstAnswered = false;
+        fake.Rewrite = (r, answer) =>
+        {
+            if (!IsFragment(r) || firstAnswered)
+                return null;
+            firstAnswered = true;
+            answer.Dispose();
+            return Answer(HttpStatusCode.InternalServerError, GraphFake.ErrorJson("generalException", "Stored, then failed"));
+        };
+        fake.FailNext(1, HttpStatusCode.BadGateway, r => IsFragment(r) && r.Header("Content-Range")!.StartsWith("bytes 327680-", StringComparison.Ordinal));
+        await provider.UpdateFileAsync("a.bin", new MemoryStream(data));
+        CollectionAssert.AreEqual(data, fake.GetFile("r/a.bin"));
+        Assert.AreEqual(2, fake.Requests.Count(r => r.Host == GraphFake.UploadHost && r.Method == "GET"), "Each failed fragment asked once");
+    }
+
+    [TestMethod]
+    public async Task UnknownSize_IsMinusOne_AndASeekableReadMeasuresTheFile()
+    {
+        foreach (var ignoreRanges in new[] { false, true })
+        {
+            var (provider, fake) = Create(configure: f => f.IgnoreRanges = ignoreRanges);
+            var bytes = TestStreams.Bytes(1000, seed: 13);
+            await provider.UpdateFileAsync("f.bin", new MemoryStream(bytes));
+            await provider.UpdateFileAsync("empty.bin", new MemoryStream());
+            fake.OmitSizes = true;
+            Assert.AreEqual(-1, (await provider.GetFileInfoAsync("f.bin")).Length);
+            await using (var stream = await provider.OpenReadSeekableAsync("f.bin", new SeekableReadOptions { BufferSize = 64 }))
+            {
+                Assert.AreEqual(1000, stream.Length);
+                stream.Position = 900;
+                var buffer = new byte[50];
+                await stream.ReadExactlyAsync(buffer);
+                CollectionAssert.AreEqual(bytes[900..950], buffer);
+            }
+            await using var empty = await provider.OpenReadSeekableAsync("empty.bin", new SeekableReadOptions { AllowModifications = true });
+            Assert.AreEqual(0, empty.Length);
+        }
+    }
+
+    [TestMethod]
+    public async Task UnknownSize_Measuring_ChecksThePin_AndNeedsALength()
+    {
+        var (provider, fake) = Create();
+        await Write(provider, "f.txt", "0123456789");
+        fake.OmitSizes = true;
+        fake.OnRequest = r =>
+        {
+            if (r.Method == "GET" && r.Query.TryGetValue("$select", out var select) && select.Contains("downloadUrl", StringComparison.Ordinal))
+            {
+                fake.OnRequest = null;
+                fake.SetFile("r/f.txt", Encoding.UTF8.GetBytes("changed"));
+            }
+        };
+        await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => provider.OpenReadSeekableAsync("f.txt"));
+
+        fake.Intercept = r => r.Host == GraphFake.DownloadHost ? new HttpResponseMessage(HttpStatusCode.PartialContent) { Content = new ByteArrayContent([0x30]) } : null;
+        await Assert.ThrowsExactlyAsync<IOException>(() => provider.OpenReadSeekableAsync("f.txt"));
+        fake.Intercept = r => r.Host == GraphFake.DownloadHost ? new HttpResponseMessage(HttpStatusCode.NotFound) : null;
+        await Assert.ThrowsExactlyAsync<FileNotFoundException>(() => provider.OpenReadSeekableAsync("f.txt"));
+        fake.Intercept = null;
+        fake.OmitDownloadUrls = true;
+        await Assert.ThrowsExactlyAsync<IOException>(() => provider.OpenReadSeekableAsync("f.txt"));
+        await Assert.ThrowsExactlyAsync<FileNotFoundException>(() => provider.OpenReadSeekableAsync("missing.txt"));
+
+        // A file Graph gives no ETag cannot be pinned.
+        fake.Intercept = r => r.Method == "GET" && r.Path.EndsWith("/f.txt:", StringComparison.Ordinal)
+            ? Answer(HttpStatusCode.OK, "{\"id\":\"01X\",\"name\":\"f.txt\",\"size\":10,\"file\":{}}")
+            : null;
+        await Assert.ThrowsExactlyAsync<NotSupportedException>(() => provider.OpenReadSeekableAsync("f.txt"));
     }
 
     private static HttpResponseMessage Answer(HttpStatusCode code, string json) =>

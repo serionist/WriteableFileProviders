@@ -95,6 +95,7 @@ agreement for a one-way door. D20 records how the two maintainers agree for this
 | D24 | Content type and unsupported options (round 2, P16, P17) | `UpdateFileOptions.ContentType` is a hint: stored where the store keeps one, ignored elsewhere, and `IWriteableFileInfo.ContentType` is null where the store keeps none. An option a provider cannot honor throws `NotSupportedException`; on `GetSignedUrlAsync` that lets the gateway take over. A signed URL validity that is not positive throws `ArgumentOutOfRangeException`; one above what the provider can sign natively throws `NotSupportedException`, so the URL service falls back on every provider alike. |
 | D25 | Provider classes are sealed | Every provider class is sealed in 2027; a custom provider derives from WriteableFileProvider<TOptions>, or wraps IWriteableFileProvider. Each provider step applies it and lists it in the migration guide. |
 | D26 | New options keep the stored shape | Every options property new in 2027 is written to JSON only when it differs from its default ([JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]), so a configuration that uses none of them keeps its 2026 shape. |
+| D27 | Listings show only addressable names | A name the provider's path validation would refuse is left out of listings on every provider; S12 brings the providers that do not yet do it into line. |
 
 ## Design
 
@@ -141,6 +142,8 @@ Every provider passes the same conformance tests for each of these rules:
   - Folders before files is not promised.
   - A missing folder lists as `Exists` false and empty.
   - `EnumerateAsync(recursive: true)` walks every level and yields each folder once, before its contents.
+  - Listings leave out names the provider cannot address (names its own path validation would refuse), so everything
+    listed can be read back (D27).
 - **Root and names:**
   - `GetFileInfo` on the root returns a folder: `Exists`, `IsDirectory`, `Name` empty.
   - Names are case-sensitive on the object stores, and case-insensitive on Box, SharePoint and Physical (Windows,
@@ -1200,6 +1203,23 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
   - SharePoint.Tests now runs 245 offline tests. Coverage on Windows: 99.87% of lines, 91.46% of branches; floor 99/91
     (it takes the Linux figure instead if CI measures lower, as the Tests section says).
 
+- **2026-10-11, S9 review round 2 (PR #28):** every round-1 finding verified; the minors are fixed after rebasing onto
+  S11 (bce935c):
+  - **N1:** an upload session's one resend per fragment is tracked by offset: a failure or an answer without progress
+    at or before the offset of the last resend ends the upload, so a session that keeps sending the upload back never
+    loops, and a resync that moves forward leaves the next fragment its own resend.
+  - **N3 (owner call, fail closed):** a valid percent-escape in `WorkFolderPath` or `RootDirectoryPath` is refused at
+    construction with an `ArgumentException` that says to decode it, so a value copied from a browser never silently
+    names another folder; the migration guide's percent row and D7 table name both options.
+  - **N4:** D27 is added, and the contract's Listing rule says listings show only addressable names.
+  - **N5:** the README and `CopyCoreAsync` say a copy that runs past the 10-minute wait may still create the destination.
+  - **N6:** with `WFP_LIVE=1` and no account, `SharePointLiveTests` fails naming what is missing; AGENTS.md says so.
+  - **N7–N11:** the README names the resent statuses; the copy wait uses `Task.Delay(delay, TimeProvider, ct)`; the
+    segment test is split by cause; the live checklist is numbered in order; a file whose size Graph does not report
+    has `Length` -1, and the provider's seekable read measures it from one byte of its download.
+  - SharePoint.Tests runs 255 offline tests. Coverage on Windows: 99.88% of lines and 91.74% of branches; the floor
+    stays 99/91. The full non-Live run after the rebase passes (856 tests, 0 failed).
+
 ### For the maintainers
 
 What this session cannot do, kept current as the work goes on:
@@ -1281,10 +1301,10 @@ What this session cannot do, kept current as the work goes on:
      In particular a folder named `a%41` beside one named `aA` (sent as `a%2541`: each stays itself), and an item named
      `%2E%2E`: whether SharePoint lets one exist, and whether it ever resolves a decoded `..` in a path (the provider
      escapes `%` and leaves such names out of listings).
-  11. `GET …/children` of a file: an empty list or an error (the fake assumes an empty list; the provider reads either
-      as "not a folder"). Also an assumption of the fake: `If-Match` enforced on a simple upload (item 1).
-  9. The 100 MB conformance case through upload sessions of 5 MiB fragments.
-  10. Optionally pin Kiota 2.1.4 (see S9's progress-log entry).
+  9. `GET …/children` of a file: an empty list or an error (the fake assumes an empty list; the provider reads either
+     as "not a folder"). Also an assumption of the fake: `If-Match` enforced on a simple upload (item 1).
+  10. The 100 MB conformance case through upload sessions of 5 MiB fragments.
+  11. Optionally pin Kiota 2.1.4 (see S9's progress-log entry).
 - [ ] Run the live suites against your accounts before tagging `v2027.0.0`.
 - [ ] Azure (S6): run `AzureBlobLiveTests` with `WFP_LIVE=1`, once with a shared key and once with
   `WFP_AZURE_USE_DEFAULT_CREDENTIAL=1` (a Storage Blob Data Contributor role at the account), and by hand: append to and

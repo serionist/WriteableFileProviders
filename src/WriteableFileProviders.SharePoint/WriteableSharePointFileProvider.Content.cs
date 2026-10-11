@@ -42,6 +42,45 @@ public sealed partial class WriteableSharePointFileProvider
             : await DownloadAsync(path, item, offset, length, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <inheritdoc />
+    /// <remarks>
+    /// Pinned to the file's ETag unless modifications are allowed, checked before each fetch (not atomic). A file whose
+    /// size Graph does not report is measured first, from one byte of its download.
+    /// </remarks>
+    protected override async Task<Stream> OpenReadSeekableCoreAsync(ResolvedPath path, SeekableReadOptions options, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        ArgumentNullException.ThrowIfNull(options);
+        var info = await GetFileInfoCoreAsync(path, cancellationToken).ConfigureAwait(false);
+        if (!info.Exists || info.IsDirectory)
+            throw NotFound(path);
+        if (!options.AllowModifications && info.ETag is null)
+            throw new NotSupportedException($"{GetType().Name} keeps no version of '{path}', so a read cannot be pinned to one; allow modifications to read it unpinned.");
+        var pin = options.AllowModifications ? null : info.ETag;
+        var length = info.Length >= 0 ? info.Length : await MeasureAsync(path, pin, cancellationToken).ConfigureAwait(false);
+        return new RangeReadStream(length, (offset, count, token) => ReadRangeCoreAsync(path, offset, count, pin, token), options.BufferSize);
+    }
+
+    /// <summary>The length of a file whose size Graph does not report: from the answer to a request for its first byte.</summary>
+    private async Task<long> MeasureAsync(ResolvedPath path, string? pin, CancellationToken cancellationToken)
+    {
+        var item = await GetDownloadableAsync(path, cancellationToken).ConfigureAwait(false);
+        if (pin is not null && !string.Equals(item.ETag, pin, StringComparison.Ordinal))
+            throw new PreconditionFailedException($"The file '{path}' changed: its version is no longer '{pin}'.");
+        var url = DownloadUrlOf(item) ?? throw new IOException($"Reading '{path}' failed: Microsoft Graph gave no download URL for it.");
+        var request = new RequestInformation { HttpMethod = Method.GET, URI = url };
+        request.Headers.Add("Range", "bytes=0-0");
+        using var response = await SendRawAsync(request, $"Reading '{path}'", streamed: true, cancellationToken).ConfigureAwait(false);
+        return response.StatusCode switch
+        {
+            HttpStatusCode.PartialContent when response.Content.Headers.ContentRange?.Length is { } total => total,
+            HttpStatusCode.RequestedRangeNotSatisfiable => response.Content.Headers.ContentRange?.Length ?? 0,
+            HttpStatusCode.OK when response.Content.Headers.ContentLength is { } whole => whole,
+            HttpStatusCode.NotFound => throw NotFound(path),
+            _ => throw new IOException($"Reading '{path}' failed: the service did not say how long the file is ({(int)response.StatusCode})."),
+        };
+    }
+
     /// <summary>The file's metadata with its download URL; a missing path or a folder is not found.</summary>
     private async Task<DriveItem> GetDownloadableAsync(ResolvedPath path, CancellationToken cancellationToken)
     {
@@ -159,9 +198,10 @@ public sealed partial class WriteableSharePointFileProvider
     /// <summary>
     /// Uploads through an upload session, in fragments that are multiples of 320 KiB. Each fragment may be resent once:
     /// after a transient failure (500, 502, 503, 504 or the network) or a 416 the session is asked where it stands, and
-    /// after an answer that does not move the upload on it says so itself; the upload goes on from there. A second such
-    /// answer for the same fragment, or any other failure, cancels the session and throws. The service commits the file
-    /// with the last fragment, so a failure leaves the old content.
+    /// after an answer that does not move the upload on it says so itself; the upload goes on from there. A failure or
+    /// such an answer at or before the offset of the last resend ends the upload, so a session that keeps sending it back
+    /// never loops; a resync that moves forward leaves the next fragment its own resend. Any other failure cancels the
+    /// session and throws. The service commits the file with the last fragment, so a failure leaves the old content.
     /// </summary>
     private async Task UploadInSessionAsync(string driveId, ResolvedPath path, FileStream content, UpdateFileOptions options, string what, CancellationToken cancellationToken)
     {
@@ -198,7 +238,7 @@ public sealed partial class WriteableSharePointFileProvider
         {
             var total = content.Length;
             var offset = 0L;
-            var resent = false;
+            var resentAt = -1L;
             while (true)
             {
                 if (offset < 0 || offset >= total)
@@ -211,10 +251,10 @@ public sealed partial class WriteableSharePointFileProvider
                 {
                     case null or HttpStatusCode.InternalServerError or HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable
                         or HttpStatusCode.GatewayTimeout or HttpStatusCode.RequestedRangeNotSatisfiable:
-                        // Ask the session where it stands and go on from there, once.
-                        if (resent)
-                            throw status is { } failed ? GraphErrors.FromResponse((int)failed, answer, what) : new IOException($"{what} failed: the upload was interrupted twice.");
-                        resent = true;
+                        // Ask the session where it stands and go on from there, once per fragment.
+                        if (offset <= resentAt)
+                            throw status is { } failed ? GraphErrors.FromResponse((int)failed, answer, what) : new IOException($"{what} failed: the upload was interrupted again at byte {offset}.");
+                        resentAt = offset;
                         offset = await NextExpectedAsync(uploadUrl, what, cancellationToken).ConfigureAwait(false) ?? offset;
                         continue;
                     case HttpStatusCode.OK or HttpStatusCode.Created:
@@ -223,17 +263,11 @@ public sealed partial class WriteableSharePointFileProvider
                         var next = NextExpectedOf(answer) ?? offset + count;
                         if (next >= total)
                             throw new IOException($"{what} failed: the service did not commit the upload after its last fragment.");
-                        if (next > offset)
+                        if (next <= offset)
                         {
-                            resent = false;
-                        }
-                        else if (resent)
-                        {
-                            throw new IOException($"{what} failed: the upload session did not move past byte {offset}.");
-                        }
-                        else
-                        {
-                            resent = true;
+                            if (offset <= resentAt)
+                                throw new IOException($"{what} failed: the upload session did not move past byte {offset}.");
+                            resentAt = offset;
                         }
                         offset = next;
                         continue;
@@ -389,8 +423,10 @@ public sealed partial class WriteableSharePointFileProvider
 
     /// <inheritdoc />
     /// <remarks>
-    /// Copies on the server, with conflict behaviour <c>fail</c>, and polls the copy's monitor until it completes. A
-    /// destination taken while the copy runs throws <see cref="FileExistsException"/>.
+    /// Copies on the server, with conflict behaviour <c>fail</c>, and polls the copy's monitor until it completes, for at
+    /// most 10 minutes. A destination taken while the copy runs throws <see cref="FileExistsException"/>. When the wait
+    /// runs out the call throws <see cref="IOException"/>, but the service may still finish the copy and create the
+    /// destination afterwards.
     /// </remarks>
     protected override async Task CopyCoreAsync(ResolvedPath source, ResolvedPath destination, CancellationToken cancellationToken)
     {
@@ -475,7 +511,7 @@ public sealed partial class WriteableSharePointFileProvider
             }
             if (TimeProvider.GetElapsedTime(started) >= CopyTimeout)
                 throw new IOException($"{what} failed: the copy did not complete within {CopyTimeout}; it last reported '{last ?? "nothing readable"}'.");
-            await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+            await Task.Delay(delay, TimeProvider, cancellationToken).ConfigureAwait(false);
             delay = TimeSpan.FromTicks(Math.Min(delay.Ticks * 2, MaxCopyPollDelay.Ticks));
         }
     }

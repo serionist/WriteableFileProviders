@@ -5,8 +5,8 @@ using WriteableFileProviders.Testing;
 namespace WriteableFileProviders.SharePoint.Tests;
 
 /// <summary>
-/// The conformance suite against a real SharePoint document library. It runs only when <c>WFP_LIVE=1</c> and the account
-/// is configured, from environment variables (<c>WFP_SHAREPOINT_SITE_URL</c>, <c>WFP_SHAREPOINT_LIBRARY</c>,
+/// The conformance suite against a real SharePoint document library. Without <c>WFP_LIVE=1</c> it is inconclusive; with
+/// it, a missing account fails the run, naming what is missing. The account comes from environment variables (<c>WFP_SHAREPOINT_SITE_URL</c>, <c>WFP_SHAREPOINT_LIBRARY</c>,
 /// <c>WFP_SHAREPOINT_TENANT_ID</c>, <c>WFP_SHAREPOINT_CLIENT_ID</c>, <c>WFP_SHAREPOINT_CLIENT_SECRET</c>,
 /// <c>WFP_SHAREPOINT_CERTIFICATE_BASE64</c>, <c>WFP_SHAREPOINT_CERTIFICATE_PASSWORD</c>,
 /// <c>WFP_SHAREPOINT_USE_DEFAULT_CREDENTIAL</c>, <c>WFP_SHAREPOINT_WORK_FOLDER</c>) or from an optional
@@ -17,7 +17,7 @@ namespace WriteableFileProviders.SharePoint.Tests;
 [TestCategory("Live")]
 public sealed class SharePointLiveTests : ProviderConformanceTests
 {
-    private static readonly Lazy<SharePointFileProviderOptions?> _settings = new(Read);
+    private static readonly Lazy<(SharePointFileProviderOptions Options, string[] Missing)> _settings = new(Read);
 
     protected override bool HasRealFolders => true;
 
@@ -34,11 +34,11 @@ public sealed class SharePointLiveTests : ProviderConformanceTests
 
     protected override IWriteableFileProvider CreateProvider(string? root)
     {
-        if (Environment.GetEnvironmentVariable("WFP_LIVE") != "1" || _settings.Value is not { } settings)
-        {
+        if (Environment.GetEnvironmentVariable("WFP_LIVE") != "1")
             Assert.Inconclusive("The live SharePoint suite runs with WFP_LIVE=1 and an account in WFP_SHAREPOINT_* or testsettings.json.");
-            throw new InvalidOperationException("Unreachable.");
-        }
+        var (settings, missing) = _settings.Value;
+        if (missing.Length > 0)
+            Assert.Fail($"WFP_LIVE=1, but the SharePoint account is not configured: set {string.Join(", ", missing)} (WFP_SHAREPOINT_* or testsettings.json).");
         return new WriteableSharePointFileProvider(new SharePointFileProviderOptions(settings.SiteUrl, settings.DocumentLibraryName, settings.TenantId,
             settings.ClientId, settings.ClientSecret, settings.WorkFolderPath)
         {
@@ -49,7 +49,7 @@ public sealed class SharePointLiveTests : ProviderConformanceTests
         });
     }
 
-    private static SharePointFileProviderOptions? Read()
+    private static (SharePointFileProviderOptions Options, string[] Missing) Read()
     {
         var file = Path.Combine(AppContext.BaseDirectory, "testsettings.json");
         using var json = File.Exists(file) ? JsonDocument.Parse(File.ReadAllText(file)) : null;
@@ -70,8 +70,18 @@ public sealed class SharePointLiveTests : ProviderConformanceTests
             UseDefaultAzureCredential = Value("WFP_SHAREPOINT_USE_DEFAULT_CREDENTIAL", "SharePointFileProvider_UseDefaultAzureCredential") == "true",
             WorkFolderPath = Value("WFP_SHAREPOINT_WORK_FOLDER", "SharePointFileProvider_WorkFolderPath") ?? "wfp-live",
         };
-        var signsIn = options.UseDefaultAzureCredential || (options.TenantId is not null && options.ClientId is not null
-            && (options.ClientSecret is not null || options.ClientCertificateBase64 is not null));
-        return options.SiteUrl is not null && signsIn ? options : null;
+        var missing = new List<string>();
+        if (options.SiteUrl is null)
+            missing.Add("WFP_SHAREPOINT_SITE_URL");
+        if (!options.UseDefaultAzureCredential)
+        {
+            if (options.TenantId is null)
+                missing.Add("WFP_SHAREPOINT_TENANT_ID");
+            if (options.ClientId is null)
+                missing.Add("WFP_SHAREPOINT_CLIENT_ID");
+            if (options.ClientSecret is null && options.ClientCertificateBase64 is null)
+                missing.Add("WFP_SHAREPOINT_CLIENT_SECRET or WFP_SHAREPOINT_CERTIFICATE_BASE64 (or WFP_SHAREPOINT_USE_DEFAULT_CREDENTIAL=true)");
+        }
+        return (options, [.. missing]);
     }
 }

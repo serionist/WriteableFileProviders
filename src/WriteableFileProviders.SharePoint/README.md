@@ -38,8 +38,8 @@ It brings `WriteableFileProviders.Common`, Microsoft.Graph 6 and Azure.Identity.
 | `ClientSecret` | one way to sign in | The app's client secret. |
 | `ClientCertificateBase64`, `ClientCertificatePassword` | one way to sign in | The app's certificate with its private key, as a base64 PKCS#12 (.pfx) file, and its password. New in 2027. |
 | `UseDefaultAzureCredential` | one way to sign in | `true` to sign in with `DefaultAzureCredential`: managed identity, workload identity, environment variables, or a developer sign-in. New in 2027. |
-| `WorkFolderPath` | no | A folder of the library that holds the root; created on the first write. |
-| `RootDirectoryPath` (or `RootDirectorySegments`) | no | The provider's root, inside the work folder. Nothing outside it can be reached. |
+| `WorkFolderPath` | no | A folder of the library that holds the root; created on the first write. Names as they are, never percent-escaped (`Team Files`, not `Team%20Files`, which is refused). |
+| `RootDirectoryPath` (or `RootDirectorySegments`) | no | The provider's root, inside the work folder. Nothing outside it can be reached. Not percent-escaped either. |
 
 ```csharp
 using WriteableFileProviders;
@@ -90,9 +90,9 @@ found. Dispose the provider to release the HTTP client and certificate it create
   `..`.
 - **Writes** copy the stream, from its position, to a temp file first, so a source that fails sends nothing. Up to
   4 MiB a file goes in one request; above, through an upload session in 5 MiB fragments that the service commits with
-  the last one. A fragment that fails for a passing reason (a 5xx, the network, a range the service did not expect) is
-  sent once more from where the session stands. Either way a failed write leaves the old content, and the caller's
-  stream is left open.
+  the last one. A fragment answered 500, 502, 503, 504 or 416, cut off by the network, or answered without progress is
+  sent once more from where the session stands; a second failure there ends the upload. Either way a failed write
+  leaves the old content, and the caller's stream is left open.
 - **Conditions** (`IfMatch`, `IfNotExists`) are checked just before the write and also sent to the service (`If-Match`,
   and the conflict behaviour `fail`). They are not promised to be atomic: Graph documents `If-Match` when an upload
   session starts, not at its commit, and not on a simple upload. An append rewrites the file with `If-Match` on the
@@ -103,7 +103,8 @@ found. Dispose the provider to release the HTTP client and certificate it create
   natively, and a range the service ignores is cut from the whole file. A read pinned to an ETag (`ReadOptions.IfMatch`,
   the seekable stream) checks it before each fetch, which is not atomic.
 - **Move** is one request, which refuses a destination that exists. **Copy** runs on the server and is polled until it
-  completes, for at most 10 minutes; then it throws `IOException` naming the copy's last status.
+  completes, for at most 10 minutes; then it throws `IOException` naming the copy's last status. The service may still
+  finish that copy afterwards and create the destination.
 - **Delete** sends items to the site's recycle bin.
 - **Errors:** only a 404 means "not found". The SDK retries 429, 503 and 504 three times, honouring `Retry-After`;
   then the call throws `IOException`. 401 and 403 throw `UnauthorizedAccessException`, other failures `IOException`,

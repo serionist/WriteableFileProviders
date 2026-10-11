@@ -165,6 +165,30 @@ public sealed class SharePointOptionsTests
     }
 
     [TestMethod]
+    [DataRow("Team%20Files", null, "WorkFolderPath")]
+    [DataRow("Main/a%41", null, "WorkFolderPath")]
+    [DataRow(null, "tenants/acme%2Dco", "RootDirectoryPath")]
+    [DataRow("Main", "%2E%2E", "RootDirectoryPath")]
+    public void WorkFolderAndRoot_WithAPercentEscape_AreRefused(string? workFolder, string? root, string option)
+    {
+        // 2026 sent the escape on and the service decoded it; 2027 would name another folder, so it asks for the name.
+        var error = Assert.ThrowsExactly<ArgumentException>(() => new WriteableSharePointFileProvider(TestGraph.Options(root, workFolder)));
+        StringAssert.Contains(error.Message, option);
+        StringAssert.Contains(error.Message, "decode it");
+        using var client = TestGraph.Client(new GraphFake());
+        Assert.ThrowsExactly<ArgumentException>(() => new WriteableSharePointFileProvider(TestGraph.Options(root, workFolder), client));
+    }
+
+    [TestMethod]
+    public async Task WorkFolderAndRoot_WithALonePercent_AreTakenAsTheyAre()
+    {
+        var fake = new GraphFake();
+        await using (var provider = TestGraph.OwnProvider(fake, TestGraph.Options("50% off", "Sales %")))
+            await provider.UpdateFileAsync("f.txt", TestStreams.Text("x"));
+        Assert.AreEqual("x", Encoding.UTF8.GetString(fake.GetFile("Sales %/50% off/f.txt") ?? []));
+    }
+
+    [TestMethod]
     [DataRow("a/../b", null)]
     [DataRow("a:b", null)]
     [DataRow(null, "%2E%2E")]

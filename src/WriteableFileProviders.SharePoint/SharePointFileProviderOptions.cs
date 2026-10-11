@@ -19,7 +19,8 @@ namespace WriteableFileProviders.SharePoint;
 /// inside the document library. When the root segments start with the work folder (compared without regard to case),
 /// that one leading copy is dropped, so a configuration that sets both to the same folder keeps the root it had. A root
 /// that is a strict prefix of the work folder is refused, because the 2026 provider placed some paths of such a
-/// configuration elsewhere (docs/migration-2027.md).
+/// configuration elsewhere (docs/migration-2027.md). Neither may hold a percent-escape such as <c>%20</c>: write the
+/// names as they are.
 /// </para>
 /// </remarks>
 public class SharePointFileProviderOptions : FileProviderOptions
@@ -98,7 +99,8 @@ public class SharePointFileProviderOptions : FileProviderOptions
     /// <summary>
     /// A folder of the document library, such as <c>Main/Work</c>, that holds the provider's root: the root
     /// (<see cref="FileProviderOptions.RootDirectoryPath"/>) is a folder inside it. Separators may be <c>/</c> or
-    /// <c>\</c>. Empty or null is the library's top level. Missing folders are created on the first write.
+    /// <c>\</c>. Empty or null is the library's top level. Missing folders are created on the first write. Write names
+    /// as they are, not percent-escaped: a value holding an escape such as <c>%20</c> is refused.
     /// </summary>
     public string? WorkFolderPath { get; set; }
 }

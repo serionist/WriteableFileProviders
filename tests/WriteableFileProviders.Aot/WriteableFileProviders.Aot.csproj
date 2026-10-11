@@ -1,0 +1,59 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!-- An app over the packages, published with native AOT in CI: Program.cs says what it checks. Every member of each
+       package is kept (TrimmerRootAssembly), so the publish analyses all of it, used here or not, and the SDKs it calls;
+       any trim or AOT warning fails it. GoogleCloudStorage and Box are left out: their SDKs are not AOT compatible. -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- One warning per problem, not one per assembly, so the log names it. -->
+    <TrimmerSingleWarn>false</TrimmerSingleWarn>
+    <IlcTreatWarningsAsErrors>true</IlcTreatWarningsAsErrors>
+    <!-- The runtimes it is published for, so the lock file holds their packages. -->
+    <RuntimeIdentifiers>linux-x64;win-x64</RuntimeIdentifiers>
+    <!-- Never packed (tests/Directory.Build.props); the web SDK would warn when dotnet pack meets it in the solution. -->
+    <WarnOnPackingNonPackableProject>false</WarnOnPackingNonPackableProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\WriteableFileProviders.Common\WriteableFileProviders.Common.csproj" />
+    <ProjectReference Include="..\..\src\WriteableFileProviders.Physical\WriteableFileProviders.Physical.csproj" />
+    <ProjectReference Include="..\..\src\WriteableFileProviders.AzureBlob\WriteableFileProviders.AzureBlob.csproj" />
+    <ProjectReference Include="..\..\src\WriteableFileProviders.AmazonS3\WriteableFileProviders.AmazonS3.csproj" />
+    <ProjectReference Include="..\..\src\WriteableFileProviders.Minio\WriteableFileProviders.Minio.csproj" />
+    <ProjectReference Include="..\..\src\WriteableFileProviders.SharePoint\WriteableFileProviders.SharePoint.csproj" />
+    <ProjectReference Include="..\..\src\WriteableFileProviders.AspNetCore\WriteableFileProviders.AspNetCore.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <TrimmerRootAssembly Include="WriteableFileProviders.Common" />
+    <TrimmerRootAssembly Include="WriteableFileProviders.Physical" />
+    <TrimmerRootAssembly Include="WriteableFileProviders.AzureBlob" />
+    <TrimmerRootAssembly Include="WriteableFileProviders.AmazonS3" />
+    <TrimmerRootAssembly Include="WriteableFileProviders.Minio" />
+    <TrimmerRootAssembly Include="WriteableFileProviders.SharePoint" />
+    <TrimmerRootAssembly Include="WriteableFileProviders.AspNetCore" />
+  </ItemGroup>
+
+  <!-- ASP.NET Core turns EventSource on in a native AOT app, and the EventSource of Microsoft.IO.RecyclableMemoryStream
+       3.0.1, which Microsoft Graph brings through Kiota, then warns: it logs only primitives, through
+       WriteEvent(int, object[]). That assembly's warnings fold into one, IL2104, which is printed but does not fail the
+       publish; every other assembly's warnings still do. -->
+  <PropertyGroup>
+    <WarningsNotAsErrors>$(WarningsNotAsErrors);IL2104</WarningsNotAsErrors>
+  </PropertyGroup>
+
+  <Target Name="FoldRecyclableMemoryStreamWarnings" BeforeTargets="PrepareForILLink" DependsOnTargets="_ComputeManagedAssemblyToLink">
+    <ItemGroup>
+      <ManagedAssemblyToLink Condition="'%(Filename)' == 'Microsoft.IO.RecyclableMemoryStream'" TrimmerSingleWarn="true" />
+    </ItemGroup>
+  </Target>
+
+  <ItemGroup>
+    <!-- The in-memory Microsoft Graph of the SharePoint tests. -->
+    <Compile Include="..\WriteableFileProviders.SharePoint.Tests\GraphFake.cs" Link="GraphFake.cs" />
+  </ItemGroup>
+
+</Project>

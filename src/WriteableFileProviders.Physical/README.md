@@ -88,6 +88,7 @@ None: the provider reads and writes with the permissions of the process that run
   another program that keeps the length within the file system's time resolution may not change the ETag.
 - **Symbolic links to files** are described by their target, which reads open: its length, last-write time and ETag.
   `PhysicalPath` stays the link's own path under the root. A link to nothing, or in a loop, is described as itself.
+  The target is found through the system's resolution of the link; listing a link never opens its target.
 - **Conditions.** `IfMatch` is checked just before the rename, which is not atomic: another process can change the file
   in between. An append checks the same way that the file is still the version it copied, and throws
   `PreconditionFailedException` if not.

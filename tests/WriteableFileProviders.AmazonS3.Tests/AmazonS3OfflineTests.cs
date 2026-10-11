@@ -45,7 +45,7 @@ public sealed class AmazonS3OfflineTests
     }
 
     private static SignedUrlOptions For(TimeSpan validity, bool allowShorter = false, SignedUrlAccess access = SignedUrlAccess.Read) =>
-        new() { Validity = validity, AllowShorterValidity = allowShorter, Permission = access };
+        new() { Validity = validity, AllowShorterValidity = allowShorter, Access = access };
 
     [TestMethod]
     public async Task Presign_LongTermKeysLiveAsAskedOnAwsOverHttps()

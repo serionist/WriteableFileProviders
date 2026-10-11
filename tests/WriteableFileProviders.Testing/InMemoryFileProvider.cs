@@ -67,10 +67,10 @@ public sealed class InMemoryFileProvider(InMemoryFileProviderOptions options) : 
     protected override bool IsCaseInsensitive => Files.Comparison == StringComparison.OrdinalIgnoreCase;
 
     /// <inheritdoc />
-    protected override bool SupportsSignedUrl(SignedUrlAccess permission) => true;
+    protected override bool SupportsSignedUrl(SignedUrlAccess access) => true;
 
     /// <inheritdoc />
-    protected override bool SupportsSignedUrlContentHeaders(SignedUrlAccess permission) => true;
+    protected override bool SupportsSignedUrlContentHeaders(SignedUrlAccess access) => true;
 
     /// <inheritdoc />
     protected override Task<IWriteableFileInfo> GetFileInfoCoreAsync(ResolvedPath path, CancellationToken cancellationToken)
@@ -194,7 +194,7 @@ public sealed class InMemoryFileProvider(InMemoryFileProviderOptions options) : 
             lifetime = fixedLifetime;
         }
         var expires = TimeProvider.GetUtcNow().Add(lifetime);
-        var query = $"access={options.Permission}&expires={expires.ToUnixTimeSeconds()}";
+        var query = $"access={options.Access}&expires={expires.ToUnixTimeSeconds()}";
         if (options.DownloadFileName is not null)
             query += "&filename=" + Uri.EscapeDataString(options.DownloadFileName);
         if (options.ContentType is not null)
@@ -202,7 +202,7 @@ public sealed class InMemoryFileProvider(InMemoryFileProviderOptions options) : 
         return Task.FromResult(new SignedUrl
         {
             Url = new Uri($"memory://{Uri.EscapeDataString(Options.StoreName)}/{Key(path)}?{query}"),
-            Method = options.Permission == SignedUrlAccess.Read ? "GET" : "PUT",
+            Method = options.Access == SignedUrlAccess.Read ? "GET" : "PUT",
             ExpiresOn = expires,
         });
     }

@@ -134,12 +134,12 @@ public sealed class WriteableMinioFileProvider : WriteableFileProvider<MinioFile
     /// overwrite a file; a create URL is <see cref="NotSupportedException"/>, and WriteableFileProviders.AspNetCore
     /// issues a gateway URL, which checks the condition before the write.
     /// </summary>
-    /// <param name="permission">The permission.</param>
-    protected override bool SupportsSignedUrl(SignedUrlAccess permission) =>
-        _core.CanPresign && (permission != SignedUrlAccess.Create || _core.ChecksAtomically);
+    /// <param name="access">The access.</param>
+    protected override bool SupportsSignedUrl(SignedUrlAccess access) =>
+        _core.CanPresign && (access != SignedUrlAccess.Create || _core.ChecksAtomically);
 
     /// <inheritdoc />
-    protected override bool SupportsSignedUrlContentHeaders(SignedUrlAccess permission) => true;
+    protected override bool SupportsSignedUrlContentHeaders(SignedUrlAccess access) => true;
 
     /// <inheritdoc />
     protected override Task<SignedUrl> GetSignedUrlCoreAsync(ResolvedPath path, SignedUrlOptions options, CancellationToken cancellationToken) =>

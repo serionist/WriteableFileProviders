@@ -75,7 +75,7 @@ internal sealed class GatewayHost : IAsyncDisposable
         configureApp?.Invoke(app);
         app.MapWriteableFileProviderGateway();
         app.MapGet("/issue", async (HttpContext context, IWriteableFileUrlService urls, string provider, string path, SignedUrlAccess access) =>
-            (await urls.GetSignedUrlAsync(path, new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Permission = access }, provider, context.RequestAborted)).Url.ToString());
+            (await urls.GetSignedUrlAsync(path, new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Access = access }, provider, context.RequestAborted)).Url.ToString());
         await app.StartAsync();
         return new GatewayHost(app, store);
     }
@@ -95,7 +95,7 @@ internal sealed class GatewayHost : IAsyncDisposable
         var options = new SignedUrlOptions
         {
             Validity = TimeSpan.FromMinutes(5),
-            Permission = access,
+            Access = access,
             DownloadFileName = fileName,
             ContentType = contentType,
         };

@@ -77,10 +77,10 @@ public sealed class MinioOfflineTests
         using (provider)
         {
             var e = await Assert.ThrowsExactlyAsync<NotSupportedException>(() => provider.GetSignedUrlAsync("new.txt",
-                new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Permission = SignedUrlAccess.Create }));
+                new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Access = SignedUrlAccess.Create }));
             StringAssert.Contains(e.Message, "Create");
             Assert.AreEqual(0, factory.Requests.Count, "Refused before any request");
-            var write = await provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Permission = SignedUrlAccess.Write });
+            var write = await provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Access = SignedUrlAccess.Write });
             Assert.AreEqual("PUT", write.Method);
             Assert.IsFalse(write.Headers.ContainsKey("If-None-Match"));
         }
@@ -88,7 +88,7 @@ public sealed class MinioOfflineTests
             new AmazonS3Config { ServiceURL = "https://minio.example.net:9000", ForcePathStyle = true });
         using var given = new WriteableMinioFileProvider(new MinioFileProviderOptions { BucketName = "bucket" }, client);
         await Assert.ThrowsExactlyAsync<NotSupportedException>(() => given.GetSignedUrlAsync("new.txt",
-            new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Permission = SignedUrlAccess.Create, AllowShorterValidity = true }));
+            new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Access = SignedUrlAccess.Create, AllowShorterValidity = true }));
     }
 
     [TestMethod]

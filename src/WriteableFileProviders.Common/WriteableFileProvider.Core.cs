@@ -25,17 +25,17 @@ public abstract partial class WriteableFileProvider<TOptions>
     /// </summary>
     protected virtual TimeSpan MaxSignedUrlValidity => TimeSpan.FromDays(7);
 
-    /// <summary>Whether the provider issues signed URLs with this permission natively.</summary>
-    /// <param name="permission">The permission.</param>
-    protected virtual bool SupportsSignedUrl(SignedUrlAccess permission) => false;
+    /// <summary>Whether the provider issues signed URLs with this access natively.</summary>
+    /// <param name="access">The access.</param>
+    protected virtual bool SupportsSignedUrl(SignedUrlAccess access) => false;
 
     /// <summary>
     /// Whether the provider honours <see cref="SignedUrlOptions.DownloadFileName"/> and
-    /// <see cref="SignedUrlOptions.ContentType"/> on a URL with this permission. When false (the default), a request that
+    /// <see cref="SignedUrlOptions.ContentType"/> on a URL with this access. When false (the default), a request that
     /// sets either one throws <see cref="NotSupportedException"/>.
     /// </summary>
-    /// <param name="permission">The permission.</param>
-    protected virtual bool SupportsSignedUrlContentHeaders(SignedUrlAccess permission) => false;
+    /// <param name="access">The access.</param>
+    protected virtual bool SupportsSignedUrlContentHeaders(SignedUrlAccess access) => false;
 
     /// <summary>Gets a file, a folder or a missing path; never called with the root.</summary>
     /// <param name="path">The path.</param>
@@ -118,8 +118,8 @@ public abstract partial class WriteableFileProvider<TOptions>
     }
 
     /// <summary>
-    /// Opens a seekable read-only stream. The default is a <see cref="RangeReadStream"/> over
-    /// <see cref="ReadRangeCoreAsync"/>, pinned to the file's <see cref="IWriteableFileInfo.ETag"/> unless modifications
+    /// Opens a seekable read-only stream. The default reads ranges through <see cref="ReadRangeCoreAsync"/> as it is read,
+    /// at least <see cref="SeekableReadOptions.BufferSize"/> bytes a fetch, pinned to the file's <see cref="IWriteableFileInfo.ETag"/> unless modifications
     /// are allowed; without an ETag a pinned read throws <see cref="NotSupportedException"/>. A store with its own
     /// seekable stream overrides it.
     /// </summary>
@@ -297,7 +297,7 @@ public abstract partial class WriteableFileProvider<TOptions>
         }
     }
 
-    /// <summary>Issues a signed URL; called only when <see cref="SupportsSignedUrl"/> is true for the permission.</summary>
+    /// <summary>Issues a signed URL; called only when <see cref="SupportsSignedUrl"/> is true for the access.</summary>
     /// <param name="path">The file; for a read URL it exists.</param>
     /// <param name="options">The validated options.</param>
     /// <param name="cancellationToken">Cancels the call.</param>

@@ -13,7 +13,7 @@ namespace WriteableFileProviders.AzureBlob.Tests;
 [TestClass]
 public sealed class AzureErrorTests
 {
-    private static AzureFileProviderOptions SharedKey() => new() { AccountName = "account", AccountKey = Azurite.AccountKey, ContainerName = "files" };
+    private static AzureBlobFileProviderOptions SharedKey() => new() { AccountName = "account", AccountKey = Azurite.AccountKey, ContainerName = "files" };
 
     [TestMethod]
     [DataRow(HttpStatusCode.Forbidden, "AuthorizationPermissionMismatch")]
@@ -32,7 +32,7 @@ public sealed class AzureErrorTests
     [TestMethod]
     public async Task ACredentialMicrosoftEntraIdRefuses_IsUnauthorizedAccess()
     {
-        var options = new AzureFileProviderOptions { AccountName = "account", ContainerName = "files", UseDefaultAzureCredential = true };
+        var options = new AzureBlobFileProviderOptions { AccountName = "account", ContainerName = "files", UseDefaultAzureCredential = true };
         using var provider = new WriteableAzureBlobFileProvider(options, AzureBlobOptionsTests.Offline(new StubHandler(_ => StubHandler.BlobProperties())), new RefusingCredential());
         var e = await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(() => provider.GetFileInfoAsync("a.txt"));
         Assert.IsInstanceOfType<AuthenticationFailedException>(e.InnerException);
@@ -41,16 +41,16 @@ public sealed class AzureErrorTests
     [TestMethod]
     public async Task ASignInThatFindsNoCredential_IsAStoreNotSetUpAsConfigured()
     {
-        var options = new AzureFileProviderOptions { AccountName = "account", ContainerName = "files", UseDefaultAzureCredential = true };
+        var options = new AzureBlobFileProviderOptions { AccountName = "account", ContainerName = "files", UseDefaultAzureCredential = true };
         using var provider = new WriteableAzureBlobFileProvider(options, AzureBlobOptionsTests.Offline(new StubHandler(_ => StubHandler.BlobProperties())), new UnavailableCredential());
         var e = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.GetFileInfoAsync("a.txt"));
         Assert.IsInstanceOfType<CredentialUnavailableException>(e.InnerException);
-        StringAssert.Contains(e.Message, nameof(AzureFileProviderOptions.UseDefaultAzureCredential));
+        StringAssert.Contains(e.Message, nameof(AzureBlobFileProviderOptions.UseDefaultAzureCredential));
         await Assert.ThrowsExactlyAsync<InvalidOperationException>(async () => await provider.EnumerateAsync("").ToListAsync());
         await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.UpdateFileAsync("a.txt", new MemoryStream([1])));
         // A write URL asks for a user delegation key, the first request of the call.
         await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
-            provider.GetSignedUrlAsync("a.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Permission = SignedUrlAccess.Write }));
+            provider.GetSignedUrlAsync("a.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Access = SignedUrlAccess.Write }));
     }
 
     [TestMethod]
@@ -58,11 +58,11 @@ public sealed class AzureErrorTests
     {
         var client = new Azure.Storage.Blobs.BlobContainerClient(new Uri("https://account.blob.core.windows.net/files"), new UnavailableCredential(),
             AzureBlobOptionsTests.Offline(new StubHandler(_ => StubHandler.BlobProperties())));
-        using var provider = new WriteableAzureBlobFileProvider(null, client);
+        using var provider = new WriteableAzureBlobFileProvider(new(), client);
         var e = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.GetFileInfoAsync("a.txt"));
         Assert.IsInstanceOfType<CredentialUnavailableException>(e.InnerException);
         StringAssert.Contains(e.Message, "given client");
-        Assert.IsFalse(e.Message.Contains(nameof(AzureFileProviderOptions.UseDefaultAzureCredential), StringComparison.Ordinal), e.Message);
+        Assert.IsFalse(e.Message.Contains(nameof(AzureBlobFileProviderOptions.UseDefaultAzureCredential), StringComparison.Ordinal), e.Message);
     }
 
     [TestMethod]

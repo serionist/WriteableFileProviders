@@ -112,11 +112,11 @@ public sealed class WriteableGoogleCloudStorageFileProvider : WriteableFileProvi
     /// call (Application Default Credentials) is checked when the URL is signed, and throws
     /// <see cref="NotSupportedException"/> there if it cannot sign.
     /// </remarks>
-    protected override bool SupportsSignedUrl(SignedUrlAccess permission) => _givenClient is null || _givenClientSigner is not null;
+    protected override bool SupportsSignedUrl(SignedUrlAccess access) => _givenClient is null || _givenClientSigner is not null;
 
     /// <summary>A read URL carries the download name and content type; an upload URL carries the content type.</summary>
-    /// <param name="permission">The permission.</param>
-    protected override bool SupportsSignedUrlContentHeaders(SignedUrlAccess permission) => true;
+    /// <param name="access">The access.</param>
+    protected override bool SupportsSignedUrlContentHeaders(SignedUrlAccess access) => true;
 
     /// <summary>
     /// Cloud Storage's 401 and 403, and Google's token endpoint refusing the credential (a 400, 401 or 403 answer to the
@@ -355,7 +355,7 @@ public sealed class WriteableGoogleCloudStorageFileProvider : WriteableFileProvi
         var seconds = Math.Floor(options.Validity.TotalSeconds);
         if (seconds < 1)
             throw new NotSupportedException($"Cloud Storage signs URLs that live at least one second; {options.Validity} was asked.");
-        var read = options.Permission == SignedUrlAccess.Read;
+        var read = options.Access == SignedUrlAccess.Read;
         if (!read && options.DownloadFileName is not null)
             throw new NotSupportedException("A download file name applies to read URLs only.");
 
@@ -373,7 +373,7 @@ public sealed class WriteableGoogleCloudStorageFileProvider : WriteableFileProvi
         }
         else
         {
-            if (options.Permission == SignedUrlAccess.Create)
+            if (options.Access == SignedUrlAccess.Create)
             {
                 headers[IfGenerationMatchHeader] = "0";
                 template = template.WithRequestHeaders(new Dictionary<string, IEnumerable<string>>(StringComparer.Ordinal) { [IfGenerationMatchHeader] = ["0"] });

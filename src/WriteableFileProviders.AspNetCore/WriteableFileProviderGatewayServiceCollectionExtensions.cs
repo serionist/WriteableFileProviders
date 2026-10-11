@@ -1,9 +1,14 @@
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.HttpLogging;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+using WriteableFileProviders;
+using WriteableFileProviders.AspNetCore;
 
-namespace WriteableFileProviders.AspNetCore;
+// The .NET convention: registrations live in Microsoft.Extensions.DependencyInjection, so they need no using of their own.
+#pragma warning disable IDE0130 // the namespace is the convention's, not this folder's
+namespace Microsoft.Extensions.DependencyInjection;
+#pragma warning restore IDE0130
 
 /// <summary>Registers the signed-URL gateway and the URL service.</summary>
 public static class WriteableFileProviderGatewayServiceCollectionExtensions

@@ -45,13 +45,13 @@ namespace WriteableFileProviders.AzureBlob;
 /// </para>
 /// <para>
 /// A missing container makes every member throw <see cref="InvalidOperationException"/>, unless
-/// <see cref="AzureFileProviderOptions.CreateContainerIfMissing"/> lets the first write create it. Names are
+/// <see cref="AzureBlobFileProviderOptions.CreateContainerIfMissing"/> lets the first write create it. Names are
 /// case-sensitive. As folders are name prefixes, a file and a folder may share a name, and a listing shows both.
 /// Listings leave out names no path can address and the provider's own temporary folder, <c>.wfp-tmp</c> at the root,
 /// and nothing else. The provider owns no disposable resources, and never disposes a client it was given.
 /// </para>
 /// </remarks>
-public sealed partial class WriteableAzureBlobFileProvider : WriteableFileProvider<AzureFileProviderOptions>
+public sealed partial class WriteableAzureBlobFileProvider : WriteableFileProvider<AzureBlobFileProviderOptions>
 {
     // The folder of the provider's own temporary blobs, at the root; listings leave it out, and only it.
     private const string TempFolder = ".wfp-tmp";
@@ -72,7 +72,7 @@ public sealed partial class WriteableAzureBlobFileProvider : WriteableFileProvid
     /// <param name="options">The account, how to sign in, the container and the root folder.</param>
     /// <exception cref="ArgumentNullException"><paramref name="options"/> is null.</exception>
     /// <exception cref="ArgumentException">The options are incomplete or contradict each other; the message says which.</exception>
-    public WriteableAzureBlobFileProvider(AzureFileProviderOptions options)
+    public WriteableAzureBlobFileProvider(AzureBlobFileProviderOptions options)
         : this(options, null, null)
     {
     }
@@ -80,28 +80,28 @@ public sealed partial class WriteableAzureBlobFileProvider : WriteableFileProvid
     /// <summary>
     /// Creates the provider over a container client the caller built, such as one signed in with a managed identity, with
     /// custom retries or a custom transport. The provider never disposes it. Only the root folder and
-    /// <see cref="AzureFileProviderOptions.CreateContainerIfMissing"/> are read from <paramref name="options"/>; the account
+    /// <see cref="AzureBlobFileProviderOptions.CreateContainerIfMissing"/> are read from <paramref name="options"/>; the account
     /// and sign-in options may stay empty, and <see cref="WriteableFileProvider{TOptions}.ToJson"/> writes only the
     /// options.
     /// </summary>
-    /// <param name="options">The root folder and the container option; null for the container's root.</param>
+    /// <param name="options">The root folder and the container option; <c>new()</c> for the container's root.</param>
     /// <param name="container">The container client. Its credential decides how signed URLs are signed: a shared key signs a
     /// service SAS, a token credential a user delegation SAS; with neither, signed URLs throw
     /// <see cref="NotSupportedException"/>.</param>
-    /// <exception cref="ArgumentNullException"><paramref name="container"/> is null.</exception>
-    /// <exception cref="ArgumentException"><see cref="AzureFileProviderOptions.ContainerName"/> names another container.</exception>
-    public WriteableAzureBlobFileProvider(AzureFileProviderOptions? options, BlobContainerClient container)
-        : base(options ?? new AzureFileProviderOptions())
+    /// <exception cref="ArgumentNullException"><paramref name="options"/> or <paramref name="container"/> is null.</exception>
+    /// <exception cref="ArgumentException"><see cref="AzureBlobFileProviderOptions.ContainerName"/> names another container.</exception>
+    public WriteableAzureBlobFileProvider(AzureBlobFileProviderOptions options, BlobContainerClient container)
+        : base(options)
     {
         ArgumentNullException.ThrowIfNull(container);
         if (!string.IsNullOrEmpty(Options.ContainerName) && !string.Equals(Options.ContainerName, container.Name, StringComparison.Ordinal))
-            throw new ArgumentException($"AzureFileProviderOptions.ContainerName is '{Options.ContainerName}', but the client is for container '{container.Name}'.", nameof(options));
+            throw new ArgumentException($"AzureBlobFileProviderOptions.ContainerName is '{Options.ContainerName}', but the client is for container '{container.Name}'.", nameof(options));
         _container = container;
         _rootSegments = Resolve(ProviderPath.Root).AbsoluteSegments;
     }
 
     /// <summary>The options constructor, with the client options and the credential a test can give.</summary>
-    internal WriteableAzureBlobFileProvider(AzureFileProviderOptions options, BlobClientOptions? clientOptions, TokenCredential? credential)
+    internal WriteableAzureBlobFileProvider(AzureBlobFileProviderOptions options, BlobClientOptions? clientOptions, TokenCredential? credential)
         : base(options)
     {
         _container = CreateContainerClient(Options, clientOptions, credential);
@@ -305,7 +305,7 @@ public sealed partial class WriteableAzureBlobFileProvider : WriteableFileProvid
 
     /// <summary>
     /// Azure's 401 and 403, and Microsoft Entra ID refusing the credential when the provider signs in with
-    /// <see cref="AzureFileProviderOptions.UseDefaultAzureCredential"/> (Azure.Identity's
+    /// <see cref="AzureBlobFileProviderOptions.UseDefaultAzureCredential"/> (Azure.Identity's
     /// <see cref="AuthenticationFailedException"/>, thrown inside each request): the public members turn them into an
     /// <see cref="UnauthorizedAccessException"/>. A sign-in that finds no credential at all
     /// (<see cref="CredentialUnavailableException"/>) is not a refusal: the provider throws
@@ -315,17 +315,17 @@ public sealed partial class WriteableAzureBlobFileProvider : WriteableFileProvid
     protected override bool IsAccessDenied(Exception exception) =>
         exception is RequestFailedException { Status: 401 or 403 } or (AuthenticationFailedException and not CredentialUnavailableException);
 
-    private static BlobContainerClient CreateContainerClient(AzureFileProviderOptions options, BlobClientOptions? clientOptions, TokenCredential? credential)
+    private static BlobContainerClient CreateContainerClient(AzureBlobFileProviderOptions options, BlobClientOptions? clientOptions, TokenCredential? credential)
     {
         if (string.IsNullOrWhiteSpace(options.ContainerName))
-            throw new ArgumentException("AzureFileProviderOptions.ContainerName is required.", nameof(options));
+            throw new ArgumentException("AzureBlobFileProviderOptions.ContainerName is required.", nameof(options));
         var hasKey = !string.IsNullOrEmpty(options.AccountKey);
         if (options.UseDefaultAzureCredential && hasKey)
-            throw new ArgumentException("Set AzureFileProviderOptions.AccountKey or UseDefaultAzureCredential, not both.", nameof(options));
+            throw new ArgumentException("Set AzureBlobFileProviderOptions.AccountKey or UseDefaultAzureCredential, not both.", nameof(options));
         if (!options.UseDefaultAzureCredential && !hasKey)
-            throw new ArgumentException("AzureFileProviderOptions.AccountKey is required, unless UseDefaultAzureCredential is set.", nameof(options));
+            throw new ArgumentException("AzureBlobFileProviderOptions.AccountKey is required, unless UseDefaultAzureCredential is set.", nameof(options));
         if (!options.UseDefaultAzureCredential && string.IsNullOrWhiteSpace(options.AccountName))
-            throw new ArgumentException("AzureFileProviderOptions.AccountName is required with a shared key.", nameof(options));
+            throw new ArgumentException("AzureBlobFileProviderOptions.AccountName is required with a shared key.", nameof(options));
 
         var serviceUri = ServiceUri(options);
         if (!options.UseDefaultAzureCredential)
@@ -337,32 +337,32 @@ public sealed partial class WriteableAzureBlobFileProvider : WriteableFileProvid
             }
             catch (FormatException e)
             {
-                throw new ArgumentException("AzureFileProviderOptions.AccountKey is not a base64 key.", nameof(options), e);
+                throw new ArgumentException("AzureBlobFileProviderOptions.AccountKey is not a base64 key.", nameof(options), e);
             }
             return new BlobServiceClient(serviceUri, sharedKey, clientOptions).GetBlobContainerClient(options.ContainerName);
         }
         if (serviceUri.Scheme != Uri.UriSchemeHttps)
-            throw new ArgumentException("UseDefaultAzureCredential needs an https endpoint: AzureFileProviderOptions.Protocol cannot be http.", nameof(options));
+            throw new ArgumentException("UseDefaultAzureCredential needs an https endpoint: AzureBlobFileProviderOptions.Protocol cannot be http.", nameof(options));
         return new BlobServiceClient(serviceUri, credential ?? new DefaultAzureCredential(), clientOptions).GetBlobContainerClient(options.ContainerName);
     }
 
-    private static Uri ServiceUri(AzureFileProviderOptions options)
+    private static Uri ServiceUri(AzureBlobFileProviderOptions options)
     {
         var scheme = string.IsNullOrEmpty(options.Protocol) ? Uri.UriSchemeHttps : options.Protocol.ToLowerInvariant();
         if (scheme != Uri.UriSchemeHttps && scheme != Uri.UriSchemeHttp)
-            throw new ArgumentException($"AzureFileProviderOptions.Protocol must be http or https, not '{options.Protocol}'.", nameof(options));
+            throw new ArgumentException($"AzureBlobFileProviderOptions.Protocol must be http or https, not '{options.Protocol}'.", nameof(options));
         string url;
         if (string.IsNullOrWhiteSpace(options.Url))
         {
             if (string.IsNullOrWhiteSpace(options.AccountName))
-                throw new ArgumentException("AzureFileProviderOptions.AccountName or Url is required.", nameof(options));
+                throw new ArgumentException("AzureBlobFileProviderOptions.AccountName or Url is required.", nameof(options));
             url = $"{scheme}://{options.AccountName}.blob.core.windows.net";
         }
         else if (options.Url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || options.Url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
         {
             url = options.Url;
             if (!string.IsNullOrEmpty(options.Protocol) && !url.StartsWith(scheme + "://", StringComparison.OrdinalIgnoreCase))
-                throw new ArgumentException($"AzureFileProviderOptions.Url '{options.Url}' does not use the scheme of Protocol '{options.Protocol}'.", nameof(options));
+                throw new ArgumentException($"AzureBlobFileProviderOptions.Url '{options.Url}' does not use the scheme of Protocol '{options.Protocol}'.", nameof(options));
         }
         else
         {
@@ -370,7 +370,7 @@ public sealed partial class WriteableAzureBlobFileProvider : WriteableFileProvid
         }
         return Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https" && uri.Host.Length > 0
             ? uri
-            : throw new ArgumentException($"AzureFileProviderOptions.Url does not make a valid endpoint: '{url}'.", nameof(options));
+            : throw new ArgumentException($"AzureBlobFileProviderOptions.Url does not make a valid endpoint: '{url}'.", nameof(options));
     }
 
     private async IAsyncEnumerable<IWriteableFileInfo> EnumerateLevelAsync(ResolvedPath path, [EnumeratorCancellation] CancellationToken cancellationToken)
@@ -503,13 +503,13 @@ public sealed partial class WriteableAzureBlobFileProvider : WriteableFileProvid
             || Is(exception, BlobErrorCode.SourceConditionNotMet) || Is(exception, BlobErrorCode.TargetConditionNotMet));
 
     private InvalidOperationException ContainerMissing(Exception? innerException) =>
-        new($"The blob container '{_container.Name}' does not exist. Create it, or set AzureFileProviderOptions.{nameof(AzureFileProviderOptions.CreateContainerIfMissing)} so the first write creates it.", innerException);
+        new($"The blob container '{_container.Name}' does not exist. Create it, or set AzureBlobFileProviderOptions.{nameof(AzureBlobFileProviderOptions.CreateContainerIfMissing)} so the first write creates it.", innerException);
 
     // Microsoft Entra ID sign-in found no credential to use (Azure.Identity raises it inside each request): the store is
     // not set up as configured, as a missing container is. The hint names what the caller set up: the options, or a client.
     private InvalidOperationException NoCredential(CredentialUnavailableException innerException) =>
         new(_clientFromOptions
-            ? $"UseDefaultAzureCredential is set, but the Microsoft Entra ID sign-in found no credential to use (environment, workload or managed identity, developer sign-in). Configure one, or set AzureFileProviderOptions.{nameof(AzureFileProviderOptions.AccountKey)}."
+            ? $"UseDefaultAzureCredential is set, but the Microsoft Entra ID sign-in found no credential to use (environment, workload or managed identity, developer sign-in). Configure one, or set AzureBlobFileProviderOptions.{nameof(AzureBlobFileProviderOptions.AccountKey)}."
             : "The Microsoft Entra ID credential of the given client found no credential to use.", innerException);
 
     // Every member: a missing container is an InvalidOperationException, never a missing path (P18), and so is a sign-in

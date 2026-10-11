@@ -155,7 +155,7 @@ public sealed partial class WriteableBoxFileProvider : WriteableFileProvider<Box
     protected override bool IsCaseInsensitive => true;
 
     /// <inheritdoc />
-    protected override bool SupportsSignedUrl(SignedUrlAccess permission) => permission == SignedUrlAccess.Read;
+    protected override bool SupportsSignedUrl(SignedUrlAccess access) => access == SignedUrlAccess.Read;
 
     private NetworkSession Session => _client.NetworkSession;
 

@@ -3,7 +3,7 @@ namespace WriteableFileProviders.AspNetCore;
 /// <summary>
 /// Issues signed URLs for the app's <see cref="IWriteableFileProvider"/>, or for one it registered under a key: the
 /// provider's own URL where it can sign one, and otherwise a URL of the gateway
-/// (<see cref="WriteableFileProviderGatewayEndpointRouteBuilderExtensions.MapWriteableFileProviderGateway"/>), which
+/// (<see cref="Microsoft.AspNetCore.Builder.WriteableFileProviderGatewayEndpointRouteBuilderExtensions.MapWriteableFileProviderGateway"/>), which
 /// serves the file itself.
 /// </summary>
 /// <remarks>

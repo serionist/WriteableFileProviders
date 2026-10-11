@@ -26,7 +26,7 @@ internal sealed partial class S3Core
     {
         ArgumentNullException.ThrowIfNull(path);
         ArgumentNullException.ThrowIfNull(options);
-        if (options.Permission != SignedUrlAccess.Read && options.DownloadFileName is not null)
+        if (options.Access != SignedUrlAccess.Read && options.DownloadFileName is not null)
             throw new NotSupportedException("A download file name applies to read URLs only.");
         var connection = await ConnectedAsync(cancellationToken).ConfigureAwait(false);
         var expires = now + options.Validity;
@@ -47,13 +47,13 @@ internal sealed partial class S3Core
         {
             BucketName = Bucket,
             Key = Key(path),
-            Verb = options.Permission == SignedUrlAccess.Read ? HttpVerb.GET : HttpVerb.PUT,
+            Verb = options.Access == SignedUrlAccess.Read ? HttpVerb.GET : HttpVerb.PUT,
             Expires = expires.UtcDateTime,
             // The SDK signs https unless told otherwise, whatever the endpoint's scheme.
             Protocol = connection.UseHttp ? Protocol.HTTP : Protocol.HTTPS,
         };
         var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        if (options.Permission == SignedUrlAccess.Read)
+        if (options.Access == SignedUrlAccess.Read)
         {
             if (options.DownloadFileName is not null)
                 request.ResponseHeaderOverrides.ContentDisposition = AttachmentDisposition(options.DownloadFileName);
@@ -68,7 +68,7 @@ internal sealed partial class S3Core
                 request.ContentType = options.ContentType;
                 headers["Content-Type"] = options.ContentType;
             }
-            if (options.Permission == SignedUrlAccess.Create)
+            if (options.Access == SignedUrlAccess.Create)
             {
                 // Signed: the upload must send it, and S3 refuses it when the file exists.
                 request.Headers["If-None-Match"] = "*";
@@ -92,7 +92,7 @@ internal sealed partial class S3Core
         return new SignedUrl
         {
             Url = new Uri(url),
-            Method = options.Permission == SignedUrlAccess.Read ? "GET" : "PUT",
+            Method = options.Access == SignedUrlAccess.Read ? "GET" : "PUT",
             ExpiresOn = expiresOn,
             Headers = headers,
             Kind = SignedUrlKind.Presigned,

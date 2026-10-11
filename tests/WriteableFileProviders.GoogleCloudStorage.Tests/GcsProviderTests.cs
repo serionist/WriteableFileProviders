@@ -715,7 +715,7 @@ public sealed class GcsProviderTests
         var provider = Provider();
         using var http = new HttpClient();
 
-        var write = await provider.GetSignedUrlAsync("up.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Permission = SignedUrlAccess.Write, ContentType = "text/plain" });
+        var write = await provider.GetSignedUrlAsync("up.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Access = SignedUrlAccess.Write, ContentType = "text/plain" });
         using (var put = new HttpRequestMessage(HttpMethod.Put, write.Url) { Content = new StringContent("uploaded") })
         {
             put.Content.Headers.ContentType = MediaTypeHeaderValue.Parse(write.Headers["Content-Type"]);
@@ -725,7 +725,7 @@ public sealed class GcsProviderTests
         Assert.AreEqual("uploaded", await ReadAll(await provider.ReadFileAsync("up.txt")));
         Assert.AreEqual("text/plain", (await provider.GetFileInfoAsync("up.txt")).ContentType);
 
-        var create = await provider.GetSignedUrlAsync("new.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Permission = SignedUrlAccess.Create });
+        var create = await provider.GetSignedUrlAsync("new.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Access = SignedUrlAccess.Create });
         using (var put = new HttpRequestMessage(HttpMethod.Put, create.Url) { Content = new StringContent("created") })
         {
             foreach (var (name, value) in create.Headers)

@@ -1,7 +1,10 @@
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
+using WriteableFileProviders;
 
-namespace WriteableFileProviders;
+// The .NET convention: registrations live in Microsoft.Extensions.DependencyInjection, so they need no using of their own.
+#pragma warning disable IDE0130 // the namespace is the convention's, not this folder's
+namespace Microsoft.Extensions.DependencyInjection;
+#pragma warning restore IDE0130
 
 /// <summary>Registers a writeable file provider in a service collection, as a singleton <see cref="IWriteableFileProvider"/>.</summary>
 /// <remarks>

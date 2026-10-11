@@ -30,7 +30,7 @@ public sealed class ConfigurationShapeTests
     // Fake values only: the shape matters, not the content.
     public static IEnumerable<object[]> Shapes =>
     [
-        ["WriteableAzureBlobFileProvider", new AzureFileProviderOptions { AccountName = "account", AccountKey = "ZmFrZS1rZXk=", ContainerName = "container", Protocol = "https", Url = "account.blob.example.net", RootDirectoryPath = "root/dir" }],
+        ["WriteableAzureBlobFileProvider", new AzureBlobFileProviderOptions { AccountName = "account", AccountKey = "ZmFrZS1rZXk=", ContainerName = "container", Protocol = "https", Url = "account.blob.example.net", RootDirectoryPath = "root/dir" }],
         ["WriteableAmazonS3FileProvider", new AmazonS3FileProviderOptions("root/dir", "test-access-key", "test-secret-key", "bucket", "eu-west-1", S3StorageClass.StandardInfrequentAccess)],
         ["WriteableMinioFileProvider", new MinioFileProviderOptions("root/dir", "minio.example.net:9000", "test-access-key", "test-secret-key", "bucket") { UseSSL = true }],
         ["WriteableGoogleCloudStorageFileProvider", new GoogleCloudStorageFileProviderOptions("bucket", "service@project.example", "fake-private-key", "project", "root/dir") { CredentialsJson = "{}" }],

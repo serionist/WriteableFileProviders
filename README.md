@@ -61,7 +61,7 @@ The same calls, on another provider. Here Azure Blob Storage, signed in with Mic
 using WriteableFileProviders;
 using WriteableFileProviders.AzureBlob;
 
-await using var files = new WriteableAzureBlobFileProvider(new AzureFileProviderOptions
+await using var files = new WriteableAzureBlobFileProvider(new AzureBlobFileProviderOptions
 {
     AccountName = "contoso",
     ContainerName = "files",
@@ -125,8 +125,8 @@ Configurations stored by the 2026 versions read unchanged.
 ProviderPath path = "reports/2026.csv";
 
 // Every operation is an async member that takes a CancellationToken. GetFileInfo, GetDirectoryContents and Watch
-// are also sync members of IFileProvider; ReadFile, UpdateFile, Delete, Move, CreateLocalFileStream and
-// GetDownloadUrl have sync forms as extension methods; copy, ranges, listings and signed URLs have none.
+// are also sync members of IFileProvider. The 2026 sync forms (ReadFile, UpdateFile...) still compile, with a
+// warning, until 2028.0.0.
 IWriteableFileInfo info = await files.GetFileInfoAsync(path, ct);      // Exists, IsDirectory, Length, ETag, ContentType
 await foreach (var entry in files.EnumerateAsync("reports", recursive: true, ct)) { }
 
@@ -153,7 +153,7 @@ await using (var local = await files.CreateLocalFileStreamAsync(path, readOnly: 
 SignedUrl url = await files.GetSignedUrlAsync(path, new SignedUrlOptions
 {
     Validity = TimeSpan.FromMinutes(15),
-    Permission = SignedUrlAccess.Read,
+    Access = SignedUrlAccess.Read,
     DownloadFileName = "Report 2026.csv",
 }, ct);
 ```

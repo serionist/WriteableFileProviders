@@ -1,10 +1,15 @@
-using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using WriteableFileProviders;
+using WriteableFileProviders.AspNetCore;
 
-namespace WriteableFileProviders.AspNetCore;
+// The ASP.NET Core convention: endpoint mappings live in Microsoft.AspNetCore.Builder, beside MapGet, so they need no
+// using of their own.
+#pragma warning disable IDE0130 // the namespace is the convention's, not this folder's
+namespace Microsoft.AspNetCore.Builder;
+#pragma warning restore IDE0130
 
 /// <summary>Maps the signed-URL gateway's endpoints.</summary>
 public static class WriteableFileProviderGatewayEndpointRouteBuilderExtensions

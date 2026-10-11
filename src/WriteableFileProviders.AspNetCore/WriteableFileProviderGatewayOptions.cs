@@ -1,7 +1,7 @@
 namespace WriteableFileProviders.AspNetCore;
 
 /// <summary>
-/// The options of the signed-URL gateway (<see cref="WriteableFileProviderGatewayServiceCollectionExtensions.AddWriteableFileProviderGateway(Microsoft.Extensions.DependencyInjection.IServiceCollection, Action{WriteableFileProviderGatewayOptions})"/>)
+/// The options of the signed-URL gateway (<see cref="Microsoft.Extensions.DependencyInjection.WriteableFileProviderGatewayServiceCollectionExtensions.AddWriteableFileProviderGateway(Microsoft.Extensions.DependencyInjection.IServiceCollection, Action{WriteableFileProviderGatewayOptions})"/>)
 /// and of the URL service (<see cref="IWriteableFileUrlService"/>). They are validated when the app starts.
 /// </summary>
 /// <remarks>
@@ -13,7 +13,7 @@ namespace WriteableFileProviders.AspNetCore;
 public sealed class WriteableFileProviderGatewayOptions
 {
     /// <summary>The longest validity any gateway URL can be given: 7 days.</summary>
-    public static TimeSpan MaxValidityLimit { get; } = TimeSpan.FromDays(7);
+    internal static TimeSpan MaxValidityLimit { get; } = TimeSpan.FromDays(7);
 
     /// <summary>
     /// Required: where the gateway is reachable from outside, including any path base the app runs under behind a
@@ -37,15 +37,15 @@ public sealed class WriteableFileProviderGatewayOptions
     public string BasePath { get; set; } = "/files";
 
     /// <summary>
-    /// The longest validity of a gateway download (<see cref="SignedUrlAccess.Read"/>) URL; 7 days by default, and never
-    /// more than <see cref="MaxValidityLimit"/>. A longer request throws <see cref="NotSupportedException"/>, or with
+    /// The longest validity of a gateway download (<see cref="SignedUrlAccess.Read"/>) URL; 7 days by default, which is
+    /// also the most it can be. A longer request throws <see cref="NotSupportedException"/>, or with
     /// <see cref="SignedUrlOptions.AllowShorterValidity"/> gets a URL that lives this long.
     /// </summary>
     public TimeSpan MaxReadValidity { get; set; } = TimeSpan.FromDays(7);
 
     /// <summary>
     /// The longest validity of a gateway upload (<see cref="SignedUrlAccess.Create"/> and
-    /// <see cref="SignedUrlAccess.Write"/>) URL; 1 hour by default, and never more than <see cref="MaxValidityLimit"/>.
+    /// <see cref="SignedUrlAccess.Write"/>) URL; 1 hour by default, and never more than 7 days.
     /// A longer request throws <see cref="NotSupportedException"/>, or with
     /// <see cref="SignedUrlOptions.AllowShorterValidity"/> gets a URL that lives this long.
     /// </summary>

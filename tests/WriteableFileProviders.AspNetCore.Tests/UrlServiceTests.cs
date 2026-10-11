@@ -301,5 +301,5 @@ public sealed class UrlServiceTests
         Assert.IsTrue(actual <= expected && actual >= expected.AddMinutes(-1), $"{actual:O} is not just before {expected:O}");
 
     private static SignedUrlOptions Options(TimeSpan validity, SignedUrlAccess access = SignedUrlAccess.Read) =>
-        new() { Validity = validity, Permission = access };
+        new() { Validity = validity, Access = access };
 }

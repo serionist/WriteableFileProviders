@@ -273,7 +273,7 @@ public interface IWriteableFileProvider : IFileProvider, IDisposable, IAsyncDisp
 public sealed record UpdateFileOptions { UpdateFileMode Mode; string? ContentType; string? IfMatch; bool IfNotExists; }
 public sealed record ReadOptions { string? IfMatch; }
 public sealed record SeekableReadOptions { int BufferSize = 1 MiB; bool AllowModifications; }
-public sealed record SignedUrlOptions { required TimeSpan Validity; SignedUrlAccess Permission = Read;
+public sealed record SignedUrlOptions { required TimeSpan Validity; SignedUrlAccess Access = Read;
     string? DownloadFileName; string? ContentType; bool AllowShorterValidity; }
 public sealed class SignedUrl { required Uri Url; required string Method; DateTimeOffset? ExpiresOn;
     IReadOnlyDictionary<string,string> Headers; SignedUrlKind Kind; }      // a class with init members, so it can grow
@@ -282,7 +282,9 @@ public enum SignedUrlKind { Presigned, PreAuthenticated, Gateway }          // "
 public class PreconditionFailedException : IOException      public class FileExistsException : IOException
 ```
 
-- **`WriteableFileProviderExtensions`** holds:
+- **`WriteableFileProviderExtensions`** held, until S12 part 2 (simplify), when the maintainer moved all of it into the
+  `[Obsolete]` compatibility class (`WriteableFileProviderCompatibilityExtensions`), to go in 2028.0.0, and the class
+  became an internal helper:
   - the sync forms (`ReadFile`, `UpdateFile`, `Delete`, `Move`, `Copy`, `CreateLocalFileStream`,
     `GetDownloadUrl`);
   - the `IFileInfo` overloads;
@@ -312,7 +314,7 @@ public class PreconditionFailedException : IOException      public class FileExi
     - root checks.
   - Disposal goes through `DisposeAsyncCore` (F52).
   - `TimeProvider` is injectable for expiry maths.
-- **`RangeReadStream`:** a read-only seekable stream over a range callback, with read-ahead buffering and version
+- **`RangeReadStream`** (internal since S12 part 2, simplify; only Common builds it): a read-only seekable stream over a range callback, with read-ahead buffering and version
   pinning.
 - **`LocalFileStream`:**
   - `override ValueTask DisposeAsync` (F37), with a `Dispose(bool)` fallback.
@@ -340,7 +342,9 @@ public class PreconditionFailedException : IOException      public class FileExi
     singleton `IWriteableFileProvider` (`AddSingleton`, so several are all in `GetServices`); an app with several
     providers tells them apart itself, such as with keyed services. Changed in S12 part 2 (simplify, the maintainer's
     request of 2026-10-11): S4 registered keyed singletons by name.
-  - It lives in Common, on `Microsoft.Extensions.DependencyInjection.Abstractions`.
+  - It lives in Common, on `Microsoft.Extensions.DependencyInjection.Abstractions`, in the namespace
+    `Microsoft.Extensions.DependencyInjection` since S12 part 2 (simplify), as the gateway's registration does; the
+    gateway's mapping is in `Microsoft.AspNetCore.Builder`.
 - **Package references:** `Microsoft.Extensions.Configuration` and Newtonsoft go (F72, D9).
 
 ### Providers
@@ -475,7 +479,8 @@ public class PreconditionFailedException : IOException      public class FileExi
 - **Target:** net10.0 only (was net8.0). Consumers on .NET 8 or 9 stay on `2026.10.10.x`.
 - **Common API:**
   - `IWriteableFileProvider` is rebuilt on `ProviderPath` and `CancellationToken`.
-  - The `string[]`/`params` overloads go; sync forms and `IFileInfo` overloads move to extension methods.
+  - The `string[]`/`params` overloads go; sync forms and `IFileInfo` overloads move to extension methods, `[Obsolete]`
+    until 2028.0.0 (S12 part 2, simplify), as are `UpdateFile[Async](..., UpdateFileMode)` and `GetDownloadUrl[Async]`.
   - `WatchAsync` and `OnLocalFileStreamDisposingAsync` leave the interface.
   - `ToJson()` returns `JsonObject` and leaves the interface.
   - `FileInfo` becomes `WriteableFileInfo`.
@@ -2271,11 +2276,53 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     `TutorialTests` runs the root README's tutorial line for line over the Physical provider (TestServer, a temp
     folder): the link endpoint returns a gateway URL, which downloads the file. The same snippet, with its three
     `using`s, also compiles as a standalone web app.
-  - **The simplicity pass over the nine packages' PublicAPI files:** nothing beyond the above is implemented here; the
-    candidates, each with its trade-off, are in the PR for the main session to decide.
-  - **Docs:** XML docs of every changed member; the migration guide's DI line and its AspNetCore section; AGENTS.md's
-    gateway door and tests line; and the READMEs' DI and URL service snippets, edited only so they compile (the launch
-    half rewrites the READMEs).
+  - **The simplicity pass over the nine packages' PublicAPI files** listed 17 candidates, each with its trade-off. The
+    maintainer agreed a set on 2026-10-11, posted on #3
+    ([the agreement](https://github.com/serionist/WriteableFileProviders/issues/3#issuecomment-6108843232)), which is
+    the maintainers' agreement for the API changes below; all of it is new 2027 surface or a 2026 shape kept compiling.
+    Implemented:
+    - **The 2026 conveniences become `[Obsolete]`, to go in 2028.0.0** (candidates 1 to 4): the sync wrappers
+      (`ReadFile`, `UpdateFile`, `Delete`, `Move`, `CreateLocalFileStream`, and `GetFileInfo`/`GetDirectoryContents`
+      on a `ProviderPath`), the 12 `IFileInfo` overloads, `UpdateFile[Async](path, contents, UpdateFileMode)` and
+      `GetDownloadUrl[Async]` move into `WriteableFileProviderCompatibilityExtensions`. Each keeps working, and its
+      message names the async `ProviderPath` member to call and says it goes in 2028.0.0; the 21 existing shims say so
+      too. `WriteableFileProviderExtensions` had no member left, so it is now an internal class of the shared helpers.
+      The main API is the async members taking a `ProviderPath`; `IFileProvider`'s own `GetFileInfo(string)`,
+      `GetDirectoryContents(string)` and `Watch(string)` stay. Tests call the async forms; `ExtensionTests` keeps a
+      compatibility test of every obsolete member, with the warning suppressed, and a reflection test that every
+      extension method on `IWriteableFileProvider` (44) is in the compatibility class, `[Obsolete]`, and names its
+      replacement and 2028.0.0. The obsolete forms call the public async members, so the error contract (D29) holds on
+      them: `ErrorPolicyTests` checks that each one that reaches the store lets out `IOException`,
+      `FileNotFoundException` and `UnauthorizedAccessException` with the store's exception inside, as the async members
+      do, the synchronous ones unwrapped.
+    - **Namespaces** (candidate 10): `AddWriteableFileProvider` and `AddWriteableFileProviderGateway` are in
+      `Microsoft.Extensions.DependencyInjection`, `MapWriteableFileProviderGateway` in `Microsoft.AspNetCore.Builder`,
+      as ASP.NET Core's own are. IDE0130 (namespace matches the folder) is disabled for those three declarations only,
+      with the reason beside it.
+    - **`SignedUrlOptions.Permission` is `Access`** (candidate 9), with `SupportsSignedUrl(access)` and
+      `SupportsSignedUrlContentHeaders(access)`; nothing stored or signed carries the name, so no door moves.
+    - **Azure** (candidates 14 and 15): `AzureFileProviderOptions` is `AzureBlobFileProviderOptions`; the old name is
+      an `[Obsolete]`, sealed, empty subclass, so `new WriteableAzureBlobFileProvider(new AzureFileProviderOptions
+      { ... })` compiles and builds the same provider, and a test pins that it writes the same JSON and reads back as
+      the new type. The configuration shape names the provider class and the properties, not the options class, so the
+      goldens pass unchanged. The client constructor takes non-null options, as the other five do.
+    - **Internal** (candidates 7 and 12): `RangeReadStream` (only Common builds it: the default seekable read) and the
+      gateway's `MaxValidityLimit` (the docs say 7 days). AGENTS.md's door list drops `RangeReadStream`.
+
+    Considered and kept, with the reason:
+    - 5, `WriteableFileProvider<T>.ToJson()`: the direct replacement of 2026's `provider.ToJson()` on a concrete type.
+    - 6, `FromJson(JsonObject)`: the direct replacement of 2026's `FromJson(JObject)`.
+    - 8, `DirectoryContents` public: it was public in 2026, and making it internal would break code that built one.
+    - 11, the records' generated members on the option types: `with` is how callers vary an option.
+    - 13, the gateway's 7-day read default (D22): it matches the native URLs' 7-day maximum on purpose.
+    - 16, `ReadFileVersionAsync(versionId, path)`: both parameters take a string, so swapping them would compile old
+      calls with the arguments reversed.
+    - 17, the 2026 positional options constructors: 2026 code compiles unchanged.
+  - **Docs:** XML docs of every changed member; the migration guide (DI, the obsolete forms, `GetDownloadUrl`, the
+    `IFileInfo` overloads, the Azure options rename and client constructor, the AspNetCore namespaces); AGENTS.md's
+    gateway door, Names and Common API lines, and its tests line; and the READMEs' samples, edited only so they compile
+    against this API (the launch half rewrites the READMEs). All 24 C# samples of the READMEs compile, in a scratch
+    project where an obsolete call is an error.
 
 ### For the maintainers
 

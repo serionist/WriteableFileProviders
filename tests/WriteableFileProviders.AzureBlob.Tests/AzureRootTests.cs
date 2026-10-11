@@ -10,7 +10,7 @@ public sealed class AzureRootTests
     public async Task TheRoot_SetAfterTheBuild_DoesNotMoveTheRequests()
     {
         var handler = new StubHandler(_ => StubHandler.BlobProperties());
-        var options = new AzureFileProviderOptions { AccountName = "account", AccountKey = Azurite.AccountKey, ContainerName = "files", RootDirectoryPath = "tenants/acme" };
+        var options = new AzureBlobFileProviderOptions { AccountName = "account", AccountKey = Azurite.AccountKey, ContainerName = "files", RootDirectoryPath = "tenants/acme" };
         using var provider = new WriteableAzureBlobFileProvider(options, AzureBlobOptionsTests.Offline(handler), null);
         options.RootDirectoryPath = "../secrets";
         provider.Options.RootDirectorySegments[0] = "..";

@@ -425,8 +425,10 @@ public sealed class BoxReadTests
         var notAllowed = await Assert.ThrowsExactlyAsync<NotSupportedException>(() =>
             provider.GetSignedUrlAsync("a.txt", new SignedUrlOptions { Validity = TimeSpan.FromHours(1) }));
         StringAssert.Contains(notAllowed.Message, "AllowShorterValidity");
-        // The 2026 call shape asks for exactly the validity given, which Box cannot promise.
+        // The [Obsolete] 2026 call shape asks for exactly the validity given, which Box cannot promise.
+#pragma warning disable CS0618
         await Assert.ThrowsExactlyAsync<NotSupportedException>(() => provider.GetDownloadUrlAsync("a.txt", TimeSpan.FromHours(1)));
+#pragma warning restore CS0618
         await Assert.ThrowsExactlyAsync<NotSupportedException>(() =>
             provider.GetSignedUrlAsync("a.txt", new SignedUrlOptions { Validity = TimeSpan.FromHours(1), AllowShorterValidity = true, DownloadFileName = "b.txt" }));
         Assert.IsFalse(box.Requests.Any(r => r.Path.EndsWith("/content", StringComparison.Ordinal)), "No URL was issued");

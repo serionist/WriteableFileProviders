@@ -285,7 +285,7 @@ public sealed class GcsOptionsTests
     {
         using var client = Offline();
         using var provider = new WriteableGoogleCloudStorageFileProvider(Options(null), client);
-        var url = await provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromSeconds(seconds), Permission = SignedUrlAccess.Write });
+        var url = await provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromSeconds(seconds), Access = SignedUrlAccess.Write });
         Assert.AreEqual(expires, HttpUtility.ParseQueryString(url.Url.Query)["X-Goog-Expires"]);
     }
 
@@ -295,11 +295,11 @@ public sealed class GcsOptionsTests
         using var client = Offline();
         using var provider = new WriteableGoogleCloudStorageFileProvider(Options(null), client);
         await Assert.ThrowsExactlyAsync<NotSupportedException>(() =>
-            provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromMilliseconds(900), Permission = SignedUrlAccess.Write }));
+            provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromMilliseconds(900), Access = SignedUrlAccess.Write }));
         await Assert.ThrowsExactlyAsync<NotSupportedException>(() =>
-            provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromDays(7).Add(TimeSpan.FromSeconds(1)), Permission = SignedUrlAccess.Write }));
+            provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromDays(7).Add(TimeSpan.FromSeconds(1)), Access = SignedUrlAccess.Write }));
         await Assert.ThrowsExactlyAsync<ArgumentOutOfRangeException>(() =>
-            provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.Zero, Permission = SignedUrlAccess.Write }));
+            provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.Zero, Access = SignedUrlAccess.Write }));
     }
 
     [TestMethod]
@@ -328,13 +328,13 @@ public sealed class GcsOptionsTests
     {
         using var client = Offline();
         using var provider = new WriteableGoogleCloudStorageFileProvider(Options(null), client);
-        var url = await provider.GetSignedUrlAsync("new.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Permission = SignedUrlAccess.Create });
+        var url = await provider.GetSignedUrlAsync("new.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Access = SignedUrlAccess.Create });
         Assert.AreEqual("PUT", url.Method);
         CollectionAssert.AreEquivalent(new[] { "x-goog-if-generation-match" }, url.Headers.Keys.ToArray());
         Assert.AreEqual("0", url.Headers["x-goog-if-generation-match"]);
         Assert.AreEqual("host;x-goog-if-generation-match", HttpUtility.ParseQueryString(url.Url.Query)["X-Goog-SignedHeaders"]);
 
-        var typed = await provider.GetSignedUrlAsync("new.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Permission = SignedUrlAccess.Create, ContentType = "text/csv" });
+        var typed = await provider.GetSignedUrlAsync("new.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Access = SignedUrlAccess.Create, ContentType = "text/csv" });
         Assert.AreEqual("text/csv", typed.Headers["Content-Type"]);
         Assert.AreEqual("content-type;host;x-goog-if-generation-match", HttpUtility.ParseQueryString(typed.Url.Query)["X-Goog-SignedHeaders"]);
     }
@@ -344,12 +344,12 @@ public sealed class GcsOptionsTests
     {
         using var client = Offline();
         using var provider = new WriteableGoogleCloudStorageFileProvider(Options(null), client);
-        var url = await provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Permission = SignedUrlAccess.Write });
+        var url = await provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Access = SignedUrlAccess.Write });
         Assert.AreEqual("PUT", url.Method);
         Assert.AreEqual(0, url.Headers.Count);
         Assert.AreEqual("host", HttpUtility.ParseQueryString(url.Url.Query)["X-Goog-SignedHeaders"]);
 
-        var typed = await provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Permission = SignedUrlAccess.Write, ContentType = "text/csv" });
+        var typed = await provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Access = SignedUrlAccess.Write, ContentType = "text/csv" });
         Assert.AreEqual("text/csv", typed.Headers["Content-Type"]);
         Assert.AreEqual("content-type;host", HttpUtility.ParseQueryString(typed.Url.Query)["X-Goog-SignedHeaders"]);
     }
@@ -362,7 +362,7 @@ public sealed class GcsOptionsTests
         using var client = Offline();
         using var provider = new WriteableGoogleCloudStorageFileProvider(Options(null), client);
         await Assert.ThrowsExactlyAsync<NotSupportedException>(() =>
-            provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Permission = access, DownloadFileName = "x.txt" }));
+            provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Access = access, DownloadFileName = "x.txt" }));
     }
 
     [TestMethod]
@@ -376,7 +376,7 @@ public sealed class GcsOptionsTests
         using var client = Unauthenticated();
         using var provider = new WriteableGoogleCloudStorageFileProvider(Options(null), client);
         await Assert.ThrowsExactlyAsync<NotSupportedException>(() =>
-            provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Permission = access }));
+            provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Access = access }));
     }
 
     [TestMethod]
@@ -395,7 +395,7 @@ public sealed class GcsOptionsTests
         using (provider)
         {
             var e = await Assert.ThrowsExactlyAsync<NotSupportedException>(() =>
-                provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Permission = SignedUrlAccess.Write }));
+                provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Access = SignedUrlAccess.Write }));
             Assert.IsNotNull(e.InnerException, "The cause travels inside");
             Assert.IsTrue(http.Requests.Any(r => r.Contains(":signBlob", StringComparison.Ordinal)), string.Join('\n', http.Requests) + '\n' + e.InnerException);
         }
@@ -419,7 +419,7 @@ public sealed class GcsOptionsTests
         using (provider)
         {
             var e = await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(() =>
-                provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Permission = SignedUrlAccess.Write }));
+                provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Access = SignedUrlAccess.Write }));
             if (atTheTokenEndpoint)
             {
                 Assert.IsInstanceOfType<TokenResponseException>(e.InnerException, e.ToString());

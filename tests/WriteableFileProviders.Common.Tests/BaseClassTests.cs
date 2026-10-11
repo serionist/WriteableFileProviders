@@ -152,10 +152,10 @@ public sealed class BaseClassTests
     }
 
     [TestMethod]
-    public void ResolvedPath_Members()
+    public async Task ResolvedPath_Members()
     {
         using var provider = new InMemoryFileProvider(new InMemoryFileProviderOptions { RootDirectoryPath = "r" });
-        var info = provider.GetFileInfo(new ProviderPath("a", "b.txt"));
+        var info = await provider.GetFileInfoAsync(new ProviderPath("a", "b.txt"));
         Assert.AreEqual("b.txt", info.Name);
         var resolved = new ResolvedPath(["r"], ["a", "b.txt"]);
         CollectionAssert.AreEqual(new[] { "r", "a", "b.txt" }, resolved.AbsoluteSegments);

@@ -36,8 +36,8 @@ internal sealed class WriteableFileUrlService(
         ArgumentNullException.ThrowIfNull(options);
         if (options.Validity <= TimeSpan.Zero)
             throw new ArgumentOutOfRangeException(nameof(options), options.Validity, "The validity must be positive.");
-        if (!Enum.IsDefined(options.Permission))
-            throw new ArgumentOutOfRangeException(nameof(options), options.Permission, "Unknown access.");
+        if (!Enum.IsDefined(options.Access))
+            throw new ArgumentOutOfRangeException(nameof(options), options.Access, "Unknown access.");
     }
 
     // The provider's native URL, else a gateway URL. The provider's key goes into a gateway token, so the gateway serves
@@ -65,7 +65,7 @@ internal sealed class WriteableFileUrlService(
         string? providerName, IWriteableFileProvider provider, ProviderPath path, SignedUrlOptions options, CancellationToken cancellationToken)
     {
         var gateway = GatewayOptions;
-        var access = options.Permission;
+        var access = options.Access;
         var maximum = access == SignedUrlAccess.Read ? gateway.MaxReadValidity : gateway.MaxUploadValidity;
         var lifetime = options.Validity;
         if (lifetime > maximum)

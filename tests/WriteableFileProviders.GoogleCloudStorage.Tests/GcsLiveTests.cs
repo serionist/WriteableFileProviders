@@ -188,7 +188,7 @@ public sealed class GcsLiveAtomicityTests
     {
         var provider = Provider(new FaultInjection());
         await provider.UpdateFileAsync("f.txt", TestStreams.Text("first"));
-        var url = await provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Permission = SignedUrlAccess.Create });
+        var url = await provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Access = SignedUrlAccess.Create });
         using var http = new HttpClient();
         using var put = new HttpRequestMessage(HttpMethod.Put, url.Url) { Content = new StringContent("second") };
         foreach (var (name, value) in url.Headers)

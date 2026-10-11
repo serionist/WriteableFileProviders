@@ -1,20 +1,22 @@
 #nullable enable
-WriteableFileProviders.AzureBlob.AzureFileProviderOptions
-WriteableFileProviders.AzureBlob.AzureFileProviderOptions.AccountKey.get -> string?
-WriteableFileProviders.AzureBlob.AzureFileProviderOptions.AccountKey.set -> void
-WriteableFileProviders.AzureBlob.AzureFileProviderOptions.AccountName.get -> string?
-WriteableFileProviders.AzureBlob.AzureFileProviderOptions.AccountName.set -> void
-WriteableFileProviders.AzureBlob.AzureFileProviderOptions.AzureFileProviderOptions() -> void
-WriteableFileProviders.AzureBlob.AzureFileProviderOptions.ContainerName.get -> string?
-WriteableFileProviders.AzureBlob.AzureFileProviderOptions.ContainerName.set -> void
-WriteableFileProviders.AzureBlob.AzureFileProviderOptions.CreateContainerIfMissing.get -> bool
-WriteableFileProviders.AzureBlob.AzureFileProviderOptions.CreateContainerIfMissing.set -> void
-WriteableFileProviders.AzureBlob.AzureFileProviderOptions.Protocol.get -> string?
-WriteableFileProviders.AzureBlob.AzureFileProviderOptions.Protocol.set -> void
-WriteableFileProviders.AzureBlob.AzureFileProviderOptions.Url.get -> string?
-WriteableFileProviders.AzureBlob.AzureFileProviderOptions.Url.set -> void
-WriteableFileProviders.AzureBlob.AzureFileProviderOptions.UseDefaultAzureCredential.get -> bool
-WriteableFileProviders.AzureBlob.AzureFileProviderOptions.UseDefaultAzureCredential.set -> void
+WriteableFileProviders.AzureBlob.AzureBlobFileProviderOptions
+WriteableFileProviders.AzureBlob.AzureBlobFileProviderOptions.AccountKey.get -> string?
+WriteableFileProviders.AzureBlob.AzureBlobFileProviderOptions.AccountKey.set -> void
+WriteableFileProviders.AzureBlob.AzureBlobFileProviderOptions.AccountName.get -> string?
+WriteableFileProviders.AzureBlob.AzureBlobFileProviderOptions.AccountName.set -> void
+WriteableFileProviders.AzureBlob.AzureBlobFileProviderOptions.AzureBlobFileProviderOptions() -> void
+WriteableFileProviders.AzureBlob.AzureBlobFileProviderOptions.ContainerName.get -> string?
+WriteableFileProviders.AzureBlob.AzureBlobFileProviderOptions.ContainerName.set -> void
+WriteableFileProviders.AzureBlob.AzureBlobFileProviderOptions.CreateContainerIfMissing.get -> bool
+WriteableFileProviders.AzureBlob.AzureBlobFileProviderOptions.CreateContainerIfMissing.set -> void
+WriteableFileProviders.AzureBlob.AzureBlobFileProviderOptions.Protocol.get -> string?
+WriteableFileProviders.AzureBlob.AzureBlobFileProviderOptions.Protocol.set -> void
+WriteableFileProviders.AzureBlob.AzureBlobFileProviderOptions.Url.get -> string?
+WriteableFileProviders.AzureBlob.AzureBlobFileProviderOptions.Url.set -> void
+WriteableFileProviders.AzureBlob.AzureBlobFileProviderOptions.UseDefaultAzureCredential.get -> bool
+WriteableFileProviders.AzureBlob.AzureBlobFileProviderOptions.UseDefaultAzureCredential.set -> void
 WriteableFileProviders.AzureBlob.WriteableAzureBlobFileProvider
-WriteableFileProviders.AzureBlob.WriteableAzureBlobFileProvider.WriteableAzureBlobFileProvider(WriteableFileProviders.AzureBlob.AzureFileProviderOptions? options, Azure.Storage.Blobs.BlobContainerClient! container) -> void
-WriteableFileProviders.AzureBlob.WriteableAzureBlobFileProvider.WriteableAzureBlobFileProvider(WriteableFileProviders.AzureBlob.AzureFileProviderOptions! options) -> void
+WriteableFileProviders.AzureBlob.WriteableAzureBlobFileProvider.WriteableAzureBlobFileProvider(WriteableFileProviders.AzureBlob.AzureBlobFileProviderOptions! options, Azure.Storage.Blobs.BlobContainerClient! container) -> void
+WriteableFileProviders.AzureBlob.WriteableAzureBlobFileProvider.WriteableAzureBlobFileProvider(WriteableFileProviders.AzureBlob.AzureBlobFileProviderOptions! options) -> void
+WriteableFileProviders.AzureBlob.AzureFileProviderOptions
+WriteableFileProviders.AzureBlob.AzureFileProviderOptions.AzureFileProviderOptions() -> void

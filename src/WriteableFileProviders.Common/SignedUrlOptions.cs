@@ -10,7 +10,7 @@ public sealed record SignedUrlOptions
     public required TimeSpan Validity { get; init; }
 
     /// <summary>What the URL allows; <see cref="SignedUrlAccess.Read"/> by default.</summary>
-    public SignedUrlAccess Permission { get; init; } = SignedUrlAccess.Read;
+    public SignedUrlAccess Access { get; init; } = SignedUrlAccess.Read;
 
     /// <summary>
     /// For a read URL, the file name a browser saves the download as. A provider that cannot set it throws

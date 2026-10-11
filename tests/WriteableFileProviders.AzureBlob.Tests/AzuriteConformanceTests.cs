@@ -35,7 +35,7 @@ public sealed class AzuriteConformanceTests : ProviderConformanceTests
 
     // Every request fails in the pipeline, as the network can; the SDK retries what it takes for transient (a timeout).
     protected override IWriteableFileProvider? CreateProviderThatFails(Exception failure) =>
-        new WriteableAzureBlobFileProvider(new AzureFileProviderOptions { RootDirectoryPath = RootName },
+        new WriteableAzureBlobFileProvider(new AzureBlobFileProviderOptions { RootDirectoryPath = RootName },
             Azurite.Container(_containerName, new AzureHandler { Intercept = _ => throw failure }));
 
     protected override Task<bool> StoreRawFileAsync(IReadOnlyList<string> names, string text) => Azurite.StoreRawAsync(_containerName, names, text);
@@ -68,7 +68,7 @@ public sealed class AzuriteStrictConformanceTests : ProviderConformanceTests
     {
         Azurite.CreateContainerAsync(_containerName).GetAwaiter().GetResult();
         var client = Azurite.Container(_containerName, new AzureHandler { MaxBlocks = BlockLimit });
-        return new WriteableAzureBlobFileProvider(new AzureFileProviderOptions { RootDirectoryPath = root }, client)
+        return new WriteableAzureBlobFileProvider(new AzureBlobFileProviderOptions { RootDirectoryPath = root }, client)
         {
             BlockSize = 1 << 20,
             MaxCommittedBlocks = BlockLimit,
@@ -77,10 +77,10 @@ public sealed class AzuriteStrictConformanceTests : ProviderConformanceTests
     }
 
     protected override IWriteableFileProvider? CreateProviderWithMissingContainer() =>
-        new WriteableAzureBlobFileProvider(null, Azurite.Container(Azurite.NewContainerName(), new AzureHandler()));
+        new WriteableAzureBlobFileProvider(new(), Azurite.Container(Azurite.NewContainerName(), new AzureHandler()));
 
     protected override IWriteableFileProvider? CreateProviderThatFails(Exception failure) =>
-        new WriteableAzureBlobFileProvider(new AzureFileProviderOptions { RootDirectoryPath = RootName },
+        new WriteableAzureBlobFileProvider(new AzureBlobFileProviderOptions { RootDirectoryPath = RootName },
             Azurite.Container(_containerName, new AzureHandler { MaxBlocks = BlockLimit, Intercept = _ => throw failure }));
 
     protected override Task<bool> StoreRawFileAsync(IReadOnlyList<string> names, string text) => Azurite.StoreRawAsync(_containerName, names, text);

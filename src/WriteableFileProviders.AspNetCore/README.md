@@ -76,7 +76,7 @@ sealed class ReportAccess : IReportAccess
 `ReportAccess` stands for your own check that this user may see this report. The gateway's URLs need no sign-in:
 whoever holds one can use it until it expires, so the endpoint that hands them out is where access is decided.
 
-An upload URL works the same way: `Permission = SignedUrlAccess.Create` (only if the file does not exist yet) or
+An upload URL works the same way: `Access = SignedUrlAccess.Create` (only if the file does not exist yet) or
 `SignedUrlAccess.Write` (create or replace). The client sends `PUT` to `SignedUrl.Url` with the headers in
 `SignedUrl.Headers`.
 

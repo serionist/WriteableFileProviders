@@ -260,16 +260,16 @@ public abstract partial class WriteableFileProvider<TOptions> : IWriteableFilePr
         ArgumentNullException.ThrowIfNull(options);
         if (options.Validity <= TimeSpan.Zero)
             throw new ArgumentOutOfRangeException(nameof(options), options.Validity, "The validity must be positive.");
-        var resolved = options.Permission == SignedUrlAccess.Read ? ResolveReadable(path) : ResolveModifiable(path);
-        if (!SupportsSignedUrl(options.Permission))
-            throw new NotSupportedException($"{GetType().Name} cannot issue a {options.Permission} URL.");
-        if ((options.DownloadFileName is not null || options.ContentType is not null) && !SupportsSignedUrlContentHeaders(options.Permission))
-            throw new NotSupportedException($"{GetType().Name} cannot set the download file name or the content type of a {options.Permission} URL.");
+        var resolved = options.Access == SignedUrlAccess.Read ? ResolveReadable(path) : ResolveModifiable(path);
+        if (!SupportsSignedUrl(options.Access))
+            throw new NotSupportedException($"{GetType().Name} cannot issue a {options.Access} URL.");
+        if ((options.DownloadFileName is not null || options.ContentType is not null) && !SupportsSignedUrlContentHeaders(options.Access))
+            throw new NotSupportedException($"{GetType().Name} cannot set the download file name or the content type of a {options.Access} URL.");
         if (options.Validity > MaxSignedUrlValidity)
             throw new NotSupportedException($"{GetType().Name} signs URLs that live at most {MaxSignedUrlValidity}; {options.Validity} was asked.");
         try
         {
-            if (options.Permission == SignedUrlAccess.Read)
+            if (options.Access == SignedUrlAccess.Read)
             {
                 var info = await GetFileInfoCoreAsync(resolved, cancellationToken).ConfigureAwait(false);
                 if (!info.Exists || info.IsDirectory)

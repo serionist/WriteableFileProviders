@@ -35,8 +35,8 @@ public sealed partial class AzureBlobProviderTests
     public static Task DeleteContainer() => Azurite.DeleteContainerAsync(_containerName);
 
     // A provider rooted at the test's own folder, over a client whose requests go through the handler.
-    private WriteableAzureBlobFileProvider Provider(int retries = 2, AzureFileProviderOptions? options = null) =>
-        new(options ?? new AzureFileProviderOptions { RootDirectoryPath = _root }, Azurite.Container(_containerName, _handler, retries));
+    private WriteableAzureBlobFileProvider Provider(int retries = 2, AzureBlobFileProviderOptions? options = null) =>
+        new(options ?? new AzureBlobFileProviderOptions { RootDirectoryPath = _root }, Azurite.Container(_containerName, _handler, retries));
 
     private string Name(string path) => $"{_root}/{path}";
 
@@ -235,7 +235,7 @@ public sealed partial class AzureBlobProviderTests
         // A client from a container SAS can neither sign a SAS nor get a user delegation key.
         var sas = _raw.GenerateSasUri(BlobContainerSasPermissions.All, DateTimeOffset.UtcNow.AddHours(1));
         var client = new BlobContainerClient(sas, Azurite.ClientOptions(_handler));
-        using var provider = new WriteableAzureBlobFileProvider(new AzureFileProviderOptions { RootDirectoryPath = _root }, client);
+        using var provider = new WriteableAzureBlobFileProvider(new AzureBlobFileProviderOptions { RootDirectoryPath = _root }, client);
         await Append(provider, "put.txt", "more");
         Assert.AreEqual("base;more", await ReadRaw("put.txt"));
         Assert.IsFalse(_handler.For(Name("put.txt")).Any(l => l.EndsWith("copy", StringComparison.Ordinal)), "No server-side copy");
@@ -720,11 +720,11 @@ public sealed partial class AzureBlobProviderTests
         using var provider = new WriteableAzureBlobFileProvider(Azurite.Options(name));
         var e = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.GetFileInfoAsync("a.txt"));
         StringAssert.Contains(e.Message, name);
-        StringAssert.Contains(e.Message, nameof(AzureFileProviderOptions.CreateContainerIfMissing));
+        StringAssert.Contains(e.Message, nameof(AzureBlobFileProviderOptions.CreateContainerIfMissing));
         await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.OpenReadSeekableAsync("a.txt"));
         await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.ReadRangeAsync("a.txt", 0, 1));
         await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.CopyAsync("a.txt", "b.txt"));
-        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.GetSignedUrlAsync("a.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Permission = SignedUrlAccess.Write }));
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.GetSignedUrlAsync("a.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Access = SignedUrlAccess.Write }));
         await Assert.ThrowsExactlyAsync<InvalidOperationException>(async () => { await foreach (var _ in provider.EnumerateAsync("", recursive: true)) { } });
         await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.UpdateFileAsync("a.txt", TestStreams.Text("x"), UpdateFileOptions.Append));
         Assert.IsFalse((await Azurite.Container(name).ExistsAsync()).Value);
@@ -738,7 +738,7 @@ public sealed partial class AzureBlobProviderTests
             p => Write(p, "a.txt", "x"),
             p => Write(p, "a.txt", ""),
             p => Append(p, "a.txt", "x"),
-            p => p.GetSignedUrlAsync("a.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Permission = SignedUrlAccess.Create }),
+            p => p.GetSignedUrlAsync("a.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Access = SignedUrlAccess.Create }),
         })
         {
             var name = Azurite.NewContainerName();
@@ -776,12 +776,12 @@ public sealed partial class AzureBlobProviderTests
             Assert.AreEqual("résumé.txt", response.Content.Headers.ContentDisposition?.FileNameStar);
         }
 
-        var create = await provider.GetSignedUrlAsync("new.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Permission = SignedUrlAccess.Create });
+        var create = await provider.GetSignedUrlAsync("new.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Access = SignedUrlAccess.Create });
         Assert.AreEqual(HttpStatusCode.Created, (await Put(http, create, "created")).StatusCode);
         Assert.AreEqual(HttpStatusCode.Forbidden, (await Put(http, create, "again")).StatusCode, "A create URL refuses an existing file");
         Assert.AreEqual("created", await Read(provider, "new.txt"));
 
-        var write = await provider.GetSignedUrlAsync("new.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Permission = SignedUrlAccess.Write });
+        var write = await provider.GetSignedUrlAsync("new.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Access = SignedUrlAccess.Write });
         Assert.AreEqual(HttpStatusCode.Created, (await Put(http, write, "replaced")).StatusCode);
         Assert.AreEqual("replaced", await Read(provider, "new.txt"));
 

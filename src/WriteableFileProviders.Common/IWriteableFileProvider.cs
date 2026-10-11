@@ -16,8 +16,9 @@ namespace WriteableFileProviders;
 /// <para>
 /// A provider whose bucket or container does not exist throws <see cref="InvalidOperationException"/> from every member,
 /// naming it and the option that creates it; it never reports that as a missing path. An operation a provider cannot do
-/// throws <see cref="NotSupportedException"/>. The synchronous forms of the members are
-/// extension methods (<see cref="WriteableFileProviderExtensions"/>), except the three <see cref="IFileProvider"/> needs.
+/// throws <see cref="NotSupportedException"/>. The only synchronous members are the three <see cref="IFileProvider"/>
+/// needs; the 2026 synchronous forms are <see cref="WriteableFileProviderCompatibilityExtensions"/>, obsolete until
+/// 2028.0.0.
 /// </para>
 /// <para>
 /// Every member throws only these types, on every provider: <see cref="ArgumentException"/> (a path or an option),
@@ -154,7 +155,7 @@ public interface IWriteableFileProvider : IFileProvider, IDisposable, IAsyncDisp
     /// <exception cref="ArgumentOutOfRangeException">The validity is not positive.</exception>
     /// <exception cref="FileNotFoundException">A read URL for a file that does not exist, or for a folder.</exception>
     /// <exception cref="NotSupportedException">
-    /// The provider cannot issue such a URL natively: not for this permission, not for this long, not with an option it
+    /// The provider cannot issue such a URL natively: not for this access, not for this long, not with an option it
     /// cannot honour (such as <see cref="SignedUrlOptions.DownloadFileName"/>), or only one that lives shorter than asked.
     /// WriteableFileProviders.AspNetCore issues a gateway URL instead.
     /// </exception>

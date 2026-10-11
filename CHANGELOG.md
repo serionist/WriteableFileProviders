@@ -5,7 +5,7 @@ Every package releases together, at one version
 that changes something consumers notice adds a line under the next version's heading. `release.yml` publishes a
 version's section as its GitHub release notes.
 
-## 2027.0.0 (unreleased)
+## 2027.0.0 (2026-10-11)
 
 The first SemVer release, and a major one: rebuilt on .NET 10 around one async API that means the same on every store.
 [Moving from 2026](https://github.com/serionist/WriteableFileProviders/blob/main/docs/migration-2027.md) lists every

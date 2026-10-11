@@ -28,7 +28,7 @@ public sealed class PhysicalLiveTests : ProviderConformanceTests
     // The root is a folder of the disk, which the system resolves (dot segments included); paths under it stay inside it.
     protected override bool ChecksItsRoot => false;
 
-    // The version check before the rename is not atomic (D15, D19).
+    // The version check before the rename is not atomic.
     protected override bool DetectsConcurrentAppends => false;
 
     protected override IWriteableFileProvider CreateProvider(string? root)

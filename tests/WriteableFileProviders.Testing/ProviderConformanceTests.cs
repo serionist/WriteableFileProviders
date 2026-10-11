@@ -6,9 +6,9 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace WriteableFileProviders.Testing;
 
 /// <summary>
-/// The behaviour contract every provider passes (docs/plans/2026-10-10-modernization.md, "The behaviour contract"), one
-/// test per rule. A provider's test project derives a [TestClass] from this class and says how to build the provider and
-/// what the store can do. Each test works under its own root folder, deleted afterwards.
+/// The behaviour contract every provider passes, one test per rule, so a member means the same thing on every provider.
+/// A provider's test project derives a [TestClass] from this class and says how to build the provider and what the
+/// store can do. Each test works under its own root folder, deleted afterwards.
 /// </summary>
 public abstract class ProviderConformanceTests
 {
@@ -40,8 +40,9 @@ public abstract class ProviderConformanceTests
     protected virtual bool SupportsSignedUrls(SignedUrlAccess access) => false;
 
     /// <summary>
-    /// The lifetime the store gives every signed URL whatever was asked (Box, SharePoint; D18), or null where the URL
-    /// lives as long as asked.
+    /// The lifetime the store gives every signed URL whatever was asked (Box, SharePoint), or null where the URL
+    /// lives as long as asked. Such a URL is refused when it would outlive what was asked, and returned only with
+    /// <see cref="SignedUrlOptions.AllowShorterValidity"/> when it would live shorter.
     /// </summary>
     protected virtual TimeSpan? FixedSignedUrlLifetime => null;
 
@@ -53,14 +54,14 @@ public abstract class ProviderConformanceTests
 
     /// <summary>
     /// Whether an append detects the concurrent write this suite stages (while the appended stream is read) and throws
-    /// instead of losing it (D19); false where the staged race cannot be detected.
+    /// instead of losing it; false where the staged race cannot be detected.
     /// </summary>
     protected virtual bool DetectsConcurrentAppends => true;
 
     /// <summary>
     /// Whether a file and a folder may share a name: true on the object stores (S3, MinIO, Azure Blob, Google Cloud
     /// Storage), where folders are name prefixes, so a file written at a folder's path, or a folder under a file's
-    /// path, is stored and a listing shows both (D30); false where the store refuses either write with
+    /// path, is stored and a listing shows both; false where the store refuses either write with
     /// <see cref="IOException"/> (Physical, Box, SharePoint, the in-memory provider).
     /// </summary>
     protected virtual bool FileAndFolderMayShareAName => false;
@@ -78,14 +79,14 @@ public abstract class ProviderConformanceTests
     protected virtual long LargeFileSize => 100L * 1024 * 1024;
 
     /// <summary>
-    /// Whether a large write that fails partway leaves the old content. False only for an emulator bug the plan records
+    /// Whether a large write that fails partway leaves the old content. False only for an emulator bug
     /// (S3Mock 5.2.3 deletes the object when a multipart upload to its key is aborted); the write must still throw.
     /// </summary>
     protected virtual bool FailedLargeWriteKeepsOldContent => true;
 
     /// <summary>
     /// Whether a large write with <see cref="UpdateFileOptions.IfMatch"/> succeeds, as the append of a large file does.
-    /// False only for an emulator bug the plan records (S3Mock 5.2.3 answers 404 to a multipart completion with the right
+    /// False only for an emulator bug (S3Mock 5.2.3 answers 404 to a multipart completion with the right
     /// If-Match); the large append is then skipped.
     /// </summary>
     protected virtual bool SupportsLargeConditionalWrites => true;
@@ -480,7 +481,8 @@ public abstract class ProviderConformanceTests
     public async Task List_RecursiveShowsTheFoldersTheOneLevelListingShows()
     {
         // A folder whose only content sits under a name the path rules refuse: the one-level listing shows the folder,
-        // and so must the recursive one, which leaves out only the name below it (D27).
+        // and so must the recursive one, which leaves out only the name below it: a listing shows only names a path can
+        // address, so everything listed reads back.
         await Write("ok.txt", "ok");
         var staged = new List<string>();
         foreach (var name in new[] { "%2e%2e", "...", " " })
@@ -505,7 +507,7 @@ public abstract class ProviderConformanceTests
     [TestMethod]
     public async Task List_ShowsACallersNamesThatLookLikeTheProvidersOwn()
     {
-        // A provider hides only the temporary names it makes itself (D32): a caller's ".wfp-" names are listed like any
+        // A provider hides only the temporary names it makes itself: a caller's ".wfp-" names are listed like any
         // other, at the top and further down, and read back.
         await Write(".wfp-notes.txt", "notes");
         await Write(".wfp-draft.tmp", "draft");
@@ -701,7 +703,7 @@ public abstract class ProviderConformanceTests
     public async Task Write_ConcurrentAppendIsNeverLost()
     {
         if (!DetectsConcurrentAppends)
-            Assert.Inconclusive("The provider cannot detect the concurrent write this test stages (D19).");
+            Assert.Inconclusive("The provider cannot detect the concurrent write this test stages.");
         await Write("f.txt", "start");
         var racing = new InterceptingStream(Encoding.UTF8.GetBytes("+mine"),
             () => Provider.UpdateFileAsync("f.txt", TestStreams.Text("theirs")).GetAwaiter().GetResult());
@@ -760,7 +762,7 @@ public abstract class ProviderConformanceTests
             Assert.AreEqual("below", await Read("dir/x.txt"));
             return;
         }
-        // Folders are name prefixes: the file is stored beside the folder, and a listing shows both (D30).
+        // Folders are name prefixes: the file is stored beside the folder, and a listing shows both.
         await Write("dir", "file");
         Assert.AreEqual("file", await Read("dir"));
         Assert.AreEqual("below", await Read("dir/x.txt"));
@@ -779,7 +781,7 @@ public abstract class ProviderConformanceTests
             Assert.IsFalse((await Provider.GetFileInfoAsync("f.txt/y.txt")).Exists, "Nothing is written under the file");
             return;
         }
-        // Folders are name prefixes: the file under the name is stored, and a listing shows both (D30).
+        // Folders are name prefixes: the file under the name is stored, and a listing shows both.
         await Write("f.txt/y.txt", "below");
         Assert.AreEqual("file", await Read("f.txt"));
         Assert.AreEqual("below", await Read("f.txt/y.txt"));

@@ -9,7 +9,7 @@ namespace WriteableFileProviders.AzureBlob;
 
 public sealed partial class WriteableAzureBlobFileProvider
 {
-    // F40: a SAS starts 15 minutes in the past, Microsoft's advice for clock skew; the start time also satisfies a SAS
+    // A SAS starts 15 minutes in the past, Microsoft's advice for clock skew; the start time also satisfies a SAS
     // expiration policy, which refuses a SAS without one.
     private static readonly TimeSpan _clockSkew = TimeSpan.FromMinutes(15);
     private static readonly TimeSpan _refusalMemory = TimeSpan.FromMinutes(10);
@@ -83,7 +83,8 @@ public sealed partial class WriteableAzureBlobFileProvider
             }
             url = new BlobUriBuilder(blob.Uri) { Sas = builder.ToSasQueryParameters(key, _container.AccountName) }.ToUri();
         }
-        // An upload URL into a missing container would only fail when used (P18).
+        // An upload URL into a missing container would only fail when used: the container is checked now, and created
+        // when the options allow it.
         if (options.Access != SignedUrlAccess.Read)
             await EnsureContainerAsync(cancellationToken).ConfigureAwait(false);
         return new SignedUrl

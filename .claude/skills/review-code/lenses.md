@@ -94,7 +94,8 @@ suite, and does the conformance suite (`ProviderConformanceTests`) cover what ev
 
 Did the docs that describe the scope move with it: XML docs on public members (and do they match what the code does),
 `AGENTS.md` when a path, a command or a rule changed, the plan? Does anything cite a path, a class or a command that no
-longer exists?
+longer exists? Does a comment, a test name, a build file or a doc outside `docs/plans/` and `docs/reviews/` cite a plan
+or review id (`D29`, `F5`, `P40`…) instead of saying the reason itself?
 
 ## harness-integrity
 

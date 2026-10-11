@@ -90,16 +90,16 @@ Run everything from the repo root, with a .NET 10 SDK (`global.json`).
 
 ### Tests
 
-`ProviderConformanceTests` (tests/WriteableFileProviders.Testing) is the contract: one test per rule of "The behaviour
-contract" in the modernization plan. A provider's test project derives a `[TestClass]` from it, says how to build the
+`ProviderConformanceTests` (tests/WriteableFileProviders.Testing) is the contract, one test per rule, so a member means
+the same thing on every provider. A provider's test project derives a `[TestClass]` from it, says how to build the
 provider and what the store can do (real folders, case, signed URLs, the large-file size, the emulator bugs it must step
 around), and so runs every rule. Where the fixture can reach the store past the provider, it also stores files under
 names the provider refuses (`StoreRawFileAsync`), so the suite checks that listings leave them out and everything listed
-reads back (D27). Every fixture builds a provider at a root with a dot segment and expects `ArgumentException`, except
-where the root is a folder of the disk (`ChecksItsRoot`, false for Physical). The error contract's cases (D29) run on
-a provider whose store throws whatever it is given (`CreateProviderThatFails`): the in-memory fixtures and every
-emulator or offline provider fixture wire it, through a seam of their SDK; a fixture without it (Physical's, the live
-suites) reports those cases inconclusive.
+reads back. Every fixture builds a provider at a root with a dot segment and expects `ArgumentException`, except where
+the root is a folder of the disk (`ChecksItsRoot`, false for Physical). The cases of the error contract
+([docs/guide/errors.md](docs/guide/errors.md)) run on a provider whose store throws whatever it is given
+(`CreateProviderThatFails`): the in-memory fixtures and every emulator or offline provider fixture wire it, through a
+seam of their SDK; a fixture without it (Physical's, the live suites) reports those cases inconclusive.
 `InMemoryFileProvider`, the reference provider, passes it in `WriteableFileProviders.Common.Tests`.
 
 Each package has a test project of its own, `tests/WriteableFileProviders.<Package>.Tests`:
@@ -173,7 +173,7 @@ to the file `WFP_BOX_CONFIG_FILE` names, and leaves Physical's out.
 
 A change to a provider runs that provider's emulator suite, or its live suite where there is no emulator (Box,
 SharePoint), and its PR says which ran, or that it did not run and why. The offline suites of Box and SharePoint run on
-top, on every change: a fake is no emulator, so it does not stand in for the live suite (D21).
+top, on every change: a fake is no emulator, so it does not stand in for the live suite.
 
 ## How a change lands
 
@@ -198,6 +198,8 @@ While you build:
   the AWS, Google, Box and MinIO SDKs (both in `.mcp.json`). SDKs move faster than any model's memory.
 - A question about a symbol (callers, implementations, unused code) goes to the C# language server first; grep is for
   text in config, docs and strings.
+- Code, tests, build files and docs explain themselves: no plan or review ids (`D29`, `F5`, `P40`…) outside
+  `docs/plans/` and `docs/reviews/`; a comment says the reason itself.
 
 ## Commits and PRs
 
@@ -228,7 +230,7 @@ feature or a new target framework in a minor; a fix in a patch.
   names of its options class, from configuration or JSON (System.Text.Json since 2027.0.0). Consumers keep that in
   configuration files and databases, so renaming a provider class, an options property or the `Type` key breaks what
   they stored. Every later reader reads what an earlier version wrote (the goldens pin it), except a root with a dot
-  segment, refused since 2027.0.0 because it reached outside the root (final review F1, agreed on
+  segment, refused since 2027.0.0 because it reached outside the root (the maintainers agreed on
   [#3](https://github.com/serionist/WriteableFileProviders/issues/3#issuecomment-6108746458)); the reverse is not promised.
 - **The gateway's URLs:** the token format `{access}.{provider key}.{payload}`, its Data Protection purpose chain
   (`WriteableFileProviders.Gateway.v1`, the provider key, the access) and the URL shape `{BasePath}/{token}/{fileName?}`.

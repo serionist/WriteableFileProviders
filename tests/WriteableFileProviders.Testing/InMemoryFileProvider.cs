@@ -16,7 +16,7 @@ public sealed class InMemoryFileProviderOptions : FileProviderOptions
     public bool CaseInsensitive { get; set; }
 
     /// <summary>
-    /// A lifetime the store gives every signed URL whatever was asked, as Box and SharePoint do (D18); null to honour the
+    /// A lifetime the store gives every signed URL whatever was asked, as Box and SharePoint do; null to honour the
     /// validity asked.
     /// </summary>
     public TimeSpan? FixedSignedUrlLifetime { get; set; }
@@ -186,7 +186,7 @@ public sealed class InMemoryFileProvider(InMemoryFileProviderOptions options) : 
         var lifetime = options.Validity;
         if (Options.FixedSignedUrlLifetime is { } fixedLifetime)
         {
-            // D18: a URL never outlives what was asked, and lives shorter only when the caller accepts it.
+            // A URL never outlives what was asked, and lives shorter only when the caller accepts it.
             if (options.Validity < fixedLifetime)
                 throw new NotSupportedException($"The store's URLs live {fixedLifetime}, longer than the {options.Validity} asked.");
             if (!options.AllowShorterValidity)

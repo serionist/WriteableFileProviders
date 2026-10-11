@@ -308,7 +308,7 @@ public sealed partial class WriteableAzureBlobFileProvider
         }
     }
 
-    // P30: an append blob cannot become a block blob in place. Its content and the new bytes are committed to a temp
+    // An append blob cannot become a block blob in place. Its content and the new bytes are committed to a temp
     // blob, the append blob is deleted if it is still the version read, and the temp blob is copied to its name.
     private async Task<bool> ConvertAndAppendAsync(ResolvedPath path, BlobProperties current, FileStream spool, int blockSize, int newBlocks, UpdateFileOptions options, CancellationToken cancellationToken)
     {
@@ -567,7 +567,7 @@ public sealed partial class WriteableAzureBlobFileProvider
         return new AccessTier(tier);
     }
 
-    // P30: deletes the append blob, with its snapshots (an append blob cannot become a block blob otherwise), if it is
+    // Deletes the append blob, with its snapshots (an append blob cannot become a block blob otherwise), if it is
     // still the version read. False when it changed or is gone.
     private static async Task<bool> TryDeleteAppendBlobAsync(BlobBaseClient blob, ETag etag, CancellationToken cancellationToken)
     {

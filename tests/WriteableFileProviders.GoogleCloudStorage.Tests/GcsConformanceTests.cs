@@ -45,9 +45,9 @@ public sealed class GcsConformanceTests : ProviderConformanceTests
 }
 
 /// <summary>
-/// The conformance suite on fake-gcs-server over a <see cref="StorageClient"/> the test built (D17, D23): an
-/// unauthenticated client, so it cannot sign, and every signed URL throws <see cref="NotSupportedException"/>. The
-/// client is shared by every provider of the class, which never disposes it.
+/// The conformance suite on fake-gcs-server over a <see cref="StorageClient"/> the test built and passed to the public
+/// constructor: an unauthenticated client, so it cannot sign, and every signed URL throws
+/// <see cref="NotSupportedException"/>. The client is shared by every provider of the class, which never disposes it.
 /// </summary>
 [TestClass]
 public sealed class GcsClientConformanceTests : ProviderConformanceTests

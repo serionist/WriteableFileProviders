@@ -4,7 +4,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace WriteableFileProviders.SharePoint.Tests;
 
-/// <summary>How a Graph failure surfaces (F66): only a 404 means missing, and nothing else is hidden.</summary>
+/// <summary>How a Graph failure surfaces: only a 404 means missing, and nothing else is hidden.</summary>
 [TestClass]
 public sealed class GraphErrorsTests
 {

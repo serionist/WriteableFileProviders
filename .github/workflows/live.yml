@@ -110,9 +110,8 @@ jobs:
         run: |
           selected=()
           failed=
-          # A provider runs when it was chosen (every provider at night), its secrets are set and its live suite has
-          # moved to a test project of its own (each provider's step of #3 does that). What cannot run fails a manual
-          # run and is skipped at night.
+          # A provider runs when it was chosen (every provider at night), its secrets are set and its test project
+          # exists. What cannot run fails a manual run and is skipped at night.
           consider() {
             local provider=$1 chosen=$2 ready=$3 needs=$4 project="tests/WriteableFileProviders.$1.Tests" reason=
             [ "$SCHEDULED" = true ] || [ "$chosen" = true ] || return 0

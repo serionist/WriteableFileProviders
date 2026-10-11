@@ -53,7 +53,7 @@ public sealed class ConfigurationShapeTests
         var written = JsonSerializer.SerializeToNode(options, options.GetType(), OptionsJson.Options)!.AsObject();
         written["Type"] = type;
         var golden = GoldenNode(type + ".json");
-        // The 2026 serializer wrote S3's storage class as {"Value":...} and could not read it back (F78); 2027 writes the
+        // The 2026 serializer wrote S3's storage class as {"Value":...} and could not read it back; 2027 writes the
         // string, which is also what 2026 reads correctly.
         if (golden["StorageClassForNewFiles"] is JsonObject storageClass)
             golden["StorageClassForNewFiles"] = storageClass["Value"]!.GetValue<string>();
@@ -77,7 +77,7 @@ public sealed class ConfigurationShapeTests
     [TestMethod]
     public void S3StorageClassReadsFromBothFormsAndWritesTheString()
     {
-        // F78, fixed: the object form the 2026 serializer wrote reads back, and so does the string form.
+        // The object form the 2026 serializer wrote reads back, and so does the string form.
         var objectForm = JsonSerializer.Deserialize<AmazonS3FileProviderOptions>(Golden("WriteableAmazonS3FileProvider.json"), OptionsJson.Options)!;
         Assert.AreEqual("STANDARD_IA", objectForm.StorageClassForNewFiles?.Value);
         var stringForm = JsonSerializer.Deserialize<AmazonS3FileProviderOptions>(Golden("Lenient.AmazonS3.json"), OptionsJson.Options)!;
@@ -159,7 +159,7 @@ public sealed class ConfigurationShapeTests
         using var minio = WriteableFileProviderSerializer.FromConfiguration(ConfigSection("Config.WriteableMinioFileProvider.json"));
         AssertSameOptions(Shapes.Single(s => (string)s[0] == "WriteableMinioFileProvider")[1], minio.Options);
 
-        // F78, fixed on the configuration path too: the storage class converts from its string.
+        // The configuration path too, which never read the storage class in 2026: it converts from its string.
         using var s3 = WriteableFileProviderSerializer.FromConfiguration(ConfigSection("Config.WriteableAmazonS3FileProvider.json"));
         AssertSameOptions(Shapes.Single(s => (string)s[0] == "WriteableAmazonS3FileProvider")[1], s3.Options);
         Assert.AreEqual("STANDARD_IA", ((AmazonS3FileProviderOptions)s3.Options).StorageClassForNewFiles?.Value);
@@ -183,7 +183,7 @@ public sealed class ConfigurationShapeTests
         }).Build();
         using var fromConfig = WriteableFileProviderSerializer.FromConfiguration(config);
 
-        // F79, fixed: RootDirectoryPath, and so ToJson, is the real path on every system, where 2026 carried Physical's
+        // RootDirectoryPath, and so ToJson, is the real path on every system, where 2026 carried Physical's
         // "root:" marker on Unix. WriteableFileProviders.Physical.Tests reads the "root:" forms 2026 stored.
         Assert.AreEqual(Path.GetFullPath(root), json["RootDirectoryPath"]!.GetValue<string>());
         foreach (var each in new IWriteableFileProvider[] { provider, read, fromConfig })

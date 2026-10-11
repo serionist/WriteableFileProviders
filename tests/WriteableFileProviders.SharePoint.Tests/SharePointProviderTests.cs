@@ -632,7 +632,7 @@ public sealed class SharePointProviderTests
         Assert.IsFalse(fake.Requests.Any(r => r.Host == GraphFake.DownloadHost));
     }
 
-    // ----- Errors (F66) -----
+    // ----- Errors -----
 
     [TestMethod]
     public async Task Errors_OnlyNotFoundMeansMissing()
@@ -859,7 +859,7 @@ public sealed class SharePointProviderTests
         await Assert.ThrowsAsync<OperationCanceledException>(() => provider.CopyAsync("a.txt", "b.txt", cancel.Token));
     }
 
-    // ----- Review round 1 -----
+    // ----- Escaped names, upload session resends, transient failures, copy timeouts, unknown sizes, disposal -----
 
     [TestMethod]
     public async Task PercentInNames_IsSentEscaped_AndUnaddressableNamesAreLeftOut()
@@ -1006,7 +1006,7 @@ public sealed class SharePointProviderTests
         client.Dispose();
     }
 
-    // ----- Review round 2 -----
+    // ----- Upload sessions that resend or resync, and files of unknown size -----
 
     [TestMethod]
     public async Task UploadSession_ThatKeepsSendingTheUploadBack_EndsInsteadOfLooping()

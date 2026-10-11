@@ -18,7 +18,7 @@ public sealed class SharePointLiveTests : ProviderConformanceTests
 
     protected override bool KeepsContentType => false;
 
-    // Set to true once a live run shows Graph refuses a stale If-Match on a simple upload (D15, D19):
+    // Set to true once a live run shows Graph refuses a stale If-Match on a simple upload:
     // SharePointLiveChecks asks it directly.
     protected override bool DetectsConcurrentAppends => false;
 

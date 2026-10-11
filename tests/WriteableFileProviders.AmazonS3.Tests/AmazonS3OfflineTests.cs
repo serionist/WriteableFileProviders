@@ -11,7 +11,7 @@ using static WriteableFileProviders.S3.Testing.InterceptingHttpClientFactory;
 namespace WriteableFileProviders.AmazonS3.Tests;
 
 /// <summary>
-/// What needs no server: sign-in, presigned URLs and their lifetimes (D18), the AWS endpoint, the bucket check and its
+/// What needs no server: sign-in, presigned URLs and their lifetimes, the AWS endpoint, the bucket check and its
 /// retry, through a fake S3 behind the SDK's HTTP layer.
 /// </summary>
 [TestClass]

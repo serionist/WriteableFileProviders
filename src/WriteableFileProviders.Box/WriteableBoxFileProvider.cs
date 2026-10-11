@@ -338,7 +338,8 @@ public sealed partial class WriteableBoxFileProvider : WriteableFileProvider<Box
     protected override async Task<SignedUrl> GetSignedUrlCoreAsync(ResolvedPath path, SignedUrlOptions options, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
-        // D18: Box sets the lifetime. A URL never outlives what was asked, and lives shorter only when the caller accepts it.
+        // Box sets the lifetime. A URL never outlives what was asked, and lives shorter only when the caller accepts
+        // it.
         if (options.Validity < DownloadUrlLifetime)
             throw new NotSupportedException($"Box's download URLs live about {DownloadUrlLifetime.TotalMinutes} minutes, longer than the {options.Validity} asked.");
         if (!options.AllowShorterValidity)

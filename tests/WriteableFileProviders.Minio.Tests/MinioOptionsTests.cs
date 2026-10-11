@@ -5,7 +5,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace WriteableFileProviders.Minio.Tests;
 
-/// <summary>The options and their validation, D7 included; no network.</summary>
+/// <summary>The options and their validation, plain http toward another host included; no network.</summary>
 [TestClass]
 public sealed class MinioOptionsTests
 {
@@ -36,7 +36,7 @@ public sealed class MinioOptionsTests
     [TestMethod]
     public void PlainHttp_ToAnotherHostNeedsTheOptIn()
     {
-        // D7: a configuration that forgot UseSSL must not send files in clear text across the network.
+        // A configuration that forgot UseSSL must not send files in clear text across the network.
         var e = Assert.ThrowsExactly<ArgumentException>(() => new WriteableMinioFileProvider(Options("minio.internal:9000")));
         StringAssert.Contains(e.Message, "UseSSL");
         StringAssert.Contains(e.Message, "AllowInsecureHttp");
@@ -106,7 +106,7 @@ public sealed class MinioOptionsTests
     [TestMethod]
     public void NewOptions_AreWrittenOnlyWhenSet()
     {
-        // D26: a configuration that uses none of the 2027 options keeps its 2026 shape.
+        // A configuration that uses none of the 2027 options keeps its 2026 shape.
         string[] added = ["AllowInsecureHttp", "Region", "CreateBucketIfMissing"];
         using (var plain = new WriteableMinioFileProvider(Options("localhost:9000")))
         {
@@ -139,7 +139,7 @@ public sealed class MinioOptionsTests
 
     [TestMethod]
     public void Provider_IsSealed() =>
-        // D25: a custom provider derives from WriteableFileProvider<TOptions>, not from a provider.
+        // A custom provider derives from WriteableFileProvider<TOptions>, not from a provider.
         Assert.IsTrue(typeof(WriteableMinioFileProvider).IsSealed);
 
     [TestMethod]

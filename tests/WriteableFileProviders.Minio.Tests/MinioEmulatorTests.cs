@@ -41,7 +41,7 @@ public sealed class MinioEmulatorTests
         {
             await provider.UpdateFileAsync("f.txt", TestStreams.Text("stored"));
             Assert.AreEqual("stored", await ReadAllAsync(provider, "f.txt"));
-            // The download URL MinIO could not give before 2027 (F45), checked by the server's own signature validation.
+            // The download URL MinIO could not give before 2027, checked by the server's own signature validation.
             var url = await provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5) });
             using var http = new HttpClient();
             Assert.AreEqual("stored", await http.GetStringAsync(url.Url));

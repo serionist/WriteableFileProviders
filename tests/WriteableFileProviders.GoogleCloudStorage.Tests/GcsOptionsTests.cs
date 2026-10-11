@@ -150,7 +150,7 @@ public sealed class GcsOptionsTests
     [TestMethod]
     public async Task Provider_WithoutCredentialsDoesNothingUntilItsFirstCall()
     {
-        // 2026 looked up Application Default Credentials in the constructor (F13), which threw where there were none.
+        // 2026 looked up Application Default Credentials in the constructor, which threw where there were none.
         // Disposing a provider that never ran builds nothing either.
         var provider = new WriteableGoogleCloudStorageFileProvider(new GoogleCloudStorageFileProviderOptions { BucketName = "b" });
         Assert.IsNotNull(provider.ToJson());
@@ -176,13 +176,13 @@ public sealed class GcsOptionsTests
 
     [TestMethod]
     public void Provider_IsSealed() =>
-        // D25: a custom provider derives from WriteableFileProvider<TOptions>, not from a provider.
+        // A custom provider derives from WriteableFileProvider<TOptions>, not from a provider.
         Assert.IsTrue(typeof(WriteableGoogleCloudStorageFileProvider).IsSealed);
 
     [TestMethod]
     public void NewOptions_AreWrittenOnlyWhenSet()
     {
-        // D26: a configuration that uses none of the 2027 options keeps its 2026 shape.
+        // A configuration that uses none of the 2027 options keeps its 2026 shape.
         string[] added = ["Endpoint", "AllowInsecureHttp", "CreateBucketIfMissing"];
         using (var plain = new WriteableGoogleCloudStorageFileProvider(Options(Pem)))
         {
@@ -222,7 +222,8 @@ public sealed class GcsOptionsTests
     [DataRow("http://storage.googleapis.com")]
     public void Endpoint_PlainHttpOnlyTowardLoopbackUnlessAllowed(string endpoint)
     {
-        // D7, as MinIO: the credentials' tokens travel with every request.
+        // As on MinIO: the credentials' tokens travel with every request, so plain http goes only toward this machine
+        // unless allowed.
         var options = new GoogleCloudStorageFileProviderOptions { BucketName = "b", Endpoint = endpoint };
         var e = Assert.ThrowsExactly<ArgumentException>(() => new WriteableGoogleCloudStorageFileProvider(options));
         StringAssert.Contains(e.Message, "AllowInsecureHttp");
@@ -253,7 +254,7 @@ public sealed class GcsOptionsTests
         Assert.IsFalse(e.Message.Contains("secret", StringComparison.Ordinal), "The endpoint is never echoed");
     }
 
-    // ----- Signed URLs (F28: their expiry is checked offline, where the key signs locally) -----
+    // ----- Signed URLs (their expiry is checked offline, where the key signs locally) -----
 
     [TestMethod]
     public async Task SignedUrl_ReadLivesExactlyAsLongAsAsked()
@@ -371,7 +372,7 @@ public sealed class GcsOptionsTests
     [DataRow(SignedUrlAccess.Write)]
     public async Task SignedUrl_WithoutASignerIsNotSupported(SignedUrlAccess access)
     {
-        // Round-1 F10 of #23: a client whose credential cannot sign refuses with NotSupportedException (so the gateway can
+        // A client whose credential cannot sign refuses with NotSupportedException (so the gateway can
         // take over), before any request: this client has no server to reach.
         using var client = Unauthenticated();
         using var provider = new WriteableGoogleCloudStorageFileProvider(Options(null), client);

@@ -6,7 +6,7 @@ using WriteableFileProviders.Testing;
 
 namespace WriteableFileProviders.SharePoint.Tests;
 
-/// <summary>The options: validation, the three ways to sign in (D17), and where the root sits in the library (D7, P37).</summary>
+/// <summary>The options: validation, the three ways to sign in, and where the root sits in the library.</summary>
 [TestClass]
 public sealed class SharePointOptionsTests
 {
@@ -113,7 +113,7 @@ public sealed class SharePointOptionsTests
         await Assert.ThrowsExactlyAsync<ObjectDisposedException>(() => provider.GetFileInfoAsync("f.txt"));
     }
 
-    // ----- D7: the work folder is the root's first part (P37) -----
+    // ----- The work folder is the root's first part -----
 
     // The 2026 rule, kept here as the oracle: root and caller segments joined, one leading copy of the work folder
     // stripped from the result, the rest placed in the work folder.
@@ -138,7 +138,7 @@ public sealed class SharePointOptionsTests
     [DataRow("Main/Work", "Main/Work/Main/Work", "f.txt", "Main/Work/Main/Work/f.txt", true, DisplayName = "two copies: one is dropped")]
     [DataRow("Main/Work", "Main/Other", "f.txt", "Main/Work/Main/Other/f.txt", true, DisplayName = "the root shares only a partial prefix")]
     [DataRow("Main/Work", "Main/Work", "Main/Work/f.txt", "Main/Work/Main/Work/f.txt", true, DisplayName = "a full copy, and a caller path that repeats the work folder")]
-    [DataRow("Main/Work", null, "Main/Work/f.txt", "Main/Work/Main/Work/f.txt", false, DisplayName = "relocated: a caller path that starts with the work folder (F7)")]
+    [DataRow("Main/Work", null, "Main/Work/f.txt", "Main/Work/Main/Work/f.txt", false, DisplayName = "relocated: a caller path that starts with the work folder")]
     [DataRow("Reports", null, "reports/2026.csv", "Reports/reports/2026.csv", false, DisplayName = "relocated: a caller path that starts with the work folder in another case")]
     [DataRow("Main/Work", "r", "Main/Work/f.txt", "Main/Work/r/Main/Work/f.txt", true, DisplayName = "a root, and a caller path that repeats the work folder")]
     public async Task WorkFolderAndRoot_PlaceFilesAsTheTableSays(string? workFolder, string? root, string path, string expected, bool sameAs2026)

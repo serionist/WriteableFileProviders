@@ -12,7 +12,7 @@ using WriteableFileProviders.Testing;
 namespace WriteableFileProviders.SharePoint.Tests;
 
 /// <summary>
-/// What the offline fake assumes and only SharePoint can confirm (the maintainers' SharePoint checklist): whether
+/// What the offline fake assumes and only SharePoint can confirm: whether
 /// Microsoft Graph refuses a stale <c>If-Match</c> on a simple upload (<c>PUT /content</c>) and on an upload session,
 /// when the session is created and at its last fragment, writing nothing. Sent through <see cref="GraphServiceClient"/>
 /// directly, signed in as the provider signs in, so a failure names the assumption rather than the provider. If all

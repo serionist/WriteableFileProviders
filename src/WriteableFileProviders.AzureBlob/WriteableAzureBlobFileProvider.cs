@@ -512,8 +512,9 @@ public sealed partial class WriteableAzureBlobFileProvider : WriteableFileProvid
             ? $"UseDefaultAzureCredential is set, but the Microsoft Entra ID sign-in found no credential to use (environment, workload or managed identity, developer sign-in). Configure one, or set AzureBlobFileProviderOptions.{nameof(AzureBlobFileProviderOptions.AccountKey)}."
             : "The Microsoft Entra ID credential of the given client found no credential to use.", innerException);
 
-    // Every member: a missing container is an InvalidOperationException, never a missing path (P18), and so is a sign-in
-    // that finds no credential.
+    // Every member: a missing container is an InvalidOperationException naming the option that creates it, never a
+    // missing path, so a store set up wrong is not mistaken for an empty one; and so is a sign-in that finds no
+    // credential.
     private async Task<T> GuardAsync<T>(Func<Task<T>> operation)
     {
         try

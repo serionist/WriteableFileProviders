@@ -6,7 +6,7 @@ namespace WriteableFileProviders.Physical.Tests;
 
 /// <summary>
 /// The root folder's forms and the configuration shape (AGENTS.md, one-way doors): what 2026 stored reads the same, and
-/// <see cref="PhysicalFileProviderOptions.RootDirectoryPath"/> is the real path on every system (F79). Nothing here
+/// <see cref="PhysicalFileProviderOptions.RootDirectoryPath"/> is the real path on every system. Nothing here
 /// touches the disk.
 /// </summary>
 [TestClass]
@@ -34,7 +34,7 @@ public sealed class PhysicalOptionsTests
     [TestMethod]
     public void RootDirectoryPath_IsTheRealPath()
     {
-        // F79: 2026 returned "root:/abs/path" for an absolute path on Linux and macOS.
+        // 2026 returned "root:/abs/path" for an absolute path on Linux and macOS.
         Assert.AreEqual("", PathOf());
         Assert.AreEqual(_separator + "abs" + _separator + "path", PathOf("root:", "abs", "path"));
         Assert.AreEqual(_separator, PathOf("root:"));
@@ -68,7 +68,7 @@ public sealed class PhysicalOptionsTests
     public void ShapeRoundTrips()
     {
         // Physical's root is a path on this system, so its golden is built here: the same three keys on every system, and
-        // since 2027 the real path in RootDirectoryPath on every system too (F79; 2026 wrote "root:/..." on Unix).
+        // since 2027 the real path in RootDirectoryPath on every system too (2026 wrote "root:/..." on Unix).
         var root = Path.Combine(Path.GetTempPath(), "wfp-shape-" + Guid.NewGuid().ToString("N"));
         using var provider = new WriteablePhysicalFileProvider(root);
         var json = WriteableFileProviderSerializer.ToJson(provider);

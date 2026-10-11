@@ -9,8 +9,9 @@ using static WriteableFileProviders.S3.Testing.InterceptingHttpClientFactory;
 namespace WriteableFileProviders.Minio.Tests;
 
 /// <summary>
-/// How the provider builds its client (P23): path-style addressing, the scheme from UseSSL, the region discovered once or
-/// given, no storage class; through a fake server behind the SDK's HTTP layer.
+/// How the provider builds its client so every stored MinIO configuration keeps working: path-style addressing, the
+/// scheme from UseSSL, the region discovered once or given, no storage class; through a fake server behind the SDK's
+/// HTTP layer.
 /// </summary>
 [TestClass]
 public sealed class MinioOfflineTests

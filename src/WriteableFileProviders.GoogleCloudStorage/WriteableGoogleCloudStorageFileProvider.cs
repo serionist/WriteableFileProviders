@@ -213,7 +213,8 @@ public sealed class WriteableGoogleCloudStorageFileProvider : WriteableFileProvi
         ArgumentNullException.ThrowIfNull(options);
         if (options.Mode == UpdateFileMode.Append)
         {
-            // No native append: rewrite the object, conditional on the generation read (F4, D19).
+            // No native append: rewrite the object, conditional on the generation read, so a concurrent write is never
+            // lost.
             await AppendByRewriteAsync(path, contents, options, cancellationToken).ConfigureAwait(false);
             return;
         }
@@ -223,7 +224,7 @@ public sealed class WriteableGoogleCloudStorageFileProvider : WriteableFileProvi
             ifGenerationMatch = ParseGeneration(ifMatch) ?? throw Changed(path, ifMatch);
         var destination = new StorageObject { Bucket = _bucket, Name = Key(path), ContentType = options.ContentType ?? DefaultContentType };
         // The upload is resumable: Cloud Storage creates the object only when every byte arrived, so a source that fails
-        // leaves the old content. The caller's stream is read forward and left open (F41).
+        // leaves the old content. The caller's stream is read forward and left open.
         var source = new ForwardReadStream(contents);
         await using (source.ConfigureAwait(false))
         {
@@ -459,7 +460,7 @@ public sealed class WriteableGoogleCloudStorageFileProvider : WriteableFileProvi
         if (!Uri.TryCreate(endpoint.Trim(), UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https")
             || uri.UserInfo.Length > 0 || uri.Query.Length > 0 || uri.Fragment.Length > 0)
             throw new ArgumentException("Endpoint must be an http or https URL without user information or a query, such as http://localhost:4443.", nameof(options));
-        // The credentials' tokens travel with every request: in clear text only toward this machine, unless allowed (D7).
+        // The credentials' tokens travel with every request: in clear text only toward this machine, unless allowed.
         if (uri.Scheme == "http" && !uri.IsLoopback && !options.AllowInsecureHttp)
             throw new ArgumentException(
                 $"Endpoint uses plain http toward a host that is not loopback, which would send the credentials in clear text: use https, or set {nameof(GoogleCloudStorageFileProviderOptions.AllowInsecureHttp)}.",
@@ -493,7 +494,8 @@ public sealed class WriteableGoogleCloudStorageFileProvider : WriteableFileProvi
             await EnsureBucketAsync(given, null).ConfigureAwait(false);
             return new State(given, _givenClientSigner, OwnsClient: false);
         }
-        // Application Default Credentials only now, and asynchronously: the lookup may ask the metadata server (F13).
+        // Application Default Credentials only now, on the first call and asynchronously: the lookup may ask the
+        // metadata server, which a constructor must not wait for.
         var credential = _credential ?? await GoogleCredential.GetApplicationDefaultAsync().ConfigureAwait(false);
         var builder = new StorageClientBuilder { GoogleCredential = credential };
         if (_baseUri is not null)
@@ -586,7 +588,7 @@ public sealed class WriteableGoogleCloudStorageFileProvider : WriteableFileProvi
     }
 
     // A media download through the client's own HTTP client, which carries its credential: the SDK's download writes
-    // into a stream the caller provides and checks a whole-object hash, which a range cannot match (F63).
+    // into a stream the caller provides and checks a whole-object hash, which a range cannot match.
     private async Task<Stream> DownloadAsync(State state, ResolvedPath path, long offset, long? length, long? generation, CancellationToken cancellationToken)
     {
         var service = state.Client.Service;
@@ -687,7 +689,8 @@ public sealed class WriteableGoogleCloudStorageFileProvider : WriteableFileProvi
         return await NotFoundAsync(state, path, inner, cancellationToken).ConfigureAwait(false);
     }
 
-    // Cloud Storage answers the same 404 for a missing object and a missing bucket: a list tells them apart (P18).
+    // Cloud Storage answers the same 404 for a missing object and a missing bucket: a list tells them apart, so a
+    // missing bucket is reported as such (InvalidOperationException), never as a missing file.
     private async Task<Exception> NotFoundAsync(State state, ResolvedPath path, Exception? inner, CancellationToken cancellationToken) =>
         await BucketMissingAsync(state.Client, cancellationToken).ConfigureAwait(false) is { } missing ? MissingBucket(inner ?? missing) : NotFound(path, inner);
 

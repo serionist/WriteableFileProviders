@@ -111,7 +111,7 @@ Directory.Build.props        shared: net10.0, LangVersion, Nullable, strictness,
 Directory.Packages.props     central package versions, transitive pinning only for advisories (with a comment)
 global.json                  SDK 10.0.1xx, test runner Microsoft.Testing.Platform
 eng/coverage-gate.cs         file-based app: fails when an assembly falls below its floor in eng/coverage.json
-src/Directory.Build.props    packaging: MinVer, README, icon, SourceLink, snupkg, package validation, PublicAPI files
+src/Directory.Build.props    packaging: MinVer, README, icon, SourceLink, snupkg, package validation
 src/WriteableFileProviders.{Common,Physical,AzureBlob,AmazonS3,Minio,GoogleCloudStorage,Box,SharePoint,AspNetCore}/
 tests/Directory.Build.props  test projects: MSTest 4 on Microsoft.Testing.Platform, coverage, no packing
 tests/WriteableFileProviders.Testing/      the shared conformance suite and the container fixtures
@@ -562,7 +562,7 @@ Each step is an issue under #3, a branch `<issue>-<slug>`, and a PR that builds 
 | S9 SharePoint | #13 | #28 | The SharePoint row, with the Graph fake; its live run is outstanding for the maintainers (D21). | F4 F6 F7 F8 F11 F13 F17–F21 F26 F39 F43 F49 F53 F62 F66 F70 F74 F77 | done (#28, 70e3f74); live suite not run (D21) |
 | S10 Box | #14 | #25 | The Box row, with the Box fake; its live run is outstanding for the maintainers (D21). | F4 F6 F11 F13 F17–F21 F25 F32 F53 F63 F67 F74 F77, Box's part of F56 | done (#25, 3ce3b89); live suites not run (D21) |
 | S11 AspNetCore gateway | #15 | #24 | The new package, the URL service, endpoints, the gateway tests and defaults (D22, P13, P27); its README, migration entry and AGENTS.md entry; whether the token purpose string and URL shape are a one-way door (they are: tokens issued by one version must redeem on the next minor; recorded under One-way doors in AGENTS.md). | F11 | done (#24, bce935c) |
-| S12 Docs, CI, launch prep | #16 | #31, #40, #41, #42, #43, #44, #45, #46 | The root README, the migration guide's final pass, CONTRIBUTING, SECURITY, AGENTS.md and REVIEW.md, codeql, dependabot, `live.yml`, the release workflow, every floor at 90% or more, a check that no project sets `WfpLegacy`, the removal of the `[Obsolete]` 2026 helpers in Common (`GetRelativeSegments`, `IsRootPath`, `NormalizePem`, which Box and GCS take over), the PublicAPI files, and a final deep `review-code` of the whole repo. | F12 F76 | done: part 1 #31 (65cfd40); part 2 #41 (581e050, code) and #40 (b6e78b8, docs); the final whole-repo review (`docs/reviews/2026-10-11-2027-final.md`) and its fixes #42 (02790dd) and #43 (c1181a8); the API simplified #44 (a435930); the launch #45 (2435c69); the floors and this status #46 |
+| S12 Docs, CI, launch prep | #16 | #31, #40, #41, #42, #43, #44, #45, #46 | The root README, the migration guide's final pass, CONTRIBUTING, SECURITY, AGENTS.md and REVIEW.md, codeql, dependabot, `live.yml`, the release workflow, every floor at 90% or more, a check that no project sets `WfpLegacy`, the removal of the `[Obsolete]` 2026 helpers in Common (`GetRelativeSegments`, `IsRootPath`, `NormalizePem`, which Box and GCS take over), the PublicAPI files (dropped afterwards, on the maintainer's decision of 2026-10-11, for package validation alone), and a final deep `review-code` of the whole repo. | F12 F76 | done: part 1 #31 (65cfd40); part 2 #41 (581e050, code) and #40 (b6e78b8, docs); the final whole-repo review (`docs/reviews/2026-10-11-2027-final.md`) and its fixes #42 (02790dd) and #43 (c1181a8); the API simplified #44 (a435930); the launch #45 (2435c69); the floors and this status #46 |
 
 The provider steps S5–S10 are independent once S4 is merged. They may run in parallel agents, each in its own worktree,
 touching only their provider's folders, but they merge one at a time (P41): each rebases onto main before its PR and
@@ -572,6 +572,7 @@ Azure.Identity, owned by S6 and consumed by S9) are edited only in the rebased b
 AGENTS.md's Tests section for its provider, its README and the migration guide (P11). Coverage floors rise as each step
 lands, not only in S12. The PublicAPI analyzer files are added per package as each step rewrites it, starting with the
 2027 surface; seeding them with the 2026 surface would only record removals that the migration ledger already lists.
+The maintainer dropped them on 2026-10-11, for package validation alone (progress log).
 
 ## Tests
 
@@ -631,9 +632,9 @@ Covered under Design, Docs. AGENTS.md changes in S2 (layout, commands), in S3 (t
 - **A Box path-to-id cache**, for latency on deep paths (D23).
 - **Convenience extensions** such as `ReadAllBytes`, `WriteAllText` and a sync `Copy` (D23).
 - **Scanning loaded assemblies** for provider types (D23).
-- **Package validation baselines:** set them to `2027.0.0` after it ships, and keep the PublicAPI files from then on
-  ([docs/releasing.md](../releasing.md), Afterwards). Package validation itself runs on every pack since the final
-  review (F17).
+- **Package validation baselines:** set them to `2027.0.0` after it ships ([docs/releasing.md](../releasing.md),
+  Afterwards); since 2026-10-11 they are the only guard of the shipped API, the PublicAPI files being dropped.
+  Package validation itself runs on every pack since the final review (F17).
 - **One reader of the live settings** (final review F19, the owner's call: no, for now): the six live classes keep
   their own readers of `WFP_*` variables and `testsettings.json`. A shared helper in WriteableFileProviders.Testing would
   remove five copies, but only live accounts can check a refactor of how test credentials are read.
@@ -2440,6 +2441,17 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
   Left for the maintainer: reserving the id prefix and the trusted publishing policy on nuget.org (steps 1 and 5 of
   `docs/releasing.md`), and the other open items below.
 
+- **2026-10-11, the PublicAPI files dropped (the maintainer's decision):** package validation alone guards the
+  shipped API, rather than a per-member listing that every public change must update. Gone: every
+  `src/*/PublicAPI.Shipped.txt` and `PublicAPI.Unshipped.txt`, the `Microsoft.CodeAnalysis.PublicApiAnalyzers`
+  reference and `AdditionalFiles` in `src/Directory.Build.props` and its version, the RS0016 and RS0017 severities in
+  `.editorconfig`, and the RS0026 and RS0027 suppressions (AmazonS3's and AspNetCore's `GlobalSuppressions.cs` went
+  with them; Common's keeps its CA1716 suppression); the lock files were restored again. `EnablePackageValidation`
+  stays, and the baseline is still set once 2027.0.0 ships (`docs/releasing.md`). AGENTS.md and `docs/releasing.md`
+  no longer describe the files; the S12 row, Later and "For the maintainers" follow it. On the branch `3-no-plan-ids`,
+  after its first commit, which replaced the plan and review ids outside `docs/plans/` and `docs/reviews/` with the
+  reasons they stood for (D1-D32, F1-F79 and P1-P41 stay the records here).
+
 ### For the maintainers
 
 What this session cannot do, in the order to do it: first what closes a security exposure, then the review of what
@@ -2620,9 +2632,8 @@ is missing when `WFP_LIVE=1` is set without them.
   heading of `CHANGELOG.md` in a PR, optionally tag `v2027.0.0-rc.1` on `main` for a prerelease, then `v2027.0.0`.
   `release.yml` asks the `nuget` environment's reviewers before it pushes ([docs/releasing.md](../releasing.md),
   "Every release").
-- [ ] After 2027.0.0 ships: check the packages on nuget.org, move each package's `PublicAPI.Unshipped.txt` into
-  `PublicAPI.Shipped.txt`, and set the package validation baselines to `2027.0.0` (Later); docs/releasing.md,
-  "Afterwards", has each.
+- [ ] After 2027.0.0 ships: check the packages on nuget.org, and set the package validation baselines to `2027.0.0`
+  (Later); docs/releasing.md, "Afterwards", has each.
 - [ ] Unlist every version before the 2026.10.10 line on nuget.org, keeping `2026.10.10.x` listed for .NET 8
   consumers. What nuget.org has (its flat-container index, 2026-10-11):
   - `WriteableFileProviders.Common`: 1.0.0, 1.0.1, 1.0.2, and 2018.11.26.2 to 2024.2.7.1 (27 versions in all);

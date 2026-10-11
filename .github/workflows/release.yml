@@ -90,7 +90,7 @@ jobs:
         run: >-
           dotnet pack WriteableFileProviders.slnx --no-build -c Release -p:ContinuousIntegrationBuild=true
           -o artifacts/packages
-      # Every package at the tag's version, each provider on Common at that same version (D2).
+      # Every package releases in lockstep: each at the tag's version, each provider on Common at that same version.
       - name: Check the packages
         run: dotnet run eng/package-check.cs -- artifacts/packages "${GITHUB_REF_NAME#v}"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

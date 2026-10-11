@@ -20,10 +20,10 @@ public sealed class SharePointConformanceTests : ProviderConformanceTests
 
     protected override bool IsCaseInsensitive => true;
 
-    // The service names the type from the file name and takes no hint (D24); SharePointProviderTests checks both.
+    // The service names the type from the file name and takes no hint; SharePointProviderTests checks both.
     protected override bool KeepsContentType => false;
 
-    // Checked, not atomic until the maintainers' live run shows Graph honours If-Match on a simple upload (D15, D19);
+    // Checked, not atomic, until a live run shows Graph honours If-Match on a simple upload (SharePointLiveChecks);
     // SharePointProviderTests shows the If-Match the provider sends refusing a change that lands after the check.
     protected override bool DetectsConcurrentAppends => false;
 
@@ -58,9 +58,10 @@ public sealed class SharePointConformanceTests : ProviderConformanceTests
 
 /// <summary>
 /// The conformance suite against the in-memory Graph through the options constructor (its own HTTP client, a client
-/// secret credential that the fake host never asks for), under a work folder that the root repeats in another case (D7),
-/// and with the documented variants the other fixture leaves out: a download host that ignores ranges, an upload session
-/// that lists its ranges, a copy monitor that ends with 200, and listings two items a page.
+/// secret credential that the fake host never asks for), under a work folder that the root repeats in another case
+/// (the provider drops that leading copy), and with the documented variants the other fixture leaves out: a download
+/// host that ignores ranges, an upload session that lists its ranges, a copy monitor that ends with 200, and listings
+/// two items a page.
 /// </summary>
 [TestClass]
 public sealed class SharePointWorkFolderConformanceTests : ProviderConformanceTests

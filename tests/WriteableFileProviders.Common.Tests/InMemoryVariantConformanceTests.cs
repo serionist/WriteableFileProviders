@@ -6,7 +6,9 @@ namespace WriteableFileProviders.Common.Tests;
 
 /// <summary>
 /// The conformance suite against the in-memory provider configured as Box and SharePoint behave: names that differ only in
-/// case are one name, and signed URLs have a fixed lifetime. It covers the base class's case-only rename and D18.
+/// case are one name, and signed URLs have a fixed lifetime. It covers the base class's case-only rename, and URLs
+/// whose lifetime the store sets: refused when they would outlive what was asked, shorter only when the caller accepts
+/// it.
 /// </summary>
 [TestClass]
 public sealed class InMemoryVariantConformanceTests : ProviderConformanceTests

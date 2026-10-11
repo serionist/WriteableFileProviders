@@ -30,7 +30,7 @@ public sealed partial class AzureBlobProviderTests
         return response;
     }
 
-    // ----- Overwrites that meet another writer's commit (F1) -----
+    // ----- Overwrites that meet another writer's commit -----
 
     [TestMethod]
     public async Task Overwrite_OfOneBlockStagesAgainWhenAnotherCommitDroppedIt()
@@ -77,7 +77,7 @@ public sealed partial class AzureBlobProviderTests
         Assert.AreEqual("theirs", await ReadRaw("f.txt"));
     }
 
-    // ----- Copies that fail, hang or are cancelled (F3, F6) -----
+    // ----- Copies that fail, hang or are cancelled -----
 
     // An append blob replaced by a block blob while the provider overwrites it: the provider copies its temp blob over
     // the block blob, and that copy is what fails, hangs or is cancelled.
@@ -171,7 +171,7 @@ public sealed partial class AzureBlobProviderTests
         Assert.IsTrue(requests.Contains($"DELETE {Name("dst.txt")}"), "What the copy was making is removed");
     }
 
-    // ----- Snapshots are never deleted (F4), except by the append blob conversion (P30) -----
+    // ----- Snapshots are never deleted, except by the append blob conversion -----
 
     [TestMethod]
     public async Task Delete_RefusesABlobWithSnapshots()
@@ -221,7 +221,7 @@ public sealed partial class AzureBlobProviderTests
         Assert.AreEqual(0, snapshots);
     }
 
-    // ----- Appends that meet another writer (F9) -----
+    // ----- Appends that meet another writer -----
 
     [TestMethod]
     public async Task Append_ToAFileCreatedAsAnAppendBlobMeanwhileConvertsIt()
@@ -350,7 +350,7 @@ public sealed partial class AzureBlobProviderTests
         Assert.AreEqual("v1", await ReadRaw("dst.txt"));
     }
 
-    // ----- A lease is not a condition (F10) -----
+    // ----- A lease is not a condition -----
 
     [TestMethod]
     public async Task LeasedBlob_IsReportedAsItIsAndNotRetried()

@@ -20,15 +20,14 @@ links, `docs/guide/`.
 | `tests/WriteableFileProviders.<Provider>.Tests/` | A provider's tests: the conformance suite on its store, emulator or fake, its own cases, and a `Live` suite (see Tests). |
 | `docs/guide/` | The user guide, one topic a page, each linked from the README: `providers.md` (the comparison matrix), `paths-and-listings.md`, `reading-and-writing.md`, `signed-urls.md` (native URLs and the gateway), `dependency-injection.md`, `errors.md`, `writing-a-provider.md`, `versioning.md` (the versioning policy). |
 | `docs/migration-2027.md` | What 2027.0.0 breaks and how to move over; each change of the release adds its part. |
-| `docs/releasing.md` | The release runbook: the one-time setup, tagging and approving a release, what to check on nuget.org, moving the public API files to shipped, the package validation baseline. |
+| `docs/releasing.md` | The release runbook: the one-time setup, tagging and approving a release, what to check on nuget.org, the package validation baseline. |
 | `docs/assets/` | The logo (`logo.svg`, `logo-dark.svg`), the mark (`icon.svg`) and the social preview, with the PNGs `eng/render-assets.sh` renders from them: `icon.png` is every package's icon. |
 | `REVIEW.md` | The questions every review answers. |
 | `docs/plans/` | The plan of each non-trivial change, and the template (`docs/plans/README.md`). |
 | `docs/reviews/` | Reports of whole-repo or whole-folder reviews. A change's own review goes in its PR. |
 | `.claude/skills/` | The work loop: `start-work`, `review-plan`, `review-code`, `finish-work`. |
 | `WriteableFileProviders.slnx` | The solution. |
-| `Directory.Build.props`, `Directory.Build.targets` | Settings every project shares; `src/` and `tests/` add their own (for `src/`, packaging, the public API files, and the upper bound of a packed dependency on one of our packages, `[V, NextMajor.0.0-0)`; for `tests/`, test project settings). The root `.targets` file holds the strictness settings, where no project can turn them off. |
-| `src/*/PublicAPI.Shipped.txt`, `src/*/PublicAPI.Unshipped.txt` | Each package's public API, as released and as new since (see below). |
+| `Directory.Build.props`, `Directory.Build.targets` | Settings every project shares; `src/` and `tests/` add their own (for `src/`, packaging, package validation, and the upper bound of a packed dependency on one of our packages, `[V, NextMajor.0.0-0)`; for `tests/`, test project settings). The root `.targets` file holds the strictness settings, where no project can turn them off. |
 | `Directory.Packages.props` | Every package version, once (central package management). A `.csproj` names packages without versions. |
 | `global.json`, `nuget.config` | The SDK and the test runner; the package source (nuget.org only). |
 | `eng/` | `coverage-gate.cs`, the coverage gate, and `coverage.json`, the floor of each assembly; `package-check.cs`, which checks a release's packages before they are pushed; `render-assets.sh`, which renders the PNGs in `docs/assets/` with Docker. |
@@ -44,13 +43,10 @@ Every project targets `net10.0` and builds strict: nullable analysis, warnings a
 `latest-recommended` and the `.editorconfig` style enforced in the build. Code follows `.editorconfig`, and nothing
 reformats a file it does not otherwise change.
 
-Each package under `src/` declares its public API in `PublicAPI.Shipped.txt` and `PublicAPI.Unshipped.txt`
-(Microsoft.CodeAnalysis.PublicApiAnalyzers). A change to the public API updates `PublicAPI.Unshipped.txt` in the same
-change, or the build fails (RS0016 for a member missing from the files, RS0017 for a line with no member left; the code
-fix, or `dotnet format analyzers <project> --diagnostics RS0016`, writes the lines, and a shipped member that goes is
-written `*REMOVED*` followed by its line). When a release ships, starting with 2027.0.0, the lines of
-`PublicAPI.Unshipped.txt` move to `PublicAPI.Shipped.txt`, so the next change shows what it adds or removes against what
-consumers have.
+Package validation (`EnablePackageValidation`, in `src/Directory.Build.props`) runs on every pack. Until 2027.0.0 is
+on nuget.org it checks each package's own consistency; then its baseline compares every later package with that
+release, and a breaking change to the public API fails the pack ([docs/releasing.md](docs/releasing.md), "Afterwards:
+turn on the package validation baseline").
 
 ## Build and test
 
@@ -90,16 +86,16 @@ Run everything from the repo root, with a .NET 10 SDK (`global.json`).
 
 ### Tests
 
-`ProviderConformanceTests` (tests/WriteableFileProviders.Testing) is the contract: one test per rule of "The behaviour
-contract" in the modernization plan. A provider's test project derives a `[TestClass]` from it, says how to build the
+`ProviderConformanceTests` (tests/WriteableFileProviders.Testing) is the contract, one test per rule, so a member means
+the same thing on every provider. A provider's test project derives a `[TestClass]` from it, says how to build the
 provider and what the store can do (real folders, case, signed URLs, the large-file size, the emulator bugs it must step
 around), and so runs every rule. Where the fixture can reach the store past the provider, it also stores files under
 names the provider refuses (`StoreRawFileAsync`), so the suite checks that listings leave them out and everything listed
-reads back (D27). Every fixture builds a provider at a root with a dot segment and expects `ArgumentException`, except
-where the root is a folder of the disk (`ChecksItsRoot`, false for Physical). The error contract's cases (D29) run on
-a provider whose store throws whatever it is given (`CreateProviderThatFails`): the in-memory fixtures and every
-emulator or offline provider fixture wire it, through a seam of their SDK; a fixture without it (Physical's, the live
-suites) reports those cases inconclusive.
+reads back. Every fixture builds a provider at a root with a dot segment and expects `ArgumentException`, except where
+the root is a folder of the disk (`ChecksItsRoot`, false for Physical). The cases of the error contract
+([docs/guide/errors.md](docs/guide/errors.md)) run on a provider whose store throws whatever it is given
+(`CreateProviderThatFails`): the in-memory fixtures and every emulator or offline provider fixture wire it, through a
+seam of their SDK; a fixture without it (Physical's, the live suites) reports those cases inconclusive.
 `InMemoryFileProvider`, the reference provider, passes it in `WriteableFileProviders.Common.Tests`.
 
 Each package has a test project of its own, `tests/WriteableFileProviders.<Package>.Tests`:
@@ -173,7 +169,7 @@ to the file `WFP_BOX_CONFIG_FILE` names, and leaves Physical's out.
 
 A change to a provider runs that provider's emulator suite, or its live suite where there is no emulator (Box,
 SharePoint), and its PR says which ran, or that it did not run and why. The offline suites of Box and SharePoint run on
-top, on every change: a fake is no emulator, so it does not stand in for the live suite (D21).
+top, on every change: a fake is no emulator, so it does not stand in for the live suite.
 
 ## How a change lands
 
@@ -198,6 +194,8 @@ While you build:
   the AWS, Google, Box and MinIO SDKs (both in `.mcp.json`). SDKs move faster than any model's memory.
 - A question about a symbol (callers, implementations, unused code) goes to the C# language server first; grep is for
   text in config, docs and strings.
+- Code, tests, build files and docs explain themselves: no plan or review ids (`D29`, `F5`, `P40`…) outside
+  `docs/plans/` and `docs/reviews/`; a comment says the reason itself.
 
 ## Commits and PRs
 
@@ -228,7 +226,7 @@ feature or a new target framework in a minor; a fix in a patch.
   names of its options class, from configuration or JSON (System.Text.Json since 2027.0.0). Consumers keep that in
   configuration files and databases, so renaming a provider class, an options property or the `Type` key breaks what
   they stored. Every later reader reads what an earlier version wrote (the goldens pin it), except a root with a dot
-  segment, refused since 2027.0.0 because it reached outside the root (final review F1, agreed on
+  segment, refused since 2027.0.0 because it reached outside the root (the maintainers agreed on
   [#3](https://github.com/serionist/WriteableFileProviders/issues/3#issuecomment-6108746458)); the reverse is not promised.
 - **The gateway's URLs:** the token format `{access}.{provider key}.{payload}`, its Data Protection purpose chain
   (`WriteableFileProviders.Gateway.v1`, the provider key, the access) and the URL shape `{BasePath}/{token}/{fileName?}`.

@@ -40,7 +40,8 @@ public class PhysicalFileProviderOptions : FileProviderOptions
         return path.StartsWith('/') ? [FileSystemRoot, .. parts] : parts;
     }
 
-    // The real path the segments stand for, with this system's separator; 2026 left the "root:" marker in it (F79).
+    // The real path the segments stand for, with this system's separator; 2026 left the "root:" marker in it on Linux
+    // and macOS.
     private static string ToPath(string[] segments)
     {
         var separator = Path.DirectorySeparatorChar.ToString();

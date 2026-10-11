@@ -2,7 +2,7 @@
 #:property PublishAot=false
 // The package check: dotnet run eng/package-check.cs -- <folder with the packed packages> <version>
 //
-// Every package releases together, at one version (D2). release.yml runs this on what it packed before anything is
+// Every package releases together, at one version. release.yml runs this on what it packed before anything is
 // pushed: a .nupkg and a .snupkg for every project under src/, nothing else, each at <version> (the tag's version), and
 // every dependency of one of our packages on another exactly [<version>, <next major>.0.0-0)
 // (src/Directory.Build.targets), so a provider never pulls in another release's Common, and a consumer who mixes

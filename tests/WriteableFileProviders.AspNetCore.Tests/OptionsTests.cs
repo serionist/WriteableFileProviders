@@ -9,7 +9,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace WriteableFileProviders.AspNetCore.Tests;
 
-/// <summary>The gateway's defaults (D22) and the validation of its options.</summary>
+/// <summary>The gateway's defaults, which fail closed, and the validation of its options.</summary>
 [TestClass]
 public sealed class OptionsTests
 {

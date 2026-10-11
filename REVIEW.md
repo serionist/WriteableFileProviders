@@ -25,7 +25,8 @@ acceptable.
 6. **Docs.** Did the docs that describe the change move with it: the XML docs of public members, the package README,
    the guide page that explains the behaviour (`docs/guide/`), a line in `CHANGELOG.md` when consumers notice it, the
    migration guide for a break, `AGENTS.md` when a path, a command or a rule changed, the plan when the change departs
-   from it?
+   from it? Do code, tests, build files and docs explain themselves, with no plan or review ids (`D29`, `F5`, `P40`…)
+   outside `docs/plans/` and `docs/reviews/`, each comment saying the reason itself?
 7. **Dependencies.** Is each new or bumped package needed, free of known advisories (the build's NuGet audit), and
    under a licence that lets consumers redistribute it?
 8. **The PR.** Does the title read as a plain imperative sentence (it becomes the commit on `main`), does the

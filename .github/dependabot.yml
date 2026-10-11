@@ -27,7 +27,7 @@ updates:
     open-pull-requests-limit: 10
     # A group takes the packages it matches, in this order; the first match wins. The provider SDKs group minor and
     # patch updates only: a major comes on its own PR, because SDK types in public signatures make an SDK major a
-    # WriteableFileProviders major (D17).
+    # WriteableFileProviders major.
     groups:
       azure:
         patterns: ["Azure.*"]
@@ -90,6 +90,6 @@ updates:
       default-days: 7
     open-pull-requests-limit: 2
     ignore:
-      # The SDK major moves with the target framework (D2), by a maintainer.
+      # The SDK's major moves with the target framework, so a maintainer moves it by hand.
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]

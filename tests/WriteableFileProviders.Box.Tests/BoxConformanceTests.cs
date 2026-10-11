@@ -38,7 +38,7 @@ public sealed class BoxConformanceTests : ProviderConformanceTests
 }
 
 /// <summary>
-/// The conformance suite against the in-memory Box, with the provider built over a ready Box client (D17) and the
+/// The conformance suite against the in-memory Box, with the provider built over a ready Box client and the
 /// <c>If-Match</c> header sent, so preconditions and appends are atomic: what the provider becomes once a live run
 /// confirms the quoted ETag.
 /// </summary>

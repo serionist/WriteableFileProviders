@@ -10,7 +10,8 @@ namespace WriteableFileProviders.AzureBlob.Tests;
 
 /// <summary>
 /// Signed URLs offline, against a handler that plays the blob service: the SAS a shared key signs, the user delegation
-/// SAS a token credential signs, and the rules on their lifetimes (F11, F40, D18, D24).
+/// SAS a token credential signs, and the rules on their lifetimes: never longer than asked, starting 15 minutes back
+/// for clock skew, and NotSupportedException where a URL cannot live as asked.
 /// </summary>
 [TestClass]
 public sealed class SignedUrlTests
@@ -56,7 +57,7 @@ public sealed class SignedUrlTests
         Assert.AreEqual("r", query["sp"]);
         Assert.AreEqual("b", query["sr"]);
         Assert.AreEqual("https", query["spr"]);
-        Assert.AreEqual(_now.AddMinutes(-15), Time(query["st"]), "F40: 15 minutes in the past");
+        Assert.AreEqual(_now.AddMinutes(-15), Time(query["st"]), "15 minutes in the past, for clock skew");
         Assert.AreEqual(_now.AddHours(2), Time(query["se"]), "Never longer than asked");
         Assert.IsNotNull(query["sig"]);
         Assert.IsNull(query["skoid"], "A service SAS, not a user delegation SAS");
@@ -173,7 +174,8 @@ public sealed class SignedUrlTests
         await provider.GetSignedUrlAsync("b.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(30), Access = SignedUrlAccess.Write });
         Assert.AreEqual(1, handler.Requests.Count(StubHandler.IsDelegationKeyRequest));
 
-        // Azure's keys end within 7 days: the provider asks for 7 days less 5 minutes, and a 7-day URL would outlive it (D18).
+        // Azure's keys end within 7 days: the provider asks for 7 days less 5 minutes, and a 7-day URL would outlive
+        // it.
         var week = new SignedUrlOptions { Validity = TimeSpan.FromDays(7) };
         await Assert.ThrowsExactlyAsync<NotSupportedException>(() => provider.GetSignedUrlAsync("c.txt", week));
         Assert.AreEqual(2, handler.Requests.Count(StubHandler.IsDelegationKeyRequest), "A longer URL needs a longer key");

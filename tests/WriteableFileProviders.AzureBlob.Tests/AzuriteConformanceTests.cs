@@ -42,7 +42,7 @@ public sealed class AzuriteConformanceTests : ProviderConformanceTests
 }
 
 /// <summary>
-/// The conformance suite again, on a provider built over a container client (D17) whose pipeline refuses what Azure
+/// The conformance suite again, on a provider built over a container client whose pipeline refuses what Azure
 /// refuses and Azurite allows (<see cref="AzureHandler"/>), with Azure's block limit lowered to 6: large writes size
 /// their blocks to fit, and appends past the limit restage the file's content on the server first.
 /// </summary>

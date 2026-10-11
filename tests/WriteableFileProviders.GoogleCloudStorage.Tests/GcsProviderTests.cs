@@ -67,7 +67,7 @@ public sealed class GcsProviderTests
         }
     }
 
-    // ----- The missing bucket (P18) -----
+    // ----- The missing bucket -----
 
     [TestMethod]
     public async Task MissingBucket_EveryMemberThrowsInvalidOperationNamingIt()
@@ -218,7 +218,7 @@ public sealed class GcsProviderTests
     {
         var http = new FaultInjection();
         var provider = Provider(http);
-        Assert.AreEqual(0, http.Requests.Count, "The constructor sends nothing (F13)");
+        Assert.AreEqual(0, http.Requests.Count, "The constructor sends nothing");
         await provider.UpdateFileAsync("f.txt", TestStreams.Text("0123456789"));
         http.Requests.Clear();
         Assert.AreEqual("345", await ReadAll(await provider.ReadRangeAsync("f.txt", 3, 3)));
@@ -262,7 +262,7 @@ public sealed class GcsProviderTests
     public async Task Requests_CarryTheGenerationPreconditions()
     {
         // The emulator ignores most of these conditions, so the tests that pass on it would pass without them: the
-        // requests themselves show they are sent (F1 of #27's review).
+        // requests themselves show they are sent.
         var http = new FaultInjection();
         var provider = Provider(http);
         await provider.UpdateFileAsync("a.txt", TestStreams.Text("a"));

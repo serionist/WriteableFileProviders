@@ -100,7 +100,7 @@ public sealed class PhysicalProviderTests
     [TestMethod]
     public async Task Write_WhileTheFileIsReadKeepsWhatTheReaderOpened()
     {
-        // P20: readers share the file with writers and deleters. Linux and macOS rename over it, and the reader keeps the
+        // Readers share the file with writers and deleters. Linux and macOS rename over it, and the reader keeps the
         // old content; Windows refuses to rename over an open file, and the write fails with the file unchanged.
         await Write("f.txt", "old content");
         await using (var reader = await _provider.ReadFileAsync("f.txt"))
@@ -177,7 +177,7 @@ public sealed class PhysicalProviderTests
         Assert.AreEqual(mode, File.GetUnixFileMode(Disk("f.txt")));
         Assert.AreEqual("two+three", await Read("f.txt"));
 
-        // A private file's new content is never readable by others, not even while it is written (P28).
+        // A private file's new content is never readable by others, not even while it is written.
         const UnixFileMode secret = UnixFileMode.UserRead | UnixFileMode.UserWrite;
         File.SetUnixFileMode(Disk("f.txt"), secret);
         var during = UnixFileMode.None;
@@ -720,7 +720,7 @@ public sealed class PhysicalProviderTests
     [TestMethod]
     public async Task Append_FailsWhenTheFileChangesWhileItCopies()
     {
-        // D19 on Physical: the check before the rename catches a change made while the append reads, but is not atomic.
+        // On Physical, the check before the rename catches a change made while the append reads, but is not atomic.
         await Write("f.txt", "start");
         var contents = new InterceptingStream(Encoding.UTF8.GetBytes("+mine"), () => File.WriteAllText(Disk("f.txt"), "theirs"));
         await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => _provider.UpdateFileAsync("f.txt", contents, UpdateFileOptions.Append));

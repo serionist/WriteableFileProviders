@@ -71,7 +71,7 @@ public sealed class AmazonS3OptionsTests
     [TestMethod]
     public void NewOptions_AreWrittenOnlyWhenSet()
     {
-        // D26: a configuration that uses none of the 2027 options keeps its 2026 shape.
+        // A configuration that uses none of the 2027 options keeps its 2026 shape.
         string[] added = ["ServiceUrl", "ForcePathStyle", "UseDefaultCredentials", "CreateBucketIfMissing", "AllowInsecureHttp"];
         using (var plain = new WriteableAmazonS3FileProvider(Valid()))
         {
@@ -164,6 +164,6 @@ public sealed class AmazonS3OptionsTests
 
     [TestMethod]
     public void Provider_IsSealed() =>
-        // D25: a custom provider derives from WriteableFileProvider<TOptions>, not from a provider.
+        // A custom provider derives from WriteableFileProvider<TOptions>, not from a provider.
         Assert.IsTrue(typeof(WriteableAmazonS3FileProvider).IsSealed);
 }

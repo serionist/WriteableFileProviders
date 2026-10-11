@@ -63,7 +63,7 @@ public sealed class AmazonS3EmulatorTests
     [TestMethod]
     public async Task StorageClass_StoredFromTheSerializedOptions()
     {
-        // The object form 2026 wrote ({"Value":...}, F78) and the string configuration gives both reach the store.
+        // The object form 2026 wrote ({"Value":...}) and the string configuration gives both reach the store.
         var root = "sc-" + Guid.NewGuid().ToString("N")[..8];
         var json = new JsonObject
         {

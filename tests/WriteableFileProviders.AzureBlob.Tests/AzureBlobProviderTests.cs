@@ -325,7 +325,7 @@ public sealed partial class AzureBlobProviderTests
         Assert.AreEqual("theirs;", await ReadRaw("f.txt"));
     }
 
-    // ----- Append blobs from 2026.10.10.x (P30) -----
+    // ----- Append blobs from 2026.10.10.x -----
 
     [TestMethod]
     public async Task LegacyAppendBlob_IsReadable()
@@ -711,7 +711,7 @@ public sealed partial class AzureBlobProviderTests
         return response;
     }
 
-    // ----- Missing container (P18, F44) -----
+    // ----- Missing container -----
 
     [TestMethod]
     public async Task MissingContainer_ReadsNeverCreateIt()

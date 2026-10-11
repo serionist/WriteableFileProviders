@@ -384,8 +384,8 @@ internal sealed class GraphFake
             ("GET", []) => target is null ? NotFound() : Json(HttpStatusCode.OK, Select(ItemJson(target), request)),
             ("DELETE", []) => Delete(request, target),
             ("PATCH", []) => Patch(request, target, body),
-            // The children of a file: assumed to be an empty list; Graph does not document it (the maintainers' live
-            // checklist). The provider reads either answer as "not a folder".
+            // The children of a file: assumed to be an empty list, which Graph does not document. The provider reads
+            // either answer as "not a folder".
             ("GET", ["children"]) => target is { IsFolder: true } ? Children(request, target) : target is null ? NotFound() : Json(HttpStatusCode.OK, new JsonObject { ["value"] = new JsonArray() }),
             ("POST", ["children"]) => target is { IsFolder: true } ? CreateFolder(request, target, body) : NotFound(),
             ("PUT", ["content"]) => PutContent(request, parent, name, target, body),
@@ -432,7 +432,7 @@ internal sealed class GraphFake
         if (parent is not { IsFolder: true })
             return NotFound();
         // If-Match on a simple upload: assumed to be enforced as on createUploadSession, PATCH and DELETE; Graph does not
-        // document it (the maintainers' live checklist).
+        // document it: SharePointLiveChecks asks the real service.
         if (Precondition(request, target) is { } failed)
             return failed;
         var behavior = request.Query.GetValueOrDefault("@microsoft.graph.conflictBehavior") ?? "replace";

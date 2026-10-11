@@ -58,8 +58,8 @@ public sealed class BoxLiveAtomicTests : ProviderConformanceTests
 }
 
 /// <summary>
-/// What the offline fake assumes and only Box can confirm (the live checklist of the Box notes), checked through the SDK
-/// directly so a failure names the assumption.
+/// What the offline fake assumes and only Box can confirm, checked through the SDK directly so a failure names the
+/// assumption.
 /// </summary>
 [TestClass]
 [TestCategory("Live")]

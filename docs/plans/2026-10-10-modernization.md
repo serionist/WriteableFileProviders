@@ -2520,7 +2520,7 @@ merged, the repository's settings, the live runs, and the release. Kept current 
 **Environments** (a workflow that names an environment creates it unprotected on its first run, so protect each one
 before it holds a secret or nuget.org trusts it):
 
-- [ ] Configure the release ([docs/releasing.md](../releasing.md), "Once: set it up", has each step), in this
+- [x] Configure the release ([docs/releasing.md](../releasing.md), "Once: set it up", has each step), in this
   order, before the first tag:
   1. Reserve the `WriteableFileProviders.` id prefix on nuget.org: an email from the owning account, `serionist`, to
      `account@nuget.org`, naming the prefix `WriteableFileProviders.*`.
@@ -2534,6 +2534,8 @@ before it holds a secret or nuget.org trusts it):
   5. On nuget.org, as `serionist`, a trusted publishing policy owned by `serionist`: repository owner `serionist`,
      repository `WriteableFileProviders`, workflow `release.yml`, environment `nuget`, with the scopes for new
      packages and new versions on the glob `WriteableFileProviders.*` (`WriteableFileProviders.AspNetCore` is a new id).
+  Done 2026-10-11: the maintainer set up nuget.org (prefix, trusted publishing); the GitHub side was set
+  through the API.
 - [ ] Create the `live-cloud` environment for `live.yml`, protected first: deployment branches `main` only, and no
   required reviewers (the nightly run would wait). Then one secret per `WFP_*` variable the workflow maps, for
   accounts you own and keep for it: Box's app configuration JSON as the one secret `WFP_BOX_CONFIG_JSON`; Google Cloud

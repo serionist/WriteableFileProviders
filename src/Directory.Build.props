@@ -28,7 +28,7 @@
     <MinVerDefaultPreReleaseIdentifiers>alpha.0</MinVerDefaultPreReleaseIdentifiers>
     <!-- Package validation runs on every pack. With one target framework and no baseline it checks the package's own
          consistency; once 2027.0.0 ships, PackageValidationBaselineVersion set to it also checks every later package
-         against what consumers have (docs/releasing.md, "Afterwards: turn on the package validation baseline"). -->
+         against what consumers have (docs/releasing.md, "After a major release"). -->
     <EnablePackageValidation>true</EnablePackageValidation>
   </PropertyGroup>
 

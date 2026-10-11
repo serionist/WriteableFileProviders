@@ -180,6 +180,8 @@ are validated by the server (`RejectAndThrow`) by default.
 New: `ETag` is the object's generation, and `IfMatch` and `IfNotExists` are atomic; `ContentType` is stored
 (`application/octet-stream` when a write gives none, as in 2026; an append or a local stream keeps the file's) and
 reported. Listings leave out objects whose names no path can address, such as `a//b`. A copy or move is not retried by
-the SDK, so a transient failure reaches you instead of being mistaken for a taken destination. The new options,
-`Endpoint`, `AllowInsecureHttp` and `CreateBucketIfMissing`, are written to JSON only when set (D26), so a configuration
-that uses none of them keeps its 2026 shape.
+the SDK: when one fails with a server error or a timeout, the copy may still have landed, so check the destination
+before you try again. `GetFileInfoAsync` of a path that is not a file now lists objects to tell a folder, so a
+credential needs `storage.objects.list` for it, as for listings, copies and appends to a new file (it gets a 403
+otherwise). The new options, `Endpoint`, `AllowInsecureHttp` and `CreateBucketIfMissing`, are written to JSON only when
+set (D26), so a configuration that uses none of them keeps its 2026 shape.

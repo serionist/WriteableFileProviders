@@ -103,14 +103,20 @@ fake-gcs-server, any service account key works: the client signs its own tokens 
 - **Reads** stream the object as it downloads, with the client's customer-supplied encryption key if it has one.
   `ReadRangeAsync` and `OpenReadSeekableAsync` download only the bytes asked for, pinned to the generation they started
   from. The download is not checked against the object's hash; TLS protects it in transit.
-- **Move and copy** copy on the server, only if the destination does not exist (`FileExistsException` otherwise). The
-  copy is never retried: a retry after a lost answer could take its own copy for a taken destination, so a failure the
-  SDK would have retried reaches you instead. A move then deletes exactly the generation it copied; if the source was
-  written in between, the newer content stays, the copy is removed, and the move throws `PreconditionFailedException`.
+- **Move and copy** copy on the server, only if the destination does not exist (`FileExistsException` otherwise). A
+  move then deletes exactly the generation it copied; if the source was written in between, the newer content stays, the
+  copy is removed, and the move throws `PreconditionFailedException`. The copy is never retried, because a retry after a
+  lost answer would find its own copy and report the destination as taken. So when a copy or a move fails with a server
+  error or a timeout, the copy may still have landed: check the destination before you try again (after a move, the
+  source is still there).
 - **Missing bucket:** every member that reaches the bucket throws `InvalidOperationException` naming it, unless
   `CreateBucketIfMissing` is set. Create and write signed URLs are signed without asking the bucket, so with a missing
-  bucket they are issued, and fail only when used. A credential that may read objects but not list them cannot tell a
-  missing bucket from a missing file, and gets `FileNotFoundException`.
+  bucket they are issued, and fail only when used.
+- **Permissions:** the provider needs `storage.objects.list` besides reading and writing objects (the
+  `roles/storage.objectViewer` and `roles/storage.objectAdmin` roles have it). A credential without it gets a 403
+  `GoogleApiException` from `GetFileInfoAsync` of a path that is not a file, listings, copies and moves to a new name,
+  appends to a new file and folder deletes. Only a read of a missing file still answers `FileNotFoundException` under
+  such a credential, since the provider cannot then tell a missing bucket.
 
 ## Signed URLs
 

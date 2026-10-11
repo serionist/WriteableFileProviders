@@ -90,7 +90,7 @@ public sealed class GoogleCloudStorageFileProviderOptions : FileProviderOptions
     /// allowed only toward a loopback host (<c>localhost</c>, <c>127.0.0.1</c>, <c>::1</c>), or with
     /// <see cref="AllowInsecureHttp"/>. New in 2027.0.0.
     /// </summary>
-    /// <remarks>Written to JSON only when set (D26), so a configuration that does not use it keeps the 2026 shape.</remarks>
+    /// <remarks>Written to JSON only when set, so a configuration that does not use it keeps the 2026 shape.</remarks>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public string? Endpoint { get; set; }
 
@@ -99,7 +99,7 @@ public sealed class GoogleCloudStorageFileProviderOptions : FileProviderOptions
     /// another machine of a private network: the credentials' tokens then travel in clear text. Off by default, so such
     /// an endpoint throws <see cref="ArgumentException"/> when the provider is built. New in 2027.0.0.
     /// </summary>
-    /// <remarks>Written to JSON only when set (D26), so a configuration that does not use it keeps the 2026 shape.</remarks>
+    /// <remarks>Written to JSON only when set, so a configuration that does not use it keeps the 2026 shape.</remarks>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool AllowInsecureHttp { get; set; }
 
@@ -110,7 +110,7 @@ public sealed class GoogleCloudStorageFileProviderOptions : FileProviderOptions
     /// bucket gets Cloud Storage's defaults: the <c>US</c> multi-region, the Standard storage class, and the project's
     /// default access settings; create it yourself for anything else. New in 2027.0.0.
     /// </summary>
-    /// <remarks>Written to JSON only when set (D26), so a configuration that does not use it keeps the 2026 shape.</remarks>
+    /// <remarks>Written to JSON only when set, so a configuration that does not use it keeps the 2026 shape.</remarks>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool CreateBucketIfMissing { get; set; }
 }

@@ -30,9 +30,10 @@ namespace WriteableFileProviders.GoogleCloudStorage;
 /// the generation they started from. The download is not checked against the object's hash.
 /// </description></item>
 /// <item><description>
-/// <b>Move and copy</b> copy on the server, only if the destination does not exist, without retrying (a retry could
-/// mistake the copy it made for a taken destination); a move then deletes exactly the generation it copied, and puts
-/// things back if the source was written meanwhile.
+/// <b>Move and copy</b> copy on the server, only if the destination does not exist; a move then deletes exactly the
+/// generation it copied, and puts things back if the source was written meanwhile. The copy is not retried: after one
+/// that fails with a server error or a timeout, the copy may still have landed, so check the destination before trying
+/// again.
 /// </description></item>
 /// <item><description>
 /// <b>Signed URLs</b> are V4 signed URLs, for read, create and write, valid from one second to seven days.
@@ -267,7 +268,9 @@ public sealed class WriteableGoogleCloudStorageFileProvider : WriteableFileProvi
 
     /// <summary>
     /// Copies on the server, only if the destination does not exist (<c>ifGenerationMatch=0</c>), so a destination
-    /// written after the base class checked it throws <see cref="FileExistsException"/> and is left unchanged.
+    /// written after the base class checked it throws <see cref="FileExistsException"/> and is left unchanged. The copy
+    /// is not retried: when it fails with a server error or a timeout, it may still have landed, so the destination may
+    /// already hold it.
     /// </summary>
     /// <param name="source">The file to copy.</param>
     /// <param name="destination">The new file.</param>
@@ -280,8 +283,10 @@ public sealed class WriteableGoogleCloudStorageFileProvider : WriteableFileProvi
 
     /// <summary>
     /// Moves by a server copy of the source's current generation, only if the destination does not exist, then deletes
-    /// exactly that generation of the source (D16, F38). If the source was written in between, the newer content stays,
-    /// the copy is removed, and the move throws <see cref="PreconditionFailedException"/>.
+    /// exactly that generation of the source. If the source was written in between, the newer content stays, the copy is
+    /// removed, and the move throws <see cref="PreconditionFailedException"/>. When the copy fails with a server error or
+    /// a timeout, it is not retried and may still have landed: the destination may then hold the copy while the source
+    /// is kept.
     /// </summary>
     /// <param name="source">The file to move.</param>
     /// <param name="destination">Where it goes.</param>
@@ -591,7 +596,7 @@ public sealed class WriteableGoogleCloudStorageFileProvider : WriteableFileProvi
     private async Task<StorageObject> CopyAsync(State state, ResolvedPath source, ResolvedPath destination, long? sourceGeneration, CancellationToken cancellationToken)
     {
         // Never retried: a retry after a lost answer would find the copy this call made and report the destination as
-        // taken. A failure the SDK would have retried reaches the caller instead.
+        // taken. A failure the SDK would have retried reaches the caller, whose copy may have landed.
         var options = new CopyObjectOptions
         {
             IfGenerationMatch = 0,

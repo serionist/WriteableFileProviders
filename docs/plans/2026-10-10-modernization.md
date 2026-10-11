@@ -974,6 +974,15 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     - F12: the README says a create or write signed URL is issued for a missing bucket and fails when used.
     - D25 and D26 (main session): the provider is `sealed`, and the 2027 options carry
       `[JsonIgnore(Condition = WhenWritingDefault)]`, so `ConfigurationShapeTests` is back to its exact golden check.
+  - **Review round 2 (PR #27):** F1–F12, D25 and D26 verified; 2 minors and 2 nits fixed, docs only:
+    - N1 (owner: document): a copy or move that fails with a server error or a timeout may have landed its copy; the
+      class docs, the README and the migration guide say to check the destination before retrying, and no longer claim
+      more.
+    - N2: the README's 403 sentence covers reads only, and a "Permissions" item says the provider needs
+      `storage.objects.list` (without it, `GetFileInfoAsync` of a non-file, listings, copies, appends to a new file and
+      folder deletes get a 403); the migration guide notes that `GetFileInfoAsync` now lists.
+    - N4: no plan ids in the public XML docs.
+    - Rebased onto S11 (bce935c): the plan's trackers carry both steps' notes.
 
 ### For the maintainers
 

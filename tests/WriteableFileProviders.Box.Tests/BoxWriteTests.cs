@@ -81,6 +81,22 @@ public sealed class BoxWriteTests
     }
 
     [TestMethod]
+    [DataRow("""{"type":"upload_session","part_size":1024}""")]
+    [DataRow("""{"id":"s1","type":"upload_session","part_size":0}""")]
+    [DataRow("""{"id":"s1","type":"upload_session","part_size":4294967296}""")]
+    public async Task UploadSession_WithoutAnIdOrAUsablePartSize_IsRefused(string session)
+    {
+        var box = new FakeBox();
+        box.Intercept = request => request.Method == HttpMethod.Post && request.RequestUri!.AbsolutePath == "/api/2.0/files/upload_sessions"
+            ? new HttpResponseMessage(HttpStatusCode.Created) { Content = new StringContent(session, Encoding.UTF8, "application/json") }
+            : null;
+        using var provider = BoxFixture.Tune(_credentials.Provider(box));
+
+        await Assert.ThrowsExactlyAsync<IOException>(() => provider.UpdateFileAsync("big.bin", new MemoryStream(TestStreams.Bytes(300_000))));
+        Assert.IsNull(box.IdOf("big.bin"));
+    }
+
+    [TestMethod]
     public async Task Chunked_CommitStillProcessing_IsAskedAgain()
     {
         var box = new FakeBox { CommitsNotReady = 3 };

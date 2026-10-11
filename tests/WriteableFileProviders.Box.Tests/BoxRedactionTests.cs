@@ -113,26 +113,117 @@ public sealed class BoxRedactionTests
     }
 
     [TestMethod]
-    public void Redact_KeepsTheAnswer_AndDropsTheRequestsCredentials()
+    public void Redact_KeepsTheAnswer_AndOnlyTheAllowListedParts()
     {
+        // As the SDK builds it: the query parameters are in the URL too.
         var original = new BoxApiException("{\"code\":\"bad_request\"}", DateTimeOffset.UtcNow,
-            new RequestInfo("POST", "https://api.box.test/oauth2/token",
-                new Dictionary<string, string> { ["fields"] = "id", ["access_token"] = "token-9" },
-                new Dictionary<string, string> { ["Authorization"] = "Bearer token-9", ["As-User"] = "7" }, "application/x-www-form-urlencoded")
+            new RequestInfo("GET", "https://user:pw@api.box.test/2.0/folders/0/items?fields=id&access_token=token-9&shared_link_password=hunter2#x",
+                new Dictionary<string, string> { ["fields"] = "id", ["access_token"] = "token-9", ["shared_link_password"] = "hunter2" },
+                new Dictionary<string, string>
+                {
+                    ["Authorization"] = "Bearer token-9",
+                    ["As-User"] = "7",
+                    ["If-Match"] = "\"3\"",
+                    ["BoxApi"] = "shared_link=s&shared_link_password=hunter2",
+                    ["Proxy-Authorization"] = "Basic hunter2",
+                    ["Cookie"] = "session=hunter2",
+                    ["X-Custom-Auth"] = "hunter2",
+                },
+                "application/json")
             {
                 Body = "client_secret=wrong-secret&assertion=x",
             },
-            new ResponseInfo(400, new Dictionary<string, string>(), JsonUtils.JsonToSerializedData("{\"code\":\"bad_request\"}"), "{\"code\":\"bad_request\"}", "bad_request", null, "r1", null));
+            new ResponseInfo(400, new Dictionary<string, string> { ["Retry-After"] = "1", ["Set-Cookie"] = "session=hunter2" },
+                JsonUtils.JsonToSerializedData("{\"code\":\"bad_request\"}"), "{\"code\":\"bad_request\"}", "bad_request", null, "r1", null));
 
         var redacted = RedactingNetworkClient.Redact(original);
 
         Assert.AreEqual(original.Message, redacted.Message);
-        Assert.AreSame(original.ResponseInfo, redacted.ResponseInfo);
-        Assert.AreEqual("POST", redacted.RequestInfo.Method);
-        Assert.AreEqual("https://api.box.test/oauth2/token", redacted.RequestInfo.Url);
+        Assert.AreEqual(400, redacted.ResponseInfo.StatusCode);
+        Assert.AreEqual("bad_request", redacted.ResponseInfo.Code);
+        Assert.AreEqual("r1", redacted.ResponseInfo.RequestId);
+        Assert.AreEqual("GET", redacted.RequestInfo.Method);
+        Assert.AreEqual("https://api.box.test/2.0/folders/0/items", redacted.RequestInfo.Url);
         CollectionAssert.AreEquivalent(new[] { "fields" }, redacted.RequestInfo.QueryParams.Keys.ToList());
-        CollectionAssert.AreEquivalent(new[] { "As-User" }, redacted.RequestInfo.Headers.Keys.ToList());
-        CredentialAssert.CarriesNone(redacted);
+        CollectionAssert.AreEquivalent(new[] { "As-User", "If-Match" }, redacted.RequestInfo.Headers.Keys.ToList());
+        CollectionAssert.AreEquivalent(new[] { "Retry-After" }, redacted.ResponseInfo.Headers.Keys.ToList());
+        CredentialAssert.CarriesNone(redacted, "hunter2", "shared_link", "user:pw");
+    }
+
+    [TestMethod]
+    public void Redact_KeepsAUrlThatIsNotAbsolute_WithoutItsQuery()
+    {
+        var original = new BoxApiException("", DateTimeOffset.UtcNow,
+            new RequestInfo("GET", "/2.0/files/1?access_token=token-9", null, new Dictionary<string, string>()),
+            new ResponseInfo(500, new Dictionary<string, string>(), JsonUtils.JsonToSerializedData("{}"), "", null, null, null, null));
+
+        Assert.AreEqual("/2.0/files/1", RedactingNetworkClient.Redact(original).RequestInfo.Url);
+    }
+
+    [TestMethod]
+    public void Redact_CopesWithAnErrorThatHoldsLittle()
+    {
+        var original = new BoxApiException("", DateTimeOffset.UtcNow,
+            new RequestInfo("GET", null, null, null!),
+            new ResponseInfo(502, null!, null!, null!, null, null, null, null));
+
+        var redacted = RedactingNetworkClient.Redact(original);
+
+        Assert.IsTrue(string.IsNullOrEmpty(redacted.RequestInfo.Url));
+        Assert.AreEqual(0, redacted.RequestInfo.Headers.Count);
+        Assert.AreEqual(0, redacted.ResponseInfo.Headers.Count);
+        Assert.AreEqual("", redacted.ResponseInfo.RawBody);
+        Assert.AreEqual(502, redacted.ResponseInfo.StatusCode);
+    }
+
+    [TestMethod]
+    public async Task ReadyClientsExtraHeaders_StayOutOfTheErrors()
+    {
+        var box = new FakeBox();
+        box.AddFile(FakeBox.RootId, "a.txt", "x");
+        var client = _credentials.Client(box).WithExtraHeaders(new Dictionary<string, string>
+        {
+            ["BoxApi"] = "shared_link=https://app.box.test/s/abc&shared_link_password=hunter2-secret",
+        });
+        using var provider = new WriteableBoxFileProvider(new BoxFileProviderOptions(), client) { PollDelay = TimeSpan.Zero };
+        Assert.IsTrue((await provider.GetFileInfoAsync("a.txt")).Exists);
+        Assert.IsTrue(box.Requests.Any(r => r.Header("BoxApi") is { } value && value.Contains("hunter2-secret", StringComparison.Ordinal)), "The header reaches Box");
+
+        box.Intercept = Fail(r => r.Method == HttpMethod.Put || r.RequestUri!.AbsolutePath.EndsWith("/items", StringComparison.Ordinal), HttpStatusCode.Conflict, "item_name_in_use");
+        CredentialAssert.CarriesNone(await Assert.ThrowsExactlyAsync<BoxApiException>(() => provider.GetFileInfoAsync("a.txt")), "hunter2-secret", "shared_link");
+        box.Intercept = Fail(r => r.Method == HttpMethod.Delete, HttpStatusCode.BadRequest, "bad_request");
+        CredentialAssert.CarriesNone(await Assert.ThrowsExactlyAsync<BoxApiException>(() => provider.DeleteAsync("a.txt")), "hunter2-secret", "shared_link");
+    }
+
+    [TestMethod]
+    public async Task ReadyClientsAsUserHeader_ReachesBox()
+    {
+        var box = new FakeBox();
+        box.AddFile(FakeBox.RootId, "a.txt", "x");
+        using var provider = new WriteableBoxFileProvider(new BoxFileProviderOptions(), _credentials.Client(box).WithAsUserHeader("7"));
+
+        Assert.IsTrue((await provider.GetFileInfoAsync("a.txt")).Exists);
+        await using (var stream = await provider.ReadFileAsync("a.txt"))
+            Assert.AreEqual("x", await new StreamReader(stream).ReadToEndAsync());
+
+        var api = box.Requests.Where(r => r.Uri.Host == "api.box.test" && r.Path != "/oauth2/token").ToList();
+        Assert.IsTrue(api.Count > 0);
+        Assert.IsTrue(api.All(r => r.Header("As-User") == "7"), "The copy keeps the session's headers, on the provider's own calls too");
+    }
+
+    [TestMethod]
+    public void CredentialAssert_WalksExceptionDataAndContextValues()
+    {
+        static BoxApiException Error(Dictionary<string, object>? context) =>
+            new("", DateTimeOffset.UtcNow, new RequestInfo("GET", "https://api.box.test/2.0/files/1", null, new Dictionary<string, string>()),
+                new ResponseInfo(409, new Dictionary<string, string>(), JsonUtils.JsonToSerializedData("{}"), "", "x", context, null, null));
+
+        CredentialAssert.CarriesNone(Error(null));
+        Assert.ThrowsExactly<AssertFailedException>(() =>
+            CredentialAssert.CarriesNone(Error(new Dictionary<string, object> { ["conflicts"] = System.Text.Json.JsonDocument.Parse("{\"x\":\"Bearer token-1\"}").RootElement })));
+        var wrapped = new IOException("wrapped", Error(null));
+        wrapped.Data["header"] = "Bearer token-1";
+        Assert.ThrowsExactly<AssertFailedException>(() => CredentialAssert.CarriesNone(wrapped));
     }
 
     [TestMethod]

@@ -4,19 +4,29 @@ namespace WriteableFileProviders.Box;
 
 /// <summary>
 /// The provider's network client: the session's own, with the request left out of its errors. The SDK's
-/// <see cref="BoxApiException"/> keeps the request it sent: its <c>Authorization</c> header (the access token) and its
-/// body (for a token request, the client secret and the signed assertion). This rethrows every one with the status,
-/// the code and the message, and the request without its body, without those headers and without such parameters.
-/// Retries and token refreshes happen inside the session's client, before an error comes out.
+/// <see cref="BoxApiException"/> keeps the request it sent: its <c>Authorization</c> header (the access token), any extra
+/// header a client was built with (a <c>BoxApi</c> shared-link password, a proxy's or a gateway's credentials), its query
+/// string and its body (for a token request, the client secret and the signed assertion). This rethrows every one with
+/// Box's status, code and message, and only what diagnoses the request: its method, its URL without the query, and the
+/// headers and parameters on short allow-lists. It fails closed: anything not on a list is left out, the response's
+/// headers too. Retries and token refreshes happen inside the session's client, before an error comes out.
 /// </summary>
 /// <param name="inner">The session's network client.</param>
 internal sealed class RedactingNetworkClient(INetworkClient inner) : INetworkClient
 {
-    // The SDK's DataSanitizer keys, and the JWT assertion of a token request.
-    private static readonly HashSet<string> _secrets = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly HashSet<string> _requestHeaders = new(StringComparer.OrdinalIgnoreCase)
     {
-        "authorization", "access_token", "refresh_token", "subject_token", "token", "client_id", "client_secret", "shared_link",
-        "download_url", "jwt_private_key", "jwt_private_key_passphrase", "password", "assertion",
+        "As-User", "If-Match", "Range", "Digest", "Content-MD5", "Content-Type",
+    };
+
+    private static readonly HashSet<string> _queryParameters = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "fields", "usemarker", "marker", "limit", "offset", "version", "recursive",
+    };
+
+    private static readonly HashSet<string> _responseHeaders = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Retry-After", "Content-Type", "Date", "Box-Request-Id",
     };
 
     public async Task<FetchResponse> FetchAsync(FetchOptions options)
@@ -31,15 +41,26 @@ internal sealed class RedactingNetworkClient(INetworkClient inner) : INetworkCli
         }
     }
 
-    /// <summary>The same error, with the request's body, credentials and secret parameters left out.</summary>
-    internal static BoxApiException Redact(BoxApiException e) =>
-        new(e.Message, e.Timestamp ?? DateTimeOffset.UtcNow,
-            new RequestInfo(e.RequestInfo.Method, e.RequestInfo.Url, Keep(e.RequestInfo.QueryParams), Keep(e.RequestInfo.Headers), e.RequestInfo.ContentType),
-            e.ResponseInfo)
+    /// <summary>The same error, with only the allow-listed parts of the request and of the response's headers.</summary>
+    internal static BoxApiException Redact(BoxApiException e)
+    {
+        var request = e.RequestInfo;
+        var response = e.ResponseInfo;
+        return new BoxApiException(e.Message, e.Timestamp ?? DateTimeOffset.UtcNow,
+            new RequestInfo(request.Method, WithoutQuery(request.Url), Keep(request.QueryParams, _queryParameters), Keep(request.Headers, _requestHeaders), request.ContentType),
+            new ResponseInfo(response.StatusCode, Keep(response.Headers, _responseHeaders), response.Body ?? JsonUtils.JsonToSerializedData("{}"),
+                response.RawBody ?? "", response.Code, response.ContextInfo, response.RequestId, response.HelpUrl))
         {
             DataSanitizer = e.DataSanitizer,
         };
+    }
 
-    private static Dictionary<string, string> Keep(IReadOnlyDictionary<string, string>? values) =>
-        values?.Where(p => !_secrets.Contains(p.Key)).ToDictionary(p => p.Key, p => p.Value) ?? [];
+    private static Dictionary<string, string> Keep(IReadOnlyDictionary<string, string>? values, HashSet<string> allowed) =>
+        values?.Where(p => allowed.Contains(p.Key)).ToDictionary(p => p.Key, p => p.Value) ?? [];
+
+    // The scheme, host, port and path: no user info, query or fragment.
+    private static string? WithoutQuery(string? url) =>
+        url is null ? null
+        : Uri.TryCreate(url, UriKind.Absolute, out var uri) ? uri.GetComponents(UriComponents.SchemeAndServer | UriComponents.Path, UriFormat.UriEscaped)
+        : url.Split('?', '#')[0];
 }

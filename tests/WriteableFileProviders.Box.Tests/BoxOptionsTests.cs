@@ -144,7 +144,7 @@ public sealed class BoxOptionsTests
     }
 
     [TestMethod]
-    public async Task ReadyClient_IsUsedAsItIs_AndOutlivesTheProvider()
+    public async Task ReadyClient_SignsInForTheProvider_AndOutlivesIt()
     {
         var box = new FakeBox();
         box.AddFile(FakeBox.RootId, "a.txt", "x");

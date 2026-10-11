@@ -14,8 +14,10 @@ namespace WriteableFileProviders.Box;
 /// <para>
 /// <b>Sign-in.</b> With the options alone, the provider signs in with the app's JWT credentials as its service account, on
 /// the first call that needs Box: the constructors do no network I/O. Box's tokens last an hour; the SDK fetches a new one
-/// when Box answers 401. With a ready Box client, the client's own authentication and network session are used, and the
-/// provider never disposes the client.
+/// when Box answers 401. With a ready client, the client's own authentication is used: a client that is exactly a
+/// <see cref="BoxClient"/> through a copy that shares its authentication and its session's settings, with the session's
+/// network client wrapped (see Errors); any other <see cref="IBoxClient"/> as it is. The provider never disposes a client
+/// it was given.
 /// </para>
 /// <para>
 /// <b>Paths.</b> Box has real folders, which exist while empty, and compares names without regard to case: a folder cannot
@@ -46,9 +48,14 @@ namespace WriteableFileProviders.Box;
 /// which is a credential.
 /// </para>
 /// <para>
-/// <b>Errors.</b> A <see cref="BoxApiException"/> the provider throws, or wraps in another exception, carries Box's
-/// status, code and message, and the request without its body, its <c>Authorization</c> header or other credentials: the
-/// SDK keeps them in its errors, and a token request's body holds the client secret.
+/// <b>Errors.</b> The SDK's <see cref="BoxApiException"/> keeps the request it sent: the access token, any extra header
+/// the client was built with, the query string and the body (a token request's holds the client secret). When the
+/// provider built its client, or was given exactly a <see cref="BoxClient"/>, every <see cref="BoxApiException"/> it
+/// throws or wraps keeps Box's status, code and message, and of the request only its method, its URL without the query,
+/// and the headers and parameters that diagnose it (<c>As-User</c>, <c>If-Match</c>, <c>Range</c>, the digests, the
+/// content type; the listing and version parameters). A provider given any other <see cref="IBoxClient"/>, a class
+/// derived from <see cref="BoxClient"/> included, uses that client as it is: its errors are the client's own, and may
+/// carry its credentials.
 /// </para>
 /// <para>
 /// <b>Waits.</b> Box can answer that a file just uploaded is not ready to download yet, or that a large upload is still
@@ -92,9 +99,11 @@ public sealed partial class WriteableBoxFileProvider : WriteableFileProvider<Box
     /// <summary>
     /// Creates a provider over a ready Box client, such as one built with another authentication, a proxy, custom retries
     /// or as-user headers. Only <see cref="BoxFileProviderOptions.RootFolderId"/> and the root folder are read from
-    /// <paramref name="options"/>. The provider never disposes the client: the caller owns it. A <see cref="BoxClient"/>
-    /// is used through a copy that shares its authentication and its session's settings, with the session's network
-    /// client wrapped so the errors carry no credentials; any other <see cref="IBoxClient"/> is used as it is.
+    /// <paramref name="options"/>. The provider never disposes the client: the caller owns it. A client that is exactly a
+    /// <see cref="BoxClient"/> is used through a copy that shares its authentication and its session's settings (base URLs,
+    /// extra and as-user headers, retries, proxy, timeouts), with the session's network client wrapped so the errors carry
+    /// no credentials. Any other <see cref="IBoxClient"/>, a class derived from <see cref="BoxClient"/> included, is used as
+    /// it is, and its errors are its own: they may carry its credentials.
     /// </summary>
     /// <param name="options">The root folder.</param>
     /// <param name="client">The Box client, such as a <see cref="BoxClient"/>.</param>
@@ -481,7 +490,7 @@ public sealed partial class WriteableBoxFileProvider : WriteableFileProvider<Box
     private async Task RenameThroughTemporaryNameAsync(string fileId, ResolvedPath source, ResolvedPath destination, string parentId, CancellationToken cancellationToken)
     {
         // Short whatever the file's name, so it never exceeds Box's 255 characters.
-        var temporary = $".wfp-{Guid.NewGuid():N}.tmp";
+        var temporary = $".wfp-rename-{Guid.NewGuid():N}.tmp";
         await RenameAsync(fileId, temporary, parentId, cancellationToken).ConfigureAwait(false);
         try
         {

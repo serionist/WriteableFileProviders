@@ -65,7 +65,7 @@ public sealed class CaseOnlyRenameTests
         store.FailRestore = true;
         var e = await Assert.ThrowsExactlyAsync<IOException>(() => store.MoveAsync("a.txt", "A.txt"));
         var temp = store.Keys.Single();
-        StringAssert.StartsWith(temp, ".wfp-");
+        StringAssert.StartsWith(temp, ".wfp-rename-");
         StringAssert.Contains(e.Message, temp);
         Assert.AreEqual("content", store.Text(temp));
     }

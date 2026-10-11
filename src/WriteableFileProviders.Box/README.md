@@ -30,9 +30,10 @@ so a wrong key or passphrase fails there). Box's access tokens last an hour; whe
 one and retries. A sign-in Box refuses throws the SDK's `BoxApiException`, without the token request it sent.
 
 To sign in another way (OAuth, a developer token, as-user calls), to use a proxy or custom retries, build the Box client
-yourself and pass it in. The provider never disposes it; it uses a `BoxClient` through a copy that shares its
-authentication and session settings, so its errors carry no credentials (see Errors), and any other `IBoxClient` as it
-is:
+yourself and pass it in. The provider never disposes it. A client that is exactly a `BoxClient` is used through a copy
+that shares its authentication and session settings (base URLs, extra and as-user headers, retries, proxy, timeouts),
+so its errors carry no credentials (see Errors). Any other `IBoxClient`, a class derived from `BoxClient` included, is
+used as it is: its errors are its own, and may carry its credentials. For example:
 
 ```csharp
 using Box.Sdk.Gen;
@@ -112,9 +113,14 @@ await files.MoveAsync("reports/2026.csv", "archive/2026.csv");         // one se
   they were pinned to, and throw `PreconditionFailedException` once the file has changed. A failed download throws
   `FileNotFoundException` or `IOException` with its HTTP status only: the download URL is a credential, so no error
   carries it.
-- **Errors:** the SDK's `BoxApiException` keeps the request it sent, with the access token in its `Authorization`
-  header and, for a token request, the client secret in its body. Every `BoxApiException` the provider throws, or wraps
-  in another exception, has them removed; Box's status, code and message stay.
+- **Errors:** the SDK's `BoxApiException` keeps the request it sent: the access token in its `Authorization` header,
+  any extra header the client was built with (such as a `BoxApi` shared-link password), the query string, and the body
+  (a token request's holds the client secret). When the provider built its client, or was given exactly a `BoxClient`,
+  every `BoxApiException` it throws or wraps keeps Box's status, code and message, and of the request only its method,
+  its URL without the query, and the headers and parameters that diagnose it (`As-User`, `If-Match`, `Range`, the
+  digests, the content type; the listing and version parameters). A provider given any other `IBoxClient`, a class
+  derived from `BoxClient` included, uses that client as it is: its errors are the client's own and may carry its
+  credentials.
 - **Move and copy** are single server-side calls; they refuse an existing destination with `FileExistsException`.
 - **Delete** moves the file or folder (recursively) to the Box trash, where Box keeps it until it is purged.
 - **Watch** is not supported.

@@ -157,7 +157,7 @@ public sealed class BoxMoveDeleteTests
         var e = await Assert.ThrowsExactlyAsync<IOException>(() => provider.MoveAsync("a.txt", "A.txt"));
 
         StringAssert.Contains(e.Message, box.NameOf(id));
-        StringAssert.StartsWith(box.NameOf(id), ".wfp-");
+        StringAssert.StartsWith(box.NameOf(id), ".wfp-rename-");
         Assert.IsInstanceOfType<AggregateException>(e.InnerException);
     }
 

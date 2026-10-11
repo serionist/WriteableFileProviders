@@ -520,7 +520,7 @@ Each step is an issue under #3, a branch `<issue>-<slug>`, and a PR that builds 
 | S7 AmazonS3 and MinIO | #11 | | `S3Core`, the S3 and MinIO rows, with S3Mock. | F1 F2 F4 F10 F11 F17–F21 F24 F28 F38 F41 F45 F51 F53 F65 F73 F74 | todo |
 | S8 GoogleCloudStorage | #12 | | The GCS row, with fake-gcs-server. | F4 F11 F13 F17–F21 F28 F38 F41 F44 F53 F56 F63 F74 F75 | built on `12-gcs`, in review |
 | S9 SharePoint | #13 | | The SharePoint row, with the Graph fake; its live run is outstanding for the maintainers (D21). | F4 F6 F7 F8 F11 F13 F17–F21 F26 F39 F43 F49 F53 F62 F66 F70 F74 F77 | in review (branch `13-sharepoint`; live suite not run) |
-| S10 Box | #14 | #25 | The Box row, with the Box fake; its live run is outstanding for the maintainers (D21). | F4 F6 F11 F13 F17–F21 F25 F32 F53 F63 F67 F74 F77, Box's part of F56 | built on `14-box`, review rounds 1 and 2 applied; live suite not run (D21) |
+| S10 Box | #14 | #25 | The Box row, with the Box fake; its live run is outstanding for the maintainers (D21). | F4 F6 F11 F13 F17–F21 F25 F32 F53 F63 F67 F74 F77, Box's part of F56 | built on `14-box`, review rounds 1 to 3 applied; live suite not run (D21) |
 | S11 AspNetCore gateway | #15 | | The new package, the URL service, endpoints, the gateway tests and defaults (D22, P13, P27); its README, migration entry and AGENTS.md entry; whether the token purpose string and URL shape are a one-way door (they are: tokens issued by one version must redeem on the next minor; recorded under One-way doors in AGENTS.md). | F11 | in review (branch `15-aspnetcore-gateway`) |
 | S12 Docs, CI, launch prep | #16 | | The root README, the migration guide's final pass, CONTRIBUTING, SECURITY, AGENTS.md and REVIEW.md, codeql, dependabot, `live.yml`, the release workflow, every floor at 90% or more, a check that no project sets `WfpLegacy`, the removal of the `[Obsolete]` 2026 helpers in Common (`GetRelativeSegments`, `IsRootPath`, `NormalizePem`, which Box and GCS take over), the PublicAPI files, and a final deep `review-code` of the whole repo. | F12 F76 | part 1 in review (#31, branch `16-repo-infra`: codeql, dependabot, `live.yml`, the release workflow, CONTRIBUTING, SECURITY, the issue forms); the rest todo |
 
@@ -1314,12 +1314,37 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     - N6: `ProviderConformanceTests.DetectsConcurrentAppends` now reads "false where the staged race cannot be detected"
       (shared test code).
     - **Common change**, asked by the main session: the base class's case-only rename goes through `.wfp-<guid>.tmp`
-      (41 characters) instead of `.<name>.wfp-<guid>.tmp`, so a long name on a store with a 255-character limit
+      (41 characters; `.wfp-rename-<guid>.tmp` since round 3) instead of `.<name>.wfp-<guid>.tmp`, so a long name on a store with a 255-character limit
       still renames; `CaseOnlyRenameTests.Rename_OfALongName_FitsTheStoresNameLimit` pins it (it fails with the old
       name).
     - Verified after rebasing onto S11 (`bce935c`): every non-Live test passes with `WFP_REQUIRE_DOCKER=1` (829, 30
       skipped, all the S3 suites without `AWS_ENDPOINT_URL_S3`); Box 99.66% lines, 90.38% branches (floor 98/89
       unchanged); the coverage gate passes. Without the redacting client, the 14 redaction tests fail.
+  - **Review round 3** (PR #25), N1–N6 verified; rebased onto S8 (`e1c4b52`), whose content-type rule
+    (`FileInfo_AppendAndLocalStreamKeepTheContentType`) returns early on Box, which keeps no content type:
+    - F1 (major, security): `RedactingNetworkClient` now fails closed. Of the request it keeps only the method, the URL
+      without its user info, query and fragment, and allow-listed headers (`As-User`, `If-Match`, `Range`, `Digest`,
+      `Content-MD5`, `Content-Type`) and query parameters (the listing, version and delete ones); of the response's
+      headers, `Retry-After`, `Content-Type`, `Date` and `Box-Request-Id`. A ready client's extra headers (a `BoxApi`
+      shared-link password, a proxy's or a cookie) and the query string no longer survive. Tests: the unit test's URL
+      carries a query and its headers carry `BoxApi`, `Proxy-Authorization`, `Cookie` and a custom header; a ready
+      client built `WithExtraHeaders` with a `BoxApi` password, whose errors carry neither anywhere; `CredentialAssert`
+      walks non-generic dictionaries (`Exception.Data`, `Dictionary<string, object>` context values) and every value's
+      text, and a test proves it catches both. With a deny-list and the query kept, three of them fail.
+    - F2: the class remarks, the D17 constructor's docs, the README and the migration guide say that only a provider
+      that built its client, or was given exactly a `BoxClient`, redacts; over any other `IBoxClient`, a class derived
+      from `BoxClient` included, the errors are the client's own and may carry its credentials.
+    - F3: a ready client built `.WithAsUserHeader("7")` sends `As-User: 7` on every API call of the provider, its own
+      download URL requests included.
+    - F4: `BoxOptionsTests.ReadyClient_SignsInForTheProvider_AndOutlivesIt`; the Sign-in remark describes the copy.
+    - F5: the base class's case-only rename (and Box's own) goes through `.wfp-rename-<guid>.tmp` (48 characters), apart
+      from Physical's write temp `.wfp-<guid>.tmp`, which Physical's listings hide; `CaseOnlyRenameTests` follows.
+      Physical's hiding rule must match only `.wfp-` followed by 32 hex digits and `.tmp` for the two to stay apart.
+    - Coverage: new tests for the redaction of an error that holds little, upload sessions without an id or a usable
+      part size, a `Retry-After` that is not a number, and a listing entry with no version; Box 99.67% lines, 93.98%
+      branches, floor 98/92.
+    - Verified after the rebase onto `e1c4b52`: every non-Live test passes with `WFP_REQUIRE_DOCKER=1` (1065, 30
+      skipped, all the S3 suites without `AWS_ENDPOINT_URL_S3`); the coverage gate passes.
 
 ### For the maintainers
 

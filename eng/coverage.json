@@ -2,7 +2,7 @@
   "WriteableFileProviders.AmazonS3": { "lines": 23, "branches": 13 },
   "WriteableFileProviders.AspNetCore": { "lines": 99, "branches": 97 },
   "WriteableFileProviders.AzureBlob": { "lines": 98, "branches": 90 },
-  "WriteableFileProviders.Box": { "lines": 98, "branches": 89 },
+  "WriteableFileProviders.Box": { "lines": 98, "branches": 92 },
   "WriteableFileProviders.Common": { "lines": 95, "branches": 90 },
   "WriteableFileProviders.GoogleCloudStorage": { "lines": 98, "branches": 94 },
   "WriteableFileProviders.Minio": { "lines": 93, "branches": 70 },

@@ -74,6 +74,39 @@ public sealed class BoxReadTests
             }
             : null;
         Assert.AreEqual($"{id}:3", (await provider.GetFileInfoAsync("a.txt")).ETag);
+
+        // An entry with nothing but its type, id and name has no version to tell: no ETag, length 0.
+        box.Intercept = request => request.RequestUri!.AbsolutePath.EndsWith("/items", StringComparison.Ordinal)
+            ? new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent($$"""{"limit":1000,"entries":[{"type":"file","id":"{{id}}","name":"a.txt"},{"type":"folder","id":"9"}]}""", Encoding.UTF8, "application/json"),
+            }
+            : null;
+        var bare = await provider.GetFileInfoAsync("a.txt");
+        Assert.IsNull(bare.ETag);
+        Assert.AreEqual(0, bare.Length);
+        Assert.AreEqual(DateTimeOffset.UnixEpoch, bare.LastModified);
+    }
+
+    [TestMethod]
+    public async Task Download_RetryAfterThatIsNotANumber_WaitsThePollDelay()
+    {
+        var box = new FakeBox();
+        var id = box.AddFile(FakeBox.RootId, "a.txt", "x");
+        var asked = 0;
+        box.Intercept = request =>
+        {
+            if (request.RequestUri!.AbsolutePath != $"/2.0/files/{id}/content" || asked++ > 0)
+                return null;
+            var accepted = new HttpResponseMessage(HttpStatusCode.Accepted) { Content = new ByteArrayContent([]) };
+            accepted.Headers.TryAddWithoutValidation("Retry-After", "soon");
+            return accepted;
+        };
+        using var provider = _credentials.Provider(box);
+
+        await using (var stream = await provider.ReadFileAsync("a.txt"))
+            Assert.AreEqual("x", await new StreamReader(stream).ReadToEndAsync());
+        Assert.AreEqual(2, asked);
     }
 
     [TestMethod]

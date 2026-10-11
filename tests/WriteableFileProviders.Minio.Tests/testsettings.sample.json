@@ -1,0 +1,8 @@
+{
+  "WFP_MINIO_ENDPOINT": "",
+  "WFP_MINIO_USE_SSL": "true",
+  "WFP_MINIO_ACCESS_KEY": "",
+  "WFP_MINIO_SECRET_KEY": "",
+  "WFP_MINIO_BUCKET": "",
+  "WFP_MINIO_REGION": ""
+}

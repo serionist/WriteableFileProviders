@@ -24,6 +24,8 @@
     <Project Path="tests/WriteableFileProviders.AzureBlob.Tests/WriteableFileProviders.AzureBlob.Tests.csproj" />
     <Project Path="tests/WriteableFileProviders.SharePoint.Tests/WriteableFileProviders.SharePoint.Tests.csproj" />
     <Project Path="tests/WriteableFileProviders.Box.Tests/WriteableFileProviders.Box.Tests.csproj" />
+    <Project Path="tests/WriteableFileProviders.AmazonS3.Tests/WriteableFileProviders.AmazonS3.Tests.csproj" />
+    <Project Path="tests/WriteableFileProviders.Minio.Tests/WriteableFileProviders.Minio.Tests.csproj" />
     <Project Path="tests/WriteableFileProviders.Tests/WriteableFileProviders.Tests.csproj" />
     <Project Path="tests/WriteableFileProviders.AspNetCore.Tests/WriteableFileProviders.AspNetCore.Tests.csproj" />
     <Project Path="tests/WriteableFileProviders.GoogleCloudStorage.Tests/WriteableFileProviders.GoogleCloudStorage.Tests.csproj" />

@@ -1,279 +1,203 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Net;
-using System.Net.Http;
-using System.Runtime.CompilerServices;
-using System.Threading;
-using System.Threading.Tasks;
-using Microsoft.Extensions.FileProviders;
-using Minio;
-using Minio.DataModel.Args;
-using Minio.Exceptions;
+using Amazon.Runtime;
+using Amazon.S3;
+using WriteableFileProviders.S3;
 
-namespace WriteableFileProviders.Minio
+namespace WriteableFileProviders.Minio;
+
+/// <summary>
+/// A writeable file provider over a MinIO bucket, on the AWS SDK for .NET v4 (the S3 protocol MinIO speaks). It shares
+/// its implementation with WriteableFileProviders.AmazonS3.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Folders are key prefixes: a folder exists while some key is under it. Names are case-sensitive. Files up to 8 MiB are
+/// written in one request, larger ones in a multipart upload; either way MinIO replaces a file only once the whole
+/// content arrived, so a failed write leaves the old content. <see cref="UpdateFileOptions.IfMatch"/> and
+/// <see cref="UpdateFileOptions.IfNotExists"/> are checked by the provider first, which is not atomic, and sent with the
+/// write, which MinIO releases with conditional writes then enforce; an append (a rewrite of the whole file) writes with
+/// <c>If-Match</c> on the version it read. A move or copy checks that the destination is free first, and a move checks
+/// the source's version before deleting it, undoing the copy when it changed; neither is atomic, as MinIO ignores
+/// <c>If-None-Match</c> on copies and <c>If-Match</c> on deletes.
+/// </para>
+/// <para>
+/// Nothing touches the network until the first call, which asks the server for the bucket's region (unless
+/// <see cref="MinioFileProviderOptions.Region"/> names it) and checks the bucket once. Presigned read, create and write
+/// URLs live at most 7 days.
+/// </para>
+/// </remarks>
+public sealed class WriteableMinioFileProvider : WriteableFileProvider<MinioFileProviderOptions>
 {
-    public class WriteableMinioFileProvider: WriteableFileProvider<MinioFileProviderOptions>
+    private readonly S3Core _core;
+
+    /// <summary>Creates the provider; it connects on first use.</summary>
+    /// <param name="options">The options.</param>
+    /// <exception cref="ArgumentException">
+    /// The options are incomplete, <see cref="MinioFileProviderOptions.HostAndPort"/> is not <c>host:port</c>, or plain
+    /// HTTP toward a host that is not loopback was not allowed (<see cref="MinioFileProviderOptions.AllowInsecureHttp"/>).
+    /// </exception>
+    public WriteableMinioFileProvider(MinioFileProviderOptions options)
+        : base(options) =>
+        _core = new S3Core(this, SettingsFor(Options, clientGiven: false), null, IsAddressable);
+
+    /// <summary>
+    /// Creates the provider over an S3 client the caller built and owns, such as an <see cref="AmazonS3Client"/> with a
+    /// <c>ServiceURL</c> and <c>ForcePathStyle</c>: it is never disposed by the provider. The options give the bucket,
+    /// the root and <see cref="MinioFileProviderOptions.CreateBucketIfMissing"/>; the server, keys and region are not
+    /// used. The provider cannot see when the client's credentials expire, so its presigned URLs need
+    /// <see cref="SignedUrlOptions.AllowShorterValidity"/>.
+    /// </summary>
+    /// <param name="options">The options.</param>
+    /// <param name="client">The client.</param>
+    /// <exception cref="ArgumentException">The options name no bucket.</exception>
+    public WriteableMinioFileProvider(MinioFileProviderOptions options, IAmazonS3 client)
+        : base(options)
     {
+        ArgumentNullException.ThrowIfNull(client);
+        _core = new S3Core(this, SettingsFor(Options, clientGiven: true), client, IsAddressable);
+    }
 
-        private WriteableFileInfo legacyInfo(bool exists, long length, string physicalPath, string name, DateTimeOffset lastModified, bool isDirectory, string[] relativeSegments) =>
-            new WriteableFileInfo(this, new ProviderPath(relativeSegments), exists, isDirectory, length, lastModified, physicalPath);
+    /// <summary>The shared S3 core, for tests that tune its part sizes.</summary>
+    internal S3Core Core => _core;
 
-        protected override Task<IWriteableFileInfo> GetFileInfoCoreAsync(ResolvedPath resolved, CancellationToken cancellationToken) =>
-            getFileInfoAsync(resolved.AbsoluteSegments);
+    /// <summary>
+    /// Always false: MinIO may ignore <c>If-Match</c> and <c>If-None-Match</c> (on copies and deletes it does), so the
+    /// provider checks conditions first, which is not atomic, and still sends them for MinIO to enforce where it can.
+    /// </summary>
+    protected override bool SupportsAtomicPreconditions => _core.ChecksAtomically;
 
-        protected override async IAsyncEnumerable<IWriteableFileInfo> EnumerateCoreAsync(ResolvedPath resolved, [EnumeratorCancellation] CancellationToken cancellationToken)
+    /// <inheritdoc />
+    protected override TimeSpan MaxSignedUrlValidity => S3Core.MaxPresignValidity;
+
+    /// <inheritdoc />
+    protected override Task<IWriteableFileInfo> GetFileInfoCoreAsync(ResolvedPath path, CancellationToken cancellationToken) =>
+        _core.GetFileInfoAsync(path, cancellationToken);
+
+    /// <inheritdoc />
+    protected override IAsyncEnumerable<IWriteableFileInfo> EnumerateCoreAsync(ResolvedPath path, CancellationToken cancellationToken) =>
+        _core.EnumerateAsync(path, cancellationToken);
+
+    /// <inheritdoc />
+    protected override IAsyncEnumerable<IWriteableFileInfo> EnumerateRecursiveCoreAsync(ResolvedPath path, CancellationToken cancellationToken) =>
+        _core.EnumerateRecursiveAsync(path, cancellationToken);
+
+    /// <inheritdoc />
+    protected override Task<Stream> ReadFileCoreAsync(ResolvedPath path, CancellationToken cancellationToken) =>
+        _core.ReadAsync(path, null, cancellationToken);
+
+    /// <inheritdoc />
+    protected override Task<Stream> ReadRangeCoreAsync(ResolvedPath path, long offset, long? length, string? ifMatch, CancellationToken cancellationToken) =>
+        _core.ReadRangeAsync(path, offset, length, ifMatch, cancellationToken);
+
+    /// <inheritdoc />
+    protected override async Task UpdateFileCoreAsync(ResolvedPath path, Stream contents, UpdateFileOptions options, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        if (options.Mode == UpdateFileMode.Append)
         {
-            foreach (var entry in await getDirectoryContentsAsync(resolved.AbsoluteSegments))
-                yield return (IWriteableFileInfo)entry;
+            // The base keeps the file's content type when the caller names none.
+            await AppendByRewriteAsync(path, contents, options, cancellationToken).ConfigureAwait(false);
+            return;
         }
+        await _core.WriteAsync(path, contents, options, cancellationToken).ConfigureAwait(false);
+    }
 
-        protected override Task<Stream> ReadFileCoreAsync(ResolvedPath resolved, CancellationToken cancellationToken) =>
-            readFileAsync(resolved.AbsoluteSegments);
+    /// <inheritdoc />
+    protected override Task<bool> DeleteCoreAsync(ResolvedPath path, CancellationToken cancellationToken) =>
+        _core.DeleteAsync(path, cancellationToken);
 
-        protected override Task UpdateFileCoreAsync(ResolvedPath resolved, Stream contents, UpdateFileOptions options, CancellationToken cancellationToken) =>
-            updateFileAsync(contents, options.Mode, resolved.AbsoluteSegments);
+    /// <inheritdoc />
+    protected override Task DeleteFileCoreAsync(ResolvedPath path, CancellationToken cancellationToken) =>
+        _core.DeleteFileAsync(path, cancellationToken);
 
-        protected override Task MoveCoreAsync(ResolvedPath source, ResolvedPath destination, CancellationToken cancellationToken) =>
-            move(source.AbsoluteSegments, destination.AbsoluteSegments);
+    /// <inheritdoc />
+    protected override Task CopyCoreAsync(ResolvedPath source, ResolvedPath destination, CancellationToken cancellationToken) =>
+        _core.CopyAsync(source, destination, cancellationToken);
 
-        protected override Task<bool> DeleteCoreAsync(ResolvedPath resolved, CancellationToken cancellationToken) =>
-            deleteAsync(resolved.AbsoluteSegments);
-        private const int DeleteBatchSize = 1000;
-        private const string RootModificationMessage = "The provider root cannot be deleted or modified.";
-        // Shared by all instances. Attached after Build(), which changes the client's timeout and headers.
-        private static readonly HttpClient SharedHttpClient =
-            new HttpClient(new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(5) }) { Timeout = TimeSpan.FromMinutes(30) };
-        private readonly DateTime DefaultDateTime = new DateTime(1970, 1, 1, 0, 0, 0);
-        private volatile bool bucketReady;
-        private IMinioClient Client { get; }
-        public WriteableMinioFileProvider(MinioFileProviderOptions options) : base(options)
+    /// <summary>
+    /// Copies the file, then deletes the source with <c>If-Match</c> on the version copied. A source deleted meanwhile
+    /// completes the move; a source changed meanwhile removes the copy (only while it is still the copy) and throws
+    /// <see cref="PreconditionFailedException"/>.
+    /// </summary>
+    protected override Task MoveCoreAsync(ResolvedPath source, ResolvedPath destination, CancellationToken cancellationToken) =>
+        _core.MoveAsync(source, destination, cancellationToken);
+
+    /// <inheritdoc />
+    protected override bool SupportsSignedUrl(SignedUrlAccess permission) => _core.CanPresign;
+
+    /// <inheritdoc />
+    protected override bool SupportsSignedUrlContentHeaders(SignedUrlAccess permission) => true;
+
+    /// <inheritdoc />
+    protected override Task<SignedUrl> GetSignedUrlCoreAsync(ResolvedPath path, SignedUrlOptions options, CancellationToken cancellationToken) =>
+        _core.PresignAsync(path, options, TimeProvider.GetUtcNow(), cancellationToken);
+
+    /// <inheritdoc />
+    protected override bool IsNotFound(Exception exception) => S3Core.IsNotFound(exception);
+
+    /// <inheritdoc />
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+            _core.Dispose();
+        base.Dispose(disposing);
+    }
+
+    // A listed name that the path validation would refuse, or would split into other segments, cannot be addressed.
+    private static bool IsAddressable(string name)
+    {
+        try
         {
-            var client = new MinioClient()
-                .WithEndpoint(options.HostAndPort)
-                .WithCredentials(options.AccessKey, options.SecretKey)
-                .WithSSL(options.UseSSL)
-                .Build();
-            client.Config.HttpClient?.Dispose();
-            Client = client.WithHttpClient(SharedHttpClient);
+            return ValidateSegments([name]) is [var only] && only == name;
         }
-
-        private async Task<IWriteableFileInfo> getFileInfoAsync(params string[] absolutePathSegments)
+        catch (ArgumentException)
         {
-            if (isRoot(absolutePathSegments))
-                return notFound(absolutePathSegments);
-            var key = path(absolutePathSegments);
-            try
-            {
-                var stat = await Client.StatObjectAsync(new StatObjectArgs().WithBucket(Options.BucketName).WithObject(key));
-                return legacyInfo(true, stat.Size, key, fileName(key), stat.LastModified, false,
-                    GetRelativeSegments(absolutePathSegments));
-            }
-            catch (ObjectNotFoundException)
-            {
-            }
-            catch (BucketNotFoundException)
-            {
-                return notFound(absolutePathSegments);
-            }
-
-            await foreach (var _ in Client.ListObjectsEnumAsync(listArgs(dirPath(absolutePathSegments), false)))
-                return legacyInfo(true, -1, key, fileName(key), DefaultDateTime, true,
-                    GetRelativeSegments(absolutePathSegments));
-            return notFound(absolutePathSegments);
+            return false;
         }
+    }
 
-        private async Task<IDirectoryContents> getDirectoryContentsAsync(params string[] absolutePathSegments)
+    private static S3CoreSettings SettingsFor(MinioFileProviderOptions options, bool clientGiven)
+    {
+        if (string.IsNullOrWhiteSpace(options.BucketName))
+            throw new ArgumentException("BucketName is required.", nameof(options));
+        if (clientGiven)
+            return new S3CoreSettings { Bucket = options.BucketName, CreateBucketIfMissing = options.CreateBucketIfMissing };
+        var serviceUrl = ServiceUrlFor(options);
+        if (string.IsNullOrEmpty(options.AccessKey) != string.IsNullOrEmpty(options.SecretKey))
+            throw new ArgumentException("AccessKey and SecretKey go together: set both, or neither for anonymous access.", nameof(options));
+        return new S3CoreSettings
         {
-            var prefix = dirPath(absolutePathSegments);
-            var exists = false;
-            var res = new List<IFileInfo>();
-            try
-            {
-                await foreach (var item in Client.ListObjectsEnumAsync(listArgs(prefix, false)))
-                {
-                    exists = true;
-                    // The client decodes object keys but not common prefixes.
-                    var key = item.IsDir ? WebUtility.UrlDecode(item.Key) : item.Key;
-                    if (key == null || !key.StartsWith(prefix, StringComparison.Ordinal))
-                        continue;
-                    var name = key.Substring(prefix.Length).TrimEnd('/');
-                    if (name.Length == 0 || name.Contains('/'))
-                        continue;
-                    var segments = GetRelativeSegments(absolutePathSegments.Concat(new[] { name }).ToArray());
-                    res.Add(item.IsDir
-                        ? legacyInfo(true, -1, prefix + name, name, DefaultDateTime, true, segments)
-                        : legacyInfo(true, (long) item.Size, key, name,
-                            item.LastModifiedDateTime ?? DefaultDateTime, false, segments));
-                }
-            }
-            catch (Exception e)
-            {
-                // Some S3-compatible servers omit the bucket name in NoSuchBucket, which the client then fails to map.
-                if (e is BucketNotFoundException || await bucketMissingAsync())
-                    return new DirectoryContents(false, new IFileInfo[0]);
-                throw;
-            }
+            Bucket = options.BucketName,
+            ServiceUrl = serviceUrl,
+            Region = S3Core.NormalizeRegion(string.IsNullOrWhiteSpace(options.Region) ? null : options.Region),
+            DiscoverRegion = true,
+            ForcePathStyle = true,
+            Credentials = string.IsNullOrEmpty(options.AccessKey)
+                ? new AnonymousAWSCredentials()
+                : new BasicAWSCredentials(options.AccessKey, options.SecretKey),
+            // MinIO refuses storage classes it does not know (STANDARD_IA: 400 InvalidStorageClass).
+            StorageClass = null,
+            CreateBucketIfMissing = options.CreateBucketIfMissing,
+        };
+    }
 
-            return new DirectoryContents(exists, res.ToArray());
-        }
-
-
-        private async Task<Stream> readFileAsync(params string[] absolutePathSegments)
+    // The 2026 provider (on the Minio SDK) took host:port only, and rejected a scheme or a path.
+    private static string ServiceUrlFor(MinioFileProviderOptions options)
+    {
+        var hostAndPort = options.HostAndPort?.Trim();
+        if (string.IsNullOrEmpty(hostAndPort))
+            throw new ArgumentException("HostAndPort is required.", nameof(options));
+        if (hostAndPort.Contains("://", StringComparison.Ordinal)
+            || !Uri.TryCreate("http://" + hostAndPort, UriKind.Absolute, out var uri)
+            || uri.AbsolutePath != "/" || uri.Query.Length > 0 || uri.UserInfo.Length > 0 || hostAndPort.EndsWith('/'))
         {
-            var tmp = new FileStream(Path.GetTempFileName(), FileMode.Open, FileAccess.ReadWrite, FileShare.None, 4096,
-                FileOptions.DeleteOnClose);
-            try
-            {
-                await Client.GetObjectAsync(new GetObjectArgs().WithBucket(Options.BucketName)
-                    .WithObject(path(absolutePathSegments))
-                    .WithCallbackStream(async (s, ct) => await s.CopyToAsync(tmp, ct)));
-                tmp.Position = 0;
-                return tmp;
-            }
-            catch
-            {
-                await tmp.DisposeAsync();
-                throw;
-            }
+            throw new ArgumentException("HostAndPort takes host:port, without a scheme (UseSSL chooses it), a path or a query.", nameof(options));
         }
-
-        private async Task updateFileAsync(Stream contents, UpdateFileMode mode, params string[] absolutePathSegments)
+        if (!options.UseSSL && !uri.IsLoopback && !options.AllowInsecureHttp)
         {
-            ensureNotRoot(absolutePathSegments);
-            await ensureBucketAsync();
-
-            await using var tmp = new FileStream(Path.GetTempFileName(), FileMode.OpenOrCreate, FileAccess.ReadWrite,
-                FileShare.None, 4096, FileOptions.DeleteOnClose);
-            if (mode == UpdateFileMode.Append)
-            {
-                var info = await getFileInfoAsync(absolutePathSegments);
-                if (info.Exists && !info.IsDirectory)
-                    await using (var s = await readFileAsync(absolutePathSegments))
-                        await s.CopyToAsync(tmp);
-            }
-            await contents.CopyToAsync(tmp);
-            await tmp.FlushAsync();
-            tmp.Position = 0;
-            await Client.PutObjectAsync(new PutObjectArgs().WithBucket(Options.BucketName)
-                .WithObject(path(absolutePathSegments))
-                .WithStreamData(tmp)
-                .WithObjectSize(tmp.Length)
-                .WithContentType("application/octet-stream"));
+            throw new ArgumentException(
+                $"UseSSL is false, so files would cross the network to '{uri.Host}' in clear text. Set UseSSL, or set AllowInsecureHttp to accept plain HTTP.",
+                nameof(options));
         }
-        private async Task move(string[] oldSegments, string[] newSegments)
-        {
-            ensureNotRoot(oldSegments);
-            ensureNotRoot(newSegments);
-            await ensureBucketAsync();
-            await Client.CopyObjectAsync(new CopyObjectArgs().WithBucket(Options.BucketName).WithObject(path(newSegments))
-                .WithCopyObjectSource(new CopySourceObjectArgs().WithBucket(Options.BucketName).WithObject(path(oldSegments))));
-            await Client.RemoveObjectAsync(new RemoveObjectArgs().WithBucket(Options.BucketName).WithObject(path(oldSegments)));
-        }
-
-        private async Task<bool> deleteAsync(params string[] absolutePathSegments)
-        {
-            ensureNotRoot(absolutePathSegments);
-            var info = await getFileInfoAsync(absolutePathSegments);
-            if (!info.Exists)
-                return false;
-            if (!info.IsDirectory)
-            {
-                await Client.RemoveObjectAsync(new RemoveObjectArgs().WithBucket(Options.BucketName)
-                    .WithObject(path(absolutePathSegments)));
-                return true;
-            }
-
-            // Every batch comes from a fresh listing, so no continuation token is reused after a delete.
-            var prefix = dirPath(absolutePathSegments);
-            var deleted = false;
-            string previousFirstKey = null;
-            while (true)
-            {
-                var keys = new List<string>(DeleteBatchSize);
-                await foreach (var item in Client.ListObjectsEnumAsync(listArgs(prefix, true)))
-                {
-                    keys.Add(item.Key);
-                    if (keys.Count == DeleteBatchSize)
-                        break;
-                }
-                if (keys.Count == 0)
-                    return deleted;
-                if (keys[0] == previousFirstKey)
-                    throw new IOException($"The objects under '{prefix}' could not be deleted.");
-                previousFirstKey = keys[0];
-
-                var errors = await Client.RemoveObjectsAsync(new RemoveObjectsArgs().WithBucket(Options.BucketName)
-                    .WithObjects(keys));
-                if (errors != null && errors.Count > 0)
-                    throw new IOException(
-                        $"Failed to delete {errors.Count} object(s) under '{prefix}'. First error: '{errors[0].Key}' {errors[0].Code} {errors[0].Message}");
-                deleted = true;
-            }
-        }
-
-        private ListObjectsArgs listArgs(string prefix, bool recursive)
-        {
-            return new ListObjectsArgs().WithBucket(Options.BucketName).WithPrefix(prefix).WithRecursive(recursive);
-        }
-
-        private WriteableFileInfo notFound(string[] absolutePathSegments)
-        {
-            return legacyInfo(false, -1, path(absolutePathSegments), fileName(path(absolutePathSegments)),
-                DefaultDateTime, false, GetRelativeSegments(absolutePathSegments));
-        }
-
-        private bool isRoot(string[] absolutePathSegments)
-        {
-            return GetRelativeSegments(absolutePathSegments ?? new string[0]).Length == 0;
-        }
-
-        private void ensureNotRoot(string[] absolutePathSegments)
-        {
-            if (isRoot(absolutePathSegments))
-                throw new InvalidOperationException(RootModificationMessage);
-        }
-
-        private string path(string[] absolutePathSegments)
-        {
-            return string.Join("/", absolutePathSegments);
-        }
-
-        private string dirPath(string[] absolutePathSegments)
-        {
-            return absolutePathSegments.Length == 0 ? "" : $"{path(absolutePathSegments)}/";
-        }
-
-        private string fileName(string path)
-        {
-            if (string.IsNullOrEmpty(path)) return path;
-            var ret = path;
-            if (ret.EndsWith("/")) ret = ret.Substring(0, ret.Length - 1);
-            if (ret.Contains("/"))
-                ret = ret.Substring(ret.LastIndexOf("/") + 1);
-            return ret;
-        }
-
-        private async Task<bool> bucketMissingAsync()
-        {
-            try
-            {
-                return !await Client.BucketExistsAsync(new BucketExistsArgs().WithBucket(Options.BucketName));
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        private async Task ensureBucketAsync()
-        {
-            if (bucketReady) return;
-            if (!(await Client.BucketExistsAsync(new BucketExistsArgs().WithBucket(Options.BucketName))))
-                await Client.MakeBucketAsync(new MakeBucketArgs().WithBucket(Options.BucketName));
-            bucketReady = true;
-        }
-
+        return (options.UseSSL ? "https://" : "http://") + hostAndPort;
     }
 }

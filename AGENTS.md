@@ -12,6 +12,7 @@ and what never to do.
 | `src/WriteableFileProviders.Common/` | `IWriteableFileProvider`; `WriteableFileProvider<TOptions>`, the base class every provider derives from; `FileProviderOptions` (the root folder); `LocalFileStream`; `WriteableFileProviderSerializer`, which builds a provider from configuration or JSON. Package `WriteableFileProviders.Common`. |
 | `src/WriteableFileProviders.<Provider>/` | One provider each: `Physical`, `AzureBlob`, `AmazonS3`, `Minio`, `Box`, `SharePoint`, `GoogleCloudStorage`. Package `WriteableFileProviders.<Provider>`. |
 | `src/WriteableFileProviders.AspNetCore/` | The signed-URL gateway for ASP.NET Core: `IWriteableFileUrlService` (a provider's native URL, else a gateway URL), the `GET`/`HEAD`/`PUT` endpoints on Data Protection tokens, and the one-time token store. Package `WriteableFileProviders.AspNetCore`. |
+| `src/Shared/`, `tests/Shared/` | Source compiled into more than one project, linked by each `.csproj`: the internal S3 core (`S3/`) that the AmazonS3 and Minio packages both build, and the test code their two test projects share. |
 | `tests/WriteableFileProviders.Testing/` | Shared test code: `ProviderConformanceTests`, the contract every provider passes, and `InMemoryFileProvider`, the reference provider that passes it. |
 | `tests/WriteableFileProviders.Common.Tests/` | Common's tests: the conformance suite on the in-memory provider, unit tests, and the configuration-shape goldens. |
 | `tests/WriteableFileProviders.AspNetCore.Tests/` | The gateway and the URL service, end to end on TestServer over the in-memory provider. |
@@ -108,24 +109,24 @@ options, and the app pipeline (HTTP logging, output caching, a fallback authoriz
 `GatewayTokenGoldenTests` pins the gateway's one-way door with tokens issued by a test-only key: they are never
 regenerated.
 
+**Amazon S3 and MinIO** (`tests/WriteableFileProviders.AmazonS3.Tests`, `tests/WriteableFileProviders.Minio.Tests`):
+each runs the conformance suite and the shared S3 behaviour tests (`tests/Shared/S3`, linked into both) against S3Mock
+5.2.3 and MinIO (`cgr.dev/chainguard/minio`, pinned by digest, run as root), both started through Testcontainers, and
+offline tests that fake S3 behind the AWS SDK's HTTP layer. The S3Mock fixtures declare its two bugs as capabilities: an
+aborted multipart upload deletes the object, and a multipart completion with the right `If-Match` answers 404. Their
+live suites, `AmazonS3LiveTests` and `MinioLiveTests`, run only with `WFP_LIVE=1` and the `WFP_S3_*` or `WFP_MINIO_*`
+settings their docs list, from the environment or a `testsettings.json` next to the test project (see its
+`testsettings.sample.json`).
+
 `TestBase`, in tests/WriteableFileProviders.Tests, is the older shared suite each provider still runs until then: create,
 overwrite, append, move, delete, listing, local stream, download URL and 100 MB tests. Its classes fall in four groups:
 
-- **Unit tests**, no outside service: `SegmentValidationTests`, `PhysicalReadTests` and `AmazonS3PathTests`.
+- **Unit tests**, no outside service: `SegmentValidationTests` and `PhysicalReadTests`.
 - **Physical**, `PyhsicalFileProvider`: the shared suite on the local disk, under `PhysicalFileProvider_RootPath`, or a
   temp folder when it is not set.
-- **Emulator tests**: `Emulators` starts each emulator once per run through Testcontainers, and the containers go when
-  the run ends. Without Docker they are inconclusive, not failed, unless `WFP_REQUIRE_DOCKER=1` (CI).
-  - MinIO against S3Mock: `MinioEndpointFileProvider` and `MinioProviderTests`, or another endpoint through the
-    `WFP_MINIO_*` variables (`MinioTestEndpoint`).
-  - S3: `AmazonS3LocalStackSuite`, `AmazonS3LocalStackRootSuite` and `AmazonS3ProviderTests`, against the S3-compatible
-    endpoint in `AWS_ENDPOINT_URL_S3`, which must have the bucket `wfp-test` (or `WFP_S3_TEST_BUCKET`) and accept the
-    access key and secret `test`. They check only that the variable is set, not that the endpoint answers, so with it
-    set and the endpoint down they fail; and the AWS SDK sends the live `AmazonS3FileProvider` suite there too. Set it
-    only for the run: `AWS_ENDPOINT_URL_S3=<url> dotnet test ...` in bash, or `$env:AWS_ENDPOINT_URL_S3 = '<url>'` in
-    a PowerShell window you close afterwards. With LocalStack, which needs a free auth token from localstack.cloud:
-    `docker run -d --name localstack -p 4566:4566 -e LOCALSTACK_AUTH_TOKEN=<token> localstack/localstack`, then
-    `docker exec localstack awslocal s3 mb s3://wfp-test`; the endpoint is `http://s3.localhost.localstack.cloud:4566`.
+- **Emulator tests**, in each provider's own test project: its fixture starts the emulator once per run through
+  Testcontainers, and the container goes when the run ends. Without Docker they are inconclusive, not failed, unless
+  `WFP_REQUIRE_DOCKER=1` (CI). This project starts none any more.
   - Google Cloud Storage against fake-gcs-server, which `FakeGcs` starts the same way, in
     `tests/WriteableFileProviders.GoogleCloudStorage.Tests`: the conformance suite twice (`GcsConformanceTests`
     through the options, with a service account key generated for the run and the `Endpoint` option;

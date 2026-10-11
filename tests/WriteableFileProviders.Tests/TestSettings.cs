@@ -3,15 +3,5 @@
     public class TestSettings
     {
         public string PhysicalFileProvider_RootPath { get; set; }
-        public string AmazonS3FileProvider_AccessKey { get; set; }
-        public string AmazonS3FileProvider_SecretKey { get; set; }
-        public string AmazonS3FileProvider_BucketName { get; set; }
-        public string AmazonS3FileProvider_BucketRegion { get; set; }
-        public string MinioProvider_RootPath { get; set; }
-        public string MinioProvider_HostAndPort { get; set; }
-        public string MinioProvider_AccessKey { get; set; }
-        public string MinioProvider_SecretKey { get; set; }
-        public string MinioProvider_BucketName { get; set; }
-
     }
 }

@@ -2,9 +2,19 @@
 
   <PropertyGroup>
     <PackageId>WriteableFileProviders.AmazonS3</PackageId>
-    <Description>WriteableFileProviders for Amazon S3: a writeable IFileProvider over an S3 bucket.</Description>
-    <WfpLegacy>true</WfpLegacy>
+    <Description>WriteableFileProviders for Amazon S3 and S3-compatible servers: a writeable IFileProvider over a bucket, on the AWS SDK for .NET v4.</Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The S3 protocol, shared with WriteableFileProviders.Minio: each package compiles its own internal copy, so neither
+         depends on the other. -->
+    <Compile Include="..\Shared\S3\*.cs" LinkBase="S3" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="AWSSDK.S3" />
@@ -12,6 +22,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\WriteableFileProviders.Common\WriteableFileProviders.Common.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="WriteableFileProviders.AmazonS3.Tests" />
   </ItemGroup>
 
 </Project>

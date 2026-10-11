@@ -1,0 +1,4 @@
+# Source compiled into more than one package (linked by each .csproj): its namespace names what it is, not the folder
+# of any one project that links it.
+[*.cs]
+dotnet_diagnostic.IDE0130.severity = none

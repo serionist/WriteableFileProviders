@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The Azure Blob provider's tests: the conformance suite and the provider's own cases on Azurite (Testcontainers), unit
+       tests offline, the configuration shape, and a live suite (TestCategory=Live) against a real account. -->
+
+  <ItemGroup>
+    <!-- The configuration-shape goldens stay with Common's tests, where they were written; this project reads them. -->
+    <Content Include="..\WriteableFileProviders.Common.Tests\Serialization\Golden\*WriteableAzureBlobFileProvider.json" Link="Golden\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Optional: credentials for the live suite. Git-ignored; see testsettings.sample.json. -->
+    <Content Include="testsettings.json" Condition="Exists('testsettings.json')" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Configuration" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" />
+    <PackageReference Include="Testcontainers.Azurite" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WriteableFileProviders.Testing\WriteableFileProviders.Testing.csproj" />
+    <ProjectReference Include="..\..\src\WriteableFileProviders.AzureBlob\WriteableFileProviders.AzureBlob.csproj" />
+  </ItemGroup>
+
+</Project>

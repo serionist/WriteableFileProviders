@@ -65,15 +65,6 @@
           "SharpZipLib": "1.4.2"
         }
       },
-      "Testcontainers.Azurite": {
-        "type": "Direct",
-        "requested": "[4.16.0, )",
-        "resolved": "4.16.0",
-        "contentHash": "KwR+TJ4knPJnM8Dd8fWaPCA7wp1x+SNnuTITIXY0YtqFH+aeO3zrZCil+juk+HgplFWlXO5b1Na1zdt1qe+EgA==",
-        "dependencies": {
-          "Testcontainers": "4.16.0"
-        }
-      },
       "AWSSDK.Core": {
         "type": "Transitive",
         "resolved": "3.7.302.6",
@@ -91,15 +82,6 @@
           "Microsoft.Identity.Client.Extensions.Msal": "4.83.1",
           "System.ClientModel": "1.10.0",
           "System.Memory.Data": "10.0.3"
-        }
-      },
-      "Azure.Storage.Common": {
-        "type": "Transitive",
-        "resolved": "12.22.0",
-        "contentHash": "0Vm30bRpQ0fcswB0xQMhKAOSXnRygnF2f/029uPaIDLaj1/yfX4jmU0fFjJe9ojGEj/vlAmsApCEOyL9if6zHg==",
-        "dependencies": {
-          "Azure.Core": "1.44.1",
-          "System.IO.Hashing": "6.0.0"
         }
       },
       "BouncyCastle.Cryptography": {
@@ -509,13 +491,6 @@
           "WriteableFileProviders.Common": "[1.0.0, )"
         }
       },
-      "writeablefileproviders.azureblob": {
-        "type": "Project",
-        "dependencies": {
-          "Azure.Storage.Blobs": "[12.23.0, )",
-          "WriteableFileProviders.Common": "[1.0.0, )"
-        }
-      },
       "writeablefileproviders.box": {
         "type": "Project",
         "dependencies": {
@@ -570,15 +545,6 @@
         "contentHash": "GeFv8sGwRKvDKwI2WFy8r0mhmlxEVZg24Sit2NogTjiSO8RVjllWM65OT6e1sKjOvG8V74y7hAbaELUUPjZQSw==",
         "dependencies": {
           "Azure.Core": "1.53.0"
-        }
-      },
-      "Azure.Storage.Blobs": {
-        "type": "CentralTransitive",
-        "requested": "[12.23.0, )",
-        "resolved": "12.23.0",
-        "contentHash": "wokJ5KX/iViQQ32xyCu69+Ter0aR4B9QQ+oR9NCpc/WPIanxnDErrmFfdmE7K8ZdccjHkvE/wEnqJxaF1+5wFg==",
-        "dependencies": {
-          "Azure.Storage.Common": "12.22.0"
         }
       },
       "Box.V2.Core": {

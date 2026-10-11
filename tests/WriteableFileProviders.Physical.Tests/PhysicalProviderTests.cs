@@ -1,0 +1,870 @@
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Runtime.Versioning;
+using System.Security.AccessControl;
+using System.Security.Principal;
+using System.Text;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+using WriteableFileProviders.Testing;
+
+namespace WriteableFileProviders.Physical.Tests;
+
+/// <summary>What the conformance suite cannot reach on the local disk: the temp files, the races, the per-OS rules.</summary>
+[TestClass]
+public sealed class PhysicalProviderTests
+{
+    private string _root = "";
+    private WriteablePhysicalFileProvider _provider = null!;
+
+    [TestInitialize]
+    public void Start()
+    {
+        _root = Path.Combine(Path.GetTempPath(), "wfp-physical-unit-" + Guid.NewGuid().ToString("N")[..12]);
+        _provider = new WriteablePhysicalFileProvider(_root);
+    }
+
+    // Runs the test on the way new names are taken on Windows (a rename that does not replace) or on Linux and macOS (an
+    // exclusive create, then a rename), whichever system runs it.
+    private void TakeNewNames(bool byRenameWithoutReplacing)
+    {
+        _provider.Dispose();
+        _provider = new WriteablePhysicalFileProvider(_root) { RenamesWithoutReplacing = byRenameWithoutReplacing };
+    }
+
+    // Whether the process can be refused access to its own files: not when it runs as root.
+    private static bool PermissionsApply(string file)
+    {
+        try
+        {
+            File.OpenWrite(file).Dispose();
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return true;
+        }
+    }
+
+    [TestCleanup]
+    public void End()
+    {
+        _provider.Dispose();
+        if (Directory.Exists(_root))
+            Directory.Delete(_root, recursive: true);
+    }
+
+    private string Disk(params string[] segments) => Path.Combine([_root, .. segments]);
+
+    private Task Write(ProviderPath path, string text, UpdateFileOptions? options = null) =>
+        _provider.UpdateFileAsync(path, TestStreams.Text(text), options);
+
+    private async Task<string> Read(ProviderPath path)
+    {
+        await using var stream = await _provider.ReadFileAsync(path);
+        return await new StreamReader(stream).ReadToEndAsync();
+    }
+
+    private string[] TempFiles() =>
+        Directory.Exists(_root) ? Directory.GetFiles(_root, ".wfp-*.tmp", SearchOption.AllDirectories) : [];
+
+    private string[] Names(string folder = "") =>
+        [.. _provider.GetDirectoryContents(folder).Select(e => e.Name).Order(StringComparer.Ordinal)];
+
+    // ----- Writes -----
+
+    [TestMethod]
+    public async Task Write_GoesThroughATempFileNextToTheTarget()
+    {
+        await Write("dir/f.txt", "old");
+        string[] during = [];
+        var contents = new InterceptingStream(Encoding.UTF8.GetBytes("new"), () =>
+        {
+            during = Directory.GetFiles(Disk("dir"), ".wfp-*.tmp");
+            Assert.AreEqual("old", File.ReadAllText(Disk("dir", "f.txt")), "The target is untouched until the rename");
+        });
+        await _provider.UpdateFileAsync("dir/f.txt", contents);
+        Assert.HasCount(1, during);
+        Assert.AreEqual("new", await Read("dir/f.txt"));
+        Assert.IsEmpty(TempFiles());
+    }
+
+    [TestMethod]
+    public async Task Write_ToAFolderIsRefused()
+    {
+        await Write("dir/sub/f.txt", "x");
+        await Assert.ThrowsExactlyAsync<IOException>(() => Write("dir/sub", "y"));
+        Assert.AreEqual("x", await Read("dir/sub/f.txt"));
+    }
+
+    [TestMethod]
+    public async Task Write_WhileTheFileIsReadKeepsWhatTheReaderOpened()
+    {
+        // P20: readers share the file with writers and deleters. Linux and macOS rename over it, and the reader keeps the
+        // old content; Windows refuses to rename over an open file, and the write fails with the file unchanged.
+        await Write("f.txt", "old content");
+        await using (var reader = await _provider.ReadFileAsync("f.txt"))
+        {
+            var start = new byte[4];
+            await reader.ReadExactlyAsync(start);
+            if (OperatingSystem.IsWindows())
+            {
+                await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(() => Write("f.txt", "new"));
+                Assert.AreEqual("old content", File.ReadAllText(Disk("f.txt")));
+            }
+            else
+            {
+                await Write("f.txt", "new");
+                Assert.AreEqual("new", File.ReadAllText(Disk("f.txt")));
+            }
+            Assert.AreEqual("content", await new StreamReader(reader).ReadToEndAsync(), "The reader keeps the version it opened");
+        }
+        Assert.IsEmpty(TempFiles());
+    }
+
+    [TestMethod]
+    public async Task Delete_WhileTheFileIsReadGoesAhead()
+    {
+        await Write("f.txt", "content");
+        await using var reader = await _provider.ReadFileAsync("f.txt");
+        Assert.IsTrue(await _provider.DeleteAsync("f.txt"));
+        Assert.IsFalse((await _provider.GetFileInfoAsync("f.txt")).Exists);
+        Assert.AreEqual("content", await new StreamReader(reader).ReadToEndAsync());
+    }
+
+    [TestMethod]
+    public async Task Write_ReportsItsOwnFailureWhenTheTempFileCannotBeRemoved()
+    {
+        await Write("f.txt", "old");
+        FileStream? holder = null;
+        var contents = new InterceptingStream([1, 2, 3], () =>
+        {
+            // Keep the temp file from being deleted: Windows refuses to delete a file open without delete sharing, Unix to
+            // unlink in a folder without write permission (unless the tests run as root).
+            var temp = Directory.GetFiles(_root, ".wfp-*.tmp").Single();
+            if (OperatingSystem.IsWindows())
+                holder = new FileStream(temp, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            else
+                File.SetUnixFileMode(_root, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+            throw new IOException("The source failed.");
+        });
+        try
+        {
+            var e = await Assert.ThrowsExactlyAsync<IOException>(() => _provider.UpdateFileAsync("f.txt", contents));
+            Assert.AreEqual("The source failed.", e.Message);
+        }
+        finally
+        {
+            holder?.Dispose();
+            if (!OperatingSystem.IsWindows())
+                File.SetUnixFileMode(_root, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+        Assert.AreEqual("old", await Read("f.txt"));
+        CollectionAssert.AreEqual(new[] { "f.txt" }, Names(), "A temp file left behind stays out of listings");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Linux | OperatingSystems.OSX)]
+    [UnsupportedOSPlatform("windows")]
+    public async Task Write_KeepsTheFilesUnixPermissions()
+    {
+        await Write("f.txt", "one");
+        const UnixFileMode mode = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.GroupWrite;
+        File.SetUnixFileMode(Disk("f.txt"), mode);
+        await Write("f.txt", "two");
+        Assert.AreEqual(mode, File.GetUnixFileMode(Disk("f.txt")), "The exact mode, group write included, whatever the umask");
+        await Write("f.txt", "+three", UpdateFileOptions.Append);
+        Assert.AreEqual(mode, File.GetUnixFileMode(Disk("f.txt")));
+        Assert.AreEqual("two+three", await Read("f.txt"));
+
+        // A private file's new content is never readable by others, not even while it is written (P28).
+        const UnixFileMode secret = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+        File.SetUnixFileMode(Disk("f.txt"), secret);
+        var during = UnixFileMode.None;
+        var contents = new InterceptingStream(Encoding.UTF8.GetBytes("four"),
+            () => during = File.GetUnixFileMode(Directory.GetFiles(_root, ".wfp-*.tmp").Single()));
+        await _provider.UpdateFileAsync("f.txt", contents);
+        Assert.AreEqual(UnixFileMode.None, during & ~secret, $"The temp file was {during}");
+        Assert.AreEqual(secret, File.GetUnixFileMode(Disk("f.txt")));
+
+        // The setuid, setgid and sticky bits are not carried over, as writing to a file clears them.
+        File.SetUnixFileMode(Disk("f.txt"), mode | UnixFileMode.SetUser | UnixFileMode.StickyBit);
+        await Write("f.txt", "five");
+        Assert.AreEqual(mode, File.GetUnixFileMode(Disk("f.txt")));
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Linux | OperatingSystems.OSX)]
+    [UnsupportedOSPlatform("windows")]
+    public async Task Copy_KeepsTheSourcesUnixPermissions()
+    {
+        const UnixFileMode secret = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+        await Write("secret.txt", "s");
+        File.SetUnixFileMode(Disk("secret.txt"), secret);
+        await _provider.CopyAsync("secret.txt", "copies/secret.txt");
+        Assert.AreEqual(secret, File.GetUnixFileMode(Disk("copies", "secret.txt")));
+
+        const UnixFileMode shared = secret | UnixFileMode.GroupRead | UnixFileMode.GroupWrite;
+        File.SetUnixFileMode(Disk("secret.txt"), shared);
+        await _provider.CopyAsync("secret.txt", "copies/shared.txt");
+        Assert.AreEqual(shared, File.GetUnixFileMode(Disk("copies", "shared.txt")), "The exact mode, whatever the umask");
+        Assert.AreEqual("s", await Read("copies/shared.txt"));
+    }
+
+    [TestMethod]
+    public async Task Write_OfAFileTheProcessMayNotWriteIsRefused()
+    {
+        // As in 2026, and as on Windows, where the rename itself is refused; Linux and macOS would rename over it.
+        await Write("f.txt", "kept");
+        if (OperatingSystem.IsWindows())
+            File.SetAttributes(Disk("f.txt"), FileAttributes.ReadOnly);
+        else
+            File.SetUnixFileMode(Disk("f.txt"), UnixFileMode.UserRead | UnixFileMode.GroupRead | UnixFileMode.OtherRead);
+        try
+        {
+            if (!PermissionsApply(Disk("f.txt")))
+                Assert.Inconclusive("The tests run as root, whom file permissions do not stop.");
+            await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(() => Write("f.txt", "new"));
+            await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(() => Write("f.txt", "+more", UpdateFileOptions.Append));
+            Assert.AreEqual("kept", await Read("f.txt"));
+            Assert.IsEmpty(TempFiles());
+        }
+        finally
+        {
+            if (OperatingSystem.IsWindows())
+                File.SetAttributes(Disk("f.txt"), FileAttributes.Normal);
+            else
+                File.SetUnixFileMode(Disk("f.txt"), UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    [SupportedOSPlatform("windows")]
+    public async Task Write_InAFolderWhereTheProcessMayNotCreateFilesIsRefusedNamingTheFile()
+    {
+        // The file itself can be written; its folder denies creating files, which the new content needs.
+        await Write("f.txt", "kept");
+        var folder = new DirectoryInfo(_root);
+        var deny = new FileSystemAccessRule(WindowsIdentity.GetCurrent().User!, FileSystemRights.CreateFiles, AccessControlType.Deny);
+        var security = folder.GetAccessControl();
+        security.AddAccessRule(deny);
+        folder.SetAccessControl(security);
+        try
+        {
+            var e = await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(() => Write("f.txt", "new"));
+            StringAssert.Contains(e.Message, "'f.txt'");
+            Assert.DoesNotContain(".wfp-", e.Message, "The message names the file, not the provider's temp file");
+        }
+        finally
+        {
+            security.RemoveAccessRule(deny);
+            folder.SetAccessControl(security);
+        }
+        Assert.AreEqual("kept", await Read("f.txt"));
+        Assert.IsEmpty(TempFiles());
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Linux | OperatingSystems.OSX)]
+    [UnsupportedOSPlatform("windows")]
+    public async Task Write_InAFolderTheProcessMayNotWriteIsRefusedNamingTheFile()
+    {
+        // The rename needs the folder: the new content is created there, next to the file, which itself can be written.
+        await Write("f.txt", "kept");
+        File.SetUnixFileMode(_root, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+        try
+        {
+            if (!PermissionsApply(Disk("new.txt")))
+                Assert.Inconclusive("The tests run as root, whom file permissions do not stop.");
+            var e = await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(() => Write("f.txt", "new"));
+            StringAssert.Contains(e.Message, "'f.txt'");
+            Assert.DoesNotContain(".wfp-", e.Message, "The message names the file, not the provider's temp file");
+        }
+        finally
+        {
+            File.SetUnixFileMode(_root, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+        Assert.AreEqual("kept", await Read("f.txt"));
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Linux | OperatingSystems.OSX)]
+    [UnsupportedOSPlatform("windows")]
+    public async Task Write_CreatesItsTempFileNoMoreReadableThanTheFileItReplaces()
+    {
+        // Created with the mode, not narrowed after: in between, another user could open it and read the new content.
+        var created = new List<UnixFileMode>();
+        _provider.Dispose();
+        _provider = new WriteablePhysicalFileProvider(_root) { TempCreated = temp => created.Add(File.GetUnixFileMode(temp)) };
+        const UnixFileMode secret = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+        await Write("f.txt", "old");
+        File.SetUnixFileMode(Disk("f.txt"), secret);
+        await Write("f.txt", "new");
+        await Write("f.txt", "+more", UpdateFileOptions.Append);
+        await _provider.CopyAsync("f.txt", "copy.txt");
+        Assert.HasCount(4, created);
+        foreach (var mode in created.Skip(1))
+            Assert.AreEqual(UnixFileMode.None, mode & ~secret, $"A temp file was created {mode}");
+        Assert.AreEqual(secret, File.GetUnixFileMode(Disk("copy.txt")));
+    }
+
+    [TestMethod]
+    [DataRow(UpdateFileMode.Overwrite)]
+    [DataRow(UpdateFileMode.Append)]
+    public async Task Write_OverALinkToNothingReplacesTheLink(UpdateFileMode mode)
+    {
+        Directory.CreateDirectory(_root);
+        try
+        {
+            File.CreateSymbolicLink(Disk("link.txt"), Disk("nowhere.txt"));
+        }
+        catch (Exception e) when (OperatingSystem.IsWindows() && e is IOException or UnauthorizedAccessException)
+        {
+            Assert.Inconclusive($"Creating a symbolic link on Windows needs Developer Mode or elevation: {e.Message}");
+        }
+        await _provider.UpdateFileAsync("link.txt", TestStreams.Text("new"), mode);
+        Assert.AreEqual("new", await Read("link.txt"));
+        Assert.IsNull(new FileInfo(Disk("link.txt")).LinkTarget, "The link is replaced by a file");
+        Assert.IsFalse(File.Exists(Disk("nowhere.txt")), "Its target is left as it was");
+        if (!OperatingSystem.IsWindows())
+            Assert.AreEqual(UnixFileMode.None, File.GetUnixFileMode(Disk("link.txt")) & UnixFileMode.OtherWrite, "Not the link's own mode");
+    }
+
+    [TestMethod]
+    public async Task Write_OverAnEmptyFileReplacesIt()
+    {
+        // An empty file is checked to be a regular file before it is replaced.
+        await Write("empty.txt", "");
+        await Write("empty.txt", "full");
+        Assert.AreEqual("full", await Read("empty.txt"));
+        await Write("empty2.txt", "");
+        await Write("empty2.txt", "+more", UpdateFileOptions.Append);
+        Assert.AreEqual("+more", await Read("empty2.txt"));
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Linux | OperatingSystems.OSX)]
+    public async Task Write_OverAFifoIsRefused()
+    {
+        // Opening a FIFO to write waits for a reader, forever: the provider refuses it without waiting.
+        Directory.CreateDirectory(_root);
+        try
+        {
+            using var mkfifo = Process.Start(new ProcessStartInfo("mkfifo", Disk("pipe")) { UseShellExecute = false })!;
+            await mkfifo.WaitForExitAsync();
+            if (mkfifo.ExitCode != 0)
+                Assert.Inconclusive($"mkfifo exited with {mkfifo.ExitCode}.");
+        }
+        catch (Win32Exception e)
+        {
+            Assert.Inconclusive($"mkfifo is not available: {e.Message}");
+        }
+        foreach (var options in new[] { UpdateFileOptions.Overwrite, UpdateFileOptions.Append })
+        {
+            var e = await Assert.ThrowsExactlyAsync<IOException>(() => _provider.UpdateFileAsync("pipe", TestStreams.Text("x"), options).WaitAsync(TimeSpan.FromSeconds(30)));
+            StringAssert.Contains(e.Message, "not a regular file");
+        }
+        Assert.IsEmpty(TempFiles());
+    }
+
+    // ----- Versions and preconditions -----
+
+    [TestMethod]
+    public async Task ETag_ChangesWithEveryWriteEvenWhenTheClockStandsStill()
+    {
+        var now = new DateTimeOffset(2026, 10, 11, 12, 0, 0, TimeSpan.Zero);
+        _provider.Dispose();
+        _provider = new WriteablePhysicalFileProvider(_root) { Clock = new FixedClock(now) };
+        await Write("f.txt", "aaaa");
+        var first = await _provider.GetFileInfoAsync("f.txt");
+        await Write("f.txt", "bbbb");
+        var second = await _provider.GetFileInfoAsync("f.txt");
+        Assert.AreEqual(now, first.LastModified);
+        Assert.AreEqual(now.AddTicks(1), second.LastModified, "One tick after the file it replaced");
+        Assert.AreNotEqual(first.ETag, second.ETag);
+        Assert.AreEqual(second.ETag, _provider.GetDirectoryContents("").Cast<IWriteableFileInfo>().Single().ETag, "A listing gives the same ETag");
+    }
+
+    [TestMethod]
+    [DataRow(0L, 1)]
+    [DataRow(10_000L, 2)] // 1 ms
+    [DataRow(100_000L, 3)] // 10 ms, exFAT
+    [DataRow(10_000_000L, 4)] // 1 s, HFS+
+    [DataRow(20_000_000L, 5)] // 2 s, FAT
+    public void Stamp_StepsPastTheReplacedTimeAsTheFileSystemStoresIt(long resolutionTicks, int tries)
+    {
+        // A file system that keeps times in whole units of its resolution, and a clock inside the replaced file's unit.
+        var replaced = new DateTime(2026, 10, 11, 12, 0, 0, DateTimeKind.Utc);
+        var now = replaced.AddTicks(Math.Max(1, resolutionTicks / 2));
+        var stored = new List<DateTime>();
+        WriteablePhysicalFileProvider.Stamp(replaced, now, time =>
+        {
+            var kept = resolutionTicks == 0 ? time : new DateTime(time.Ticks - time.Ticks % resolutionTicks, DateTimeKind.Utc);
+            stored.Add(kept);
+            return kept;
+        });
+        Assert.HasCount(tries, stored);
+        Assert.IsGreaterThan(replaced, stored[^1]);
+    }
+
+    [TestMethod]
+    public void Stamp_GivesUpAfterTwoSeconds()
+    {
+        var replaced = new DateTime(2026, 10, 11, 12, 0, 0, DateTimeKind.Utc);
+        var tries = 0;
+        WriteablePhysicalFileProvider.Stamp(replaced, replaced, _ =>
+        {
+            tries++;
+            return replaced;
+        });
+        Assert.AreEqual(5, tries, "Where no stored time is later, the ETag may repeat; the write still goes ahead");
+    }
+
+    [TestMethod]
+    public async Task ETag_FollowsAChangeMadeByAnotherProgram()
+    {
+        await Write("f.txt", "abc");
+        var before = (await _provider.GetFileInfoAsync("f.txt")).ETag;
+        File.SetLastWriteTimeUtc(Disk("f.txt"), DateTime.UtcNow.AddMinutes(-5));
+        var touched = (await _provider.GetFileInfoAsync("f.txt")).ETag;
+        File.AppendAllText(Disk("f.txt"), "d");
+        var appended = (await _provider.GetFileInfoAsync("f.txt")).ETag;
+        Assert.AreEqual(3, new[] { before, touched, appended }.Distinct().Count());
+    }
+
+    [TestMethod]
+    public async Task IfMatch_FailsWhenTheFileChangesDuringTheWrite()
+    {
+        await Write("f.txt", "first");
+        var etag = (await _provider.GetFileInfoAsync("f.txt")).ETag;
+        var contents = new InterceptingStream(Encoding.UTF8.GetBytes("mine"), () => File.WriteAllText(Disk("f.txt"), "theirs!"));
+        await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => _provider.UpdateFileAsync("f.txt", contents, new UpdateFileOptions { IfMatch = etag }));
+        Assert.AreEqual("theirs!", await Read("f.txt"));
+        Assert.IsEmpty(TempFiles());
+    }
+
+    [TestMethod]
+    public async Task IfMatch_OfAMissingFileFails() =>
+        await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => Write("missing.txt", "x", new UpdateFileOptions { IfMatch = "1-1" }));
+
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task IfNotExists_FailsWhenTheFileAppearsDuringTheWrite(bool byRenameWithoutReplacing)
+    {
+        TakeNewNames(byRenameWithoutReplacing);
+        var contents = new InterceptingStream(Encoding.UTF8.GetBytes("mine"), () => File.WriteAllText(Disk("f.txt"), "theirs"));
+        var e = await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => _provider.UpdateFileAsync("f.txt", contents, new UpdateFileOptions { IfNotExists = true }));
+        Assert.IsInstanceOfType<IOException>(e.InnerException);
+        Assert.AreEqual("theirs", await Read("f.txt"));
+        Assert.IsEmpty(TempFiles());
+        await Write("g.txt", "new", new UpdateFileOptions { IfNotExists = true });
+        Assert.AreEqual("new", await Read("g.txt"));
+    }
+
+    [TestMethod]
+    public async Task Append_FailsWhenTheFileChangesWhileItCopies()
+    {
+        // D19 on Physical: the check before the rename catches a change made while the append reads, but is not atomic.
+        await Write("f.txt", "start");
+        var contents = new InterceptingStream(Encoding.UTF8.GetBytes("+mine"), () => File.WriteAllText(Disk("f.txt"), "theirs"));
+        await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => _provider.UpdateFileAsync("f.txt", contents, UpdateFileOptions.Append));
+        Assert.AreEqual("theirs", await Read("f.txt"));
+        Assert.IsEmpty(TempFiles());
+    }
+
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task Append_ToAMissingFileFailsWhenOneAppearsMeanwhile(bool byRenameWithoutReplacing)
+    {
+        TakeNewNames(byRenameWithoutReplacing);
+        var contents = new InterceptingStream(Encoding.UTF8.GetBytes("mine"), () => File.WriteAllText(Disk("f.txt"), "theirs"));
+        await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => _provider.UpdateFileAsync("f.txt", contents, UpdateFileOptions.Append));
+        Assert.AreEqual("theirs", await Read("f.txt"));
+        Assert.IsEmpty(TempFiles());
+    }
+
+    [TestMethod]
+    public async Task Append_ChecksTheConditionsOnTheVersionItOpens()
+    {
+        await Write("f.txt", "a");
+        var etag = (await _provider.GetFileInfoAsync("f.txt")).ETag;
+        await Write("f.txt", "b", UpdateFileOptions.Append with { IfMatch = etag });
+        Assert.AreEqual("ab", await Read("f.txt"));
+        await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => Write("f.txt", "c", UpdateFileOptions.Append with { IfMatch = etag }));
+        await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => Write("f.txt", "c", UpdateFileOptions.Append with { IfNotExists = true }));
+        await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => Write("missing.txt", "c", UpdateFileOptions.Append with { IfMatch = etag }));
+        Assert.AreEqual("ab", await Read("f.txt"));
+        Assert.IsFalse(File.Exists(Disk("missing.txt")));
+    }
+
+    // ----- Reads -----
+
+    [TestMethod]
+    public async Task Read_OfAFolderOrBelowAFileIsFileNotFound()
+    {
+        await Write("dir/f.txt", "x");
+        var folder = await Assert.ThrowsExactlyAsync<FileNotFoundException>(() => _provider.ReadFileAsync("dir"));
+        Assert.AreEqual("dir", folder.FileName, "The message names the path, never the disk path");
+        Assert.IsNotNull(folder.InnerException);
+        var below = await Assert.ThrowsExactlyAsync<FileNotFoundException>(() => _provider.ReadFileAsync("dir/f.txt/x"));
+        Assert.IsNotNull(below.InnerException);
+        await Assert.ThrowsExactlyAsync<FileNotFoundException>(() => _provider.ReadFileAsync("missing/f.txt"));
+    }
+
+    [TestMethod]
+    public async Task Read_OfAFileThatCannotBeOpenedReportsTheStoresError()
+    {
+        // The file is there: its open failure is not a FileNotFoundException.
+        await Write("f.txt", "x");
+        if (OperatingSystem.IsWindows())
+        {
+            using var locked = new FileStream(Disk("f.txt"), FileMode.Open, FileAccess.Read, FileShare.None);
+            await Assert.ThrowsExactlyAsync<IOException>(() => _provider.ReadFileAsync("f.txt"));
+            return;
+        }
+        File.SetUnixFileMode(Disk("f.txt"), UnixFileMode.None);
+        try
+        {
+            bool readable;
+            try
+            {
+                File.OpenRead(Disk("f.txt")).Dispose();
+                readable = true; // root reads anything
+            }
+            catch (UnauthorizedAccessException)
+            {
+                readable = false;
+            }
+            if (!readable)
+                await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(() => _provider.ReadFileAsync("f.txt"));
+        }
+        finally
+        {
+            File.SetUnixFileMode(Disk("f.txt"), UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+    }
+
+    [TestMethod]
+    public async Task Range_ChecksIfMatchOnTheFileItReads()
+    {
+        await Write("f.txt", "0123456789");
+        var etag = (await _provider.GetFileInfoAsync("f.txt")).ETag;
+        await using (var range = await _provider.ReadRangeAsync("f.txt", 4, 3, new ReadOptions { IfMatch = etag }))
+            Assert.AreEqual("456", await new StreamReader(range).ReadToEndAsync());
+        await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => _provider.ReadRangeAsync("f.txt", 0, 1, new ReadOptions { IfMatch = "0-0" }));
+        // The refused read closed its handle: the file can be replaced and deleted, on Windows too.
+        await Write("f.txt", "replaced");
+        Assert.IsTrue(await _provider.DeleteAsync("f.txt"));
+    }
+
+    [TestMethod]
+    public async Task Range_IsAForwardOnlyStream()
+    {
+        await Write("f.txt", "0123456789");
+        var range = await _provider.ReadRangeAsync("f.txt", 2, 5);
+        Assert.IsTrue(range.CanRead);
+        Assert.IsFalse(range.CanSeek);
+        Assert.IsFalse(range.CanWrite);
+        Assert.ThrowsExactly<NotSupportedException>(() => range.Length);
+        Assert.ThrowsExactly<NotSupportedException>(() => range.Position);
+        Assert.ThrowsExactly<NotSupportedException>(() => range.Position = 0);
+        Assert.ThrowsExactly<NotSupportedException>(() => range.Seek(0, SeekOrigin.Begin));
+        Assert.ThrowsExactly<NotSupportedException>(() => range.SetLength(1));
+        Assert.ThrowsExactly<NotSupportedException>(() => range.Write([1], 0, 1));
+        range.Flush();
+        var buffer = new byte[10];
+        Assert.AreEqual(2, range.Read(buffer, 0, 2));
+        Assert.AreEqual("23", Encoding.UTF8.GetString(buffer, 0, 2));
+        Assert.AreEqual(3, await range.ReadAsync(buffer.AsMemory(0, 10)));
+        Assert.AreEqual("456", Encoding.UTF8.GetString(buffer, 0, 3));
+#pragma warning disable CA1835 // The array overload is the one under test.
+        Assert.AreEqual(0, await range.ReadAsync(buffer, 0, 10, CancellationToken.None), "The range ends at its length");
+#pragma warning restore CA1835
+        await range.DisposeAsync();
+        Assert.IsFalse(range.CanRead);
+        Assert.IsTrue(await _provider.DeleteAsync("f.txt"), "Disposing the range closed its handle");
+    }
+
+    // ----- Listing -----
+
+    [TestMethod]
+    public async Task List_HidesOnlyTheProvidersTempFiles()
+    {
+        await Write("f.txt", "x");
+        foreach (var name in new[] { ".wfp-0123abcd.tmp", ".hidden", "x.tmp", ".wfp-notes.txt" })
+            File.WriteAllText(Disk(name), name);
+        Directory.CreateDirectory(Disk(".wfp-folder.tmp"));
+        CollectionAssert.AreEqual(new[] { ".hidden", ".wfp-folder.tmp", ".wfp-notes.txt", "f.txt", "x.tmp" }, Names());
+    }
+
+    [TestMethod]
+    public async Task List_EntriesCarryTheirDiskPaths()
+    {
+        await Write("dir/f.txt", "x");
+        var entries = (await _provider.GetDirectoryContentsAsync("")).Cast<IWriteableFileInfo>().ToList();
+        Assert.AreEqual(Disk("dir"), entries.Single().PhysicalPath);
+        Assert.AreEqual(Disk("dir", "f.txt"), (await _provider.GetFileInfoAsync("dir/f.txt")).PhysicalPath);
+        Assert.AreEqual(Disk("dir"), (await _provider.GetFileInfoAsync("dir")).PhysicalPath);
+        Assert.IsNull((await _provider.GetFileInfoAsync("missing")).PhysicalPath);
+    }
+
+    [TestMethod]
+    public async Task List_OfAMissingRootIsAnEmptyFolder()
+    {
+        var root = await _provider.GetDirectoryContentsAsync("");
+        Assert.IsTrue(root.Exists);
+        Assert.IsFalse(root.Any());
+        Assert.IsFalse(Directory.Exists(_root), "Listing creates nothing");
+    }
+
+    [TestMethod]
+    public async Task List_StopsWhenCancelled()
+    {
+        foreach (var name in new[] { "a.txt", "b.txt", "c.txt" })
+            await Write(name, name);
+        using var cancellation = new CancellationTokenSource();
+        await Assert.ThrowsAsync<OperationCanceledException>(async () =>
+        {
+            await foreach (var _ in _provider.EnumerateAsync("", cancellationToken: cancellation.Token))
+                await cancellation.CancelAsync();
+        });
+        await Assert.ThrowsAsync<OperationCanceledException>(async () =>
+        {
+            await foreach (var _ in _provider.EnumerateAsync("", cancellationToken: cancellation.Token))
+                Assert.Fail("A cancelled listing yields nothing");
+        });
+    }
+
+    [TestMethod]
+    public async Task List_RecursiveListsALinkedFolderWithoutWalkingIt()
+    {
+        // A link back up the tree would walk forever; a link outside the root would list what is not the provider's.
+        await Write("dir/f.txt", "x");
+        var outside = Path.Combine(Path.GetDirectoryName(_root)!, Path.GetFileName(_root) + "-outside");
+        Directory.CreateDirectory(outside);
+        File.WriteAllText(Path.Combine(outside, "secret.txt"), "outside");
+        try
+        {
+            try
+            {
+                Directory.CreateSymbolicLink(Disk("dir", "up"), Disk("dir"));
+                Directory.CreateSymbolicLink(Disk("out"), outside);
+            }
+            catch (Exception e) when (OperatingSystem.IsWindows() && e is IOException or UnauthorizedAccessException)
+            {
+                Assert.Inconclusive($"Creating a symbolic link on Windows needs Developer Mode or elevation: {e.Message}");
+            }
+            var paths = new List<string>();
+            await foreach (var entry in _provider.EnumerateAsync("", recursive: true))
+                paths.Add(entry.Path.ToString());
+            CollectionAssert.AreEquivalent(new[] { "dir", "dir/f.txt", "dir/up", "out" }, paths);
+            Assert.IsTrue((await _provider.GetFileInfoAsync("out")).IsDirectory, "A linked folder is listed as a folder");
+        }
+        finally
+        {
+            Directory.Delete(outside, recursive: true);
+        }
+    }
+
+    // ----- Move and copy -----
+
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task Move_RefusesADestinationThatAppearedMeanwhile(bool byRenameWithoutReplacing)
+    {
+        // The core members, called past the base class's own destination check: the rename itself refuses.
+        TakeNewNames(byRenameWithoutReplacing);
+        await Write("a.txt", "a");
+        await Write("b.txt", "b");
+        var move = await Assert.ThrowsExactlyAsync<FileExistsException>(() => _provider.MoveCore("a.txt", "b.txt"));
+        Assert.IsInstanceOfType<IOException>(move.InnerException);
+        var copy = await Assert.ThrowsExactlyAsync<FileExistsException>(() => _provider.CopyCore("a.txt", "b.txt"));
+        Assert.IsInstanceOfType<PreconditionFailedException>(copy.InnerException);
+        Assert.AreEqual("a", await Read("a.txt"));
+        Assert.AreEqual("b", await Read("b.txt"));
+        Assert.IsEmpty(TempFiles());
+    }
+
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task Move_OfASourceThatVanishedLeavesNoDestination(bool byRenameWithoutReplacing)
+    {
+        TakeNewNames(byRenameWithoutReplacing);
+        var e = await Assert.ThrowsExactlyAsync<FileNotFoundException>(() => _provider.MoveCore("gone.txt", "new/b.txt"));
+        Assert.AreEqual("gone.txt", e.FileName);
+        Assert.IsInstanceOfType<FileNotFoundException>(e.InnerException);
+        Assert.IsFalse(File.Exists(Disk("new", "b.txt")), "A name taken for the move is given back");
+    }
+
+    [TestMethod]
+    public async Task Move_ToANameDifferingOnlyInCaseRenames()
+    {
+        // Forced on every system, so the case-only path runs on Linux too, where it is a plain rename.
+        using var provider = new WriteablePhysicalFileProvider(_root) { IgnoresCase = true };
+        await provider.UpdateFileAsync("a.txt", TestStreams.Text("a"));
+        await provider.MoveAsync("a.txt", "A.txt");
+        CollectionAssert.AreEqual(new[] { "A.txt" }, Directory.GetFiles(_root).Select(Path.GetFileName).ToArray());
+    }
+
+    // ----- Paths -----
+
+    [TestMethod]
+    public async Task Paths_OutsideTheRootAreRefused()
+    {
+        // Validated segments cannot leave the root; the provider checks the resolved disk path anyway.
+        Directory.CreateDirectory(_root);
+        var outside = Path.Combine(Path.GetDirectoryName(_root)!, Path.GetFileName(_root) + "-outside.txt");
+        File.WriteAllText(outside, "outside");
+        try
+        {
+            var escape = _provider.Unvalidated("..", Path.GetFileName(outside));
+            var e = await Assert.ThrowsExactlyAsync<ArgumentException>(() => _provider.GetFileInfoCore(escape));
+            Assert.AreEqual("path", e.ParamName);
+            Assert.DoesNotContain(_root, e.Message);
+            await Assert.ThrowsExactlyAsync<ArgumentException>(() => _provider.ReadCore(escape));
+            await Assert.ThrowsExactlyAsync<ArgumentException>(() => _provider.ReadRangeCore(escape));
+            await Assert.ThrowsExactlyAsync<ArgumentException>(() => _provider.UpdateCore(escape, TestStreams.Text("x"), UpdateFileOptions.Overwrite));
+            await Assert.ThrowsExactlyAsync<ArgumentException>(() => _provider.DeleteCore(escape));
+            await Assert.ThrowsExactlyAsync<ArgumentException>(() => _provider.FolderExistsCore(_provider.Unvalidated("..")));
+            await Assert.ThrowsExactlyAsync<ArgumentException>(() => _provider.ListCore(_provider.Unvalidated("..")));
+            await Assert.ThrowsExactlyAsync<ArgumentException>(() => _provider.MoveCore(escape, _provider.Resolved("in.txt")));
+            Assert.AreEqual("outside", File.ReadAllText(outside));
+        }
+        finally
+        {
+            File.Delete(outside);
+        }
+    }
+
+    [TestMethod]
+    [DataRow("a:b")]
+    [DataRow("c:")]
+    [DataRow("f.txt:stream")]
+    public async Task Paths_WithAColonAreRefused(string name)
+    {
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => _provider.GetFileInfoAsync(name));
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => Write("dir/" + name, "x"));
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => _provider.DeleteAsync(name));
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => _provider.MoveAsync("a.txt", name));
+        Assert.IsFalse(Directory.Exists(_root));
+    }
+
+    [TestMethod]
+    [DataRow("my file.txt")]
+    [DataRow("árvíztűrő tükörfúrógép.txt")]
+    [DataRow("日本語.txt")]
+    [DataRow("a..b.txt")]
+    [DataRow(".hidden")]
+    public async Task Paths_NamesLandOnDiskAsGiven(string name)
+    {
+        await Write("dir/" + name, "x");
+        Assert.IsTrue(File.Exists(Disk("dir", name)));
+        Assert.IsTrue((await _provider.GetFileInfoAsync(new[] { "dir", name })).Exists);
+        CollectionAssert.AreEqual(new[] { name }, Names("dir"));
+    }
+
+    [TestMethod]
+    public async Task Paths_AnEmptySegmentNeverReachesItsParent()
+    {
+        await Write("keep/f.txt", "x");
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => _provider.DeleteAsync(new[] { "keep", "" }));
+        Assert.AreEqual("x", await Read("keep/f.txt"));
+    }
+
+    [TestMethod]
+    public async Task List_EntriesCanBeUsedAsPaths()
+    {
+        await Write("list/sub/f.txt", "x");
+        var file = (await _provider.GetDirectoryContentsAsync("list/sub")).Single();
+        await _provider.MoveAsync(file, "moved/g.txt");
+        Assert.AreEqual("x", await Read("moved/g.txt"));
+        var sub = (await _provider.GetDirectoryContentsAsync("list")).Single();
+        Assert.IsTrue(await _provider.DeleteAsync(sub));
+        Assert.IsFalse(Directory.Exists(Disk("list", "sub")));
+        Assert.IsTrue(Directory.Exists(Disk("list")));
+    }
+
+    [TestMethod]
+    public void Paths_ARefusedSegmentIsNamedWithoutItsParents()
+    {
+        var e = Assert.ThrowsExactly<ArgumentException>(() => _provider.GetFileInfo(new[] { "secret-parent", ".." }));
+        StringAssert.Contains(e.Message, "'..'");
+        Assert.DoesNotContain("secret-parent", e.Message);
+        Assert.DoesNotContain(_root, e.Message);
+    }
+
+    // ----- Watch and disposal -----
+
+    [TestMethod]
+    public async Task Watch_FiresWhenAWriteLands()
+    {
+        var token = _provider.Watch("*.txt");
+        Assert.IsTrue(Directory.Exists(_root), "Watching a missing root creates it");
+        var fired = new TaskCompletionSource();
+        using var registration = token.RegisterChangeCallback(_ => fired.TrySetResult(), null);
+        await Write("f.txt", "x");
+        await fired.Task.WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.IsTrue(token.HasChanged);
+        Assert.IsNotNull(_provider.Watch("**/*"), "Later calls reuse the watcher");
+    }
+
+    [TestMethod]
+    [DataRow("/f.txt")]
+    [DataRow(@"\f.txt")]
+    public async Task Watch_TakesAFilterWithALeadingSeparator(string filter)
+    {
+        var token = _provider.Watch(filter);
+        var fired = new TaskCompletionSource();
+        using var registration = token.RegisterChangeCallback(_ => fired.TrySetResult(), null);
+        await Write("f.txt", "x");
+        await fired.Task.WaitAsync(TimeSpan.FromSeconds(30));
+    }
+
+    [TestMethod]
+    public void Watch_OfAFilterThatCannotMatchNeverFires()
+    {
+        // As PhysicalFileProvider: no filter, a character no file name holds, a path above the root, or a drive. On Unix
+        // an absolute path is the same path under the root: its leading separator is ignored.
+        foreach (var filter in new[] { null!, "a\0b", "../x", "/../x" })
+            Assert.AreSame(NullChangeToken.Singleton, _provider.Watch(filter), filter);
+        if (OperatingSystem.IsWindows())
+            Assert.AreSame(NullChangeToken.Singleton, _provider.Watch(Path.GetFullPath("x")));
+    }
+
+    [TestMethod]
+    public void Watch_AfterDisposeIsRefused()
+    {
+        _provider.Dispose();
+        Assert.ThrowsExactly<ObjectDisposedException>(() => _provider.Watch("*"));
+    }
+
+    [TestMethod]
+    public void Dispose_FromAFinalizerLeavesTheWatcherAlone()
+    {
+        Assert.IsNotNull(_provider.Watch("*"));
+        _provider.DisposeFromFinalizer();
+        Assert.IsNotNull(_provider.Watch("*"), "Only Dispose() stops watching");
+        _provider.Dispose();
+        Assert.ThrowsExactly<ObjectDisposedException>(() => _provider.Watch("*"));
+    }
+
+    // ----- The root -----
+
+    [TestMethod]
+    public async Task Root_AtTheTopOfTheFileSystemResolvesItsChildren()
+    {
+        // Read only: a root that ends in a separator ("/" or "C:\") still reaches what is below it.
+        var temp = Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.GetTempPath()));
+        var top = Path.GetPathRoot(temp)!;
+        using var provider = new WriteablePhysicalFileProvider(top);
+        Assert.AreEqual(top, provider.Options.RootDirectoryPath);
+        var info = await provider.GetFileInfoAsync(Path.GetRelativePath(top, temp));
+        Assert.IsTrue(info.IsDirectory);
+        Assert.AreEqual(temp, info.PhysicalPath);
+    }
+}

@@ -183,15 +183,11 @@ public sealed class ConfigurationShapeTests
         }).Build();
         using var fromConfig = WriteableFileProviderSerializer.FromConfiguration(config);
 
+        // F79, fixed: RootDirectoryPath, and so ToJson, is the real path on every system, where 2026 carried Physical's
+        // "root:" marker on Unix. WriteableFileProviders.Physical.Tests reads the "root:" forms 2026 stored.
+        Assert.AreEqual(Path.GetFullPath(root), json["RootDirectoryPath"]!.GetValue<string>());
         foreach (var each in new IWriteableFileProvider[] { provider, read, fromConfig })
-        {
-            if (OperatingSystem.IsWindows())
-                Assert.AreEqual(Path.GetFullPath(root), Path.GetFullPath(each.Options.RootDirectoryPath!));
-            else
-                // F79: on Unix, RootDirectoryPath, and so ToJson, carries Physical's internal "root:" marker for an absolute
-                // path instead of the path itself. Pinned until S5 fixes it.
-                Assert.AreEqual("root:" + Path.GetFullPath(root), each.Options.RootDirectoryPath);
-        }
+            Assert.AreEqual(Path.GetFullPath(root), each.Options.RootDirectoryPath);
     }
 
     [TestMethod]

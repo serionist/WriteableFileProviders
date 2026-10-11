@@ -17,7 +17,7 @@ and what never to do.
 | `tests/WriteableFileProviders.Common.Tests/` | Common's tests: the conformance suite on the in-memory provider, unit tests, and the configuration-shape goldens. |
 | `tests/WriteableFileProviders.AspNetCore.Tests/` | The gateway and the URL service, end to end on TestServer over the in-memory provider. |
 | `tests/WriteableFileProviders.Tests/` | The provider tests from before the modernization; each provider's rewrite moves its tests to a project of its own on the conformance suite. |
-| `tests/WriteableFileProviders.<Provider>.Tests/` | A rewritten provider's tests: the conformance suite on its emulator or fake, its own cases, and a `Live` suite (see Tests). |
+| `tests/WriteableFileProviders.<Provider>.Tests/` | A rewritten provider's tests: the conformance suite on its store, emulator or fake, its own cases, and a `Live` suite (see Tests). |
 | `docs/migration-2027.md` | What 2027.0.0 breaks and how to move over; each change of the release adds its part. |
 | `REVIEW.md` | The questions every review answers. |
 | `docs/plans/` | The plan of each non-trivial change, and the template (`docs/plans/README.md`). |
@@ -47,7 +47,7 @@ Run everything from the repo root, with a .NET 10 SDK (`global.json`).
 - **Once per clone:**
   - Only for the live suites: copy `tests/WriteableFileProviders.Tests/testsettings.sample.json` to `testsettings.json`
     next to it and fill in the accounts you own. It is git-ignored: real credentials go there and nowhere else. Nothing
-    else needs it; without it the Physical suite works under a temp folder. The Azure Blob live suite reads its own,
+    else needs it. The Azure Blob live suite reads its own,
     `tests/WriteableFileProviders.AzureBlob.Tests/testsettings.json` (sample next to it), or the `WFP_AZURE_*`
     variables.
   - With Claude Code: install the C# language server its plugin runs, `dotnet tool install --global csharp-ls`. Claude
@@ -99,6 +99,12 @@ step of #3, in a test project of its own:
   inconclusive without `WFP_LIVE=1`, and with it fails, naming what is missing, unless an account is configured in the
   `WFP_SHAREPOINT_*` variables or a `testsettings.json` next to its project (`testsettings.sample.json` lists the
   keys).
+- **Physical**, `tests/WriteableFileProviders.Physical.Tests`: `PhysicalConformanceTests` runs the suite on the local
+  disk, under a temp folder of its own that the class deletes when it ends; `PhysicalProviderTests` and
+  `PhysicalOptionsTests` cover the temp files, the races, the rules that differ by OS and the stored root forms.
+  `PhysicalLiveTests` (`Live`) runs the suite in a folder you name, such as a network share, through
+  `WFP_PHYSICAL_ROOT` or `PhysicalFileProvider_RootPath` in a `testsettings.json` next to that project; it is not in
+  `live.yml`. CI runs the project on Linux and Windows.
 
 `WriteableFileProviders.AspNetCore.Tests` runs the gateway end to end on TestServer (`Microsoft.AspNetCore.TestHost`),
 with ephemeral Data Protection keys, over `InMemoryFileProvider` and a delegating provider that signs no URLs natively
@@ -118,12 +124,10 @@ live suites, `AmazonS3LiveTests` and `MinioLiveTests`, run only with `WFP_LIVE=1
 settings their docs list, from the environment or a `testsettings.json` next to the test project (see its
 `testsettings.sample.json`).
 
-`TestBase`, in tests/WriteableFileProviders.Tests, is the older shared suite each provider still runs until then: create,
-overwrite, append, move, delete, listing, local stream, download URL and 100 MB tests. Its classes fall in four groups:
+`TestBase`, in tests/WriteableFileProviders.Tests, is the older shared suite (create, overwrite, append, move, delete,
+listing, local stream, download URL and 100 MB tests). Every provider has moved to a project of its own, so that
+project holds no test any more; S12 deletes it. The other tests fall in three groups:
 
-- **Unit tests**, no outside service: `SegmentValidationTests` and `PhysicalReadTests`.
-- **Physical**, `PyhsicalFileProvider`: the shared suite on the local disk, under `PhysicalFileProvider_RootPath`, or a
-  temp folder when it is not set.
 - **Emulator tests**, in each provider's own test project: its fixture starts the emulator once per run through
   Testcontainers, and the container goes when the run ends. Without Docker they are inconclusive, not failed, unless
   `WFP_REQUIRE_DOCKER=1` (CI). This project starts none any more.

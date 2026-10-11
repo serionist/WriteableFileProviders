@@ -21,9 +21,9 @@ an application must be on the same major version: a `2026.10.10.x` package does 
 
 ## Use
 
-The shortest form, download links for files in a local folder, is the root README's
-[tutorial](https://github.com/serionist/WriteableFileProviders#2-download-links-for-local-files). An app that decides
-who may read each file:
+The shortest form, download links for files in a local folder, is step 2 of
+[Getting started](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/getting-started.md#2-download-links-for-local-files).
+An app that decides who may read each file:
 
 ```csharp
 using System.Security.Claims;

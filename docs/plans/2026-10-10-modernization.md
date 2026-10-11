@@ -2429,6 +2429,17 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
   below: the licence agreement (D8), the security items, the nuget.org and environment setup of `docs/releasing.md`,
   dating the changelog, and the tag.
 
+- **2026-10-11, repository settings (with the maintainer's yes):** set through the GitHub API:
+  - private vulnerability reporting, Dependabot alerts and Dependabot security updates are on;
+  - the `main: PRs only` ruleset requires "Build, test, coverage, pack (Linux)" and "Build and test (Windows)" (GitHub
+    Actions);
+  - the `nuget` environment requires serionist or NemesLaszlo to approve, deploys only from `v*` tags, and holds the
+    secret `NUGET_USER` = `serionist`;
+  - a "Release tags" ruleset restricts creating, moving and deleting `v*` tags to the admin and write roles.
+
+  Left for the maintainer: reserving the id prefix and the trusted publishing policy on nuget.org (steps 1 and 5 of
+  `docs/releasing.md`), and the other open items below.
+
 ### For the maintainers
 
 What this session cannot do, in the order to do it: first what closes a security exposure, then the review of what
@@ -2439,8 +2450,8 @@ merged, the repository's settings, the live runs, and the release. Kept current 
 - [ ] Rotate the MinIO access key pair from F9 on that server, and any other credential that was ever in the Azure
   DevOps history.
 - [ ] Delete the Azure DevOps repository and organization.
-- [ ] Turn on private vulnerability reporting (Settings > Code security): the README, SECURITY.md and the issue forms
-  send reporters there. It was off on 2026-10-11.
+- [x] Turn on private vulnerability reporting (Settings > Code security): the README, SECURITY.md and the issue forms
+  send reporters there. It was off on 2026-10-11. Done 2026-10-11.
 - [x] The S0 patch is published (nuget.org, seen on 2026-10-11): `WriteableFileProviders.Common` 2026.10.10.6 and
   `WriteableFileProviders.AmazonS3` 2026.10.10.3 (with `ReadFileVersionAsync` and the old members `[Obsolete]`), and
   every other provider released again on it: Physical, AzureBlob and Minio 2026.10.10.3, GoogleCloudStorage
@@ -2473,15 +2484,15 @@ merged, the repository's settings, the live runs, and the release. Kept current 
 
 **The repository's settings** (Settings > Code security, and the rulesets):
 
-- [ ] Turn on Dependabot alerts and Dependabot security updates; `dependabot.yml` only schedules version updates.
-  Both were off on 2026-10-11.
+- [x] Turn on Dependabot alerts and Dependabot security updates; `dependabot.yml` only schedules version updates.
+  Both were off on 2026-10-11. Done 2026-10-11.
 - [ ] Turn on the dependency graph and Automatic dependency submission: the graph does not read the versions in
   `Directory.Packages.props`, so without the submission the alerts miss every package. NuGetAudit stays the guard at
   restore time.
 - [ ] Keep secret scanning and its push protection on (on as of 2026-10-11), and CodeQL's default setup off:
   `codeql.yml` is the advanced setup, and the two conflict.
-- [ ] Make CI a required check in the `main` ruleset: "Build, test, coverage, pack (Linux)" and "Build and test
-  (Windows)", and CodeQL's "Analyze (csharp)" if you want code scanning to gate merges too.
+- [x] Make CI a required check in the `main` ruleset: "Build, test, coverage, pack (Linux)" and "Build and test
+  (Windows)", and CodeQL's "Analyze (csharp)" if you want code scanning to gate merges too. Done 2026-10-11.
 - [ ] Set the social preview (Settings, General, Social preview): upload `docs/assets/social-preview.png`, 1280×640.
 - [ ] Turn on Discussions, if you want questions kept apart from issues (Settings, General, Features); the issue forms'
   `config.yml` can then link them.
@@ -2494,10 +2505,12 @@ before it holds a secret or nuget.org trusts it):
   1. Reserve the `WriteableFileProviders.` id prefix on nuget.org: an email from the owning account, `serionist`, to
      `account@nuget.org`, naming the prefix `WriteableFileProviders.*`.
   2. The `nuget` environment: required reviewers, the maintainers; deployment tags `v*` only.
+     Done 2026-10-11 (serionist and NemesLaszlo).
   3. A tag ruleset on `v*` restricting creations, updates and deletions. Its bypass takes roles, not users: Repository
      admin and Write (today exactly the two maintainers; anyone given write later can tag).
+     Done 2026-10-11 ("Release tags").
   4. The `nuget` environment's secret `NUGET_USER`: `serionist`, the nuget.org profile name (not the email) of the
-     account that owns the packages.
+     account that owns the packages. Done 2026-10-11.
   5. On nuget.org, as `serionist`, a trusted publishing policy owned by `serionist`: repository owner `serionist`,
      repository `WriteableFileProviders`, workflow `release.yml`, environment `nuget`, with the scopes for new
      packages and new versions on the glob `WriteableFileProviders.*` (`WriteableFileProviders.AspNetCore` is a new id).

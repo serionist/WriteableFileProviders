@@ -13,8 +13,8 @@ using WriteableFileProviders.Testing;
 namespace WriteableFileProviders.AspNetCore.Tests;
 
 /// <summary>
-/// The root README's tutorial, download URLs for local files: the app below is the README's, line for line, apart from
-/// the lines marked "test", which run it on TestServer over a temp folder instead of <c>files</c>.
+/// Step 2 of docs/guide/getting-started.md, download URLs for local files: the app below is the guide's, line for
+/// line, apart from the lines marked "test", which run it on TestServer over a temp folder instead of <c>files</c>.
 /// </summary>
 [TestClass]
 public sealed class TutorialTests

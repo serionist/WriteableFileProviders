@@ -9,7 +9,8 @@
 ## Tested by
 
 <!-- The tests that cover the change, and which suites ran: offline, an emulator suite (which), a live suite (which
-provider). -->
+provider). CI runs the offline and emulator suites and the coverage gate on every PR, and the PR is ready for review
+once it is green. -->
 
 ## Review
 

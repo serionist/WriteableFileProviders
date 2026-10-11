@@ -1,0 +1,67 @@
+name: Bug report
+description: Something a WriteableFileProviders package does wrong.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A security vulnerability goes through a private report, never an issue: see [SECURITY.md](https://github.com/serionist/WriteableFileProviders/blob/main/SECURITY.md).
+  - type: dropdown
+    id: packages
+    attributes:
+      label: Packages
+      description: The packages involved.
+      multiple: true
+      options:
+        - WriteableFileProviders.Common
+        - WriteableFileProviders.Physical
+        - WriteableFileProviders.AzureBlob
+        - WriteableFileProviders.AmazonS3
+        - WriteableFileProviders.Minio
+        - WriteableFileProviders.GoogleCloudStorage
+        - WriteableFileProviders.Box
+        - WriteableFileProviders.SharePoint
+        - WriteableFileProviders.AspNetCore
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Package version
+      placeholder: 2027.0.0
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: .NET and operating system
+      placeholder: .NET 10.0.1 on Ubuntu 24.04
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, and what the provider did. Include the exception and its stack trace, if any.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: Does another provider do what you expected? Every member means the same on every provider.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: The smallest code and configuration that shows it, with every key, secret and private endpoint removed.
+      render: csharp
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you submit
+      options:
+        - label: Nothing above holds a key, token, password, connection string or private endpoint.
+          required: true

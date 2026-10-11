@@ -1,0 +1,53 @@
+name: Feature request
+description: Something a WriteableFileProviders package should do.
+labels: [enhancement]
+body:
+  - type: dropdown
+    id: packages
+    attributes:
+      label: Packages
+      description: The packages it concerns. A change to Common's API concerns every provider.
+      multiple: true
+      options:
+        - WriteableFileProviders.Common
+        - WriteableFileProviders.Physical
+        - WriteableFileProviders.AzureBlob
+        - WriteableFileProviders.AmazonS3
+        - WriteableFileProviders.Minio
+        - WriteableFileProviders.GoogleCloudStorage
+        - WriteableFileProviders.Box
+        - WriteableFileProviders.SharePoint
+        - WriteableFileProviders.AspNetCore
+        - A new provider
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you are trying to do, and what stops you today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you propose
+      description: |
+        The API or behaviour you have in mind. A member does the same thing on every provider, so say which stores can
+        support it, and what a provider that cannot should do (throw, the way the others do).
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: Workarounds you use now, or other designs you considered.
+  - type: dropdown
+    id: contribute
+    attributes:
+      label: Would you send the PR?
+      description: A change beyond a typo starts here, and a non-trivial one gets a plan a maintainer approves first (CONTRIBUTING.md).
+      options:
+        - "Yes"
+        - "Maybe, with guidance"
+        - "No"

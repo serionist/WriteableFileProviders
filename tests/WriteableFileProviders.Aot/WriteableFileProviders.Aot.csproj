@@ -1,8 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
-  <!-- An app over the packages, published with native AOT in CI: Program.cs says what it checks. Every member of each
-       package is kept (TrimmerRootAssembly), so the publish analyses all of it, used here or not, and the SDKs it calls;
-       any trim or AOT warning fails it. GoogleCloudStorage and Box are left out: their SDKs are not AOT compatible. -->
+  <!-- An app over the packages, published with native AOT in CI: Program.cs says what it checks. Every member of
+       each package is kept (TrimmerRootAssembly), so the publish analyses all of it, used here or not, and the SDKs
+       it calls; any trim or AOT warning fails it. GoogleCloudStorage and Box are left out: their SDKs are not AOT
+       compatible. -->
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -13,7 +14,8 @@
     <IlcTreatWarningsAsErrors>true</IlcTreatWarningsAsErrors>
     <!-- The runtimes it is published for, so the lock file holds their packages. -->
     <RuntimeIdentifiers>linux-x64;win-x64</RuntimeIdentifiers>
-    <!-- Never packed (tests/Directory.Build.props); the web SDK would warn when dotnet pack meets it in the solution. -->
+    <!-- Never packed (tests/Directory.Build.props); the web SDK would warn when dotnet pack meets it in the
+         solution. -->
     <WarnOnPackingNonPackableProject>false</WarnOnPackingNonPackableProject>
   </PropertyGroup>
 

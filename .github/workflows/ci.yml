@@ -106,7 +106,8 @@ jobs:
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           global-json-file: global.json
-      # The native AOT compiler links with clang and zlib; the runner image has them, this covers an image that does not.
+      # The native AOT compiler links with clang and zlib. The runner image has them; this covers an image that
+      # does not.
       - name: Native AOT prerequisites
         run: |
           if ! command -v clang >/dev/null || ! dpkg -s zlib1g-dev >/dev/null 2>&1; then
@@ -121,10 +122,12 @@ jobs:
           docker run -d --name minio -p 127.0.0.1:9000:9000 --user 0 \
             -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
             cgr.dev/chainguard/minio@sha256:7df55d002b698e4494a131b848dd553361bbe58b7e19f62d9623c29af1ba9ccf server /data
-      # Restored on its own: publish -r would restore every project for that runtime, which their lock files do not hold.
+      # Restored on its own: publish -r would restore every project for that runtime, which their lock files do not
+      # hold.
       - name: Restore (locked)
         run: dotnet restore tests/WriteableFileProviders.Aot --locked-mode
-      # Fails on any trim or AOT warning in the packages or the SDKs they call (tests/WriteableFileProviders.Aot/README.md).
+      # Fails on any trim or AOT warning in the packages or the SDKs they call, but one folded IL2104
+      # (tests/WriteableFileProviders.Aot/README.md).
       - name: Publish with native AOT
         run: dotnet publish tests/WriteableFileProviders.Aot --no-restore -c Release -r linux-x64 -o artifacts/aot
       - name: Wait for the emulators

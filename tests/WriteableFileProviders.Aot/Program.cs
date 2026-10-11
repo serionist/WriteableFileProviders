@@ -6,8 +6,8 @@
 // - Physical: the round trip in Checks, in a temp folder.
 // - AspNetCore: the gateway on Kestrel, on loopback, serving a download URL and an upload URL over HTTP.
 // - SharePoint: the round trip on the in-memory Microsoft Graph of the SharePoint tests.
-// - Azure Blob, Amazon S3 and MinIO: the round trip, and their own signed URLs used over HTTP, on Azurite and MinIO when
-//   WFP_AOT_AZURITE and WFP_AOT_MINIO hold their host:port (CI starts both); skipped otherwise.
+// - Azure Blob, Amazon S3 and MinIO: the round trip, and their own signed URLs used over HTTP, on Azurite and MinIO
+//   when WFP_AOT_AZURITE and WFP_AOT_MINIO hold their host:port (CI starts both); skipped otherwise.
 //
 // It prints a line per check and exits with 1 on the first failure.
 using System.Net;
@@ -132,7 +132,9 @@ internal static class Checks
             Check("Configuration", "build providers from bound options", true);
     }
 
-    /// <summary>Writes, appends, reads, reads a range, copies, moves, lists, edits a local copy and deletes, under aot/.</summary>
+    /// <summary>
+    /// Writes, appends, reads, reads a range, copies, moves, lists, edits a local copy and deletes, under aot/.
+    /// </summary>
     public static async Task RoundTripAsync(string name, IWriteableFileProvider files)
     {
         await files.UpdateFileAsync("aot/a.txt", Text("hello"));

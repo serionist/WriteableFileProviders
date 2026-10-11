@@ -18,7 +18,7 @@ links, `docs/guide/`.
 | `tests/WriteableFileProviders.Common.Tests/` | Common's tests: the conformance suite on the in-memory provider, unit tests, and the configuration-shape goldens. |
 | `tests/WriteableFileProviders.AspNetCore.Tests/` | The gateway and the URL service, end to end on TestServer over the in-memory provider. |
 | `tests/WriteableFileProviders.<Provider>.Tests/` | A provider's tests: the conformance suite on its store, emulator or fake, its own cases, and a `Live` suite (see Tests). |
-| `tests/WriteableFileProviders.Aot/` | The native AOT test: an app over every package but GoogleCloudStorage and Box, which CI publishes with native AOT and runs against the local disk, Azurite, MinIO and the Graph fake. Its README says why it is an app. |
+| `tests/WriteableFileProviders.Aot/` | The native AOT test: an app over every package but GoogleCloudStorage and Box, which CI publishes with native AOT and runs on the local disk, the gateway, Azurite, MinIO and the Graph fake. Its README says why it is an app. |
 | `docs/guide/` | The user guide, one topic a page, each linked from the README: `providers.md` (the comparison matrix), `paths-and-listings.md`, `reading-and-writing.md`, `signed-urls.md` (native URLs and the gateway), `dependency-injection.md`, `errors.md`, `writing-a-provider.md`, `versioning.md` (the versioning policy). |
 | `docs/migration-2027.md` | What 2027.0.0 breaks and how to move over; each change of the release adds its part. |
 | `docs/releasing.md` | How to release: date the changelog, tag, approve. |
@@ -43,8 +43,7 @@ links, `docs/guide/`.
 Every project targets `net10.0` and builds strict: nullable analysis, warnings as errors, the analyzers at
 `latest-recommended` and the `.editorconfig` style enforced in the build. Every package also runs the trim and AOT
 analyzers (`IsAotCompatible`); a member that needs reflection says so with `RequiresUnreferencedCode` and
-`RequiresDynamicCode`. Code follows `.editorconfig`, and nothing
-reformats a file it does not otherwise change.
+`RequiresDynamicCode`. Code follows `.editorconfig`, and nothing reformats a file it does not otherwise change.
 
 Package validation (`EnablePackageValidation`, in `src/Directory.Build.props`) runs on every pack. Until 2027.0.0 is
 on nuget.org it checks each package's own consistency; then its baseline compares every later package with that
@@ -81,7 +80,8 @@ Run everything from the repo root, with a .NET 10 SDK (`global.json`).
 - **CI** (`.github/workflows/ci.yml`) runs the build, the tests with coverage, the gate and the pack on Linux, where
   Docker is available and a missing emulator fails the run (`WFP_REQUIRE_DOCKER=1`), and the build and tests on Windows.
   Its Native AOT job publishes `tests/WriteableFileProviders.Aot` with native AOT, which fails on any trim or AOT
-  warning in the packages or the SDKs they call, and runs it against Azurite and MinIO.
+  warning in the packages or the SDKs they call (but one, its README says which), and runs it on the local disk,
+  the gateway, Azurite, MinIO and the Graph fake.
 - **Release:** a maintainer tags `v<version>` on `main`. `release.yml` builds, runs the tests with coverage and the
   coverage gate, packs, checks that every package has that version and depends on our other packages within its major
   (`eng/package-check.cs`), and requires that `ci.yml` concluded success on the tagged commit (its Windows job included);

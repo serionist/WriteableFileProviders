@@ -7,8 +7,9 @@ using Microsoft.Kiota.Abstractions.Authentication;
 namespace WriteableFileProviders.SharePoint.Tests;
 
 /// <summary>
-/// <see cref="DriveItemPath"/> sends every request to the URL Graph's own <c>Root.ItemWithPath(path)</c> builds, which it
-/// replaces in trimmed and native AOT apps. Paths arrive as the provider passes them, with every '%' already escaped.
+/// <see cref="DriveItemPath"/> sends every request to the URL Graph's own <c>Root.ItemWithPath(path)</c> builds,
+/// which it replaces in trimmed and native AOT apps. Paths arrive as the provider passes them, with every '%' already
+/// escaped.
 /// </summary>
 [TestClass]
 public sealed class DriveItemPathTests

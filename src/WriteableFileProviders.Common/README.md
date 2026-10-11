@@ -14,7 +14,8 @@ dotnet add package WriteableFileProviders.Physical
 
 Or `.AzureBlob`, `.AmazonS3`, `.Minio`, `.GoogleCloudStorage`, `.Box`, `.SharePoint`. Install Common alone to write a
 provider of your own. Needs .NET 10, and is native AOT compatible, except building a provider from configuration
-([Native AOT](https://github.com/serionist/WriteableFileProviders#native-aot)). Keep every WriteableFileProviders package in an app on the same major version.
+([Native AOT](https://github.com/serionist/WriteableFileProviders#native-aot)). Keep every WriteableFileProviders
+package in an app on the same major version.
 
 ## Use
 

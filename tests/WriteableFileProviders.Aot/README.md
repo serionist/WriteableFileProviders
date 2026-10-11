@@ -19,8 +19,8 @@ logs primitives through `WriteEvent(int, object[])`.
 
 ## Run it
 
-Needs the native AOT prerequisites ([Microsoft Learn](https://learn.microsoft.com/dotnet/core/deploying/native-aot/#prerequisites)).
-On Linux:
+Needs the native AOT
+[prerequisites](https://learn.microsoft.com/dotnet/core/deploying/native-aot/#prerequisites). On Linux:
 
 ```
 dotnet restore tests/WriteableFileProviders.Aot

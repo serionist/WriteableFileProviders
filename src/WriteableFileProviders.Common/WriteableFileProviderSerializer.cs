@@ -19,8 +19,8 @@ namespace WriteableFileProviders;
 /// two types share throws. Loaded assemblies are not searched, so a third-party provider is registered or passed in.
 /// </para>
 /// <para>
-/// It finds types and reads options through reflection, so its members warn in a trimmed or native AOT app. There, build
-/// the provider in code, with its options bound by the configuration binder's source generator:
+/// It finds types and reads options through reflection, so its members warn in a trimmed or native AOT app. There,
+/// build the provider in code, with its options bound by the configuration binder's source generator:
 /// <c>new WriteableAzureBlobFileProvider(section.Get&lt;AzureBlobFileProviderOptions&gt;()!)</c>.
 /// </para>
 /// <para>

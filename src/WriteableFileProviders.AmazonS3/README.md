@@ -1,9 +1,7 @@
 # WriteableFileProviders.AmazonS3
 
-A writeable `IFileProvider` over an Amazon S3 bucket, or a bucket on any S3-compatible server, part of
-[WriteableFileProviders](https://github.com/serionist/WriteableFileProviders#readme): the same `IWriteableFileProvider`
-API, with the same meaning, as the local disk, Azure Blob Storage, MinIO, Google Cloud Storage, Box and SharePoint
-providers. Built on the AWS SDK for .NET v4 (`AWSSDK.S3` 4).
+An Amazon S3 bucket, or a bucket on an S3-compatible server, as an `IWriteableFileProvider`, on `AWSSDK.S3` 4. Part of
+[WriteableFileProviders](https://github.com/serionist/WriteableFileProviders#readme).
 
 ## Install
 
@@ -11,8 +9,7 @@ providers. Built on the AWS SDK for .NET v4 (`AWSSDK.S3` 4).
 dotnet add package WriteableFileProviders.AmazonS3
 ```
 
-It needs .NET 10 and brings `WriteableFileProviders.Common`. Every WriteableFileProviders package in an application
-must be on the same major version: a `2026.10.10.x` package does not load against `WriteableFileProviders.Common` 2027.
+Needs .NET 10. Keep every WriteableFileProviders package in an app on the same major version.
 
 ## Use
 
@@ -20,146 +17,74 @@ must be on the same major version: a `2026.10.10.x` package does not load agains
 using WriteableFileProviders;
 using WriteableFileProviders.AmazonS3;
 
-await using var files = new WriteableAmazonS3FileProvider(new AmazonS3FileProviderOptions(
-    rootDirectory: "tenants/acme", accessKey: "...", secretKey: "...", bucketName: "my-bucket", bucketRegion: "eu-west-1"));
+await using var files = new WriteableAmazonS3FileProvider(new AmazonS3FileProviderOptions
+{
+    BucketName = "my-bucket",
+    BucketRegion = "eu-west-1",
+    UseDefaultCredentials = true,
+    RootDirectoryPath = "tenants/acme",
+});
 
 await files.UpdateFileAsync("reports/2026.csv", stream);
-await using var slice = await files.ReadRangeAsync("reports/2026.csv", 0, 1024);
 var url = await files.GetSignedUrlAsync("reports/2026.csv", new SignedUrlOptions { Validity = TimeSpan.FromHours(1) });
 ```
 
-From configuration, with `WriteableFileProviderSerializer.FromConfiguration(section)` or
-`services.AddWriteableFileProvider(section)`:
+From configuration (`services.AddWriteableFileProvider(section)`):
 
 ```json
-{
-  "Files": {
-    "Type": "WriteableAmazonS3FileProvider",
-    "BucketName": "my-bucket",
-    "BucketRegion": "eu-west-1",
-    "AccessKey": "...",
-    "SecretKey": "...",
-    "RootDirectoryPath": "tenants/acme"
-  }
-}
+{ "Files": { "Type": "WriteableAmazonS3FileProvider", "BucketName": "my-bucket", "BucketRegion": "eu-west-1",
+             "AccessKey": "...", "SecretKey": "..." } }
 ```
 
-With a client you build yourself (assumed roles, custom retries, a shared client), which the provider never disposes:
-
-```csharp
-var files = new WriteableAmazonS3FileProvider(new AmazonS3FileProviderOptions { BucketName = "my-bucket" }, client);
-```
-
-With a client, the credentials and `ForcePathStyle` are the client's; the options give the bucket, the root, the
-storage class and `CreateBucketIfMissing`, and, when set, `ServiceUrl` (the provider then checks conditions itself
-before a write and issues no native create URL, as it does toward any endpoint named, and, unless the endpoint is one
-of S3's own host names, sends no requester-pays header) and `BucketRegion` (where `CreateBucketIfMissing` creates the
-bucket on S3). A client whose own `ServiceURL` is set is treated the same way, and one that sends plain `http` to a host
-that is not loopback needs `AllowInsecureHttp`. The provider class is sealed: to change what it does, wrap it, or
-derive your own provider from `WriteableFileProvider<TOptions>`.
+Or pass an `IAmazonS3` you build (assumed roles, retries, a shared client), which the provider never disposes:
+`new WriteableAmazonS3FileProvider(new AmazonS3FileProviderOptions { BucketName = "my-bucket" }, s3)`. The client's
+credentials and endpoint are used; the options give the bucket, the root, the storage class and `CreateBucketIfMissing`.
 
 ## Configuration
 
-| Key | Meaning |
-|---|---|
-| `BucketName` | The bucket. Required. |
-| `BucketRegion` | The bucket's region, such as `eu-west-1`. Required unless `ServiceUrl` is set, where it is the signing region (us-east-1 when empty). `""`, `US` and `EU`, S3's old names, read as us-east-1 and eu-west-1. |
-| `AccessKey`, `SecretKey` | A long-term key pair. |
-| `IsAnonymus` | Unsigned requests, for a public bucket (the spelling is kept for stored configurations). The constructors without a key set it. |
-| `UseDefaultCredentials` | The AWS SDK's default credential chain: environment variables, profiles, web identity, ECS, EC2 instance metadata, resolved on first use. Takes precedence over `IsAnonymus`; cannot be combined with `AccessKey`. New in 2027. |
-| `StorageClassForNewFiles` | The storage class of new files and copies, by name (`STANDARD_IA`); `STANDARD` by default. The 2026 object form `{"Value":"STANDARD_IA"}` still reads from JSON; in a configuration file, give the name as a string. |
-| `ServiceUrl` | An S3-compatible server instead of AWS, such as `http://localhost:9000`. Requests then send checksums only where S3 requires them, presigned URLs keep the endpoint's scheme, the provider checks conditions before a write as well as sending them, and it issues no native create URL (the gateway does). Plain `http` toward a host that is not loopback needs `AllowInsecureHttp`. An endpoint that is one of S3's own host names (under `amazonaws.com` or `amazonaws.com.cn`, with a label `s3` or `s3-fips`, such as `s3.eu-west-1.amazonaws.com`, a FIPS, a dual-stack or a VPC endpoint) still accepts requester-pays charges and gives a bucket it creates its region; the legacy dashed regional names (`s3-eu-west-1`, `s3-external-1`) and any other host under `amazonaws.com` (a load balancer, an instance, API Gateway) do not. New in 2027. |
-| `AllowInsecureHttp` | Allows a `ServiceUrl`, or a client's own endpoint, with plain `http` toward a host that is not loopback, such as a server on a private network: files, session tokens and presigned URLs then cross the network in clear text. Off by default, so such an endpoint throws `ArgumentException` when the provider is built. New in 2027. |
-| `ForcePathStyle` | Address the bucket in the path (`host/bucket/key`), as most S3-compatible servers need. New in 2027. |
-| `CreateBucketIfMissing` | Create the bucket on first use. Otherwise a missing bucket makes every member throw `InvalidOperationException`. New in 2027. |
-| `RootDirectoryPath` (or `RootDirectorySegments`) | The folder the provider is confined to; nothing outside it can be reached. |
-
-The options added in 2027 are written to JSON only when set, so a configuration that uses none of them keeps its
-2026 shape. The options hold secrets: never log them, nor the output of `ToJson`.
+| Option | Default | Meaning |
+|---|---|---|
+| `BucketName` | required | The bucket. |
+| `BucketRegion` | | The bucket's region, such as `eu-west-1`. Required unless `ServiceUrl` is set; then it is the signing region (`us-east-1` when empty). |
+| `AccessKey`, `SecretKey` | | A key pair. The secret key is a secret. |
+| `UseDefaultCredentials` | `false` | Use the AWS SDK's default credential chain: environment, profiles, web identity, ECS, EC2. Not with `AccessKey`. |
+| `IsAnonymus` | `false` | Send unsigned requests, for a public bucket. The spelling is kept for stored configurations. |
+| `StorageClassForNewFiles` | `STANDARD` | The storage class of new files and copies, by name (`STANDARD_IA`). |
+| `ServiceUrl` | AWS | An S3-compatible endpoint instead of AWS, such as `http://localhost:9000`. |
+| `ForcePathStyle` | `false` | Put the bucket in the path (`host/bucket/key`), as most S3-compatible servers need. |
+| `AllowInsecureHttp` | `false` | Allow plain `http` to a host that isn't loopback. Without it, such an endpoint throws `ArgumentException`. |
+| `CreateBucketIfMissing` | `false` | Create the bucket on first use. Without it, a missing bucket throws `InvalidOperationException`. |
+| `RootDirectoryPath` | the bucket | The folder in the bucket the provider is confined to. |
 
 ## Authentication
 
-Sign-in: `UseDefaultCredentials` (the AWS SDK's default credential chain; it cannot be combined with `AccessKey`), else
-`IsAnonymus` (unsigned requests, ignoring any `AccessKey`), else `AccessKey` with `SecretKey`. A configuration with
-none of them, or with `UseDefaultCredentials` and `AccessKey` both set, is refused when the provider is built. For
-anything else, pass your own `IAmazonS3` (see Use).
+The first that applies: `UseDefaultCredentials`, then `IsAnonymus`, then `AccessKey` with `SecretKey`. None of them,
+or `UseDefaultCredentials` with `AccessKey`, throws `ArgumentException` when the provider is built. For anything else,
+pass your own `IAmazonS3`. Nothing touches the network until the first call.
 
-## How it behaves
+## What's different
 
-The rules every provider shares (prefix folders, a file and a folder sharing a name, the names a listing leaves out, a
-missing bucket, the exceptions) are in the guide:
-[paths](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/paths-and-listings.md), [reading and
-writing](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/reading-and-writing.md), and
-[errors](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/errors.md#amazon-s3) with this
-provider's own mapping. What follows is this provider's own.
-
-- **Folders:** a `dir/` marker key another tool made counts as a folder. Toward a MinIO server, a file and a folder that
-  share a name list as the file only, and what is under the folder is hidden while the file exists (see the MinIO
-  package).
-- **Listings** carry no content type; `GetFileInfoAsync` does. A recursive listing is one flat, paged listing of the
-  prefix.
-- **Writes** up to 8 MiB go in one request, larger ones in a multipart upload of 8 MiB parts. Parts grow past
-  10,000 × 8 MiB (about 78 GiB) for a stream that knows its length, and past the first 1,000 parts (about 7.8 GiB) for
-  one that does not. S3 replaces a file only once all of it arrived, so a failed write leaves the old content. The
-  caller's stream is read from its position and never seeked, rewound or disposed.
-- **Conditions:** `IfMatch` and `IfNotExists` go to S3 with the write, which AWS checks atomically. Toward any
-  endpoint named by `ServiceUrl` or a client's `ServiceURL`, which may be a server that ignores some of them, the
-  provider also checks them first, which is not atomic. An append rewrites the file with `If-Match` on the version it
-  read, so a concurrent write is not lost: the append throws `PreconditionFailedException` instead.
-- **Content type:** every write stores the type given, or `application/octet-stream` without one; an append and a local
-  stream's commit keep the file's type when none is given.
-- **Copy and move** happen on the server. As on every provider, the destination is first checked not to exist; the
-  copy also sends `If-None-Match`, which AWS enforces atomically and some S3-compatible servers ignore. Files
-  over 5 GiB are copied in parts of 512 MiB or more, keeping the content type, language, encoding, disposition, cache
-  control, expiry and metadata (not tags). A move deletes exactly the source key, with `If-Match` on the version it
-  copied. A source deleted meanwhile completes the move. A source changed meanwhile undoes it: the copy is deleted with
-  `If-Match` on its own version, and the move throws `PreconditionFailedException`; a copy that another writer has
-  replaced meanwhile is left as it is, and the exception says so. Atomic on AWS without a `ServiceUrl`; toward a named
-  endpoint each version is also checked just before its delete.
-- **Reads** stream from S3. `ReadRangeAsync` is a ranged GET, sent with `If-Match` when `ReadOptions.IfMatch` is set.
-  `OpenReadSeekableAsync` reads ranged GETs pinned with `If-Match` to the version it opened, unless
-  `AllowModifications` is set.
-- **Requester-pays** buckets on AWS work: object and listing requests accept the charge. Presigned URLs do not carry
-  it.
-- **Versions:** `ReadFileVersionAsync(versionId, path)` reads a version in a bucket with versioning.
-- Nothing touches the network before the first call, which resolves the credentials (if asked) and checks the bucket.
-
-## Signed URLs
-
-Presigned (SigV4) URLs for reading and writing, for up to 7 days, and for creating on AWS only: toward a named
-endpoint, which may ignore the condition that guards a create URL, the gateway issues those. A URL never outlives the
-credential that signs it, so a credential that expires sooner, or whose expiry cannot be known, needs
-`AllowShorterValidity`; anonymous providers cannot presign. The details are in
-[Signed URLs](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/signed-urls.md#amazon-s3).
-
-## Limits
-
-- 10,000 parts per file: up to 5 TiB from a stream that knows its length, about 430 GiB from one that does not.
-- Copies over 5 GiB take one request per part, plus two.
-- The bucket is checked once, on first use; a bucket deleted later is reported by the next call that finds it gone.
-- Toward an endpoint named by `ServiceUrl` or a client's `ServiceURL`, conditions are checked first and then sent,
-  atomic only where the server enforces them, and create URLs come from the gateway; this holds for S3's own host
-  names too, since a name under `amazonaws.com` may front another server. Unless the endpoint is one of S3's own host
-  names (under `amazonaws.com` or `amazonaws.com.cn`, with a label `s3` or `s3-fips`; not the legacy dashed regional
-  names such as `s3-eu-west-1`), requests also do not accept requester-pays charges, and the provider gives a bucket
-  it creates no location (the AWS SDK may still add one it reads from a host under `amazonaws.com`).
-- Plain `http` toward a host that is not loopback, through `ServiceUrl` or a client's own endpoint, is refused when the
-  provider is built unless `AllowInsecureHttp` is set.
-- An endpoint the AWS SDK takes from its own configuration (`AWS_ENDPOINT_URL_S3`, `AWS_ENDPOINT_URL`, or a profile's
-  `endpoint_url`) when the provider is built redirects a provider without `ServiceUrl`, as it does every AWS client,
-  and counts as a named endpoint, as `ServiceUrl` does: requests send checksums only where S3 requires them, conditions
-  are checked first, create URLs come from the gateway, plain `http` toward a host that is not loopback needs
-  `AllowInsecureHttp`, and requester-pays and a created bucket's location apply only to S3's own host names. One
-  configured later does not redirect a provider already built. Set `AWS_IGNORE_CONFIGURED_ENDPOINT_URLS` to have the
-  SDK ignore it.
-- Change notifications (`Watch`) are not supported.
+- **Writes** up to 8 MiB are one `PUT`, larger ones a multipart upload. A failed write leaves the old content.
+- **Conditions** (`IfMatch`, `IfNotExists`) go to S3 with the write, which checks them atomically. Toward a
+  `ServiceUrl`, the provider also checks them first: not atomic, since the server may ignore them.
+- **Appends** rewrite the file with `If-Match` on the version read: a concurrent write makes the append throw
+  `PreconditionFailedException`.
+- **Copies and moves** run on the server, files over 5 GiB in parts of 512 MiB or more. A move deletes the source
+  with `If-Match` and undoes the copy if the source changed meanwhile.
+- **Listings** carry no content type; `GetFileInfoAsync` does. Requester-pays buckets work on AWS.
+- **Old versions:** `ReadFileVersionAsync(versionId, path)` reads one in a bucket with versioning.
+- **Signed URLs** are presigned (SigV4) read and write URLs, up to 7 days. Create URLs are native only on AWS without
+  a `ServiceUrl`; elsewhere the gateway issues them. A URL never outlives its credential: with temporary credentials,
+  or your own client, set `AllowShorterValidity`. An anonymous provider can't presign.
+- **`AWS_ENDPOINT_URL_S3`**, `AWS_ENDPOINT_URL` or a profile's `endpoint_url` redirect the provider like a
+  `ServiceUrl` does. Set `AWS_IGNORE_CONFIGURED_ENDPOINT_URLS` to ignore them.
+- **Limits:** 10,000 parts per file: 5 TiB from a stream with a known length, about 430 GiB without. `Watch` throws
+  `NotSupportedException`.
 
 ## Learn more
 
-- [Providers compared](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/providers.md): what
-  every store can do, side by side.
-- The guide's [reading and writing](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/reading-and-writing.md),
-  [paths and listings](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/paths-and-listings.md)
-  and [dependency injection](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/dependency-injection.md).
-- [Moving from 2026](https://github.com/serionist/WriteableFileProviders/blob/main/docs/migration-2027.md#amazon-s3):
-  what 2027.0.0 changed for this provider.
+- The guide: [reading and writing](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/reading-and-writing.md),
+  [signed URLs](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/signed-urls.md#amazon-s3),
+  [errors](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/errors.md#amazon-s3),
+  [providers compared](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/providers.md).
+- [Moving from 2026](https://github.com/serionist/WriteableFileProviders/blob/main/docs/migration-2027.md#amazon-s3).

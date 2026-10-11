@@ -1,19 +1,19 @@
 # WriteableFileProviders.Common
 
-The core of [WriteableFileProviders](https://github.com/serionist/WriteableFileProviders#readme):
-`IWriteableFileProvider`, a writeable `IFileProvider` that means the same thing on every storage backend; the base
-class providers build on; and construction from configuration or JSON, with dependency injection. It holds no provider
-of its own: install a provider package, which brings this one along.
+The core of [WriteableFileProviders](https://github.com/serionist/WriteableFileProviders#readme): the
+`IWriteableFileProvider` interface, the base class every provider builds on, and building a provider from
+configuration.
 
 ## Install
+
+You rarely install it yourself: each provider package brings it.
 
 ```
 dotnet add package WriteableFileProviders.Physical
 ```
 
-Or `.AzureBlob`, `.AmazonS3`, `.Minio`, `.GoogleCloudStorage`, `.Box`, `.SharePoint`. It needs .NET 10. Every
-WriteableFileProviders package in an application must be on the same major version: a `2026.10.10.x` package does not
-load against `WriteableFileProviders.Common` 2027.
+Or `.AzureBlob`, `.AmazonS3`, `.Minio`, `.GoogleCloudStorage`, `.Box`, `.SharePoint`. Install Common alone to write a
+provider of your own. Needs .NET 10. Keep every WriteableFileProviders package in an app on the same major version.
 
 ## Use
 
@@ -22,55 +22,50 @@ using WriteableFileProviders;
 
 IWriteableFileProvider files = WriteableFileProviderSerializer.FromConfiguration(configuration.GetSection("Files"));
 
-await files.UpdateFileAsync("reports/2026.csv", stream);                      // atomic overwrite, parents created
-await files.UpdateFileAsync("log.txt", more, UpdateFileOptions.Append);       // atomic append
-await using var slice = await files.ReadRangeAsync("big.bin", 1_000_000, 4096); // bytes 1,000,000 to 1,004,095
-await using var seekable = await files.OpenReadSeekableAsync("big.bin");      // seeks, fetches ranges as read
+await files.UpdateFileAsync("reports/2026.csv", stream);                         // creates reports/ if missing
+await files.UpdateFileAsync("app.log", line, UpdateFileOptions.Append);
+await using var slice = await files.ReadRangeAsync("big.bin", 1_000_000, 4096);   // 4,096 bytes from 1,000,000
 await foreach (var entry in files.EnumerateAsync("reports", recursive: true)) { }
-await files.MoveAsync("reports/2026.csv", "archive/2026.csv");                // FileExistsException if taken
+await files.MoveAsync("reports/2026.csv", "archive/2026.csv");                   // FileExistsException if taken
 var url = await files.GetSignedUrlAsync("archive/2026.csv", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(15) });
 ```
 
-Every path is a `ProviderPath` relative to the provider's root, which a string or a string array converts to; nothing
-outside the root can be reached by a path. Every member is async and takes a `CancellationToken`, except the three
-`IFileProvider` itself has (`GetFileInfo`, `GetDirectoryContents`, `Watch`). The 2026 synchronous forms (`ReadFile`,
-`UpdateFile`, `Delete`, `Move`, `CreateLocalFileStream`), the `IFileInfo` overloads and `GetDownloadUrl` still compile,
-with a warning that names the async member to call, and go in 2028.0.0.
+Paths are relative to the provider's root, and nothing outside it can be reached. Every member is async, except the
+three `IFileProvider` ones (`GetFileInfo`, `GetDirectoryContents`, `Watch`).
 
 ## Configuration
 
 ```json
-{ "Files": { "Type": "WriteableAzureBlobFileProvider", "AccountName": "...", "AccountKey": "...", "ContainerName": "files", "RootDirectoryPath": "tenants/acme" } }
+{ "Files": { "Type": "WriteableAzureBlobFileProvider", "AccountName": "contoso", "AccountKey": "...", "ContainerName": "files" } }
 ```
 
-`Type` is the provider's class name, matched without regard to case; the other keys are its options' property names.
-With dependency injection, as a singleton `IWriteableFileProvider` the container creates on first use and disposes:
+| Key | Default | Meaning |
+|---|---|---|
+| `Type` | required | The provider's class name, in any case. |
+| `RootDirectoryPath` | the store's root | The folder the provider is confined to, such as `tenants/acme`. |
+| `RootDirectorySegments` | | The same folder as an array of names. |
+| any other | | The provider's options, by property name, in any case. Its README lists them. |
+
+Register it with dependency injection as a singleton `IWriteableFileProvider`, which the container builds on first use
+and disposes:
 
 ```csharp
 services.AddWriteableFileProvider(configuration.GetSection("Files"));
-// then inject IWriteableFileProvider; for several, use keyed services, GetServices or types of your own
 ```
 
-`WriteableFileProviderSerializer` also builds a provider from JSON (`FromJson`) and writes one back (`ToJson`,
-`ToJsonString`); the JSON holds the options' secrets, so never log it. A provider from elsewhere is registered with
-`WriteableFileProviderSerializer.Register<TProvider>()`, or its assembly passed in. Configurations stored by the 2026
-versions read unchanged, except a root with a dot segment (`tenants/../other`), which no longer builds.
+For several providers, register each under a key: `services.AddKeyedSingleton<IWriteableFileProvider>(key, ...)`.
+
+`WriteableFileProviderSerializer` also reads JSON (`FromJson`) and writes a provider back (`ToJson`, `ToJsonString`).
+The JSON holds the options' secrets: never log it. To build a provider of your own from configuration, call
+`WriteableFileProviderSerializer.Register<TProvider>()` first, or pass its assembly.
 
 ## Learn more
 
-The guide, on GitHub:
-
-- [Paths and listings](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/paths-and-listings.md):
-  the root, folders, case, and what a listing shows.
-- [Reading and writing](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/reading-and-writing.md):
-  conditions, appends, ranges, seekable reads, local streams.
-- [Signed URLs](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/signed-urls.md), and the
-  gateway that issues them for every provider.
-- [Dependency injection and configuration](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/dependency-injection.md):
-  one provider or several, and the serializer.
-- [Errors](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/errors.md): the exceptions every
-  member of every provider throws.
-- [Writing a provider](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/writing-a-provider.md):
-  `WriteableFileProvider<TOptions>`, its members and its conformance suite.
-- [Providers compared](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/providers.md), and
-  [moving from 2026](https://github.com/serionist/WriteableFileProviders/blob/main/docs/migration-2027.md).
+- The guide: [paths and listings](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/paths-and-listings.md),
+  [reading and writing](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/reading-and-writing.md),
+  [signed URLs](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/signed-urls.md),
+  [dependency injection](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/dependency-injection.md),
+  [errors](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/errors.md),
+  [writing a provider](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/writing-a-provider.md),
+  [providers compared](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/providers.md).
+- [Moving from 2026](https://github.com/serionist/WriteableFileProviders/blob/main/docs/migration-2027.md).

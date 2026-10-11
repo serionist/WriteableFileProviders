@@ -1,10 +1,8 @@
 # WriteableFileProviders.Minio
 
-A writeable `IFileProvider` over a MinIO bucket, part of
-[WriteableFileProviders](https://github.com/serionist/WriteableFileProviders#readme): the same `IWriteableFileProvider`
-API, with the same meaning, as the local disk, Azure Blob Storage, Amazon S3, Google Cloud Storage, Box and SharePoint
-providers. Since 2027 it runs on the AWS SDK for .NET v4 (the S3 protocol MinIO speaks), on the same code as
-WriteableFileProviders.AmazonS3; the Minio SDK is no longer a dependency.
+A MinIO bucket as an `IWriteableFileProvider`. Part of
+[WriteableFileProviders](https://github.com/serionist/WriteableFileProviders#readme). It runs on `AWSSDK.S3` 4, the
+S3 protocol MinIO speaks, not on the Minio SDK.
 
 ## Install
 
@@ -12,8 +10,7 @@ WriteableFileProviders.AmazonS3; the Minio SDK is no longer a dependency.
 dotnet add package WriteableFileProviders.Minio
 ```
 
-It needs .NET 10 and brings `WriteableFileProviders.Common`. Every WriteableFileProviders package in an application
-must be on the same major version: a `2026.10.10.x` package does not load against `WriteableFileProviders.Common` 2027.
+Needs .NET 10. Keep every WriteableFileProviders package in an app on the same major version.
 
 ## Use
 
@@ -21,121 +18,69 @@ must be on the same major version: a `2026.10.10.x` package does not load agains
 using WriteableFileProviders;
 using WriteableFileProviders.Minio;
 
-await using var files = new WriteableMinioFileProvider(new MinioFileProviderOptions(
-    rootDirectory: "tenants/acme", hostAndPort: "minio.example.net:9000", accessKey: "...", secretKey: "...", bucketName: "files")
+await using var files = new WriteableMinioFileProvider(new MinioFileProviderOptions
 {
+    HostAndPort = "minio.example.net:9000",
     UseSSL = true,
+    AccessKey = configuration["Minio:AccessKey"],
+    SecretKey = configuration["Minio:SecretKey"],
+    BucketName = "files",
 });
 
 await files.UpdateFileAsync("reports/2026.csv", stream);
 var url = await files.GetSignedUrlAsync("reports/2026.csv", new SignedUrlOptions { Validity = TimeSpan.FromHours(1) });
 ```
 
-From configuration, with `WriteableFileProviderSerializer.FromConfiguration(section)` or
-`services.AddWriteableFileProvider(section)`:
+From configuration (`services.AddWriteableFileProvider(section)`):
 
 ```json
-{
-  "Files": {
-    "Type": "WriteableMinioFileProvider",
-    "HostAndPort": "minio.example.net:9000",
-    "UseSSL": true,
-    "AccessKey": "...",
-    "SecretKey": "...",
-    "BucketName": "files",
-    "RootDirectoryPath": "tenants/acme"
-  }
-}
+{ "Files": { "Type": "WriteableMinioFileProvider", "HostAndPort": "minio.example.net:9000", "UseSSL": true,
+             "AccessKey": "...", "SecretKey": "...", "BucketName": "files" } }
 ```
 
-With a client you build yourself (an `AmazonS3Client` with `ServiceURL` and `ForcePathStyle = true`), which the
-provider never disposes:
-
-```csharp
-var files = new WriteableMinioFileProvider(new MinioFileProviderOptions { BucketName = "files" }, client);
-```
-
-With a client, the options give only the bucket, the root and `CreateBucketIfMissing`, and `AllowInsecureHttp` when
-the client's own endpoint is plain `http` toward a host that is not loopback. The provider class is sealed: to change
-what it does, wrap it, or derive your own provider from `WriteableFileProvider<TOptions>`.
+Or pass an `IAmazonS3` you build, such as an `AmazonS3Client` with `ServiceURL` and `ForcePathStyle = true`. The
+provider never disposes it, and reads only the bucket, the root, `CreateBucketIfMissing` and `AllowInsecureHttp` from
+the options.
 
 ## Configuration
 
-| Key | Meaning |
-|---|---|
-| `HostAndPort` | The server, as `host:port` or `host`, without a scheme, a path, a query or user info. Required. |
-| `UseSSL` | HTTPS when true. Plain HTTP (false) is allowed toward a loopback host only, unless `AllowInsecureHttp` is set. |
-| `AllowInsecureHttp` | Allows plain HTTP toward any host, such as a server on a private network, through `UseSSL` false or a client's own endpoint. New in 2027. |
-| `AccessKey`, `SecretKey` | The key pair, set together (one without the other throws `ArgumentException`). Without either, requests are anonymous and cannot be presigned. |
-| `BucketName` | The bucket. Required. |
-| `Region` | The server's region (`MINIO_SITE_REGION`). When empty, the provider asks the server once, on first use. New in 2027. |
-| `CreateBucketIfMissing` | Create the bucket on first use. Otherwise a missing bucket makes every member throw `InvalidOperationException`. New in 2027; until then the provider created it on its first write. |
-| `RootDirectoryPath` (or `RootDirectorySegments`) | The folder the provider is confined to; nothing outside it can be reached. |
-
-The options added in 2027 are written to JSON only when set, so a configuration that uses none of them keeps its
-2026 shape. The options hold secrets: never log them, nor the output of `ToJson`.
+| Option | Default | Meaning |
+|---|---|---|
+| `HostAndPort` | required | The server, as `host:port` or `host`: no scheme, path or query. |
+| `UseSSL` | `false` | Use HTTPS. Plain HTTP is allowed only toward a loopback host, unless `AllowInsecureHttp` is set. |
+| `AllowInsecureHttp` | `false` | Allow plain HTTP toward any host, such as a server on a private network. |
+| `AccessKey`, `SecretKey` | anonymous | The key pair. Set both or neither. The secret key is a secret. |
+| `BucketName` | required | The bucket. |
+| `Region` | asked from the server | The server's region (`MINIO_SITE_REGION`). Empty: the provider asks once, on first use. |
+| `CreateBucketIfMissing` | `false` | Create the bucket on first use. Without it, a missing bucket throws `InvalidOperationException`. |
+| `RootDirectoryPath` | the bucket | The folder in the bucket the provider is confined to. |
 
 ## Authentication
 
-A MinIO key pair (`AccessKey`, `SecretKey`), or none for anonymous access. For anything else, pass your own
-`IAmazonS3` (see Use).
+A MinIO key pair, or none for anonymous access, which can't presign URLs. For anything else, pass your own
+`IAmazonS3`. Nothing touches the network until the first call.
 
-## How it behaves
+## What's different
 
-The rules every provider shares (prefix folders, the names a listing leaves out, a missing bucket, the exceptions) are
-in the guide: [paths](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/paths-and-listings.md),
-[reading and writing](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/reading-and-writing.md),
-and [errors](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/errors.md#minio) with this
-provider's own mapping. What follows is this provider's own.
-
-- **Folders:** a `dir/` marker key another tool made counts as a folder. Where a file and a folder share a name, MinIO
-  lists only the file, and hides what is under the folder from every listing while the file exists; deleting the file
-  shows the folder again.
+- **Conditions aren't atomic.** `IfMatch` and `IfNotExists` are checked by the provider first, then sent with the
+  write. MinIO releases without conditional writes ignore them, so a concurrent change can slip in between.
+- **Copies and moves aren't atomic either:** MinIO ignores `If-None-Match` on copies and `If-Match` on deletes, so the
+  provider checks the destination and the source's version itself. A source changed meanwhile undoes the move.
+- **A file and a folder with the same name:** MinIO lists only the file, and hides what's under the folder until the
+  file is deleted.
+- **Writes** up to 8 MiB are one request, larger ones a multipart upload (10,000 parts at most). A failed write leaves
+  the old content. Appends rewrite the file with `If-Match` on the version read.
 - **Listings** carry no content type; `GetFileInfoAsync` does.
-- **Reads** stream from the server (2026 downloaded the whole file to a temp file first). `ReadRangeAsync` is a ranged
-  GET, sent with `If-Match` when `ReadOptions.IfMatch` is set; `OpenReadSeekableAsync` reads ranged GETs pinned with
-  `If-Match` to the version it opened, unless `AllowModifications` is set.
-- **Writes** up to 8 MiB go in one request, larger ones in a multipart upload. MinIO replaces a file only once all of it
-  arrived, so a failed write leaves the old content. The caller's stream is never seeked, rewound or disposed.
-- **Conditions:** `IfMatch` and `IfNotExists` are checked by the provider first, which is not atomic, and sent with the
-  write, which MinIO enforces where it supports conditional writes. An append rewrites the file with `If-Match` on the
-  version it read: on such a server a concurrent write is never lost, and on an older one only a write between the
-  check and the rewrite can be.
-- **Content type:** every write stores the type given, or `application/octet-stream` without one; an append and a local
-  stream's commit keep the file's type when none is given.
-- **Copy and move** happen on the server. MinIO ignores `If-None-Match` on copies, so an existing destination is
-  checked first, which is not atomic. A move deletes exactly the source key, after checking that the source is still
-  the version it copied (MinIO ignores `If-Match` on deletes, so this is not atomic either). A source deleted meanwhile
-  completes the move; a source changed meanwhile undoes it, deleting the copy only while it is still the copy, and the
-  move throws `PreconditionFailedException`. Copies over 5 GiB keep the content type, language, encoding, disposition,
-  cache control, expiry and metadata (not tags).
-- No storage class is sent: MinIO refuses the ones it does not know.
-- Nothing touches the network before the first call, which asks for the region (unless `Region` names it) and checks
-  the bucket.
-
-## Signed URLs
-
-Presigned URLs for reading and writing, for up to 7 days, over the scheme `UseSSL` chooses; URLs from a client you
-passed in need `AllowShorterValidity`. Create URLs come from the gateway: a MinIO release without conditional writes
-ignores the condition that would guard them. The details are in
-[Signed URLs](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/signed-urls.md#minio).
-
-## Limits
-
-- Conditions, moves and copies are checked by the provider first, then by MinIO where it can: not atomic. MinIO
-  releases older than its conditional-write support ignore `If-Match` and `If-None-Match` on writes too, so on such a
-  server a concurrent change can slip in between the check and the write.
-- A server with a site region and a bucket that does not exist yet needs `Region`, so the provider can create the
-  bucket with `CreateBucketIfMissing`.
-- 10,000 parts per file, as on S3.
-- Change notifications (`Watch`) are not supported.
+- **No storage class** is sent: MinIO refuses the ones it doesn't know.
+- **Signed URLs** are presigned read and write URLs, up to 7 days, over the scheme `UseSSL` picks. Create URLs come
+  from the gateway. With your own client, set `AllowShorterValidity`.
+- **A server with a site region** needs `Region` for `CreateBucketIfMissing` to create a missing bucket.
+- **`Watch`** throws `NotSupportedException`.
 
 ## Learn more
 
-- [Providers compared](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/providers.md): what
-  every store can do, side by side.
-- The guide's [reading and writing](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/reading-and-writing.md),
-  [paths and listings](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/paths-and-listings.md)
-  and [dependency injection](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/dependency-injection.md).
-- [Moving from 2026](https://github.com/serionist/WriteableFileProviders/blob/main/docs/migration-2027.md#minio): what
-  2027.0.0 changed for this provider.
+- The guide: [reading and writing](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/reading-and-writing.md),
+  [signed URLs](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/signed-urls.md#minio),
+  [errors](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/errors.md#minio),
+  [providers compared](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/providers.md).
+- [Moving from 2026](https://github.com/serionist/WriteableFileProviders/blob/main/docs/migration-2027.md#minio).

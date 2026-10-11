@@ -29,6 +29,8 @@ public sealed class S3CoreTests
         Assert.AreEqual(RequestChecksumCalculation.WHEN_SUPPORTED, config.RequestChecksumCalculation);
         Assert.AreEqual(ResponseChecksumValidation.WHEN_SUPPORTED, config.ResponseChecksumValidation);
         Assert.AreEqual(RegionEndpoint.USEast1, S3Core.CreateConfig(new S3CoreSettings { Bucket = "b" }).RegionEndpoint);
+        // An endpoint configured for the SDK later must not redirect a client built for AWS.
+        Assert.IsTrue(config.IgnoreConfiguredEndpointUrls);
     }
 
     [TestMethod]

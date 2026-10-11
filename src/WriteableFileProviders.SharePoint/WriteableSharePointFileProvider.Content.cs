@@ -89,8 +89,9 @@ public sealed partial class WriteableSharePointFileProvider
         // the SDK sends tokens to Graph's hosts only. URI, not a template, so the URL is sent as it is.
         var request = new RequestInformation { HttpMethod = Method.GET, URI = url };
         var ranged = offset > 0 || length is not null;
+        // A length past what a range can name (offset + length overflows) reads to the end, as no file is that long.
         if (ranged)
-            request.Headers.Add("Range", length is { } count ? $"bytes={offset}-{offset + count - 1}" : $"bytes={offset}-");
+            request.Headers.Add("Range", length is { } count && count <= long.MaxValue - offset ? $"bytes={offset}-{offset + count - 1}" : $"bytes={offset}-");
         var response = await SendRawAsync(request, $"Reading '{path}'", streamed: true, cancellationToken).ConfigureAwait(false);
         try
         {

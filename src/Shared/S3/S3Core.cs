@@ -79,7 +79,16 @@ internal sealed partial class S3Core(IWriteableFileProvider owner, S3CoreSetting
         ArgumentNullException.ThrowIfNull(settings);
         region ??= settings.Region ?? UsEast1;
         if (settings.ServiceUrl is null)
-            return new AmazonS3Config { RegionEndpoint = RegionEndpoint.GetBySystemName(region), ForcePathStyle = settings.ForcePathStyle };
+        {
+            // AWS: an endpoint configured for the SDK after the provider was built (AWS_ENDPOINT_URL_S3, a profile's
+            // endpoint_url) must not redirect it unchecked; one configured before became the settings' ServiceUrl.
+            return new AmazonS3Config
+            {
+                RegionEndpoint = RegionEndpoint.GetBySystemName(region),
+                ForcePathStyle = settings.ForcePathStyle,
+                IgnoreConfiguredEndpointUrls = true,
+            };
+        }
         return new AmazonS3Config
         {
             // ServiceURL and RegionEndpoint exclude each other: the region only signs.
@@ -312,6 +321,19 @@ internal sealed partial class S3Core(IWriteableFileProvider owner, S3CoreSetting
         {
             throw MissingBucket(e);
         }
+    }
+
+    /// <summary>
+    /// The plain-http endpoint a client sends to: its <c>ServiceURL</c> when that is http, or S3's own when it is set
+    /// to use http; null when it uses https.
+    /// </summary>
+    /// <param name="config">The client's configuration.</param>
+    public static Uri? PlainHttpEndpointOf(IClientConfig config)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        if (config.ServiceURL is { } url)
+            return Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttp ? uri : null;
+        return config.UseHttp ? new Uri("http://s3.amazonaws.com") : null;
     }
 
     private static bool IsHttp(IClientConfig config) =>

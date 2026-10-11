@@ -14,10 +14,11 @@ public abstract class AmazonS3BehaviourTests : S3BehaviourTests
             ServiceUrl = Endpoint.ServiceUrl,
             ForcePathStyle = true,
             CreateBucketIfMissing = createBucketIfMissing,
+            AllowInsecureHttp = !Endpoint.IsLoopback,
         });
 
     internal override IWriteableFileProvider CreateProvider(IAmazonS3 client, string? root) =>
-        new WriteableAmazonS3FileProvider(new AmazonS3FileProviderOptions { BucketName = Endpoint.Bucket, RootDirectoryPath = root }, client);
+        new WriteableAmazonS3FileProvider(new AmazonS3FileProviderOptions { BucketName = Endpoint.Bucket, RootDirectoryPath = root, AllowInsecureHttp = !Endpoint.IsLoopback }, client);
 
     internal override S3Core CoreOf(IWriteableFileProvider provider) => ((WriteableAmazonS3FileProvider)provider).Core;
 }

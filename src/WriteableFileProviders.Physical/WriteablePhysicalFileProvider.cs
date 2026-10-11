@@ -1,3 +1,5 @@
+using System.Buffers;
+using System.Collections.Frozen;
 using System.Globalization;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.FileProviders.Physical;
@@ -10,9 +12,10 @@ namespace WriteableFileProviders.Physical;
 /// <remarks>
 /// <para>
 /// <b>Writes are atomic.</b> An overwrite, an append, a copy and a local stream's commit write a temp file named
-/// <c>.wfp-&lt;guid&gt;.tmp</c> in the target's folder, then rename it over the target: the file has its old content or
-/// its new content, never a part. A write that fails removes its temp file; listings never show one. An append copies
-/// the file and the new bytes into the temp file.
+/// <c>.wfp-&lt;guid&gt;.tmp</c> (32 lowercase hex digits) in the target's folder, then rename it over the target: the
+/// file has its old content or its new content, never a part. A write that fails removes its temp file; listings never
+/// show one, and show every other name, <c>.wfp-notes.tmp</c> included. An append copies the file and the new bytes
+/// into the temp file.
 /// </para>
 /// <para>
 /// <b>Replacing by rename</b> makes the new content a new file at the path, so a write is refused, the file keeping its
@@ -57,12 +60,25 @@ namespace WriteableFileProviders.Physical;
 /// </para>
 /// <para>
 /// <b>Names</b> are matched without regard to case on Windows and macOS, so a move between names that differ only in
-/// case renames the file, and with regard to case elsewhere. A <c>:</c> is not allowed in a name. Listings leave out
-/// the files and folders whose names a path cannot name (on Linux and macOS, a name holding <c>:</c>, <c>\</c> or a
-/// control character, or only dots and spaces; on any system, a percent-encoded form of those, such as
-/// <c>%2e%2e</c>), and never walk into such a folder, so everything listed can be read back. Containment in the root is
-/// checked on the path: symbolic links and junctions inside the root are followed, except that a recursive listing lists
-/// a linked folder without walking into it.
+/// case renames the file, and with regard to case elsewhere. A <c>:</c> is not allowed in a name. On Windows, a name is
+/// also refused (<see cref="ArgumentException"/>) when Windows would read it as another name or cannot hold it: one
+/// that ends in <c>.</c> or a space, which Windows drops (so <c>a.txt.</c> would name <c>a.txt</c>), one that holds
+/// <c>"</c>, <c>&lt;</c>, <c>&gt;</c>, <c>|</c>, <c>?</c> or <c>*</c>, and a reserved device name (<c>CON</c>,
+/// <c>PRN</c>, <c>AUX</c>, <c>NUL</c>, <c>COM1</c> to <c>COM9</c>, <c>LPT1</c> to <c>LPT9</c>, and <c>COM</c> or
+/// <c>LPT</c> followed by <c>¹</c>, <c>²</c> or <c>³</c>), in any case, alone or with an extension, such as
+/// <c>con.txt</c>; and an 8.3 short name (<c>REPORT~1.TXT</c>) of a file or folder whose long name differs, on a volume
+/// that keeps them. Listings leave out the files and folders whose names a path cannot name
+/// (those names on Windows; on Linux and macOS, a name holding <c>:</c>, <c>\</c> or a control character, or only dots
+/// and spaces; on any system, a percent-encoded form of those, such as <c>%2e%2e</c>), and never walk into such a
+/// folder, so everything listed can be read back. Containment in the root is checked on the path: symbolic links and
+/// junctions inside the root are followed, except that a recursive listing lists a linked folder without walking into
+/// it.
+/// </para>
+/// <para>
+/// <b>Access.</b> Where the operating system refuses the process access to a file or a folder that a member opens,
+/// lists, writes, moves or deletes, the member throws <see cref="UnauthorizedAccessException"/>, a read or a listing as
+/// well as a write. A path the system will not look up at all, such as one inside a folder the process may not enter,
+/// reads as missing.
 /// </para>
 /// <para>
 /// <b>Not native:</b> signed URLs (WriteableFileProviders.AspNetCore issues gateway URLs) and content types (a given
@@ -86,6 +102,20 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
 
     private static readonly char[] _separators = ['/', '\\'];
 
+    // The digits of the GUID in a temp file's name, as Guid.ToString("N") writes them.
+    private static readonly SearchValues<char> _tempDigits = SearchValues.Create("0123456789abcdef");
+
+    // What Windows refuses in a name besides ':' and the separators, which every system refuses here.
+    private static readonly SearchValues<char> _windowsReserved = SearchValues.Create("\"<>|?*");
+
+    // Windows' reserved device names, which name a device in every folder; COM and LPT also take the superscripts.
+    private static readonly FrozenSet<string> _windowsDevices = new[] { "CON", "PRN", "AUX", "NUL" }
+        .Concat(new[] { "COM", "LPT" }.SelectMany(device => "123456789¹²³".Select(digit => device + digit)))
+        .ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+
+    // The same set, looked up by a span, so a check allocates nothing.
+    private static readonly FrozenSet<string>.AlternateLookup<ReadOnlySpan<char>> _windowsDeviceLookup = _windowsDevices.GetAlternateLookup<ReadOnlySpan<char>>();
+
     // Every entry, hidden and system ones included, as 2026 listed them.
     private static readonly EnumerationOptions _listing = new() { AttributesToSkip = 0, IgnoreInaccessible = false };
 
@@ -102,25 +132,39 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
 
     /// <summary>Creates a provider over a folder.</summary>
     /// <param name="rootPath">The folder: an absolute path, or a path relative to the current directory.</param>
-    /// <exception cref="ArgumentException">The path is empty or not valid.</exception>
+    /// <exception cref="ArgumentException">
+    /// The path is empty or not valid, or, on Windows, an extended or device path (<c>\\?\</c>, <c>\\.\</c>) that has
+    /// no plain form.
+    /// </exception>
     public WriteablePhysicalFileProvider(string rootPath)
         : this(new PhysicalFileProviderOptions { RootDirectoryPath = rootPath })
     {
     }
 
     /// <summary>
-    /// Creates a provider from its options. A relative root is resolved against the current directory here, once, and the
-    /// absolute path is written back to <paramref name="options"/>, so its JSON names the same folder wherever it is read.
-    /// The folder need not exist: the first write creates it. Nothing on disk is touched here.
+    /// Creates a provider from its options. A relative root is resolved against the current directory here, once, and
+    /// the absolute path is written back to <paramref name="options"/>, so its JSON names the same folder wherever it
+    /// is read. On Windows, a root in the extended or device form (<c>\\?\C:\files</c>, <c>\\?\UNC\server\share</c>,
+    /// <c>\\.\C:\files</c>) is written back in its plain form (<c>C:\files</c>, <c>\\server\share</c>), so every path
+    /// under it is checked as a plain path is. The folder need not exist: the first write creates it. Nothing on disk
+    /// is touched here.
     /// </summary>
     /// <param name="options">The options.</param>
     /// <exception cref="ArgumentNullException"><paramref name="options"/> is null.</exception>
-    /// <exception cref="ArgumentException">The root is empty or not a valid path.</exception>
+    /// <exception cref="ArgumentException">
+    /// The root is empty or not a valid path, or, on Windows, an extended or device path that has no plain form: a
+    /// volume GUID, a device, or a name the plain form would change (one ending in a dot or a space, <c>.</c> or
+    /// <c>..</c>).
+    /// </exception>
     public WriteablePhysicalFileProvider(PhysicalFileProviderOptions options) : base(options)
     {
         if (string.IsNullOrEmpty(Options.RootDirectoryPath))
             throw new ArgumentException("The root folder, RootDirectoryPath, is not set.", nameof(options));
-        _root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(Options.RootDirectoryPath));
+        var root = !OperatingSystem.IsWindows() ? Options.RootDirectoryPath : PlainRootOf(Options.RootDirectoryPath)
+            ?? throw new ArgumentException(
+                "RootDirectoryPath is an extended or device path with no plain form (a volume GUID, a device, or a name the plain form would change: one ending in a dot or a space, '.' or '..'): give the folder as a drive or share path.",
+                nameof(options));
+        _root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
         Options.RootDirectoryPath = _root;
         _rootPrefix = Path.EndsInDirectorySeparator(_root) ? _root : _root + Path.DirectorySeparatorChar;
     }
@@ -129,6 +173,9 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
     internal bool IgnoresCase { get; init; } = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS();
 
     internal bool RenamesWithoutReplacing { get; init; } = OperatingSystem.IsWindows();
+
+    // Whether names Windows reads as another name, or cannot hold, are refused (IsSegmentAllowed).
+    internal bool RefusesWindowsNames { get; init; } = OperatingSystem.IsWindows();
 
     // How a link is followed to describe it: by walking the path as the kernel does (Linux, macOS), or by asking the system
     // for the final target (Windows).
@@ -342,8 +389,64 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
         }
     }
 
-    /// <inheritdoc />
-    protected override bool IsSegmentAllowed(string part) => !part.Contains(':', StringComparison.Ordinal);
+    /// <summary>
+    /// Refuses a <c>:</c> on every system. On Windows, which would read such a name as another one or not at all, also
+    /// refuses a name that ends in <c>.</c> or a space (Windows drops them, so <c>a.txt.</c> would name <c>a.txt</c>),
+    /// holds <c>"</c>, <c>&lt;</c>, <c>&gt;</c>, <c>|</c>, <c>?</c> or <c>*</c>, or is a reserved device name
+    /// (<c>CON</c>, <c>PRN</c>, <c>AUX</c>, <c>NUL</c>, <c>COM1</c> to <c>COM9</c>, <c>LPT1</c> to <c>LPT9</c>, and
+    /// <c>COM</c> or <c>LPT</c> followed by <c>¹</c>, <c>²</c> or <c>³</c>), in any case, alone or followed by an
+    /// extension, such as <c>con.txt</c>.
+    /// </summary>
+    /// <param name="part">A single path segment.</param>
+    protected override bool IsSegmentAllowed(string part) =>
+        part is not null && !part.Contains(':', StringComparison.Ordinal)
+        && (!RefusesWindowsNames || IsWindowsName(part));
+
+    // Whether Windows names exactly this file: no trailing dot or space, no reserved character, no device name.
+    internal static bool IsWindowsName(string part)
+    {
+        if (part.EndsWith('.') || part.EndsWith(' ') || part.AsSpan().IndexOfAny(_windowsReserved) >= 0)
+            return false;
+        // A device name stands for the device whatever extension follows it, and with spaces before that extension.
+        var dot = part.IndexOf('.', StringComparison.Ordinal);
+        var stem = (dot < 0 ? part.AsSpan() : part.AsSpan(0, dot)).TrimEnd(' ');
+        return !_windowsDeviceLookup.Contains(stem);
+    }
+
+    // A Windows root in its plain form. An extended path (\\?\C:\files, \\?\UNC\server\share) skips .NET's
+    // normalization, and with it the expansion of 8.3 short names that FullPath relies on to refuse them; a device path
+    // (\\.\C:\files) is taken the same way. Null for a form with no plain equivalent: a volume GUID or a device, and a
+    // path holding a name the plain form would change, as it drops a trailing dot or space and applies '.' and '..'
+    // that an extended path names as they are (\\?\C:\data. is not C:\data). Any other path is returned as it is.
+    internal static string? PlainRootOf(string root)
+    {
+        var text = root.Replace('/', '\\');
+        if (!text.StartsWith(@"\\?\", StringComparison.Ordinal) && !text.StartsWith(@"\\.\", StringComparison.Ordinal))
+            return root;
+        var rest = text[4..];
+        string names;
+        string plain;
+        if (rest.StartsWith(@"UNC\", StringComparison.OrdinalIgnoreCase))
+        {
+            names = rest[4..];
+            plain = @"\\" + names;
+        }
+        else if (rest.Length >= 2 && char.IsAsciiLetter(rest[0]) && rest[1] == ':' && (rest.Length == 2 || rest[2] == '\\'))
+        {
+            names = rest[2..];
+            plain = rest.Length == 2 ? rest + @"\" : rest;
+        }
+        else
+        {
+            return null;
+        }
+        foreach (var name in names.Split('\\', StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (name.EndsWith('.') || name.EndsWith(' '))
+                return null;
+        }
+        return plain;
+    }
 
     /// <summary>Stops watching.</summary>
     /// <inheritdoc />
@@ -382,10 +485,15 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
     {
         if (path.IsRoot)
             return _root;
-        var fullPath = Path.GetFullPath(Path.Join(_rootPrefix, string.Join(Path.DirectorySeparatorChar, path.RelativeSegments)));
-        return fullPath.StartsWith(_rootPrefix, StringComparison.Ordinal)
-            ? fullPath
-            : throw new ArgumentException($"The path '{path}' resolves outside the provider root.", nameof(path));
+        var relative = string.Join(Path.DirectorySeparatorChar, path.RelativeSegments);
+        var fullPath = Path.GetFullPath(Path.Join(_rootPrefix, relative));
+        if (!fullPath.StartsWith(_rootPrefix, StringComparison.Ordinal))
+            throw new ArgumentException($"The path '{path}' resolves outside the provider root.", nameof(path));
+        // On Windows, .NET expands an 8.3 short name (REPORT~1.TXT) into the long name it stands for, so a segment that
+        // is the short name of another name would reach that name: refused, as a trailing dot is.
+        if (RefusesWindowsNames && !fullPath.AsSpan(_rootPrefix.Length).Equals(relative, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException($"The path '{path}' is the short name of another file or folder.", nameof(path));
+        return fullPath;
     }
 
     private IEnumerable<(IWriteableFileInfo Entry, FileSystemInfo Info)> Entries(ResolvedPath path, CancellationToken cancellationToken)
@@ -397,8 +505,9 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
         foreach (var entry in folder.EnumerateFileSystemInfos("*", _listing))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            // A name a path cannot name again (on Linux, one with ':' or '\', a control character or only dots; anywhere,
-            // a percent-encoded form of those) is left out, and never walked into: everything listed can be read back.
+            // A name a path cannot name again (on Linux, one with ':' or '\', a control character or only dots; on
+            // Windows, a trailing dot or space, a reserved character or a device name; anywhere, a percent-encoded form
+            // of those) is left out, and never walked into: everything listed can be read back.
             if (!IsAddressable(entry.Name))
                 continue;
             if (entry is FileInfo file)
@@ -635,8 +744,13 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
 
     private static string VersionOf(SafeFileHandle handle) => ETag(File.GetLastWriteTimeUtc(handle), RandomAccess.GetLength(handle));
 
-    private static bool IsTempFile(string name) =>
-        name.StartsWith(TempPrefix, StringComparison.Ordinal) && name.EndsWith(TempSuffix, StringComparison.Ordinal);
+    // Exactly the name a write gives its temp file, ".wfp-" and a GUID's 32 lowercase hex digits and ".tmp": any other
+    // name, ".wfp-notes.tmp" included, is a file of the caller's and is listed.
+    internal static bool IsTempFile(string name) =>
+        name.Length == TempPrefix.Length + 32 + TempSuffix.Length
+        && name.StartsWith(TempPrefix, StringComparison.Ordinal)
+        && name.EndsWith(TempSuffix, StringComparison.Ordinal)
+        && name.AsSpan(TempPrefix.Length, 32).IndexOfAnyExcept(_tempDigits) < 0;
 
     // The physical path is the entry's own, under the root, even when it is a link to a file elsewhere.
     private WriteableFileInfo FileEntry(ProviderPath path, FileInfo file)

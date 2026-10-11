@@ -46,13 +46,15 @@ namespace WriteableFileProviders.AzureBlob;
 /// <para>
 /// A missing container makes every member throw <see cref="InvalidOperationException"/>, unless
 /// <see cref="AzureFileProviderOptions.CreateContainerIfMissing"/> lets the first write create it. Names are
-/// case-sensitive. The provider owns no disposable resources, and never disposes a client it was given.
+/// case-sensitive. As folders are name prefixes, a file and a folder may share a name, and a listing shows both.
+/// Listings leave out names no path can address and the provider's own temporary folder, <c>.wfp-tmp</c> at the root,
+/// and nothing else. The provider owns no disposable resources, and never disposes a client it was given.
 /// </para>
 /// </remarks>
 public sealed partial class WriteableAzureBlobFileProvider : WriteableFileProvider<AzureFileProviderOptions>
 {
+    // The folder of the provider's own temporary blobs, at the root; listings leave it out, and only it.
     private const string TempFolder = ".wfp-tmp";
-    private const string HiddenPrefix = ".wfp-";
     private const string DefaultContentType = "application/octet-stream";
     private const int DeleteParallelism = 8;
 
@@ -229,7 +231,9 @@ public sealed partial class WriteableAzureBlobFileProvider : WriteableFileProvid
             }
             var download = await blob.DownloadStreamingAsync(new BlobDownloadOptions
             {
-                Range = new HttpRange(offset, length),
+                // A length past what a range can name (offset + length overflows) reads to the end, as no blob is that
+                // long: the header would be malformed, and the service answers one with the whole blob.
+                Range = length is { } count && count <= long.MaxValue - offset ? new HttpRange(offset, count) : new HttpRange(offset),
                 Conditions = conditions,
             }, cancellationToken).ConfigureAwait(false);
             return download.Value.Content;
@@ -380,13 +384,13 @@ public sealed partial class WriteableAzureBlobFileProvider : WriteableFileProvid
             {
                 var name = item.Prefix[prefix.Length..];
                 name = name.EndsWith('/') ? name[..^1] : name;
-                if (IsListable(name))
+                if (IsAddressable(name) && !(path.IsRoot && name == TempFolder))
                     yield return WriteableFileInfo.Folder(this, path.Child(name).Path);
             }
             else if (item.IsBlob)
             {
                 var name = item.Blob.Name[prefix.Length..];
-                if (IsListable(name))
+                if (IsAddressable(name))
                     yield return FileInfo(path.Child(name).Path, item.Blob.Properties);
             }
         }
@@ -401,10 +405,13 @@ public sealed partial class WriteableAzureBlobFileProvider : WriteableFileProvid
         await foreach (var item in items.WithCancellation(cancellationToken).ConfigureAwait(false))
         {
             var parts = item.Name[prefix.Length..].Split('/');
+            // The provider's own temporary blobs, under .wfp-tmp/ at the root, are never listed.
+            if (path.IsRoot && parts.Length > 1 && parts[0] == TempFolder)
+                continue;
             // The folders above the blob, up to its first name the provider cannot address, as the one-level listing shows
             // them; the blob itself only when every name is addressable. A blob named "dir/" (a folder marker, as the Azure
             // portal makes them) ends in an empty name: a folder, not a file.
-            var addressable = Array.FindIndex(parts, part => !IsListable(part));
+            var addressable = Array.FindIndex(parts, part => !IsAddressable(part));
             if (addressable < 0)
                 addressable = parts.Length;
             for (var depth = 1; depth <= Math.Min(addressable, parts.Length - 1); depth++)
@@ -416,9 +423,6 @@ public sealed partial class WriteableAzureBlobFileProvider : WriteableFileProvid
                 yield return FileInfo(new ProviderPath([.. path.RelativeSegments, .. parts]), item.Properties);
         }
     }
-
-    // What a listing shows: a name a path can name again (IsAddressable), but not the provider's own hidden .wfp- entries.
-    private bool IsListable(string name) => !name.StartsWith(HiddenPrefix, StringComparison.Ordinal) && IsAddressable(name);
 
     private async Task<bool> HasBlobsUnderAsync(ResolvedPath path, CancellationToken cancellationToken)
     {

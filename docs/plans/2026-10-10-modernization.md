@@ -496,7 +496,8 @@ public class PreconditionFailedException : IOException      public class FileExi
   - Kept: the `Type` key and every options property name, including the misspelt `IsAnonymus`.
   - Additions:
     - `CreateContainerIfMissing` (Azure) and `CreateBucketIfMissing` (S3, MinIO, GCS);
-    - `ServiceUrl`, `ForcePathStyle`, `UseDefaultCredentials` (S3; the last decided for S7);
+    - `ServiceUrl`, `ForcePathStyle`, `UseDefaultCredentials` (S3; the last decided for S7), and `AllowInsecureHttp`
+      (S3, added in the final fixes: plain `http` toward a host that is not loopback needs it, as on MinIO);
     - `UseDefaultAzureCredential` (Azure);
     - `Endpoint` and `AllowInsecureHttp` (GCS).
   - Behavior changes:
@@ -2094,6 +2095,143 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     AzureBlob 99.33/91.71, Box 99.71/93.12, Common 96.87/93.14, GCS 99.49/94.20, MinIO 98.14/91.67, Physical 99.25/94.15,
     SharePoint 99.77/91.27). Physical and the base are unchanged this round, so the Linux container run was not repeated.
 
+- **2026-10-11, S12 final fixes, providers (#16):** branch `16-final-providers` (worktree `D:\workspaces\wfp-wt\16e`),
+  built beside `16-final-common` (#42) and rebased onto it, from the final review
+  ([`docs/reviews/2026-10-11-2027-final.md`](../reviews/2026-10-11-2027-final.md), F1–F20) and D29–D32. Each fix has a
+  test that fails without it where a test can show one (checked by reverting the fix), unless noted.
+  - **F2, and item 7 of "For the final review" (Physical on Windows), closed:** on Windows `IsSegmentAllowed` refuses,
+    with `ArgumentException`, a segment that ends in `.` or a space, holds `"<>|?*`, or is a reserved device name
+    (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`, and `COM`/`LPT` with the superscripts the Windows
+    docs also reserve; any case; the part before the first dot, trailing spaces trimmed, so `con.txt` and `aux .log`
+    too); `IsAddressable` drops such names from listings. An internal switch, `RefusesWindowsNames` (on by default on
+    Windows), runs the rule on every system in the tests; Linux and macOS keep such names. Its
+    `UnauthorizedAccessException` from any member is documented (the type is D29's; the base class passes it through
+    as it is). Tests: next to `a.txt` and `dir`, `UpdateFileAsync("a.txt.")`, an append to `a.txt `,
+    `DeleteAsync("dir ")` and `("dir.")`, `GetFileInfoAsync("x?")`, `CON.txt` and the other device and character cases,
+    with `a.txt` and `dir` unchanged; such names made through `\\?\` on Windows (any path on Linux) are left out of
+    listings; look-alikes (`CONSOLE.txt`, `COM10`, `report.con`) land as given; on Linux and macOS, with the switch
+    off, the names land as themselves; on Windows the rule holds by default. Beyond the report, found by this half's
+    review: an 8.3 short name (`LONGFO~1`, `REPORT~1.TXT`) reached the long name it stands for, the same silent
+    overwrite or delete, since .NET's `GetFullPath` expands it; with the rule on, a path whose resolved disk path
+    differs from its segments (ignoring case) is refused with `ArgumentException`. A Windows test runs it where the
+    volume keeps short names (inconclusive elsewhere).
+  - **F3:** `AmazonS3FileProviderOptions.AllowInsecureHttp` (`WhenWritingDefault`, so the golden shape holds; in
+    `PublicAPI.Unshipped.txt`). An http `ServiceUrl`, or a given client whose `ServiceURL` is http (or that sends http
+    to AWS, `UseHttp`; beyond the report, the same hole), toward a host that is not loopback throws `ArgumentException`
+    naming the option, as MinIO's rule does. The offline tests opt in for `http://s3.test`; the emulator fixtures opt in
+    only off loopback (a remote Docker host). For one meaning, MinIO's client constructor now holds a given client's own
+    endpoint to the same rule (its `AllowInsecureHttp`); the check is shared in the S3 core.
+  - **Item 3 of "For the final review" (GCS signing), closed:** a signing refusal or failure (`GoogleApiException`,
+    `HttpRequestException`, `TokenResponseException` from IAM's `signBlob`) becomes `NotSupportedException` with the
+    cause inside, so the URL service falls back to the gateway (D24). Tested through the client's HTTP seam with a
+    Compute Engine credential whose `signBlob` answers 403, 500 or fails on the network. The class and options docs say
+    missing Application Default Credentials are `InvalidOperationException` (D29). Not settled: whether the raw media
+    GETs get the SDK's retries (unverified, as the item said).
+  - **F5 / D30:** `FileAndFolderMayShareAName` in the conformance suite (false by default; true on the S3, MinIO,
+    Azure and GCS fixtures, live ones included), with `Write_AFileAtAFolderPath` and `Write_AFolderUnderAFilePath`:
+    where false both throw `IOException` and change nothing; where true both succeed, read back and list.
+    `Move_RemovesExactlyTheSourceKey` gates its object-store half on the flag. The in-memory provider now refuses a
+    write under a file, which it took before. **Found:** MinIO (the pinned container) stores both, but lists only the
+    file and hides what is under the folder from every listing, a flat one too, while the file exists (both still read
+    back by path, and deleting the file shows the folder again); a second flag, `ListsAFileAndAFolderOfOneName`, false
+    on the MinIO fixtures, pins it, and the READMEs, the matrix and the migration guide say it. S3Mock, Azurite and
+    fake-gcs-server list both. An older MinIO may refuse the writes instead (`XMinioParentIsObject`), which only
+    `MinioLiveTests` against such a server would show. **Not changed, the local stream route:** a writeable local
+    stream of a folder's path stays `IOException` on every provider, object stores included, because Common's
+    `CreateLocalFileStreamCoreAsync` refuses it before anything is written (the contract's "a writeable one of a folder
+    throws `IOException`"); following D30 there needs a capability the base class reads, a Common API addition in the
+    common half's files, and F11 makes the member non-virtual, so no provider can do it alone. Left to the main session.
+    Copies and moves onto a folder's path stay `FileExistsException` on every provider (the destination exists).
+  - **F6:** Azure sends `new HttpRange(offset)`, and SharePoint's `DownloadAsync` `bytes={offset}-`, when
+    `length > long.MaxValue - offset`. The S3 behaviour test's four (offset, length) cases moved into the conformance
+    suite (`Range_LongerThanARangeCanNameReadsToTheEnd`), where they fail without the fix on Azurite and on the Graph
+    fake, which now answers a malformed range 416, as a strict server may; a SharePoint unit test checks the header.
+    The SharePoint change is one line, as `DownloadAsync`'s stream is the common half's (F20).
+  - **F7 / D31:** S3 and MinIO answer `SupportsSignedUrl(Create)` false where the core does not check atomically
+    (toward any named endpoint; MinIO always), so `GetSignedUrlAsync` throws `NotSupportedException` before any
+    request and the URL service issues a gateway create URL. Read and write URLs stay native. Tests: offline (AWS signs
+    `If-None-Match`; an endpoint, a client with a `ServiceURL` and MinIO refuse), the fixtures' capability, and the
+    core's create URL used for real on MinIO through the core (the signature carries `If-None-Match`; 200, then 412).
+  - **F8 / D32:** Azure hides only `.wfp-tmp` at the provider root, in both listings; Physical only `.wfp-`, 32
+    lowercase hex digits and `.tmp`. The conformance case `List_ShowsACallersNamesThatLookLikeTheProvidersOwn`
+    (`.wfp-notes.txt`, `.wfp-draft.tmp`, `d/.wfp-cache/x.json`, one level and recursive) fails on Azure without the fix;
+    Physical's listing test and a unit test of the temp name pin its rule.
+  - **F9:** the S3 core's recursive listing yields the folders above a key up to its first name the provider cannot
+    address, and the file only when every name is addressable. The conformance case
+    `List_RecursiveShowsTheFoldersTheOneLevelListingShows` (a folder that holds only an unaddressable subfolder) fails
+    on S3 and MinIO without it.
+  - **F14:** `SharePointLiveChecks` (`[TestCategory("Live")]`, modelled on `BoxLiveChecks`) sends a stale `If-Match`
+    on `PUT /content`, on `createUploadSession`, and on a session whose file changes before its last fragment, through
+    `GraphServiceClient` directly, signed in as the provider signs in (`CreateCredential` is internal now), and expects
+    412 with the content unchanged. The live settings moved into one `SharePointLive` helper both classes use; the
+    live-class rule holds (inconclusive without `WFP_LIVE=1`, a named failure without the account). "For the
+    maintainers" names it. Not run: no account (D21).
+  - **F15:** the S3 and MinIO expiry test waits, at most a minute, until the server's `Date` is past `X-Amz-Date` plus
+    `X-Amz-Expires`, then asserts 403 strictly; `GcsLiveAtomicityTests.SignedReadUrl_WorksUntilItExpires` waits on
+    Cloud Storage's `Date` the same way (its assertion is unchanged: not 200, as Google's status for an expired URL is
+    unverified).
+  - **F16:** the AmazonS3 options remarks and README say the sign-in rule as the report words it. No test (docs only).
+  - **F18:** Box's chunked upload rents its part buffer from `ArrayPool<byte>.Shared` and returns it in a `finally`.
+    No test can show the allocation; the offline Box suite, its chunked cases included, passes. The live Box suite did
+    not run.
+  - **N1:** `IsS3Endpoint` also takes a label exactly `s3-fips` (`s3-fips.<region>.amazonaws.com`, dual-stack FIPS,
+    a bucket's virtual host); tests; the README and XML docs stop calling `s3-fips` legacy.
+  - **Docs:** the Physical, Azure, Amazon S3, MinIO, Google Cloud Storage, Box and SharePoint READMEs, the root
+    README's matrix (the folders column, the S3 and MinIO URL cells, the GCS gateway cell) and notes, the migration
+    guide, the XML docs, and AGENTS.md (the live classes, the MinIO fixtures' flag).
+  - **PR #43 review, round 1** (no blocker or major; five items, each decided fail-closed by the main session):
+    - F1: a Windows root in the extended or device form (`\\?\C:\…`, `\\?\UNC\…`, `\\.\C:\…`) skipped .NET's
+      normalization, so 8.3 short names under it went unexpanded while NTFS resolved them, and the short-name check was
+      bypassed (the reviewer overwrote a file and deleted a folder through `LONGFO~1`). The constructor now takes such a
+      root in its plain form, and writes that back; one with no plain form of at most 259 characters (a volume GUID, a
+      device) throws `ArgumentException`. Tests: a Windows root with each prefix refuses the short names; the plain
+      form of each shape, on every system.
+    - F2: an endpoint the AWS SDK takes from its own configuration (`AWS_ENDPOINT_URL_S3`, `AWS_ENDPOINT_URL`, a
+      profile's `endpoint_url`) was never checked when the provider built its client. It now counts as a named endpoint,
+      as `ServiceUrl` does: the plain-http rule, conditions checked first, create URLs through the gateway, and
+      requester-pays and a created bucket's location only for S3's own host names. Offline tests set and restore both
+      variables. The README's line that such a provider "counts as AWS" and the class remarks are corrected.
+    - F3: the GCS signing catch no longer takes `TokenResponseException` or a `GoogleApiException` with 401, so a
+      refused credential fails as on every other member (`UnauthorizedAccessException`, by the common half's mapping)
+      instead of having the URL service issue a gateway URL that fails later; signBlob's 403, other error
+      answers and `HttpRequestException` stay `NotSupportedException`, and a timeout is left to the base. Tests: a token
+      endpoint answering `invalid_grant`, and signBlob answering 401.
+    - F4: the D30 conformance tests now pin the delete order: the first delete removes the file and leaves the folder,
+      the second removes the folder.
+    - F5: the migration guide says the device-name rule follows Windows' documented reservation, which recent builds
+      do not always enforce, so a file such as `con.txt` that 2026 served is now refused and left out of listings.
+    - Nits: the 8.3 check and the device-name lookup allocate nothing (a span compare, a `FrozenSet` span lookup);
+      `SharePointLiveChecks` pages through the site's libraries as the provider does.
+  - **PR #43 review, round 2** (F1–F5 verified; four items, each decided by the main session):
+    - N1 (root protection, decided: refuse): under `\\?\`, `data.` and `data ` are folders of their own, and `.` and
+      `..` are names, but the plain form drops a trailing dot or space and applies `.` and `..`, so such a root would
+      name another folder (`\\?\C:\data\..\..\Windows` becomes `C:\Windows`). `PlainRootOf` now has no plain form for
+      a path holding such a name, and the constructor refuses it. Tests: each shape, and a real `rootdot.` folder.
+    - N2: the 259-character cap refused long roots that work in plain form; it is gone, and a long `\\?\` root builds
+      and still refuses short names (Windows test).
+    - N3: the configured endpoint is read when the provider is built, so a client the provider builds for AWS now sets
+      the SDK's `IgnoreConfiguredEndpointUrls`: an endpoint configured later, before the first call, cannot redirect it
+      unchecked. Tests: the client configuration, and an environment variable set after construction.
+    - N4: the README says the SDK-configured endpoint also gets checksums only where S3 requires them.
+  - **Rebased onto #42** (`02790dd`), both sides kept: the progress log's two entries, the conformance suite's and
+    the in-memory provider's new members, and the provider test files' `CreateProviderThatFails` overrides and error
+    tests beside this branch's. The GCS signing test now asserts `UnauthorizedAccessException` for a token endpoint
+    answering `invalid_grant` and for signBlob answering 401, the cause inside, and the GCS docs and the migration
+    guide name the two types. Where this branch meets D29's base mapping nothing is wrapped twice or remapped: the
+    GCS signing's `NotSupportedException`, Physical's `ArgumentException` for a name, a short name or a root, and the
+    D30 refusals' `IOException` are the contract's types and pass through, as no provider's `IsNotFound` or
+    `IsAccessDenied` looks inside an exception; S3's plain-http check throws in the constructor, outside the mapping;
+    and a signBlob 403 becomes `NotSupportedException` inside `GetSignedUrlCoreAsync`, before the base would read it
+    as `UnauthorizedAccessException`, which is item 3's decision.
+  - **Verified** (after the rebase onto #42): the solution builds strict; every non-Live test on Windows with
+    `WFP_REQUIRE_DOCKER=1`: 2583, none failed, 15 skipped (the three concurrent-append cases, nine Unix-only Physical
+    tests, and the three error-contract cases Physical's fixture cannot stage); Physical (231: 220 passed; skipped the
+    concurrent append, the three error-contract cases, the Windows-only ACL test and six Windows-only name and root
+    tests) and Common (310 passed) in a `dotnet/sdk:10.0` container as a non-root user; the coverage gate (Windows:
+    AmazonS3 98.19/93.84, AspNetCore 100/99.01, AzureBlob 99.33/91.93, Box 99.71/93.12, Common 96.87/93.14, GCS
+    99.49/94.29, MinIO 98.18/91.85, Physical 99.34/94.12, SharePoint 99.77/91.30). The AmazonS3 branch floor rose from
+    91 to 92 in round 2, by this branch's own figures. No live suite ran (no accounts here; D21).
+
 ### For the maintainers
 
 What this session cannot do, in the order to do it: first what closes a security exposure, then the review of what
@@ -2190,11 +2328,16 @@ is missing when `WFP_LIVE=1` is set without them.
      (`BoxLiveChecks.Listing_EndsItsMarkerPagesAsTheProviderExpects`).
   6. The 100 MB conformance test passes: Box's chunked minimum, its part size, and how often a commit answers 202.
   7. The download URL still lives 15 minutes.
-- [ ] SharePoint (S9): `SharePointLiveTests` with `WFP_LIVE=1` must confirm what no offline test can, from
-  .local/research/graph-v6.md section 9:
-  1. A stale `If-Match` on a simple upload (`PUT /content`) gets 412 and writes nothing, and whether an upload session
-     checks it again at its last fragment. If simple uploads honour it, set `DetectsConcurrentAppends` in
-     `SharePointLiveTests` and decide with D15 whether SharePoint can say "atomic" below the 4 MiB session threshold.
+- [ ] SharePoint (S9): `SharePointLiveTests` and `SharePointLiveChecks` with `WFP_LIVE=1` must confirm what no offline
+  test can, from .local/research/graph-v6.md section 9:
+  1. A stale `If-Match` on a simple upload (`PUT /content`) gets 412 and writes nothing, and so does one on
+     `createUploadSession` and on a session whose file changed before its last fragment:
+     `SharePointLiveChecks.StaleIfMatch_OnASimpleUpload_Is412AndWritesNothing`,
+     `SharePointLiveChecks.StaleIfMatch_AtCreateUploadSession_Is412` and
+     `SharePointLiveChecks.IfMatch_OfASessionWhoseFileChangesBeforeItsLastFragment_Is412AndWritesNothing` send them
+     through `GraphServiceClient` directly. If the simple upload's check passes, set `DetectsConcurrentAppends` in
+     `SharePointLiveTests` and decide with D15 whether SharePoint can say "atomic" below the 4 MiB session threshold;
+     if all three pass, for sessions too.
   2. `createUploadSession`'s answer, with or without `nextExpectedRanges`; fragments without a token succeed.
   3. The copy monitor's status codes when done and when failed (200, 202 or a 303), and whether a taken name is ever
      refused at once (409).

@@ -49,7 +49,7 @@ The provider class is sealed: to change what it does, wrap it, or derive your ow
 | Key | Meaning |
 |---|---|
 | `Type` | `WriteablePhysicalFileProvider`. |
-| `RootDirectoryPath` | The folder the provider is confined to: absolute (`/srv/files`, `C:\files`, `\\server\share\files`) or relative to the current directory, with `/` or `\`. A relative path is resolved once, when the provider is built, and written back to the options, so `ToJson` names the same folder wherever it is read. The folder need not exist; the first write creates it. |
+| `RootDirectoryPath` | The folder the provider is confined to: absolute (`/srv/files`, `C:\files`, `\\server\share\files`) or relative to the current directory, with `/` or `\`. A relative path is resolved once, when the provider is built, and written back to the options, so `ToJson` names the same folder wherever it is read. On Windows, an extended or device path (`\\?\C:\files`, `\\?\UNC\server\share`, `\\.\C:\files`) is taken, and written back, in its plain form, so the name rules below hold under it; one with no plain form is refused: a volume GUID, a device, or a name the plain form would change (one ending in a dot or a space, `.` or `..`, which the extended form names as they are). The folder need not exist; the first write creates it. |
 | `RootDirectorySegments` | The same path as segments, in the form every stored configuration has: a drive (`C:`), `\` for a network share, or `root:` for a path from the file system root (`/srv/files` is `["root:", "srv", "files"]`). Either key alone is enough. |
 
 Configuration stored by 2026 reads the same, including the `root:/srv/files` form 2026 wrote for `RootDirectoryPath` on
@@ -64,8 +64,9 @@ None: the provider reads and writes with the permissions of the process that run
 - **Writes are atomic.** An overwrite, an append, a copy and a local stream's commit write a temp file named
   `.wfp-<guid>.tmp` next to the target, then rename it over the target, so the file has its old content or its new
   content, never a part. A failed write removes its temp file where it can; a crash, or a temp file that cannot be
-  deleted, leaves one behind, which you can delete. Listings never show a file named `.wfp-*.tmp`, yours included. An
-  append copies the file and the new bytes into the temp file, so it costs a copy of the file.
+  deleted, leaves one behind, which you can delete. Listings never show such a temp file: exactly `.wfp-`, 32
+  lowercase hex digits and `.tmp`. Any other name, `.wfp-notes.tmp` of yours included, is listed. An append copies the
+  file and the new bytes into the temp file, so it costs a copy of the file.
 - **Replacing by rename** puts a new file at the path, so a write is refused, with the file keeping its content:
   - with `UnauthorizedAccessException` when the process may not write the file (read-only, or another user's), on every
     system, as in 2026, or may not create files in its folder, since the new content is created there;
@@ -107,8 +108,20 @@ None: the provider reads and writes with the permissions of the process that run
   only a file that got shorter throws, with `IOException`. A file deleted meanwhile throws `FileNotFoundException`.
 - **Names** are matched without regard to case on Windows and macOS (a move from `a.txt` to `A.txt` renames the file),
   and with regard to case on other systems; the choice follows the operating system, not the volume. A `:` in a name is
-  refused. Listings leave out names no path can address: on Linux and macOS a name holding `:` or `\`, a control
-  character, or only dots and spaces (`...`); on any system a name such as `%2e%2e` that decodes to one of these.
+  refused (`ArgumentException`). On Windows, so is a name Windows would read as another name or cannot hold: one that
+  ends in `.` or a space, which Windows drops (`report.txt.` would name `report.txt`, `logs ` the folder `logs`), one
+  that holds `"`, `<`, `>`, `|`, `?` or `*`, and a reserved device name (`CON`, `PRN`, `AUX`, `NUL`, `COM1` to `COM9`,
+  `LPT1` to `LPT9`, and `COM` or `LPT` followed by `¹`, `²` or `³`), in any case, alone or with an extension
+  (`con.txt`). So is an 8.3 short name (`REPORT~1.TXT`) of a file or folder whose long name differs, on a volume that
+  keeps them. Listings leave out names no path can address: those names on Windows; on Linux and macOS a name holding
+  `:` or `\`, a control character, or only dots and spaces (`...`); on any system a name such as `%2e%2e` that decodes
+  to one of these.
+- **A file and a folder** cannot share a name: writing a file at a folder's path, or under a file's path, throws
+  `IOException`.
+- **Access.** Where the operating system refuses the process access to a file or a folder that a member opens, lists,
+  writes, moves or deletes, the member throws `UnauthorizedAccessException`, a read or a listing as well as a write. A
+  path the system will not look up at all, such as one inside a folder the process may not enter, reads as missing:
+  `GetFileInfoAsync` says it does not exist, and `DeleteAsync` returns false.
 - **Content types** are not kept: `UpdateFileOptions.ContentType` is ignored, and `ContentType` is null.
 - **The root.** Every path stays under the root folder, checked on the path: symbolic links and junctions inside the
   root are followed wherever they point. A recursive listing lists a linked folder but does not walk into it, since it

@@ -2,6 +2,8 @@
 WriteableFileProviders.AmazonS3.AmazonS3FileProviderOptions
 WriteableFileProviders.AmazonS3.AmazonS3FileProviderOptions.AccessKey.get -> string?
 WriteableFileProviders.AmazonS3.AmazonS3FileProviderOptions.AccessKey.set -> void
+WriteableFileProviders.AmazonS3.AmazonS3FileProviderOptions.AllowInsecureHttp.get -> bool
+WriteableFileProviders.AmazonS3.AmazonS3FileProviderOptions.AllowInsecureHttp.set -> void
 WriteableFileProviders.AmazonS3.AmazonS3FileProviderOptions.AmazonS3FileProviderOptions() -> void
 WriteableFileProviders.AmazonS3.AmazonS3FileProviderOptions.AmazonS3FileProviderOptions(string? rootDirectory, string? accessKey, string? secretKey, string? bucketName, Amazon.S3.S3Region? bucketRegion, Amazon.S3.S3StorageClass? storageClassForNewFiles = null) -> void
 WriteableFileProviders.AmazonS3.AmazonS3FileProviderOptions.AmazonS3FileProviderOptions(string? rootDirectory, string? accessKey, string? secretKey, string? bucketName, string? bucketRegion, Amazon.S3.S3StorageClass? storageClassForNewFiles = null) -> void

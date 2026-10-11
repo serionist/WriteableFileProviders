@@ -146,6 +146,12 @@ public sealed class InMemoryFileProvider(InMemoryFileProviderOptions options) : 
             if (Files.Folders.Contains(key))
                 throw new IOException($"The path '{path}' is a folder.");
             var segments = path.AbsoluteSegments;
+            // Folders are real here, as on a disk: a file cannot hold one.
+            for (var i = 1; i < segments.Length; i++)
+            {
+                if (Files.Entries.ContainsKey(string.Join('/', segments[..i])))
+                    throw new IOException($"The path '{path}' is under a file.");
+            }
             for (var i = 1; i < segments.Length; i++)
                 Files.Folders.Add(string.Join('/', segments[..i]));
             Files.Entries[key] = new Entry(buffer.ToArray(), TimeProvider.GetUtcNow(), Guid.NewGuid().ToString("N"), options.ContentType);

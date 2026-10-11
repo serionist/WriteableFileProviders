@@ -21,6 +21,9 @@ public sealed class GcsConformanceTests : ProviderConformanceTests
 
     protected override bool KeepsContentType => true;
 
+    // Folders are name prefixes: a file and a folder may share a name.
+    protected override bool FileAndFolderMayShareAName => true;
+
     // The resumable upload sends 10 MiB chunks: at 22 MiB the large write sends three, and the failed one, which stops
     // after half the size, has sent a whole chunk before it fails.
     protected override long LargeFileSize => 22L * 1024 * 1024;
@@ -53,6 +56,9 @@ public sealed class GcsClientConformanceTests : ProviderConformanceTests
     private static readonly Lazy<string> _bucket = new(() => FakeGcs.CreateBucket("wfp-client"));
 
     protected override bool KeepsContentType => true;
+
+    // Folders are name prefixes: a file and a folder may share a name.
+    protected override bool FileAndFolderMayShareAName => true;
 
     protected override long LargeFileSize => 22L * 1024 * 1024;
 

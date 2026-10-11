@@ -20,7 +20,14 @@ public sealed class MinioLiveTests : ProviderConformanceTests
 
     protected override bool KeepsContentType => true;
 
-    protected override bool SupportsSignedUrls(SignedUrlAccess access) => true;
+    // Folders are name prefixes: a file and a folder may share a name.
+    protected override bool FileAndFolderMayShareAName => true;
+
+    // MinIO lists only the file where a file and a folder share a name, and hides what is under the folder meanwhile.
+    protected override bool ListsAFileAndAFolderOfOneName => false;
+
+    // No create URL: MinIO may ignore the If-None-Match that guards it (the gateway issues one).
+    protected override bool SupportsSignedUrls(SignedUrlAccess access) => access != SignedUrlAccess.Create;
 
     // Above the 8 MiB part size, so a large write goes in parts.
     protected override long LargeFileSize => 20L << 20;

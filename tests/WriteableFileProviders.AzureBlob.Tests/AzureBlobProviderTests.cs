@@ -509,18 +509,21 @@ public sealed partial class AzureBlobProviderTests
         // A client that keeps a trailing slash, to write a folder marker as the Azure portal does.
         var raw = new BlobServiceClient(Azurite.ServiceUri, new Azure.Storage.StorageSharedKeyCredential(Azurite.AccountName, Azurite.AccountKey), new BlobClientOptions { TrimBlobNameSlashes = false })
             .GetBlobContainerClient(_containerName);
-        foreach (var name in new[] { "ok.txt", "dir//double.txt", ".wfp-tmp/abc", "marker/", "sub/.wfp-x", " ", "%2e%2e" })
+        // The provider's own temporary folder is hidden at the root only; any other ".wfp-" name is the caller's.
+        foreach (var name in new[] { "ok.txt", "dir//double.txt", ".wfp-tmp/abc", "marker/", "sub/.wfp-x", "sub/.wfp-tmp/y", " ", "%2e%2e" })
             await raw.GetBlobClient(Name(name)).UploadAsync(BinaryData.FromString("x"));
         using var provider = Provider();
         var top = (await provider.GetDirectoryContentsAsync("")).Select(e => (e.Name, e.IsDirectory)).OrderBy(e => e.Name, StringComparer.Ordinal).ToList();
         CollectionAssert.AreEqual(new[] { ("dir", true), ("marker", true), ("ok.txt", false), ("sub", true) }, top, string.Join(", ", top));
         Assert.AreEqual(0, (await provider.GetDirectoryContentsAsync("dir")).Count());
         Assert.IsTrue((await provider.GetDirectoryContentsAsync("marker")).Exists, "A folder marker makes a folder");
+        var sub = (await provider.GetDirectoryContentsAsync("sub")).Select(e => (e.Name, e.IsDirectory)).OrderBy(e => e.Name, StringComparer.Ordinal).ToList();
+        CollectionAssert.AreEqual(new[] { (".wfp-tmp", true), (".wfp-x", false) }, sub, string.Join(", ", sub));
 
         var all = new List<string>();
         await foreach (var entry in provider.EnumerateAsync("", recursive: true))
             all.Add(entry.Path.ToString() + (entry.IsDirectory ? "/" : ""));
-        CollectionAssert.AreEquivalent(new[] { "dir/", "marker/", "ok.txt", "sub/" }, all, string.Join(", ", all));
+        CollectionAssert.AreEquivalent(new[] { "dir/", "marker/", "ok.txt", "sub/", "sub/.wfp-x", "sub/.wfp-tmp/", "sub/.wfp-tmp/y" }, all, string.Join(", ", all));
     }
 
     [TestMethod]

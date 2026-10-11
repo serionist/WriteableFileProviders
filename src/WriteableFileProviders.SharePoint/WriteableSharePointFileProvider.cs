@@ -291,7 +291,8 @@ public sealed partial class WriteableSharePointFileProvider : WriteableFileProvi
         }
     }
 
-    private static TokenCredential CreateCredential(SharePointFileProviderOptions options, out X509Certificate2? certificate)
+    // The sign-in the options configure; internal so the live checks sign in exactly as the provider does.
+    internal static TokenCredential CreateCredential(SharePointFileProviderOptions options, out X509Certificate2? certificate)
     {
         certificate = null;
         if (options.UseDefaultAzureCredential)

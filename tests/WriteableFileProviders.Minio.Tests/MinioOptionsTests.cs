@@ -48,6 +48,27 @@ public sealed class MinioOptionsTests
     }
 
     [TestMethod]
+    public void PlainHttp_ThroughAGivenClient_FollowsTheSameRule()
+    {
+        // A client's own endpoint, as the options' host: plain HTTP toward another host needs the opt-in.
+        using var remote = new AmazonS3Client(new AnonymousAWSCredentials(), new AmazonS3Config { ServiceURL = "http://minio.internal:9000", ForcePathStyle = true });
+        var e = Assert.ThrowsExactly<ArgumentException>(() => new WriteableMinioFileProvider(new MinioFileProviderOptions { BucketName = "b" }, remote));
+        StringAssert.Contains(e.Message, "AllowInsecureHttp");
+        Assert.AreEqual("options", e.ParamName);
+        using (new WriteableMinioFileProvider(new MinioFileProviderOptions { BucketName = "b", AllowInsecureHttp = true }, remote))
+        {
+        }
+        using var local = new AmazonS3Client(new AnonymousAWSCredentials(), new AmazonS3Config { ServiceURL = "http://localhost:9000", ForcePathStyle = true });
+        using (new WriteableMinioFileProvider(new MinioFileProviderOptions { BucketName = "b" }, local))
+        {
+        }
+        using var tls = new AmazonS3Client(new AnonymousAWSCredentials(), new AmazonS3Config { ServiceURL = "https://minio.internal:9000", ForcePathStyle = true });
+        using (new WriteableMinioFileProvider(new MinioFileProviderOptions { BucketName = "b" }, tls))
+        {
+        }
+    }
+
+    [TestMethod]
     [DataRow("http://minio.example.net:9000")]
     [DataRow("https://minio.example.net")]
     [DataRow("minio.example.net:9000/bucket")]

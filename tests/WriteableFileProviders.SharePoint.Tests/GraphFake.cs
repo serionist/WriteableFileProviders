@@ -639,8 +639,16 @@ internal sealed class GraphFake
         var content = file.Content;
         if (request.Header("Range") is { } range && !IgnoreRanges)
         {
-            var spec = range["bytes=".Length..].Split('-');
-            var from = long.Parse(spec[0], CultureInfo.InvariantCulture);
+            // bytes=from-to or bytes=from-; a malformed range (such as an overflowed "2--9223372036854775808") is
+            // refused, as a strict server may do, which a client would read as nothing.
+            var spec = range.StartsWith("bytes=", StringComparison.Ordinal) ? range["bytes=".Length..].Split('-') : [];
+            if (spec.Length != 2 || !long.TryParse(spec[0], NumberStyles.None, CultureInfo.InvariantCulture, out var from)
+                || (spec[1].Length > 0 && !long.TryParse(spec[1], NumberStyles.None, CultureInfo.InvariantCulture, out _)))
+            {
+                var malformed = new HttpResponseMessage(HttpStatusCode.RequestedRangeNotSatisfiable) { Content = new ByteArrayContent([]) };
+                malformed.Content.Headers.ContentRange = new ContentRangeHeaderValue(content.Length);
+                return malformed;
+            }
             var to = spec[1].Length == 0 ? content.Length - 1 : Math.Min(long.Parse(spec[1], CultureInfo.InvariantCulture), content.Length - 1);
             if (from >= content.Length)
             {

@@ -124,7 +124,8 @@ Each package has a test project of its own, `tests/WriteableFileProviders.<Packa
 - **Amazon S3 and MinIO:** each runs the suite and the shared S3 behaviour tests (`tests/Shared/S3`, linked into both)
   against S3Mock 5.2.3 and MinIO (`cgr.dev/chainguard/minio`, pinned by digest, run as root), and offline tests that
   fake S3 behind the AWS SDK's HTTP layer. The S3Mock fixtures declare its two bugs as capabilities: an aborted
-  multipart upload deletes the object, and a multipart completion with the right `If-Match` answers 404.
+  multipart upload deletes the object, and a multipart completion with the right `If-Match` answers 404. The MinIO
+  fixtures declare that MinIO lists only the file where a file and a folder share a name.
 - **Google Cloud Storage**, on fake-gcs-server: `GcsConformanceTests` (through the options, with a service account key
   generated for the run and the `Endpoint` option), `GcsClientConformanceTests` (over a `StorageClient` the test built,
   which cannot sign) and `GcsProviderTests` (the missing bucket, bucket creation, signed URLs used for real, races and
@@ -157,11 +158,11 @@ WFP_LIVE=1 dotnet test --project tests/WriteableFileProviders.<Package>.Tests --
 
 Each test works under a folder of its own and deletes it; Box keeps what it deletes in its trash, and SharePoint in the
 site's recycle bin. The live classes are `AzureBlobLiveTests`, `AmazonS3LiveTests`, `MinioLiveTests`,
-`GcsLiveConformanceTests` and `GcsLiveAtomicityTests` (what fake-gcs-server does not enforce), `SharePointLiveTests`,
-`BoxLiveTests`, `BoxLiveAtomicTests` and `BoxLiveChecks` (what the fake assumes), and `PhysicalLiveTests` (a folder you
-name, such as a network share). `live.yml` runs them, by hand or nightly on `main`, where their secrets are set; it
-writes Box's app configuration from the `WFP_BOX_CONFIG_JSON` secret to the file `WFP_BOX_CONFIG_FILE` names, and leaves
-Physical's out.
+`GcsLiveConformanceTests` and `GcsLiveAtomicityTests` (what fake-gcs-server does not enforce), `SharePointLiveTests` and
+`SharePointLiveChecks` (what the Graph fake assumes), `BoxLiveTests`, `BoxLiveAtomicTests` and `BoxLiveChecks` (what the
+fake assumes), and `PhysicalLiveTests` (a folder you name, such as a network share). `live.yml` runs them, by hand or
+nightly on `main`, where their secrets are set; it writes Box's app configuration from the `WFP_BOX_CONFIG_JSON` secret
+to the file `WFP_BOX_CONFIG_FILE` names, and leaves Physical's out.
 
 A change to a provider runs that provider's emulator suite, or its live suite where there is no emulator (Box,
 SharePoint), and its PR says which ran, or that it did not run and why. The offline suites of Box and SharePoint run on

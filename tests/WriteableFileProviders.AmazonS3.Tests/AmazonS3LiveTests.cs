@@ -21,6 +21,9 @@ public sealed class AmazonS3LiveTests : ProviderConformanceTests
 
     protected override bool KeepsContentType => true;
 
+    // Folders are name prefixes: a file and a folder may share a name.
+    protected override bool FileAndFolderMayShareAName => true;
+
     protected override bool SupportsSignedUrls(SignedUrlAccess access) => true;
 
     // Above the 8 MiB part size, so a large write goes in parts on AWS.

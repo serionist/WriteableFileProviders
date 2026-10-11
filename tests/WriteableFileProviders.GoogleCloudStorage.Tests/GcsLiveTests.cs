@@ -93,6 +93,9 @@ public sealed class GcsLiveConformanceTests : ProviderConformanceTests
 {
     protected override bool KeepsContentType => true;
 
+    // Folders are name prefixes: a file and a folder may share a name.
+    protected override bool FileAndFolderMayShareAName => true;
+
     protected override bool SupportsSignedUrls(SignedUrlAccess access) => true;
 
     protected override IWriteableFileProvider CreateProvider(string? root) => new WriteableGoogleCloudStorageFileProvider(GcsLive.Options(root));
@@ -209,9 +212,22 @@ public sealed class GcsLiveAtomicityTests
             Assert.AreEqual("text/csv", response.Content.Headers.ContentType?.MediaType);
             Assert.AreEqual("named.txt", response.Content.Headers.ContentDisposition?.FileNameStar);
         }
-        await Task.Delay(TimeSpan.FromSeconds(5));
+        // Cloud Storage judges the expiry on its own clock: wait, within a bound, until its Date is past the URL's
+        // expiry.
+        var expires = url.ExpiresOn ?? throw new AssertFailedException("A V4 URL says when it expires.");
+        var serverTime = await ServerTimeAsync(http, url.Url);
+        for (var deadline = DateTimeOffset.UtcNow.AddMinutes(1); serverTime <= expires && DateTimeOffset.UtcNow < deadline; serverTime = await ServerTimeAsync(http, url.Url))
+            await Task.Delay(TimeSpan.FromMilliseconds(500));
         using (var response = await http.GetAsync(url.Url))
-            Assert.AreNotEqual(HttpStatusCode.OK, response.StatusCode);
+            Assert.AreNotEqual(HttpStatusCode.OK, response.StatusCode, $"The URL outlived its validity: it expired at {expires:O}, Cloud Storage's clock says {serverTime:O}");
+    }
+
+    // Cloud Storage's own time, from the Date header of an answer from its host.
+    private static async Task<DateTimeOffset> ServerTimeAsync(HttpClient http, Uri anyUrl)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Head, new Uri(anyUrl.GetLeftPart(UriPartial.Authority) + "/"));
+        using var response = await http.SendAsync(request);
+        return response.Headers.Date ?? throw new AssertFailedException("Cloud Storage sent no Date header.");
     }
 
     [TestMethod]

@@ -9,9 +9,10 @@ namespace WriteableFileProviders.AmazonS3;
 /// property names are the configuration shape consumers store (AGENTS.md, one-way doors).
 /// </summary>
 /// <remarks>
-/// Sign-in, first match wins: <see cref="UseDefaultCredentials"/> (the AWS SDK's default credential chain), then
-/// <see cref="IsAnonymus"/> (unsigned requests), then <see cref="AccessKey"/> and <see cref="SecretKey"/>. A
-/// configuration with none of them is refused when the provider is built.
+/// Sign-in: <see cref="UseDefaultCredentials"/> (the AWS SDK's default credential chain; it cannot be combined with
+/// <see cref="AccessKey"/>), else <see cref="IsAnonymus"/> (unsigned requests, ignoring any <see cref="AccessKey"/>),
+/// else <see cref="AccessKey"/> and <see cref="SecretKey"/>. A configuration with none of them, or with
+/// <see cref="UseDefaultCredentials"/> and <see cref="AccessKey"/> both set, is refused when the provider is built.
 /// </remarks>
 public sealed class AmazonS3FileProviderOptions : FileProviderOptions
 {
@@ -104,12 +105,15 @@ public sealed class AmazonS3FileProviderOptions : FileProviderOptions
     public S3StorageClass? StorageClassForNewFiles { get; set; } = S3StorageClass.Standard;
 
     /// <summary>
-    /// The endpoint of an S3-compatible server, such as <c>http://localhost:9000</c>, instead of AWS. Requests then carry
-    /// checksums only where S3 requires them, presigned URLs use the endpoint's scheme, and the provider checks
-    /// conditions before a write as well as sending them, since a server behind the endpoint may ignore some. An endpoint
-    /// that is one of S3's own host names (under <c>amazonaws.com</c> or <c>amazonaws.com.cn</c>, with a label
-    /// <c>s3</c>, such as <c>s3.eu-west-1.amazonaws.com</c>, a dual-stack or a VPC endpoint; not the legacy dashed names
-    /// such as <c>s3-eu-west-1</c> or <c>s3-fips</c>) is still S3 for the rest: requests accept requester-pays charges,
+    /// The endpoint of an S3-compatible server, such as <c>http://localhost:9000</c>, instead of AWS. Requests then
+    /// carry checksums only where S3 requires them, presigned URLs use the endpoint's scheme, and the provider checks
+    /// conditions before a write as well as sending them, since a server behind the endpoint may ignore some; for the
+    /// same reason it issues no native create URL there (<see cref="SignedUrlAccess.Create"/> throws
+    /// <see cref="NotSupportedException"/>). Plain <c>http</c> toward a host that is not loopback needs
+    /// <see cref="AllowInsecureHttp"/>. An endpoint that is one of S3's own host names (under <c>amazonaws.com</c> or
+    /// <c>amazonaws.com.cn</c>, with a label <c>s3</c> or <c>s3-fips</c>, such as <c>s3.eu-west-1.amazonaws.com</c>,
+    /// <c>s3-fips.us-east-1.amazonaws.com</c>, a dual-stack or a VPC endpoint; not the legacy dashed names such as
+    /// <c>s3-eu-west-1</c> or <c>s3-external-1</c>) is still S3 for the rest: requests accept requester-pays charges,
     /// and a bucket the provider creates gets the region as its location. New in 2027.0.0.
     /// </summary>
     /// <remarks>Written to JSON only when set, so a configuration that does not use it keeps the 2026 shape.</remarks>
@@ -117,6 +121,16 @@ public sealed class AmazonS3FileProviderOptions : FileProviderOptions
 #pragma warning disable CA1056 // Configuration binds strings; the provider checks it is an absolute http or https URI.
     public string? ServiceUrl { get; set; }
 #pragma warning restore CA1056
+
+    /// <summary>
+    /// Allows a <see cref="ServiceUrl"/> with plain <c>http</c> toward a host that is not loopback, such as a server on
+    /// a private network: files, session tokens and presigned URLs then travel in clear text. Off by default, so such
+    /// an endpoint throws <see cref="ArgumentException"/> when the provider is built; the same holds for a client given
+    /// to the provider whose own endpoint is plain <c>http</c> toward such a host. New in 2027.0.0.
+    /// </summary>
+    /// <remarks>Written to JSON only when set, so a configuration that does not use it keeps the 2026 shape.</remarks>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool AllowInsecureHttp { get; set; }
 
     /// <summary>
     /// Addresses the bucket in the path (<c>host/bucket/key</c>) rather than in the host name (<c>bucket.host/key</c>), as

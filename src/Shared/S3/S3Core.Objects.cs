@@ -95,11 +95,14 @@ internal sealed partial class S3Core
             foreach (var item in page.S3Objects ?? [])
             {
                 var segments = item.Key[prefix.Length..].Split('/');
-                var folders = segments[..^1];
                 var name = segments[^1];
-                // A folder marker ("dir/") ends in an empty name: it stands for its folder only.
-                if (!folders.All(_isAddressable) || (name.Length > 0 && !_isAddressable(name)))
-                    continue;
+                // The folders above the key, up to its first name the provider cannot address, as the one-level listing
+                // shows them; the file only when every name is addressable. A folder marker ("dir/") ends in an empty
+                // name: it stands for its folder only. The keys under a prefix are contiguous, so a folder cut short
+                // here is never yielded twice.
+                var unaddressable = Array.FindIndex(segments, 0, segments.Length - 1, folder => !_isAddressable(folder));
+                var folders = segments[..(unaddressable < 0 ? segments.Length - 1 : unaddressable)];
+                var listed = unaddressable < 0 && name.Length > 0 && _isAddressable(name);
                 var common = 0;
                 while (common < open.Count && common < folders.Length && open[common].Name == folders[common])
                     common++;
@@ -110,7 +113,7 @@ internal sealed partial class S3Core
                     open.Add(folder);
                     yield return WriteableFileInfo.Folder(_owner, folder.Path);
                 }
-                if (name.Length > 0)
+                if (listed)
                     yield return FileInfo((folders.Length == 0 ? path : open[^1]).Child(name), item);
             }
             token = page.IsTruncated == true ? page.NextContinuationToken : null;

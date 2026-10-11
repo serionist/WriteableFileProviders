@@ -23,12 +23,15 @@ namespace WriteableFileProviders.GoogleCloudStorage;
 /// <item><description>
 /// Neither: Application Default Credentials, such as Workload Identity on GKE or the metadata server on Compute Engine
 /// and Cloud Run, which keep secrets out of the configuration. They are looked up on the first call, never in the
-/// constructor.
+/// constructor; where none are found, that call throws <see cref="InvalidOperationException"/>.
 /// </description></item>
 /// </list>
 /// <para>
 /// Signed URLs (<see cref="IWriteableFileProvider.GetSignedUrlAsync"/>) need a credential that can sign: a service
-/// account key, or an identity that holds <c>iam.serviceAccounts.signBlob</c> on its service account.
+/// account key, or an identity that holds <c>iam.serviceAccounts.signBlob</c> on its service account. Without one, or
+/// when IAM's <c>signBlob</c> refuses the signing (403), answers another error than 401 or cannot be reached, they
+/// throw <see cref="NotSupportedException"/>; a refused credential and a timeout fail as on every other member
+/// (<see cref="UnauthorizedAccessException"/>, <see cref="IOException"/>).
 /// </para>
 /// </remarks>
 public sealed class GoogleCloudStorageFileProviderOptions : FileProviderOptions

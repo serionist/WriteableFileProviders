@@ -50,7 +50,8 @@ public class MinioFileProviderOptions : FileProviderOptions
     /// <summary>
     /// Allows plain HTTP (<see cref="UseSSL"/> false) toward a host that is not loopback, such as a server on a private
     /// network. Off by default, so a configuration that forgot <see cref="UseSSL"/> fails instead of sending files in
-    /// clear text. New in 2027.0.0.
+    /// clear text; the same holds for a client given to the provider whose own endpoint is plain http toward such a
+    /// host. New in 2027.0.0.
     /// </summary>
     /// <remarks>Written to JSON only when set, so a configuration that does not use it keeps the 2026 shape.</remarks>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]

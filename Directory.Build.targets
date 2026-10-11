@@ -1,10 +1,11 @@
 <Project>
 
-  <!-- Strictness. Every project builds with nullable analysis, warnings as errors and the .editorconfig style enforced
-       in the build. This lives in the .targets file, which is read after a project's own properties, so no project can
-       turn it off. -->
+  <!-- Strictness. Every project builds with nullable analysis, warnings as errors, the .NET analyzers at
+       latest-recommended and the .editorconfig style enforced in the build. This lives in the .targets file, which is
+       read after a project's own properties, so no project can turn it off. -->
 
   <PropertyGroup>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>

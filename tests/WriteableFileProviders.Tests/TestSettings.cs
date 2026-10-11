@@ -12,13 +12,6 @@
         public string MinioProvider_AccessKey { get; set; }
         public string MinioProvider_SecretKey { get; set; }
         public string MinioProvider_BucketName { get; set; }
-        public string BoxFileProvider_ClientId { get; set; }
-        public string BoxFileProvider_ClientSecret { get; set; }
-        public string BoxFileProvider_EnterpriseId { get; set; }
-        public string BoxFileProvider_PublicKeyId { get; set; }
-        public string BoxFileProvider_PrivateKey { get; set; }
-        public string BoxFileProvider_Passphrase { get; set; }
-        public string BoxFileProvider_RootFolderId { get; set; } = "0";
 
     }
 }

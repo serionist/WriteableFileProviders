@@ -201,7 +201,9 @@ public abstract partial class WriteableFileProvider<TOptions>
 
     private async Task RenameCaseOnlyAsync(ResolvedPath source, ResolvedPath destination, CancellationToken cancellationToken)
     {
-        var temp = source.Parent.Child($".{source.Name}.wfp-{Guid.NewGuid():N}.tmp");
+        // Short whatever the file's name, so it fits a store's name limit (255 characters on most) whenever the name does.
+        // Distinct from Physical's write temp, ".wfp-<guid>.tmp", which its listings hide: this copy holds a file's content.
+        var temp = source.Parent.Child($".wfp-rename-{Guid.NewGuid():N}.tmp");
         await CopyCoreAsync(source, temp, cancellationToken).ConfigureAwait(false);
         try
         {

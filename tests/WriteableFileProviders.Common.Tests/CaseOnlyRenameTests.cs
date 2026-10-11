@@ -27,6 +27,18 @@ public sealed class CaseOnlyRenameTests
     }
 
     [TestMethod]
+    public async Task Rename_OfALongName_FitsTheStoresNameLimit()
+    {
+        var store = new FlakyStore { MaxNameLength = 255 };
+        var name = new string('a', 246) + ".txt";
+        await store.UpdateFileAsync(name, new MemoryStream("content"u8.ToArray()));
+
+        await store.MoveAsync(name, name.ToUpperInvariant());
+
+        CollectionAssert.AreEqual(new[] { name.ToUpperInvariant() }, store.Keys);
+    }
+
+    [TestMethod]
     public async Task FailedSourceDelete_LeavesTheSourceAndNoTemporaryCopy()
     {
         var store = await WithFileAsync();
@@ -53,7 +65,7 @@ public sealed class CaseOnlyRenameTests
         store.FailRestore = true;
         var e = await Assert.ThrowsExactlyAsync<IOException>(() => store.MoveAsync("a.txt", "A.txt"));
         var temp = store.Keys.Single();
-        StringAssert.Contains(temp, ".a.txt.wfp-");
+        StringAssert.StartsWith(temp, ".wfp-rename-");
         StringAssert.Contains(e.Message, temp);
         Assert.AreEqual("content", store.Text(temp));
     }
@@ -82,6 +94,9 @@ public sealed class CaseOnlyRenameTests
 
         public bool FailDeleteOfTemporary { get; set; }
 
+        /// <summary>The longest name the store takes, as Box and SharePoint limit names to 255 characters.</summary>
+        public int? MaxNameLength { get; set; }
+
         public string[] Keys => [.. _files.Keys.Order(StringComparer.Ordinal)];
 
         public string Text(string key) => Encoding.UTF8.GetString(_files[key]);
@@ -107,6 +122,8 @@ public sealed class CaseOnlyRenameTests
         protected override async Task UpdateFileCoreAsync(ResolvedPath path, Stream contents, UpdateFileOptions options, CancellationToken cancellationToken)
         {
             var key = path.Path.ToString();
+            if (path.Name.Length > MaxNameLength)
+                throw new ArgumentException($"The name '{path.Name}' is too long.", nameof(path));
             // The rename's copy back to the old name happens after the copy to the new name failed.
             if (FailRestore && _restoring)
                 throw new IOException("restore failure");

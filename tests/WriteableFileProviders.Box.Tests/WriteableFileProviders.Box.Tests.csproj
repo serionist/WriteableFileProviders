@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The Box provider's tests: the conformance suite and unit tests against an in-memory Box behind the SDK's network
+       client, and the live suites (TestCategory Live) against a real Box app. -->
+
+  <ItemGroup>
+    <None Remove="testsettings.json" />
+    <!-- Optional: a real Box app for the live suites (testsettings.sample.json). It is git-ignored. -->
+    <Content Include="testsettings.json" Condition="Exists('testsettings.json')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The stored configuration shape of 2026, pinned in Common's tests: it must still build a Box provider. -->
+    <Content Include="..\WriteableFileProviders.Common.Tests\Serialization\Golden\WriteableBoxFileProvider.json;..\WriteableFileProviders.Common.Tests\Serialization\Golden\Lenient.Box.json"
+             Link="Golden\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WriteableFileProviders.Testing\WriteableFileProviders.Testing.csproj" />
+    <ProjectReference Include="..\..\src\WriteableFileProviders.Box\WriteableFileProviders.Box.csproj" />
+  </ItemGroup>
+
+</Project>

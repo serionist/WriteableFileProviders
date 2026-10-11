@@ -272,3 +272,29 @@ configured wins: `UseDefaultAzureCredential`, then the certificate, then `Client
 `WriteableSharePointFileProvider(options, GraphServiceClient)` takes a client you build and own; the provider never
 disposes it. Stored 2026 configurations read unchanged. `ToJson` writes the three new keys only when they are set, so a
 configuration that uses none of them is written exactly as 2026 wrote it.
+
+## Box
+
+The provider is rebuilt on `Box.V2.Core` 10 (the generated SDK, namespace `Box.Sdk.Gen`), and follows the contract.
+
+| 2026 | 2027 | How to move |
+|---|---|---|
+| `Box.V2.Core` 5.8 (namespace `Box.V2`) | `Box.V2.Core` 10.19 (namespace `Box.Sdk.Gen`); v10 no longer has the `Box.V2` namespace | Code of yours that uses the Box SDK directly moves to `Box.Sdk.Gen` (Box's own guide: `migration-guides/from-v5-to-v10.md` in `box/box-windows-sdk-v2`). Newtonsoft.Json and Portable.BouncyCastle leave the graph; the SDK brings BouncyCastle.Cryptography 2, System.IdentityModel.Tokens.Jwt 8 and Microsoft.Extensions.Http and DependencyInjection 8. |
+| The constructor signed in to Box, blocking on the network (and threw `AggregateException` on a bad credential) | No network I/O in the constructor: it checks that every credential is set and that the private key opens with the passphrase (`ArgumentException`), and signs in on the first call | A wrong client id or secret now fails on the first call, with the SDK's `BoxApiException`. `WriteableFileProviderSerializer` builds a Box provider offline. |
+| `WriteableBoxFileProvider` could be derived from | It is `sealed` (D25) | Wrap it, or write a provider on `WriteableFileProvider<TOptions>`. |
+| Only the options constructor | Also `WriteableBoxFileProvider(BoxFileProviderOptions, IBoxClient)`: a ready client (another authentication, as-user, a proxy, custom retries), which the provider never disposes | Optional. With a client, only `RootFolderId` and the root folder are read from the options. |
+| `GetFileInfo` on a folder: `Exists` false, `IsDirectory` true | `Exists` true, `IsDirectory` true, `Length` -1; a missing path has `Length` -1 (was 0) | Test `IsDirectory` and `Exists` as for every provider. |
+| `PhysicalPath`: the joined path from `GetFileInfo`, the bare name in listings | Always null | Use `IWriteableFileInfo.Path`. |
+| Overwrite rewound a seekable stream and uploaded it from byte 0 | Every write uploads from the stream's current position | Rewind the stream yourself if you meant to upload it all. |
+| Move created no folders (`DirectoryNotFoundException`), moved folders, and wrapped Box's 409 in `BoxException` | Moves files only, creates the destination's folders, and throws `FileExistsException` when the destination exists | Move a folder's files one by one, or use the Box SDK. |
+| Errors were re-thrown as `BoxException` with the path in the message | The SDK's `BoxApiException` (status in `ResponseInfo.StatusCode`), except where the contract names an exception (`FileNotFoundException`, `FileExistsException`, `PreconditionFailedException`, `ArgumentException` for a name Box refuses, `InvalidOperationException` for a `RootFolderId` that does not exist or the app cannot see). A failed download throws `FileNotFoundException` or `IOException` with its status only, since the SDK's error names the pre-authenticated URL. When the provider built its client, or was given exactly a `BoxClient`, every `BoxApiException` it throws or wraps keeps Box's status, code and message, and of the request only its method, its URL without the query, and an allow-list of headers and parameters (the SDK keeps the access token, extra headers, the query and the body, and a token request's body holds the client secret); over any other `IBoxClient`, a class derived from `BoxClient` included, the errors are the client's own and may carry its credentials | Catch the contract's exceptions, or `BoxApiException`. |
+| Writing under a file threw `InvalidOperationException` | `IOException` | Catch `IOException`. |
+| Folder listings paged by offset (500 a page) | Marker paging, 1000 a page | Nothing to do. |
+| `ReadFile` downloaded the whole file to a temp file first | It streams the download; ranged and seekable reads fetch only their bytes, pinned to the version they opened | Nothing to do. |
+| `GetDownloadUrl(validity)` ignored the validity: Box's URL lives about 15 minutes | `GetSignedUrlAsync` refuses a validity under 15 minutes (`NotSupportedException`, so the gateway serves it), and returns Box's URL for 15 minutes or more only with `AllowShorterValidity`, with `ExpiresOn` set (D18) | Ask for at least 15 minutes with `AllowShorterValidity = true`, or use the gateway. `GetDownloadUrl(path, validity)` throws `NotSupportedException` for Box, since it cannot accept a shorter URL. |
+| Chunked uploads from 20,000,000 bytes through the SDK's helper | From 20 MiB, through the provider's own upload-session loop (exact part sizes, part and whole-file digests, a bounded wait while Box processes the commit, the session aborted on failure) | Nothing to do. |
+
+A file's `ETag` (new in 2027) is the id of its current Box file version, not Box's `etag`, which starts again at `0`
+for a file deleted and created again. `IfNotExists` is atomic on Box. `IfMatch` is checked just before the write, not atomically, until a live run confirms
+that Box matches the quoted ETag the SDK sends (D15 as amended in S10); appends are checked the same way (D19). Box
+keeps no content type, so `ContentType` is ignored on writes and null on reads.

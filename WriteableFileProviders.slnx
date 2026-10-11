@@ -23,6 +23,7 @@
     <Project Path="tests/WriteableFileProviders.Common.Tests/WriteableFileProviders.Common.Tests.csproj" />
     <Project Path="tests/WriteableFileProviders.AzureBlob.Tests/WriteableFileProviders.AzureBlob.Tests.csproj" />
     <Project Path="tests/WriteableFileProviders.SharePoint.Tests/WriteableFileProviders.SharePoint.Tests.csproj" />
+    <Project Path="tests/WriteableFileProviders.Box.Tests/WriteableFileProviders.Box.Tests.csproj" />
     <Project Path="tests/WriteableFileProviders.Tests/WriteableFileProviders.Tests.csproj" />
     <Project Path="tests/WriteableFileProviders.AspNetCore.Tests/WriteableFileProviders.AspNetCore.Tests.csproj" />
     <Project Path="tests/WriteableFileProviders.GoogleCloudStorage.Tests/WriteableFileProviders.GoogleCloudStorage.Tests.csproj" />

@@ -2,9 +2,13 @@
 
   <PropertyGroup>
     <PackageId>WriteableFileProviders.Box</PackageId>
-    <Description>WriteableFileProviders for Box: a writeable IFileProvider over a Box folder.</Description>
-    <WfpLegacy>true</WfpLegacy>
+    <Description>WriteableFileProviders for Box: a writeable IFileProvider over a Box folder, on the Box .NET SDK (Box.Sdk.Gen), with JWT sign-in, ranged reads pinned to a file version, chunked uploads and Box's pre-authenticated download URLs.</Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Box.V2.Core" />
@@ -15,7 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="WriteableFileProviders.Tests" />
+    <InternalsVisibleTo Include="WriteableFileProviders.Box.Tests" />
   </ItemGroup>
 
 </Project>

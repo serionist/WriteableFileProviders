@@ -52,8 +52,8 @@ public abstract class ProviderConformanceTests
     protected virtual bool KeepsContentType => false;
 
     /// <summary>
-    /// Whether an append detects a concurrent change and throws instead of losing it (D19); false where the check is not
-    /// atomic.
+    /// Whether an append detects the concurrent write this suite stages (while the appended stream is read) and throws
+    /// instead of losing it (D19); false where the staged race cannot be detected.
     /// </summary>
     protected virtual bool DetectsConcurrentAppends => true;
 
@@ -526,7 +526,7 @@ public abstract class ProviderConformanceTests
     public async Task Write_ConcurrentAppendIsNeverLost()
     {
         if (!DetectsConcurrentAppends)
-            Assert.Inconclusive("The store checks appends against concurrent changes without atomicity (D19).");
+            Assert.Inconclusive("The provider cannot detect the concurrent write this test stages (D19).");
         await Write("f.txt", "start");
         var racing = new InterceptingStream(Encoding.UTF8.GetBytes("+mine"),
             () => Provider.UpdateFileAsync("f.txt", TestStreams.Text("theirs")).GetAwaiter().GetResult());

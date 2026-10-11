@@ -1,11 +1,14 @@
 # Getting started
 
-Four short steps in one project: files on the local disk, download links for them, the same code on a cloud store,
-and one provider or several. The [README](../../README.md) lists every operation and provider; this page puts them to
-work.
+Four steps in one app: local files, download links, a cloud store, then several stores.
 
-One project carries the four steps: `dotnet new web -o Files`, then, in `Files`,
-`dotnet add package WriteableFileProviders.Physical`. Each step's code is its `Program.cs`, run with `dotnet run`.
+```
+dotnet new web -o Files
+cd Files
+dotnet add package WriteableFileProviders.Physical
+```
+
+Steps 1 and 2 are each a whole `Program.cs`; steps 3 and 4 change step 2's. Run it with `dotnet run`.
 
 ## 1. Files on the local disk
 
@@ -25,15 +28,14 @@ await foreach (var entry in files.EnumerateAsync("reports"))
     Console.WriteLine($"{entry.Name}: {entry.Length} bytes");
 ```
 
-Paths are relative to the provider's root, the `files` folder, and never reach outside it (symbolic links inside it
-are followed: [Paths](paths-and-listings.md#paths)). A write is atomic, so a write that fails leaves the old
-content, and it creates the folders above the file.
+Paths are relative to the provider's root, the `files` folder, and can't reach outside it
+([Paths](paths-and-listings.md#paths)). Writes are atomic and create missing folders.
 
 ## 2. Download links for local files
 
-The gateway in `WriteableFileProviders.AspNetCore` serves signed links for any store, the local disk included. In the
-same project, where step 1 wrote `files/reports/2026.csv`, `dotnet add package WriteableFileProviders.AspNetCore`, and
-`Program.cs` becomes:
+```
+dotnet add package WriteableFileProviders.AspNetCore
+```
 
 ```csharp
 using WriteableFileProviders;
@@ -50,16 +52,16 @@ app.MapGet("/link/{**path}", async (string path, IWriteableFileUrlService urls) 
 app.Run();
 ```
 
-Run it with `dotnet run --urls http://localhost:5000` and open `/link/reports/2026.csv`: the answer is a link that
-downloads the file for an hour.
+Run `dotnet run --urls http://localhost:5000` and open `http://localhost:5000/link/reports/2026.csv` (the file step 1
+wrote). You get a link that downloads the file for an hour.
 
-- The `Uri` is the gateway's public address, the URL the app is reached at and every link is built from: `https`, or
-  plain `http` to a loopback host such as `localhost`, as here.
-- `/link` hands a working link to anyone who asks. A real app checks that the caller may read the file first.
+- The `Uri` is the gateway's public address, which every link starts with. Use `https`, or `http` only on a loopback
+  host such as `localhost`.
+- `/link` hands a link to anyone who asks. In a real app, check that the caller may read the file first.
 
 ## 3. The same code on a cloud store
 
-Only the registration changes. Register the provider from configuration:
+Change only the registration, and describe the store in `appsettings.json`:
 
 ```csharp
 builder.Services.AddWriteableFileProvider(builder.Configuration.GetSection("Files"));
@@ -76,20 +78,20 @@ builder.Services.AddWriteableFileProvider(builder.Configuration.GetSection("File
 }
 ```
 
-With `WriteableFileProviders.AzureBlob` added, `/link` now answers with a user delegation SAS, which downloads
-straight from the store, when the identity holds a Storage Blob Data role at the account (or Storage Blob Delegator);
-otherwise with the gateway's link ([Authentication](../../src/WriteableFileProviders.AzureBlob/README.md#authentication)).
-Another store is another `Type` and its keys, listed in its package's README.
+Add `WriteableFileProviders.AzureBlob`, and `/link` returns a user delegation SAS that downloads straight from Azure.
+That needs a Storage Blob Data role at the account, or Storage Blob Delegator. Without it you get a gateway link
+instead ([AzureBlob README](../../src/WriteableFileProviders.AzureBlob/README.md)).
 
-## 4. One provider, or several
+Another store is another `Type` and its keys, listed in its package README.
 
-`IWriteableFileProvider` is all most apps need: register one, inject it anywhere. With several stores, tell them apart
-your own way, with keyed services, `GetServices<IWriteableFileProvider>()` or a type of your own:
+## 4. Several stores
 
 ```csharp
 builder.Services.AddKeyedSingleton<IWriteableFileProvider>("archive",
     (_, _) => WriteableFileProviderSerializer.FromConfiguration(builder.Configuration.GetSection("Archive")));
 ```
 
-Links for it name the key: `urls.GetSignedUrlAsync(path, options, providerKey: "archive")`. Every provider the gateway
-serves is a [singleton](signed-urls.md#the-url-service).
+Inject it with `[FromKeyedServices("archive")]`, and pass the key for links:
+`urls.GetSignedUrlAsync(path, options, providerKey: "archive")`. Register every provider the gateway serves as a
+singleton ([why](signed-urls.md#the-url-service)). Other ways to register several:
+[Dependency injection](dependency-injection.md#register-several-providers).

@@ -1,31 +1,26 @@
 # Errors
 
-Every member of every provider throws only the types below, so code that handles a failure catches the same
-exceptions whichever store it runs on. The store's or the SDK's own exception travels as the `InnerException`, for
-when you need its status or error code.
-
-## What a member throws
+Every member of every provider throws only these types. The store's or SDK's own exception is the `InnerException`,
+for when you need its status or error code.
 
 | Type | When |
 |---|---|
-| `ArgumentException` (`ArgumentNullException`, `ArgumentOutOfRangeException`) | A path or an option the provider refuses. |
-| `FileNotFoundException` | A file the member needs does not exist, or is a folder. |
+| `ArgumentException` (and `ArgumentNullException`, `ArgumentOutOfRangeException`) | A path or an option the provider refuses. |
+| `FileNotFoundException` | The file doesn't exist, or is a folder. |
 | `FileExistsException` | The destination of a copy or a move exists. |
-| `PreconditionFailedException` | `IfMatch` or `IfNotExists` did not hold, or a pinned read's file changed. |
-| `NotSupportedException` | A feature this provider or its store cannot give. |
-| `InvalidOperationException` | The store is not set up as configured: a missing container, bucket, library or root folder, or no credentials to find; or the root was to be modified. |
-| `UnauthorizedAccessException` | The store refused the credential or the permission: an HTTP 401 or 403, or a sign-in its identity service refused. |
+| `PreconditionFailedException` | `IfMatch` or `IfNotExists` didn't hold, or a pinned read's file changed. |
+| `NotSupportedException` | The provider or its store can't do it. |
+| `InvalidOperationException` | The store isn't set up as configured (a missing container, bucket, library or root folder, or no credentials to find), or you tried to modify the root. |
+| `UnauthorizedAccessException` | The store refused the credential or the permission: HTTP 401 or 403, or a refused sign-in. |
 | `IOException` | Any other failure of the store, the service or the network, timeouts included. |
 | `ObjectDisposedException` | The provider is disposed. |
 | `OperationCanceledException` | Only when your cancellation token cancelled the call. |
 
-`FileExistsException` and `PreconditionFailedException` derive from `IOException`, so a handler of `IOException` sees
-them too. An exception that already derives from one of these types (an `IOException` of the network, say) passes as
-it is; `OutOfMemoryException` passes unmapped.
-
-The same holds for the reads of a stream a member returned, for each step of `EnumerateAsync`, and for a local stream's
-commit. A failure of the stream you give `UpdateFileAsync` reaches you as it is when it is one of these types, as an
-`IOException` usually is, and inside an `IOException` otherwise.
+- `FileExistsException` and `PreconditionFailedException` derive from `IOException`.
+- An exception that already is one of these types passes as it is. `OutOfMemoryException` passes unmapped.
+- The same holds for reads of a stream a member returned, each step of `EnumerateAsync`, and a local stream's commit.
+- If the stream you give `UpdateFileAsync` fails, its exception reaches you as it is when it is one of these types (an
+  `IOException` usually is), and inside an `IOException` otherwise.
 
 ```csharp
 try
@@ -48,82 +43,80 @@ catch (IOException e)
 
 ## Provider by provider
 
-Which of its store's answers each provider maps to which type. Moving from 2026, where each SDK's exceptions escaped
-as they were, is in the [migration guide](../migration-2027.md#what-a-member-throws).
+What each store's answers become.
 
 ### Physical
 
-The file system's own: `UnauthorizedAccessException` and `IOException` (a sharing violation, a full disk, a missing
-folder) pass through as .NET raises them, with no SDK in between; a missing file is `FileNotFoundException` naming the
-path under the root, with the system's exception inside; anything else that escapes is `IOException`, with it inside.
-Where the operating system refuses the process access to a file or a folder that a member opens, lists, writes, moves
-or deletes, the member throws `UnauthorizedAccessException`, a read or a listing as well as a write; a path the system
-will not look up at all, such as one inside a folder the process may not enter, reads as missing.
-The root folder is an operating system path, which the system resolves, dot segments included, rather than a path the
-provider checks.
+- `UnauthorizedAccessException` and `IOException` from the file system (a sharing violation, a full disk) pass through
+  as .NET raises them.
+- Wherever the operating system refuses the process access to a file or folder, any member throws
+  `UnauthorizedAccessException`, a read or a listing as well as a write. A path the system won't look up at all, such
+  as one inside a folder the process may not enter, reads as missing.
+- A missing file is `FileNotFoundException`, naming the path under the root. Anything else is `IOException`.
 
 ### Azure Blob Storage
 
-Azure's 401 and 403, and a sign-in Microsoft Entra ID refuses (Azure.Identity's `AuthenticationFailedException`), throw
-`UnauthorizedAccessException`, a move whose source delete is refused included (its copy is removed first); a sign-in
-that finds no credential to use (`CredentialUnavailableException`), like a missing container,
-`InvalidOperationException`; any other failure of Azure or the network, after the SDK's retries, `IOException`,
-timeouts included. The SDK's `RequestFailedException`, or what it threw, is the `InnerException`.
+- `UnauthorizedAccessException`: 401, 403, or a sign-in Microsoft Entra ID refuses (`AuthenticationFailedException`).
+  A move whose source delete is refused removes its copy first.
+- `InvalidOperationException`: a missing container, or no credential to use (`CredentialUnavailableException`).
+- `IOException`: any other failure of Azure or the network, after the SDK's retries, timeouts included. The inner
+  exception is the SDK's `RequestFailedException`, or what it threw.
 
 ### Amazon S3
 
-S3's 401 and 403, whatever the code (`AccessDenied`, `InvalidAccessKeyId`, `SignatureDoesNotMatch`, `InvalidPayer` and
-the like, or none, as a HEAD answers), and a session token that expired or is not valid (`ExpiredToken`,
-`InvalidToken`, a 400), throw `UnauthorizedAccessException`, for a file delete as for a folder's, except an archived
-object (`InvalidObjectState`, `ObjectNotInActiveTierError`) and a skewed clock (`RequestTimeTooSkewed`); a bucket name
-another account owns, with `CreateBucketIfMissing`, or no credentials for `UseDefaultCredentials` to find,
-`InvalidOperationException`; any other failure of S3 or the network, after the SDK's retries, `IOException`: timeouts,
-the archived object and the skewed clock included. The SDK's `AmazonS3Exception`, or what it threw, is the
-`InnerException`.
+- `UnauthorizedAccessException`: any 401 or 403, whatever the code (`AccessDenied`, `InvalidAccessKeyId`,
+  `SignatureDoesNotMatch`, `InvalidPayer`, or none, as a `HEAD` answers), and an expired or invalid session token
+  (`ExpiredToken`, `InvalidToken`, a 400).
+- `InvalidOperationException`: a bucket name another account owns, with `CreateBucketIfMissing`, or no credentials for
+  `UseDefaultCredentials` to find.
+- `IOException`: any other failure of S3 or the network, after the SDK's retries. That includes timeouts, an archived
+  object (`InvalidObjectState`, `ObjectNotInActiveTierError`) and a skewed clock (`RequestTimeTooSkewed`), though they
+  answer 403. The inner exception is the SDK's `AmazonS3Exception`, or what it threw.
 
 ### MinIO
 
-The server's 401 and 403, whatever the code (`AccessDenied`, `InvalidAccessKeyId`, `SignatureDoesNotMatch`, a code of
-the server's own, or none, as a HEAD answers), and a session token that expired or is not valid (`ExpiredToken`,
-`InvalidToken`, a 400), throw `UnauthorizedAccessException`, except an archived object (`InvalidObjectState`,
-`ObjectNotInActiveTierError`) and a skewed clock (`RequestTimeTooSkewed`); a bucket name another account owns, with
-`CreateBucketIfMissing`, `InvalidOperationException`; any other failure of the server or the network, after the SDK's
-retries, `IOException`: timeouts, a wrong `Region`, the archived object and the skewed clock included. The SDK's
-`AmazonS3Exception`, or what it threw, is the `InnerException`.
+- `UnauthorizedAccessException`: any 401 or 403, whatever the code (`AccessDenied`, `InvalidAccessKeyId`,
+  `SignatureDoesNotMatch`, a code of the server's own, or none), and an expired or invalid session token
+  (`ExpiredToken`, `InvalidToken`, a 400).
+- `InvalidOperationException`: a bucket name another account owns, with `CreateBucketIfMissing`.
+- `IOException`: any other failure of the server or the network, after the SDK's retries. That includes timeouts, a
+  wrong `Region`, an archived object and a skewed clock. The inner exception is the SDK's `AmazonS3Exception`, or what
+  it threw.
 
 ### Google Cloud Storage
 
-Cloud Storage's 401 and 403, and Google's token endpoint refusing the credential (`TokenResponseException`), throw
-`UnauthorizedAccessException`; no Application Default Credentials to find, `InvalidOperationException`, from the first
-call; any other
-failure of Cloud Storage or the network, `IOException`, timeouts included; the SDK's `GoogleApiException`, or what it
-threw, is the `InnerException`. A credential without `storage.objects.list` gets `UnauthorizedAccessException` from
-every member that has to list (its [README](../../src/WriteableFileProviders.GoogleCloudStorage/README.md#authentication)
-names them).
+- `UnauthorizedAccessException`: 401, 403, or Google's token endpoint refusing the credential
+  (`TokenResponseException`). A credential without `storage.objects.list` gets it from every member that lists
+  ([README](../../src/WriteableFileProviders.GoogleCloudStorage/README.md)).
+- `InvalidOperationException`: no Application Default Credentials to find, from the first call.
+- `IOException`: any other failure of Cloud Storage or the network, timeouts included. The inner exception is the
+  SDK's `GoogleApiException`, or what it threw.
 
 ### Box
 
-Box's 401 and 403, and a sign-in Box refuses (a 400 from its token endpoint), throw `UnauthorizedAccessException`; a
-`RootFolderId` that does not exist or the app cannot see, `InvalidOperationException`; a name Box refuses,
-`ArgumentException`; any other failure of Box or the network, `IOException`; with the SDK's `BoxApiException` (its
-status in `ResponseInfo.StatusCode`) or network exception as the `InnerException`. The download itself, from Box's
-pre-authenticated URL, throws `FileNotFoundException` or `IOException` with its HTTP status only: that URL is a
-credential, so no error carries it.
+- `UnauthorizedAccessException`: 401, 403, or a sign-in Box refuses (a 400 from its token endpoint).
+- `InvalidOperationException`: a `RootFolderId` that doesn't exist or the app can't see.
+- `ArgumentException`: a name Box refuses.
+- `IOException`: any other failure of Box or the network. The inner exception is the SDK's `BoxApiException` (status in
+  `ResponseInfo.StatusCode`) or the network's.
+- A download from Box's pre-authenticated URL fails with `FileNotFoundException` or `IOException` carrying only its
+  HTTP status: the URL is a credential, so no error holds it.
 
-That `BoxApiException` keeps the request it sent: the access token in its `Authorization` header, any extra header the
-client was built with (such as a `BoxApi` shared-link password), the query string, and the body (a token request's
-holds the client secret). When the provider built its client, or was given exactly a `BoxClient`, every
-`BoxApiException` it wraps keeps Box's status, code and message, and of the request only its method, its URL without
-the query, and the headers and parameters that diagnose it (`As-User`, `If-Match`, `Range`, the digests, the content
-type; the listing and version parameters). A provider given any other `IBoxClient`, a class derived from `BoxClient`
-included, uses that client as it is: its errors are the client's own and may carry its credentials.
+A `BoxApiException` keeps the request it sent: the access token, extra headers of the client (such as a shared-link
+password), the query string and the body (a token request's holds the client secret).
+
+- When the provider built its client, or was given exactly a `BoxClient`, it strips that request. Each wrapped
+  `BoxApiException` keeps Box's status, code and message, the method, the URL without the query, and the headers and
+  parameters that diagnose it (`As-User`, `If-Match`, `Range`, the digests, the content type, listing and version).
+- Any other `IBoxClient`, a class derived from `BoxClient` included, is used as it is. Its errors are its own, and may
+  carry its credentials.
 
 ### SharePoint
 
-Only a 404 means "not found". The SDK retries 429, 503 and 504 three times, honouring `Retry-After`; then the call
-throws `IOException`. 401 and 403 throw `UnauthorizedAccessException`, and so does a sign-in Microsoft Entra ID refuses
-(Azure.Identity's `AuthenticationFailedException`, inside); other failures `IOException`, timeouts included; the
-message names Graph's error, and the SDK's or the network's exception is inside where there is one. A missing site or
-library throws `InvalidOperationException` naming `SiteUrl` or `DocumentLibraryName` from every member that reaches the
-library, and so does a sign-in that finds no credential to use (`CredentialUnavailableException`, with
-`UseDefaultAzureCredential`).
+- `UnauthorizedAccessException`: 401, 403, or a sign-in Microsoft Entra ID refuses (`AuthenticationFailedException`,
+  inside).
+- `InvalidOperationException`: a missing site or library, naming `SiteUrl` or `DocumentLibraryName`, or no credential
+  to use with `UseDefaultAzureCredential` (`CredentialUnavailableException`).
+- `IOException`: other failures, timeouts included. The SDK retries 429, 503 and 504 three times, honouring
+  `Retry-After`, first. The message names Graph's error.
+- Only a 404 means not found.

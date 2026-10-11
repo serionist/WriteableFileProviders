@@ -76,10 +76,11 @@ Run everything from the repo root, with a .NET 10 SDK (`global.json`).
   lower one to pass. The goal is 90% of lines on every assembly.
 - **CI** (`.github/workflows/ci.yml`) runs the build, the tests with coverage, the gate and the pack on Linux, where
   Docker is available and a missing emulator fails the run (`WFP_REQUIRE_DOCKER=1`), and the build and tests on Windows.
-- **Release:** a maintainer tags `v<version>` on `main`. `release.yml` builds, tests and packs, checks that every
-  package has that version and depends on our other packages within its major (`eng/package-check.cs`), and once a
-  maintainer approves the `nuget` environment, pushes the packages to nuget.org through trusted publishing and creates
-  the GitHub release.
+- **Release:** a maintainer tags `v<version>` on `main`. `release.yml` builds, runs the tests with coverage and the
+  coverage gate, packs, checks that every package has that version and depends on our other packages within its major
+  (`eng/package-check.cs`), and requires that `ci.yml` concluded success on the tagged commit (its Windows job included);
+  then, once a maintainer approves the `nuget` environment, it pushes the packages to nuget.org through trusted
+  publishing and creates the GitHub release.
 
 ### Tests
 

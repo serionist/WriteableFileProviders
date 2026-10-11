@@ -154,9 +154,9 @@ account. `BoxConformanceTests` (the provider as it ships, signing in through the
 `BoxAtomicConformanceTests` (a ready client, with the `If-Match` header on) run the conformance suite, and the unit
 tests run, against `FakeBox`: an in-memory Box API behind the SDK's network client (`FakeNetworkClient`; the SDK has
 no HttpClient seam). Its live suites, `BoxLiveTests`, `BoxLiveAtomicTests` and `BoxLiveChecks`, run only with
-`WFP_LIVE=1` and a Box app: `WFP_BOX_CONFIG_FILE` (the app's JSON configuration from Box's developer console) and
-optionally `WFP_BOX_ROOT_FOLDER_ID`, or a `testsettings.json` next to that project (from its
-`testsettings.sample.json`). Run them with
+`WFP_LIVE=1` and a Box app: `WFP_BOX_CONFIG_FILE`, the path of the app's JSON configuration from Box's developer
+console (`live.yml` writes it from the `WFP_BOX_CONFIG_JSON` secret), and optionally `WFP_BOX_ROOT_FOLDER_ID`, or a
+`testsettings.json` next to that project (from its `testsettings.sample.json`). Run them with
 `dotnet test --project tests/WriteableFileProviders.Box.Tests --filter "TestCategory=Live"`; Box keeps what they delete
 in its trash.
 

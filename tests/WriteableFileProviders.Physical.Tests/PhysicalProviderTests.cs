@@ -528,6 +528,46 @@ public sealed class PhysicalProviderTests
         Assert.AreEqual(root, WriteablePhysicalFileProvider.PhysicalPathOf(Path.Join(root, "..")));
     }
 
+    [TestMethod]
+    public void PhysicalPathOf_StopsWhereTheKernelDoes()
+    {
+        // A component before the last must be a folder that is there (ENOENT, ENOTDIR), a trailing separator or '.'
+        // included; a missing last name is still a path. Links count up to the kernel's limit (ELOOP past it).
+        var folder = Disk("stops");
+        Directory.CreateDirectory(folder);
+        var file = Path.Combine(folder, "file.txt");
+        File.WriteAllText(file, "x");
+        var physicalFile = WriteablePhysicalFileProvider.PhysicalPathOf(file);
+        Assert.IsNotNull(physicalFile);
+        Assert.IsNull(WriteablePhysicalFileProvider.PhysicalPathOf(Path.Combine(folder, "missing", "..", "file.txt")));
+        Assert.IsNull(WriteablePhysicalFileProvider.PhysicalPathOf(Path.Combine(file, "..", "file.txt")));
+        Assert.IsNull(WriteablePhysicalFileProvider.PhysicalPathOf(file + Path.DirectorySeparatorChar));
+        Assert.IsNull(WriteablePhysicalFileProvider.PhysicalPathOf(Path.Combine(file, ".")));
+        Assert.AreEqual(WriteablePhysicalFileProvider.PhysicalPathOf(folder), WriteablePhysicalFileProvider.PhysicalPathOf(folder + Path.DirectorySeparatorChar));
+        Assert.AreEqual(Path.Combine(Path.GetDirectoryName(physicalFile)!, "missing.txt"), WriteablePhysicalFileProvider.PhysicalPathOf(Path.Combine(folder, "missing.txt")));
+
+        // Chains of links: one through exactly the limit resolves, one link more does not (32 on macOS, 40 elsewhere).
+        Assert.AreEqual(OperatingSystem.IsMacOS() ? 32 : 40, WriteablePhysicalFileProvider.MaxLinks);
+        try
+        {
+            Chain("a", WriteablePhysicalFileProvider.MaxLinks);
+        }
+        catch (Exception e) when (OperatingSystem.IsWindows() && e is IOException or UnauthorizedAccessException)
+        {
+            Assert.Inconclusive($"Creating a symbolic link on Windows needs Developer Mode or elevation: {e.Message}");
+        }
+        Chain("b", WriteablePhysicalFileProvider.MaxLinks + 1);
+        Assert.AreEqual(physicalFile, WriteablePhysicalFileProvider.PhysicalPathOf(Path.Combine(folder, "a0")));
+        Assert.IsNull(WriteablePhysicalFileProvider.PhysicalPathOf(Path.Combine(folder, "b0")));
+
+        // prefix0 -> prefix1 -> ... -> prefix(count - 1) -> file.txt: a path through count links.
+        void Chain(string prefix, int count)
+        {
+            for (var i = 0; i < count; i++)
+                File.CreateSymbolicLink(Path.Combine(folder, $"{prefix}{i}"), i == count - 1 ? "file.txt" : $"{prefix}{i + 1}");
+        }
+    }
+
     // Makes a FIFO under the root with mkfifo, with the given permission bits; inconclusive where there is no mkfifo.
     private async Task MakeFifo(string name, string mode = "0644")
     {

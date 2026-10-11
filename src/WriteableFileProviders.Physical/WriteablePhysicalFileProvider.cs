@@ -577,14 +577,23 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
         }
     }
 
+    // How many symbolic links a path may pass through before the kernel gives up on it (ELOOP): 32 on macOS, 40 on Linux.
+    internal static int MaxLinks { get; } = OperatingSystem.IsMacOS() ? 32 : 40;
+
     // The path the kernel opens for an absolute path, without opening it: walked a component at a time from its root,
     // each symbolic link replaced by its target, a relative target resolved against the part already resolved, and '..'
-    // applied to that part, not to the text as written. Null after 40 links, as the kernel gives up (ELOOP).
+    // applied to that part, not to the text as written. Null where the kernel stops: past MaxLinks links (ELOOP), or at
+    // a component before the last that is missing (ENOENT) or not a folder (ENOTDIR), a trailing separator or '.'
+    // included, so 'missing/../x', 'file.txt/../x' and 'file.txt/' lead nowhere.
     internal static string? PhysicalPathOf(string path)
     {
         char[] separators = [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar];
+        // A trailing separator asks for a folder, as '.' after the last name does.
+        IEnumerable<string> PartsOf(string text) =>
+            text.Split(separators, StringSplitOptions.RemoveEmptyEntries).Concat(text.Length > 0 && separators.Contains(text[^1]) ? ["."] : []);
+
         var root = Path.GetPathRoot(path) ?? "";
-        var pending = new Stack<string>(path[root.Length..].Split(separators, StringSplitOptions.RemoveEmptyEntries).Reverse());
+        var pending = new Stack<string>(PartsOf(path[root.Length..]).Reverse());
         var resolved = root;
         var links = 0;
         while (pending.TryPop(out var part))
@@ -601,15 +610,18 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
             // Attributes are -1 when nothing is there; a link reports itself, whatever it leads to.
             if ((int)entry.Attributes != -1 && (entry.Attributes & FileAttributes.ReparsePoint) != 0 && entry.LinkTarget is { } target)
             {
-                if (++links > 40)
+                if (++links > MaxLinks)
                     return null;
                 var targetRoot = Path.GetPathRoot(target);
                 if (!string.IsNullOrEmpty(targetRoot))
                     resolved = targetRoot;
-                foreach (var targetPart in target[(targetRoot?.Length ?? 0)..].Split(separators, StringSplitOptions.RemoveEmptyEntries).Reverse())
+                foreach (var targetPart in PartsOf(target[(targetRoot?.Length ?? 0)..]).Reverse())
                     pending.Push(targetPart);
                 continue;
             }
+            // The kernel looks the next component up in this one, so it must be a folder.
+            if (pending.Count > 0 && !Directory.Exists(next))
+                return null;
             resolved = next;
         }
         return resolved;

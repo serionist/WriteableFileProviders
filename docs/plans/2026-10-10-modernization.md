@@ -1754,6 +1754,32 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     non-root user; the coverage gate (Windows: Physical 99.50/94.38, AmazonS3 97.97/92.33; Linux container: Physical
     100/97.19).
 
+- **2026-10-11, S12 part 2, harmonize, review round 3 (PR #41, read at `b74825e`):** N1 verified (strace showed only
+  lstat, stat and readlink when describing; the walk matched `realpath -e` and `stat -L` on 1,530 paths over 12
+  layouts). Two items, decided by the main session:
+  - **N3 (major, data integrity; the round-2 instruction corrected):** any host under `amazonaws.com` passed round 2's
+    rule, including names that front other servers (a load balancer, an instance, API Gateway), so a MinIO or Ceph
+    server behind one got `SupportsAtomicPreconditions` true and no check first, which could lose concurrent writes
+    (D15). Now: `ChecksAtomically` is true only with no endpoint named (neither `ServiceUrl` nor a client's
+    `ServiceURL`), so the provider checks conditions first toward any endpoint, S3's own included (one HEAD; AWS still
+    enforces the headers sent). `IsS3Endpoint` takes only S3's own host names (under `amazonaws.com` or
+    `amazonaws.com.cn` after one trailing dot is trimmed, with a label exactly `s3`: `s3.amazonaws.com`,
+    `s3.eu-west-1.amazonaws.com`, `bucket.s3.eu-west-1.amazonaws.com`, dual-stack, a VPC endpoint), and drives only
+    `RequesterPays` and `BucketLocation`; the legacy dashed names (`s3-eu-west-1`, `s3-external-1`, `s3-fips`) do not
+    match, the safe direction, and the docs say so. Tests: the VPC endpoint (conditions checked first, requester-pays
+    and the location on), MinIO's localhost, an ELB, an EC2 and an API Gateway host, and a legacy dashed host (all off),
+    each through the options or a client, and the host rule on 21 names. Found on the way: for a host under
+    `amazonaws.com` the AWS SDK adds a `LocationConstraint` of its own, read from the host, when the request names none,
+    so the test checks the provider's setting (`S3Core.BucketLocation`) there and the request body only off AWS.
+  - **N4:** `PhysicalPathOf` stops where the kernel does: a component before the last that is missing or not a folder
+    (a trailing separator or `.` included: `missing/../x`, `file.txt/../x`, `file.txt/`) leads nowhere, and the link is
+    described as itself; the link limit is 32 on macOS and 40 elsewhere (`MaxLinks`). Unit tests for both, a chain of
+    exactly the limit resolving and one link more not.
+  - **Verified:** the solution builds strict; every non-Live test on Windows with `WFP_REQUIRE_DOCKER=1`: 2129, none
+    failed, 11 skipped (as in round 2); Physical (148: 146 passed, the same two skipped) and Common (224 passed) in the
+    container as a non-root user; the coverage gate (Windows: AmazonS3 98.08/92.78, Physical 99.50/94.15; Linux
+    container: Physical 100/96.81).
+
 ### For the maintainers
 
 What this session cannot do, kept current as the work goes on:

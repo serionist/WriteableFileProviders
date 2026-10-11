@@ -14,11 +14,9 @@
   <a href="https://dotnet.microsoft.com/download/dotnet/10.0"><img alt=".NET 10" src="https://img.shields.io/badge/.NET-10-512BD4"></a>
 </p>
 
-One writeable `IFileProvider` for .NET, over the local disk and six cloud stores: Azure Blob Storage, Amazon S3 (and
-S3-compatible servers), MinIO, Google Cloud Storage, Box and SharePoint. Read, write, append, list, copy, move and
-delete files, read byte ranges, write only if a file is unchanged or absent, and hand out signed download and upload
-links, with the same code and the same meaning on every store. Every provider passes one shared conformance suite, and
-where a store cannot do something, it says so with the same exception as the others.
+A writeable `IFileProvider` for .NET, over the local disk, Azure Blob Storage, Amazon S3 (and S3-compatible servers),
+MinIO, Google Cloud Storage, Box and SharePoint. Read, write, append, list, copy, move and delete files, read byte
+ranges, write only if a file is unchanged or absent, and hand out signed links: the same code, the same behaviour.
 
 ## Install
 
@@ -26,14 +24,10 @@ where a store cannot do something, it says so with the same exception as the oth
 dotnet add package WriteableFileProviders.AzureBlob
 ```
 
-Each store is a package of its own (see [Providers](#providers)), and each brings `WriteableFileProviders.Common`.
-`WriteableFileProviders.AspNetCore` adds signed links for every store. The packages target .NET 10; on .NET 8, stay on
-`2026.10.10.x`.
+One package per store ([Providers](#providers)), each with `WriteableFileProviders.Common`. Add
+`WriteableFileProviders.AspNetCore` for signed links on every store. .NET 10 only; on .NET 8, stay on `2026.10.10.x`.
 
 ## The interface
-
-Every provider is an `IWriteableFileProvider`, an `IFileProvider` that can also write. Each member also takes a
-`CancellationToken`, and a path is a `ProviderPath` (a string converts to one), relative to the provider's root:
 
 ```csharp
 public interface IWriteableFileProvider : IFileProvider, IDisposable, IAsyncDisposable
@@ -54,20 +48,15 @@ public interface IWriteableFileProvider : IFileProvider, IDisposable, IAsyncDisp
     Task MoveAsync(ProviderPath source, ProviderPath destination);
     Task CopyAsync(ProviderPath source, ProviderPath destination);
 
-    // Edit through a local copy that is written back when it is disposed
+    // Edit through a local copy, uploaded when it is disposed; a signed link to download or upload the file
     Task<LocalFileStream> CreateLocalFileStreamAsync(ProviderPath path, bool readOnly);
-
-    // A signed link to download or upload the file
     Task<SignedUrl> GetSignedUrlAsync(ProviderPath path, SignedUrlOptions options);
 }
 ```
 
-Every provider means the same thing by every member: a write is all or nothing, nothing outside the root can be
-reached (on the local disk, symbolic links inside the root are followed), and each failure is one of a short list of
-exceptions, the same on every store ([errors](docs/guide/errors.md)).
-
-Register a provider and inject `IWriteableFileProvider` wherever files are needed. Changing store is a change of
-configuration, not of code:
+Every member also takes a `CancellationToken`. A path is a `ProviderPath` relative to the provider's root; a string
+converts to one. Writes are all or nothing, no path reaches outside the root, and failures are the same few
+[exceptions](docs/guide/errors.md) on every store. Register a provider:
 
 ```csharp
 builder.Services.AddWriteableFileProvider(builder.Configuration.GetSection("Files"));
@@ -77,6 +66,8 @@ builder.Services.AddWriteableFileProvider(builder.Configuration.GetSection("File
 { "Files": { "Type": "WriteableAzureBlobFileProvider", "AccountName": "contoso", "ContainerName": "files",
              "UseDefaultAzureCredential": true } }
 ```
+
+Then inject `IWriteableFileProvider` wherever you need files. Another store is another configuration, not new code.
 
 ## Providers
 
@@ -89,45 +80,40 @@ builder.Services.AddWriteableFileProvider(builder.Configuration.GetSection("File
 | [WriteableFileProviders.GoogleCloudStorage](src/WriteableFileProviders.GoogleCloudStorage/README.md) | A Google Cloud Storage bucket |
 | [WriteableFileProviders.Box](src/WriteableFileProviders.Box/README.md) | A Box folder |
 | [WriteableFileProviders.SharePoint](src/WriteableFileProviders.SharePoint/README.md) | A SharePoint document library, through Microsoft Graph |
-| [WriteableFileProviders.AspNetCore](src/WriteableFileProviders.AspNetCore/README.md) | Signed links for every store, through your app's gateway where the store cannot sign |
+| [WriteableFileProviders.AspNetCore](src/WriteableFileProviders.AspNetCore/README.md) | Signed links for every store, through your app where the store can't sign |
 | [WriteableFileProviders.Common](src/WriteableFileProviders.Common/README.md) | The interface, the base class, configuration and dependency injection |
 
 ## Signed links
 
-`GetSignedUrlAsync` returns a store's own signed link where it has one: a SAS on Azure, a presigned URL on S3 and
-MinIO, a V4 signed URL on Google Cloud Storage. For everything else (the local disk, uploads to Box and SharePoint, a
-lifetime a store cannot give), the gateway in `WriteableFileProviders.AspNetCore` serves the link from your app, and
-`IWriteableFileUrlService` picks the right one. [Signed URLs](docs/guide/signed-urls.md) has the details.
+`GetSignedUrlAsync` returns the store's own link where it has one: an Azure SAS, an S3 or MinIO presigned URL, a Google
+Cloud Storage V4 URL. Elsewhere, the gateway in `WriteableFileProviders.AspNetCore` serves it from your app, and
+`IWriteableFileUrlService` picks the right one ([Signed URLs](docs/guide/signed-urls.md)).
 
 ## Learn more
 
-- [Getting started](docs/guide/getting-started.md): four short steps, from files on the local disk to download links
-  and a cloud store.
-- [Providers compared](docs/guide/providers.md): what each store can do, side by side.
-- [Paths and listings](docs/guide/paths-and-listings.md): the root, folders, case, and what a listing shows.
-- [Reading and writing](docs/guide/reading-and-writing.md): conditions, appends, ranges, seekable reads, local streams.
-- [Signed URLs](docs/guide/signed-urls.md): each store's own links, the gateway, uploads, and keeping links safe.
-- [Dependency injection and configuration](docs/guide/dependency-injection.md): one provider or several, and the
-  stored configuration.
-- [Errors](docs/guide/errors.md): what each member throws, on every provider.
+- [Getting started](docs/guide/getting-started.md): local files, download links, then a cloud store.
+- [Providers compared](docs/guide/providers.md): what each store can do.
+- [Paths and listings](docs/guide/paths-and-listings.md): the root, folders, case, listings.
+- [Reading and writing](docs/guide/reading-and-writing.md): ranges, appends, conditions, copies, local streams.
+- [Signed URLs](docs/guide/signed-urls.md): native links, the gateway, uploads, security.
+- [Dependency injection and configuration](docs/guide/dependency-injection.md): one provider or several.
+- [Errors](docs/guide/errors.md): what each member throws.
 - [Writing a provider](docs/guide/writing-a-provider.md) for another store.
-- [Moving from 2026](docs/migration-2027.md), and the [changelog](CHANGELOG.md).
+- [Moving from 2026](docs/migration-2027.md) and the [changelog](CHANGELOG.md).
 
 ## Versioning
 
-Every package is released together, at one SemVer version from the release's git tag: use the same version of all of
-them. The major is a sequence number that continues above the 2018–2026 date versions, not a date: `2027.x` adds
-features and fixes, and the next breaking release is `2028.0.0`, whenever it ships.
-[The policy](docs/guide/versioning.md) says what counts as breaking and which versions get fixes.
+All packages ship together at one SemVer version: use the same version of each. `2027.x` adds features and
+fixes; `2028.0.0` is the next breaking release. The major is a sequence number, not a date
+([policy](docs/guide/versioning.md)).
 
 ## Contributing
 
-Issues and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) is the short path, and [AGENTS.md](AGENTS.md)
-holds the rules every change follows, for people and agents alike.
+Issues and pull requests are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md), and [AGENTS.md](AGENTS.md) for the rules.
 
 ## Security
 
-Report a vulnerability privately, never in an issue: [SECURITY.md](SECURITY.md) says how, and which versions get fixes.
+Report vulnerabilities privately, never in an issue: see [SECURITY.md](SECURITY.md).
 
 ## Licence
 

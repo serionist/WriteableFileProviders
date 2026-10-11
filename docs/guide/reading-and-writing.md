@@ -1,10 +1,8 @@
 # Reading and writing
 
-Every operation is one async member of `IWriteableFileProvider` that takes a `ProviderPath` and, last, a
-`CancellationToken`. The members mean the same on every provider; the [provider comparison](providers.md) says how each
-store does them, and which conditions it checks atomically.
+These members are async. Each takes a `ProviderPath` and, last, a `CancellationToken`.
 
-## Reads
+## Read a file
 
 ```csharp
 await using var whole = await files.ReadFileAsync("reports/2026.csv");
@@ -12,25 +10,27 @@ await using var slice = await files.ReadRangeAsync("big.bin", offset: 1_000_000,
 await using var seekable = await files.OpenReadSeekableAsync("big.bin");
 ```
 
-- **`ReadFileAsync`** opens the file. The stream may be a network stream that reads forward only.
-- **`ReadRangeAsync(path, offset, length)`** reads only those bytes: empty past the end of the file or for a length of
-  0, to the end for a null length. A negative offset or length throws `ArgumentOutOfRangeException`.
-- **`OpenReadSeekableAsync`** returns a read-only stream that knows its length and fetches ranges as it is read, at
-  least `SeekableReadOptions.BufferSize` bytes a fetch (1 MiB by default). By default it is **pinned** to the version
-  it opened: if the file changes while it is read, the next fetch throws `PreconditionFailedException` (an
-  `IOException`). A file the store keeps no `ETag` for cannot be pinned and throws `NotSupportedException`; set
-  `SeekableReadOptions.AllowModifications` to read such a file, each fetch then reading whatever the file holds.
-- **Conditions:** `ReadOptions.IfMatch` reads only the version it names, else throws `PreconditionFailedException`:
+- `ReadFileAsync` may return a network stream that only reads forward.
+- `ReadRangeAsync` returns just those bytes: empty past the end or for a length of 0, to the end for a null length. A
+  negative offset or length throws `ArgumentOutOfRangeException`.
+- `OpenReadSeekableAsync` returns a read-only stream that knows its length and fetches ranges as you read, at least
+  `SeekableReadOptions.BufferSize` bytes a fetch (1 MiB by default).
+- A missing file, or a folder, throws `FileNotFoundException`.
 
-  ```csharp
-  var info = await files.GetFileInfoAsync("big.bin");
-  await using var part = await files.ReadRangeAsync("big.bin", 0, 4096, new ReadOptions { IfMatch = info.ETag });
-  ```
+A seekable stream is pinned to the version it opened. If the file changes, the next fetch throws
+`PreconditionFailedException`. A file without an `ETag` can't be pinned and throws `NotSupportedException`; set
+`SeekableReadOptions.AllowModifications` to read it anyway, each fetch reading the current content.
 
-A read of a missing file, or of a folder, throws `FileNotFoundException`. The reads of a stream a member returned throw
-the same exception types as the members themselves ([Errors](errors.md)).
+## Read a known version
 
-## Writes
+```csharp
+var info = await files.GetFileInfoAsync("big.bin");
+await using var part = await files.ReadRangeAsync("big.bin", 0, 4096, new ReadOptions { IfMatch = info.ETag });
+```
+
+If the file is no longer that version, the read throws `PreconditionFailedException`.
+
+## Write a file
 
 ```csharp
 await files.UpdateFileAsync("reports/2026.csv", stream);
@@ -38,31 +38,27 @@ await files.UpdateFileAsync("reports/2026.csv", stream, new UpdateFileOptions { 
 await files.UpdateFileAsync("logs/today.log", line, UpdateFileOptions.Append);
 ```
 
-`UpdateFileAsync` overwrites by default, or appends (`UpdateFileOptions.Append`, or `Mode = UpdateFileMode.Append`).
-Every write:
+- Overwrites by default. `UpdateFileOptions.Append` (or `Mode = UpdateFileMode.Append`) appends.
+- Atomic: a write that fails leaves the old content, and readers never see half a write.
+- Creates missing parent folders.
+- Reads your stream from its current position to its end, and leaves it open. Its position afterwards isn't promised.
+- Writing the root throws `InvalidOperationException`. Writing onto a folder, or under a file, throws `IOException` on
+  stores with real [folders](paths-and-listings.md#folders).
 
-- is **atomic**: a write that fails leaves the old content, and readers never see half of it;
-- creates the missing folders above the file;
-- reads the stream you give from its current position to its end, and leaves it open (its position afterwards is not
-  promised);
-- throws `InvalidOperationException` for the root, and `IOException` onto a folder or under a file where folders are
-  real (Physical, Box, SharePoint); where folders are name prefixes, the file and the folder then share the name
-  ([Paths and listings](paths-and-listings.md#files-folders-and-missing-paths)).
+`ContentType` is a hint. Stores that keep a type store it; Physical and Box ignore it, and SharePoint picks its own from
+the file name. Without one, an overwrite stores the store's default (such as `application/octet-stream`), while an
+append and a local stream's commit keep the file's type.
 
-**Content type** (`UpdateFileOptions.ContentType`) is a hint: stored where the store keeps one, ignored where it does
-not (Physical, Box; SharePoint names the type from the file name). Without one, an overwrite stores the store's
-default, such as `application/octet-stream`, while an append and a local stream's commit keep the type the file has.
-`IWriteableFileInfo.ContentType` reports it, or null where the store keeps none.
+## Append
 
-**Appends** never silently lose a concurrent write where the store enforces the condition. Where the store has no
-append, the provider rewrites the file on the condition that it is still the version it read, and throws
-`PreconditionFailedException` when another write landed meanwhile: retry the append then. The condition is atomic on
-Azure Blob Storage, Google Cloud Storage and S3 on AWS. On Physical, Box and SharePoint it is checked rather than
-atomic; on MinIO, and on S3 toward a named endpoint, it is checked and then sent, atomic only where the server enforces
-`If-Match`. Where it is not atomic, a write that lands between the check and the rewrite can be lost (see below). Every
-file needs an `ETag` for an append by rewrite; one without throws `NotSupportedException`.
+Where the store has no native append, the provider rewrites the file on condition that it is still the version it read.
+If another write landed in between, the append throws `PreconditionFailedException`: retry it.
 
-## Conditions
+- The condition is atomic on Azure Blob, Google Cloud Storage and S3 on AWS.
+- Elsewhere it is checked, so a write that lands between the check and the rewrite can be lost.
+- An append by rewrite needs the file's `ETag`; a file without one throws `NotSupportedException`.
+
+## Write only if unchanged, or only if absent
 
 ```csharp
 var info = await files.GetFileInfoAsync("settings.json");
@@ -70,24 +66,14 @@ await files.UpdateFileAsync("settings.json", edited, new UpdateFileOptions { IfM
 await files.UpdateFileAsync("once.txt", stream, new UpdateFileOptions { IfNotExists = true });       // only if absent
 ```
 
-A condition that does not hold throws `PreconditionFailedException`, and nothing is written. Setting both throws
-`ArgumentException`. The `ETag` is the store's version of the file (a generation on Google Cloud Storage, a file version
-id on Box, the last-write time and length on Physical).
+- A condition that fails throws `PreconditionFailedException`, and nothing is written.
+- Setting both throws `ArgumentException`.
+- The `ETag` is the store's version of the file: a generation on Google Cloud Storage, a file version id on Box, the
+  last-write time and length on Physical.
+- **Atomic** stores refuse the write themselves. **Checked** stores compare just before writing, so a change in between
+  is missed. [Providers compared](providers.md#reads-and-writes) says which store does which.
 
-A condition is **atomic** where the store itself refuses the write, and **checked** where the provider compares just
-before it writes, so a change landing in between is not seen:
-
-| Provider | `IfMatch` | `IfNotExists` |
-|---|---|---|
-| Physical | Checked | Atomic |
-| Azure Blob | Atomic | Atomic |
-| Amazon S3 | Atomic on AWS; checked, then sent, toward a named endpoint (`ServiceUrl`, a client's `ServiceURL`, or the AWS SDK's configured endpoint) | Same as `IfMatch` |
-| MinIO | Checked, then sent for the server to enforce | Same as `IfMatch` |
-| Google Cloud Storage | Atomic (generation) | Atomic |
-| Box | Checked | Atomic |
-| SharePoint | Checked, and sent to the service | Checked, and sent to the service |
-
-## Copies, moves and deletes
+## Copy, move, delete
 
 ```csharp
 await files.CopyAsync("reports/2026.csv", "archive/2026.csv");
@@ -95,19 +81,19 @@ await files.MoveAsync("archive/2026.csv", "archive/2026-final.csv");
 bool deleted = await files.DeleteAsync("tmp");
 ```
 
-- **`CopyAsync` and `MoveAsync`** work on files, create the destination's missing folders, and refuse an existing
-  destination with `FileExistsException` (an `IOException`), leaving it unchanged. A missing source, or a folder,
-  throws `FileNotFoundException`. Moving a file onto itself does nothing; on a store that ignores case (Physical on
-  Windows and macOS, Box, SharePoint), moving `a.txt` to `A.txt` renames it. A move that finds its source changed after
-  the copy keeps the newer source, removes the copy and throws `PreconditionFailedException` on the stores that copy
-  and then delete (each README says how).
-- **`DeleteAsync`** deletes a file, or a folder with everything in it, and returns false when nothing was there. A
-  folder delete never touches a sibling that only shares its name's prefix (`tmp` never deletes `tmp2`).
+- `CopyAsync` and `MoveAsync` take files, and create the destination's missing folders.
+- An existing destination throws `FileExistsException` and is left unchanged. A missing source, or a folder, throws
+  `FileNotFoundException`.
+- Moving a file onto itself does nothing. Where case is ignored, moving `a.txt` to `A.txt` renames it.
+- On stores that move by copy, then delete: if the source changed after the copy, the move keeps the newer source,
+  removes the copy, and throws `PreconditionFailedException`.
+- `DeleteAsync` deletes a file, or a folder with everything in it, and returns false when nothing was there. Deleting
+  `tmp` never touches `tmp2`.
 
-## Local streams
+## Edit through a local file
 
-`CreateLocalFileStreamAsync(path, readOnly)` copies the file to a local temp file and opens it, for code that needs a
-seekable, writeable `Stream` (a ZIP archive, a spreadsheet library):
+For a library that needs a seekable, writeable `Stream` (a ZIP archive, a spreadsheet), copy the file to a local temp
+file:
 
 ```csharp
 await using (var local = await files.CreateLocalFileStreamAsync("book.xlsx", readOnly: false))
@@ -116,17 +102,17 @@ await using (var local = await files.CreateLocalFileStreamAsync("book.xlsx", rea
 }   // uploaded here, once and atomically
 ```
 
-- A writeable stream uploads its content when it is disposed, or when `CommitAsync` is called, once and atomically,
-  keeping the file's content type. A dispose after an exception uploads too, so set `SkipReUploadOnDispose` to keep
-  partially written content out.
-- A writeable stream of a missing file starts empty; of a folder it throws `IOException`.
-- A read-only stream never uploads; of a missing file, or of a folder, it throws `FileNotFoundException`.
+- A writeable stream uploads when it is disposed, or on `CommitAsync`, once and atomically. It keeps the file's content
+  type.
+- A dispose after an exception uploads too. Set `SkipReUploadOnDispose` to keep half-written content out.
+- A writeable stream of a missing file starts empty; of a folder, it throws `IOException`.
+- A read-only stream never uploads. Of a missing file, or a folder, it throws `FileNotFoundException`.
 
 ## Synchronous code
 
-The only synchronous members are the three `IFileProvider` has: `GetFileInfo`, `GetDirectoryContents` and `Watch`.
-Everything else is async. The 2026 forms (the synchronous `ReadFile`, `UpdateFile`, `Delete`, `Move` and
-`CreateLocalFileStream`, the overloads that take an `IFileInfo` or an `UpdateFileMode`, and `GetDownloadUrl`, which
-still returns a `string`) are `[Obsolete]` extension methods in `WriteableFileProviderCompatibilityExtensions`: they
-compile, with a warning that names the async member to call, and go in 2028.0.0
-([Moving from 2026](../migration-2027.md#common-the-api)).
+The only synchronous members are `IFileProvider`'s: `GetFileInfo`, `GetDirectoryContents` and `Watch`.
+
+The 2026 forms still compile, with a warning that names the async member to call: the synchronous `ReadFile`,
+`UpdateFile`, `Delete`, `Move` and `CreateLocalFileStream`, the overloads that take an `IFileInfo` or an
+`UpdateFileMode`, and `GetDownloadUrl`. They are `[Obsolete]` extension methods in
+`WriteableFileProviderCompatibilityExtensions`, and go in 2028.0.0 ([Moving from 2026](../migration-2027.md)).

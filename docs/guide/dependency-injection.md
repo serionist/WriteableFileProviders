@@ -1,19 +1,15 @@
 # Dependency injection and configuration
 
-A provider is an ordinary service: register it as `IWriteableFileProvider`, inject it, and the code that reads and
-writes never names the store. The store can then come from configuration, so moving from the local disk to a cloud
-store is a change of settings.
-
-## One provider
+## Register a provider
 
 ```csharp
-// From configuration (see below): the container builds it on first use and disposes it.
+// From configuration: built on first use, disposed by the container.
 builder.Services.AddWriteableFileProvider(builder.Configuration.GetSection("Files"));
 
-// Or from code, with a factory the container calls once; it disposes what the factory built.
+// From a factory: called once; the container disposes what it returns.
 builder.Services.AddWriteableFileProvider(_ => new WriteablePhysicalFileProvider("files"));
 
-// Or an instance you built; the container does not dispose it, since it did not create it.
+// An instance you built: the container doesn't dispose it.
 builder.Services.AddSingleton<IWriteableFileProvider>(new WriteablePhysicalFileProvider("files"));
 ```
 
@@ -24,13 +20,12 @@ app.MapGet("/reports/{year}", async (int year, IWriteableFileProvider files) =>
     Results.Stream(await files.ReadFileAsync($"reports/{year}.csv"), "text/csv"));
 ```
 
-`AddWriteableFileProvider` is in the `Microsoft.Extensions.DependencyInjection` namespace, beside `AddSingleton`, so it
-needs no `using` of its own. Each call adds a registration, as `AddSingleton` does: injecting `IWriteableFileProvider`
-gives the last one registered.
+`AddWriteableFileProvider` registers a singleton. It lives in `Microsoft.Extensions.DependencyInjection`, so it needs no
+`using`. Each call adds a registration, as `AddSingleton` does: `IWriteableFileProvider` resolves to the last one.
 
-## Several providers
+## Register several providers
 
-When an app uses more than one store, it tells them apart its own way. Three common ones:
+Tell them apart your own way.
 
 **Keyed services**, a name per provider:
 
@@ -44,11 +39,9 @@ app.MapGet("/archive/{**path}", async (string path, [FromKeyedServices("archive"
     Results.Stream(await archive.ReadFileAsync(path)));
 ```
 
-The signed-URL service takes the same key, and the gateway serves the URL from that provider:
-`urls.GetSignedUrlAsync(path, options, providerKey: "archive")` ([Signed URLs](signed-urls.md#the-url-service)).
+Pass the same key for signed URLs: `urls.GetSignedUrlAsync(path, options, providerKey: "archive")`.
 
-**Every provider at once:** each `AddWriteableFileProvider` call adds one, and `GetServices` returns them all, in the
-order they were registered:
+**All of them:** `GetServices` returns every registration, in order.
 
 ```csharp
 builder.Services.AddWriteableFileProvider(builder.Configuration.GetSection("Primary"));
@@ -58,7 +51,7 @@ foreach (var files in app.Services.GetServices<IWriteableFileProvider>())
     await files.UpdateFileAsync("health/last-start.txt", new MemoryStream("ok"u8.ToArray()));
 ```
 
-**A type of your own per role,** when a key feels too loose:
+**A type of your own per role:**
 
 ```csharp
 public sealed class ArchiveFiles(IWriteableFileProvider files) : IDisposable, IAsyncDisposable
@@ -72,15 +65,11 @@ builder.Services.AddSingleton(_ => new ArchiveFiles(
     WriteableFileProviderSerializer.FromConfiguration(builder.Configuration.GetSection("Archive"))));
 ```
 
-**With the gateway, register every provider it serves as a singleton**, whichever way you tell them apart
-(`AddWriteableFileProvider`, `AddSingleton`, `AddKeyedSingleton`): [Signed URLs](signed-urls.md#the-url-service) says
-why. The gateway serves only providers registered as `IWriteableFileProvider`, plain or keyed: links for a provider
-held by a type of your own need it registered under a key too.
+With the gateway, register every provider it serves as a singleton ([why](signed-urls.md#the-url-service)). The
+gateway serves only providers registered as `IWriteableFileProvider`, plain or keyed: for links, register a role type's
+provider under a key too.
 
-## Configuration
-
-A provider is described by its `Type`, the provider's class name, and its options' property names, both read without
-regard to case:
+## Configure a provider
 
 ```json
 {
@@ -94,7 +83,9 @@ regard to case:
 }
 ```
 
-| Provider | `Type` | Options class (its properties are the keys) |
+`Type` is the provider's class name; the other keys are its options' property names. Both ignore case.
+
+| Provider | `Type` | Options class |
 |---|---|---|
 | Physical | `WriteablePhysicalFileProvider` | `PhysicalFileProviderOptions` |
 | Azure Blob | `WriteableAzureBlobFileProvider` | `AzureBlobFileProviderOptions` |
@@ -104,14 +95,11 @@ regard to case:
 | Box | `WriteableBoxFileProvider` | `BoxFileProviderOptions` |
 | SharePoint | `WriteableSharePointFileProvider` | `SharePointFileProviderOptions` |
 
-Every provider takes `RootDirectoryPath` (or the same as segments, `RootDirectorySegments`), the folder it is confined
-to. Each package's README lists its keys. Keep secrets out of the file itself: user secrets, environment variables or
-a key vault fill the same keys through .NET configuration.
+- Every provider takes `RootDirectoryPath` (or `RootDirectorySegments`), the folder it is confined to
+  ([The root](paths-and-listings.md#the-root)). Each package README lists the other keys.
+- Keep secrets out of the file. User secrets, environment variables or a key vault fill the same keys.
 
-## The serializer
-
-`WriteableFileProviderSerializer` builds a provider from configuration or JSON, and writes one back as JSON, the shape
-stored configurations keep:
+## Build a provider from configuration or JSON
 
 ```csharp
 IWriteableFileProvider files = WriteableFileProviderSerializer.FromConfiguration(configuration.GetSection("Files"));
@@ -121,16 +109,13 @@ IWriteableFileProvider same = WriteableFileProviderSerializer.FromJson(json);
 WriteableFileProviderSerializer.Register<MyOwnProvider>();           // a provider from outside this library
 ```
 
-- **Finding the type:** a `Type` is looked up among the assemblies passed in, then this library's own providers (their
-  package must be referenced; its assembly is loaded when needed), then the types registered with
-  `Register<TProvider>()`. Loaded assemblies are not searched, so a provider of your own is registered or its assembly
-  passed in. An unknown, missing or ambiguous `Type`, or a value that does not convert, throws `ArgumentException`.
-- **Values** are read leniently, as the 2026 versions read them: a number or a boolean into a string, the strings
-  `"true"` and `"false"` into a boolean.
-- **`ToJson`** returns a `System.Text.Json.Nodes.JsonObject` and `ToJsonString` its text. Options added in 2027 are
-  written only when they differ from their defaults, so a configuration that uses none of them keeps its 2026 shape.
-- **Stored configurations** written by the 2026 versions read unchanged, except a root with a dot segment
-  (`tenants/../other`), which no longer builds ([Paths](paths-and-listings.md#the-root)). JSON written by 2027 is not
-  promised to read back on 2026.
-- **Building does no network I/O** on any provider: a provider signs in and finds its bucket, container or library on
-  its first call, so a configuration that is wrong in those ways fails there rather than at startup.
+- `Type` is looked up in the assemblies you pass in, then this library's providers (their package must be referenced),
+  then the types given to `Register<TProvider>()`. Loaded assemblies aren't searched.
+- A missing, unknown or ambiguous `Type`, or a value that doesn't convert, throws `ArgumentException`.
+- Values are read leniently: a number or a boolean into a string, `"true"` and `"false"` into a boolean.
+- `ToJson` returns a `JsonObject`, `ToJsonString` its text. Options new in 2027 are written only when they aren't the
+  default, so a configuration that doesn't use them keeps its 2026 shape.
+- Configurations stored by 2026 versions read unchanged, except a root with a dot segment (`tenants/../other`), which
+  now throws. JSON written by 2027 isn't promised to read on 2026.
+- Building does no network I/O. A provider signs in and finds its bucket, container or library on its first call, so
+  those settings fail there, not at startup.

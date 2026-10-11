@@ -518,7 +518,7 @@ Each step is an issue under #3, a branch `<issue>-<slug>`, and a PR that builds 
 
 | Step | Issue | PR | Contents | Findings | Status |
 |------|-------|----|----------|----------|--------|
-| S0 Security patch | #4 | #17 | F1, F2: the S3 version read and the listing accept only the root followed by a valid path; `ReadFileVersionAsync(versionId, params string[] pathSegments)` is added, and the old members are `[Obsolete]` and `[EditorBrowsable(Never)]`. F47: the local stream commit checks the provider and the root. F9: the commented test goes. Current line, net8.0. Tests: offline refusals, the concrete-typed binding, F47 cases, and on LocalStack that valid paths still resolve under the root. Release notes for the maintainers are in "For the maintainers". | F1 F2 F47 F9 | done (#17, aa265f5); the patch release is the maintainers' (see "For the maintainers") |
+| S0 Security patch | #4 | #17 | F1, F2: the S3 version read and the listing accept only the root followed by a valid path; `ReadFileVersionAsync(versionId, params string[] pathSegments)` is added, and the old members are `[Obsolete]` and `[EditorBrowsable(Never)]`. F47: the local stream commit checks the provider and the root. F9: the commented test goes. Current line, net8.0. Tests: offline refusals, the concrete-typed binding, F47 cases, and on LocalStack that valid paths still resolve under the root. Release notes for the maintainers are in "For the maintainers". | F1 F2 F47 F9 | done (#17, aa265f5); the patch is published (Common 2026.10.10.6, AmazonS3 2026.10.10.3), the advisory is the maintainers' (see "For the maintainers") |
 | S1 Record | #5 | #18 | This plan, the review, the roadmap. | — | done (#18, b13ecda); round 2 applied in #21 (936a6ef) |
 | S2 Build and layout | #6 | #19 | `.slnx`, `src/` and `tests/`, both build-props files, lock files, net10.0, `ProjectReference` to Common, MinVer, unused packages dropped, `WfpLegacy` ratchet, LF renormalization; REVIEW.md, finish-work, `.editorconfig` and `.gitattributes` updated; the `-> warning` analyzer rules become warnings (legacy projects silence them). Pulled forward from S3, because worktrees have no `testsettings.json`: settings optional, the Physical suite on a temp folder, and `test.runsettings` and the publish profile deleted (part of F56). Old tests still run. No copyright line in the packages until D8 settles. | F23 F46 F50 F55 F60 F71 F72, F26 (one Azure.Identity version) | done (#19, 7d83e44) |
 | S3 Test platform and CI | #7 | #20 | MSTest 4 on Microsoft.Testing.Platform, Testcontainers fixtures, live suites tagged `Live`, the golden corpus of the stored configuration shape from the old code (JSON for six providers, configuration for Azure, S3, MinIO and Physical, Physical built at run time, the `Type` key rules, F78 on both paths), coverage collection and gate, `ci.yml`, the F68 assertion fixes. AGENTS.md's suite rule is unchanged (D21). F28 and F29 move to the conformance suite (S4), F56's remaining dead weight goes with TestBase (S5–S10). | F27 F30 F42 F68 | done (#20, 8da61fc; floors fixed in #22, 3715284) |
@@ -1872,33 +1872,40 @@ merged, the repository's settings, the live runs, and the release. Kept current 
 - [ ] Rotate the MinIO access key pair from F9 on that server, and any other credential that was ever in the Azure
   DevOps history.
 - [ ] Delete the Azure DevOps repository and organization.
-- [ ] Publish the S0 patch from the `release/2026.10` branch (it starts at S0's merge commit; `main` has moved to the
-  2027 layout). Step 0 (P33): on that branch, run `AmazonS3ProviderTests`, at least
-  `AbsolutePathMembers_ResolveUnderTheRootOnly`, against an S3 endpoint whose virtual-host bucket names resolve (your
-  own AWS account, or LocalStack with a hosts entry for `wfp-test.<host>`), and publish only when it passes. Pin
-  Common in the patched providers as `[2026.10.10.5, 2027.0.0)`, so a consumer who mixes in 2027 gets a restore
-  warning (NU1608) instead of a runtime type load failure (P21).
-  1. `dotnet pack WriteableFileProviders.Common -c Release -p:Version=2026.10.10.5 -o out`, then push it.
-  2. In `WriteableFileProviders.AmazonS3.csproj`, raise the Common pin to `2026.10.10.5` on that branch, so one update
-     brings in F47 as well. Then
-     `dotnet pack WriteableFileProviders.AmazonS3 -c Release -p:Version=2026.10.10.2 -o out`, and never pass
-     `UseLocalCommon` here, or the dependency becomes `>= 1.1.2` (F50).
-  3. Check that the nuspec depends on Common `2026.10.10.5`, then push.
-  4. Publish a GitHub security advisory for F1, F2 and F47, naming the fixed versions.
+- [ ] Turn on private vulnerability reporting (Settings > Code security): the README, SECURITY.md and the issue forms
+  send reporters there. It was off on 2026-10-11.
+- [x] The S0 patch is published (nuget.org, seen on 2026-10-11): `WriteableFileProviders.Common` 2026.10.10.6 and
+  `WriteableFileProviders.AmazonS3` 2026.10.10.3 (with `ReadFileVersionAsync` and the old members `[Obsolete]`), and
+  every other provider released again on it: Physical, AzureBlob and Minio 2026.10.10.3, GoogleCloudStorage
+  2026.10.10.6, Box and SharePoint 2026.10.10.4. Each depends on Common `[2026.10.10.6, )`, with no upper bound.
+  Common 2026.10.10.5 and AmazonS3 2026.10.10.2 went out before #17 merged.
+- [ ] Publish a GitHub security advisory for F1, F2 and F47, naming the fixed versions: `WriteableFileProviders.Common`
+  2026.10.10.6 and `WriteableFileProviders.AmazonS3` 2026.10.10.3.
+- [ ] Decide whether to ship 2026.10.10.7 of every provider with Common pinned `[2026.10.10.6, 2027.0.0-0)`, so a 2026
+  provider cannot restore against Common 2027: today's 2026.10.10.x providers carry no upper bound, so an application
+  that mixes in a 2027 package gets no restore warning, only a type load failure at run time (the root README's
+  Versioning section says to update every package together).
 
 **Review what merged (D13):**
 
 - [ ] Review the merged PRs of #3 after the fact: #17 (S0), #18 (S1), #19 (S2), #20 and #22 (S3), #21 (plan round 2),
   #23 (S4), #24 (S11), #25 (S10), #26 (S5), #27 (S8), #28 (S9), #29 (S6), #30 (S7), #31 (S12 part 1), #41 (S12 part 2,
   harmonize), the docs PR of S12 part 2 and the final review's, as they merge; and Dependabot's #32 (the SDK in
-  `global.json`). These touch the harness or a one-way door: #19, #20, #23 (the Common API and the configuration
-  shape), #24 (the gateway's URLs), #31, #41 (the client constructors, the PublicAPI files, AGENTS.md) and the docs PR
-  (AGENTS.md, REVIEW.md, D28).
+  `global.json`). These touch the harness or a one-way door:
+  - #17 (`IWriteableFileProvider.cs`, AGENTS.md);
+  - #19 and #20 (the build, the test platform, CI, AGENTS.md, REVIEW.md);
+  - #22, which **lowered** the AmazonS3 and Google Cloud Storage branch floors from 14 to 13 (the gate had printed a
+    rounded 14.0% for a rate just under it); AGENTS.md says never to lower a floor to pass, so judge it, though both
+    floors have risen far above since;
+  - #23 (the Common API and the configuration shape) and #24 (the gateway's URLs);
+  - #25 to #30 (AGENTS.md, `Directory.Packages.props`, `eng/coverage.json`, and new options, which extend the stored
+    configuration shape);
+  - #31 (the workflows, CONTRIBUTING, SECURITY) and #32 (`global.json`);
+  - #41 (the client constructors, the PublicAPI files, `src/Directory.Build.targets`, AGENTS.md);
+  - the docs PR (AGENTS.md, REVIEW.md, D28, CI's stable pack).
 
 **The repository's settings** (Settings > Code security, and the rulesets):
 
-- [ ] Turn on private vulnerability reporting, which SECURITY.md and the issue forms point to. It was off on
-  2026-10-11.
 - [ ] Turn on Dependabot alerts and Dependabot security updates; `dependabot.yml` only schedules version updates.
   Both were off on 2026-10-11.
 - [ ] Turn on the dependency graph and Automatic dependency submission: the graph does not read the versions in
@@ -2023,7 +2030,20 @@ is missing when `WFP_LIVE=1` is set without them.
   before it pushes.
 - [ ] After 2027.0.0 ships: move each package's `PublicAPI.Unshipped.txt` into `PublicAPI.Shipped.txt`, and set the
   package validation baselines to `2027.0.0` (Later).
-- [ ] Unlist the 2018–2024 package versions on nuget.org, keeping `2026.10.10.x` listed for .NET 8 consumers.
+- [ ] Unlist every version before the 2026.10.10 line on nuget.org, keeping `2026.10.10.x` listed for .NET 8
+  consumers. What nuget.org has (its flat-container index, 2026-10-11):
+  - `WriteableFileProviders.Common`: 1.0.0, 1.0.1, 1.0.2, and 2018.11.26.2 to 2024.2.7.1 (27 versions in all);
+  - `WriteableFileProviders.Physical`: 1.0.0, and 2018.11.26.1 to 2024.2.7.1 (27 in all);
+  - `WriteableFileProviders.AzureBlob`: 2018.11.27.7 to 2024.12.10.1 (20);
+  - `WriteableFileProviders.AmazonS3`: 2018.11.28.2 to 2024.3.25.1 (20);
+  - `WriteableFileProviders.Minio`: 2019.9.4.3 to 2024.11.14.1, and 2025.6.19.2 (11 in all);
+  - `WriteableFileProviders.GoogleCloudStorage`: 2026.6.15.1;
+  - `WriteableFileProviders.Box`: 2025.6.22.1;
+  - `WriteableFileProviders.SharePoint`: 2025.7.15.1, 2025.7.15.2, 2025.7.17.1, 2025.7.21.1.
+
+  Once the advisory names the fixed versions, consider unlisting the 2026.10.10.x versions before the patch too, so
+  only the patched line shows: Common .4 and .5, Physical, AzureBlob, AmazonS3 and Minio .1 and .2,
+  GoogleCloudStorage .4 and .5, Box and SharePoint .2 and .3.
 
 ## Plan review
 

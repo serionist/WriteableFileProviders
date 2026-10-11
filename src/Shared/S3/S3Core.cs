@@ -314,6 +314,19 @@ internal sealed partial class S3Core(IWriteableFileProvider owner, S3CoreSetting
         }
     }
 
+    /// <summary>
+    /// The plain-http endpoint a client sends to: its <c>ServiceURL</c> when that is http, or S3's own when it is set
+    /// to use http; null when it uses https.
+    /// </summary>
+    /// <param name="config">The client's configuration.</param>
+    public static Uri? PlainHttpEndpointOf(IClientConfig config)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        if (config.ServiceURL is { } url)
+            return Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttp ? uri : null;
+        return config.UseHttp ? new Uri("http://s3.amazonaws.com") : null;
+    }
+
     private static bool IsHttp(IClientConfig config) =>
         config.ServiceURL is { } url
             ? url.StartsWith("http://", StringComparison.OrdinalIgnoreCase)

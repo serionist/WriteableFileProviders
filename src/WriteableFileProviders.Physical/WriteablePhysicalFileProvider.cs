@@ -64,8 +64,10 @@ namespace WriteableFileProviders.Physical;
 /// also refused (<see cref="ArgumentException"/>) when Windows would read it as another name or cannot hold it: one
 /// that ends in <c>.</c> or a space, which Windows drops (so <c>a.txt.</c> would name <c>a.txt</c>), one that holds
 /// <c>"</c>, <c>&lt;</c>, <c>&gt;</c>, <c>|</c>, <c>?</c> or <c>*</c>, and a reserved device name (<c>CON</c>,
-/// <c>PRN</c>, <c>AUX</c>, <c>NUL</c>, <c>COM1</c> to <c>COM9</c>, <c>LPT1</c> to <c>LPT9</c>), in any case, alone or
-/// with an extension, such as <c>con.txt</c>. Listings leave out the files and folders whose names a path cannot name
+/// <c>PRN</c>, <c>AUX</c>, <c>NUL</c>, <c>COM1</c> to <c>COM9</c>, <c>LPT1</c> to <c>LPT9</c>, and <c>COM</c> or
+/// <c>LPT</c> followed by <c>¹</c>, <c>²</c> or <c>³</c>), in any case, alone or with an extension, such as
+/// <c>con.txt</c>; and an 8.3 short name (<c>REPORT~1.TXT</c>) of a file or folder whose long name differs, on a volume
+/// that keeps them. Listings leave out the files and folders whose names a path cannot name
 /// (those names on Windows; on Linux and macOS, a name holding <c>:</c>, <c>\</c> or a control character, or only dots
 /// and spaces; on any system, a percent-encoded form of those, such as <c>%2e%2e</c>), and never walk into such a
 /// folder, so everything listed can be read back. Containment in the root is checked on the path: symbolic links and
@@ -73,8 +75,10 @@ namespace WriteableFileProviders.Physical;
 /// it.
 /// </para>
 /// <para>
-/// <b>Access.</b> Where the operating system refuses the process access to a file or a folder, any member, a read, a
-/// listing, a delete or a move as well as a write, throws <see cref="UnauthorizedAccessException"/>.
+/// <b>Access.</b> Where the operating system refuses the process access to a file or a folder that a member opens,
+/// lists, writes, moves or deletes, the member throws <see cref="UnauthorizedAccessException"/>, a read or a listing as
+/// well as a write. A path the system will not look up at all, such as one inside a folder the process may not enter,
+/// reads as missing.
 /// </para>
 /// <para>
 /// <b>Not native:</b> signed URLs (WriteableFileProviders.AspNetCore issues gateway URLs) and content types (a given
@@ -429,10 +433,15 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
     {
         if (path.IsRoot)
             return _root;
-        var fullPath = Path.GetFullPath(Path.Join(_rootPrefix, string.Join(Path.DirectorySeparatorChar, path.RelativeSegments)));
-        return fullPath.StartsWith(_rootPrefix, StringComparison.Ordinal)
-            ? fullPath
-            : throw new ArgumentException($"The path '{path}' resolves outside the provider root.", nameof(path));
+        var relative = string.Join(Path.DirectorySeparatorChar, path.RelativeSegments);
+        var fullPath = Path.GetFullPath(Path.Join(_rootPrefix, relative));
+        if (!fullPath.StartsWith(_rootPrefix, StringComparison.Ordinal))
+            throw new ArgumentException($"The path '{path}' resolves outside the provider root.", nameof(path));
+        // On Windows, .NET expands an 8.3 short name (REPORT~1.TXT) into the long name it stands for, so a segment that
+        // is the short name of another name would reach that name: refused, as a trailing dot is.
+        if (RefusesWindowsNames && !string.Equals(fullPath[_rootPrefix.Length..], relative, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException($"The path '{path}' is the short name of another file or folder.", nameof(path));
+        return fullPath;
     }
 
     private IEnumerable<(IWriteableFileInfo Entry, FileSystemInfo Info)> Entries(ResolvedPath path, CancellationToken cancellationToken)

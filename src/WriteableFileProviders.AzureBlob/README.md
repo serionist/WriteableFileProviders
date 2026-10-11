@@ -106,7 +106,8 @@ exactly as 2026.10.10.x stored it. `ToJson` output contains the account key: nev
 - **Folders** are name prefixes: a folder exists while some blob is under it (or a `dir/` marker blob another tool
   made). Names are case-sensitive. So a file and a folder may share a name: a blob written at a folder's path, or under
   a blob's path, is stored, reads back by path, and a listing shows both. `GetFileInfoAsync` of such a name describes
-  the file.
+  the file. Deleting it removes the file first, and a second delete the folder; a writeable local stream of a folder's
+  path still throws `IOException`.
 - **Listings** leave out blob names no path can address (an empty or whitespace segment, one of only dots and spaces
   such as `..`, a control character, a backslash, or a percent-encoded form of one of these) and the provider's own
   temporary folder, `.wfp-tmp` at the provider root. Every other name, one of yours that starts with `.wfp-` included,

@@ -16,7 +16,7 @@ public abstract class MinioBehaviourTests : S3BehaviourTests
         });
 
     internal override IWriteableFileProvider CreateProvider(IAmazonS3 client, string? root) =>
-        new WriteableMinioFileProvider(new MinioFileProviderOptions { BucketName = Endpoint.Bucket, RootDirectoryPath = root }, client);
+        new WriteableMinioFileProvider(new MinioFileProviderOptions { BucketName = Endpoint.Bucket, RootDirectoryPath = root, AllowInsecureHttp = !Endpoint.IsLoopback }, client);
 
     internal override S3Core CoreOf(IWriteableFileProvider provider) => ((WriteableMinioFileProvider)provider).Core;
 }

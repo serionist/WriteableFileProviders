@@ -212,7 +212,7 @@ What differs is what each store can do. Every cell below comes from the provider
 |---|---|---|---|---|---|
 | Physical | None | Every URL | A copy into a temp file, then an atomic rename | Native rename | Yes |
 | Azure Blob | Read, create, write: SAS (service, or user delegation), up to 7 days | Upload URLs with a content type or file name; a user delegation key that ends sooner, without `AllowShorterValidity`; a client that cannot sign | On the server | Server copy, then a conditional delete | No |
-| Amazon S3 | Read and write: presigned (SigV4), up to 7 days; create on AWS only (no `ServiceUrl`) | Create URLs toward a named endpoint; anonymous access; credentials that expire sooner, a session token or a client of yours, without `AllowShorterValidity`; upload URLs that ask for a file name | On the server | Server copy, then a conditional delete | No |
+| Amazon S3 | Read and write: presigned (SigV4), up to 7 days; create on AWS only (no `ServiceUrl`, and no client with its own `ServiceURL`) | Create URLs toward a named endpoint; anonymous access; credentials that expire sooner, a session token or a client of yours, without `AllowShorterValidity`; upload URLs that ask for a file name | On the server | Server copy, then a conditional delete | No |
 | MinIO | Read and write: presigned, up to 7 days | Create URLs; anonymous access; a client of yours, without `AllowShorterValidity`; upload URLs that ask for a file name | On the server | Server copy, then a checked delete | No |
 | Google Cloud Storage | Read, create, write: V4, 1 second to 7 days | A credential that cannot sign, or whose signing IAM refuses; upload URLs that ask for a file name; a validity under 1 second | On the server | Server copy, then a conditional delete | No |
 | Box | Read only: Box's download URL, about 15 minutes, with `AllowShorterValidity` | Create and write; a read without `AllowShorterValidity`, under 15 minutes, or with a file name or content type | On the server | On the server | No |
@@ -226,11 +226,13 @@ Notes:
 - **Folders:** a real folder exists while empty; a virtual one exists while something is under it. Where folders are
   virtual, they are name prefixes, so a file can be written at a folder's path, or a folder under a file's path: both
   are stored, read back by path, and listed side by side (MinIO lists only the file, and hides what is under the folder
-  while the file exists). Where folders are real, either write throws `IOException`.
+  while the file exists). Deleting the name removes the file first, and a second delete the folder; a writeable local
+  stream of a folder's path still throws `IOException`. Where folders are real, either write throws `IOException`.
 - **Listings** leave out names the provider cannot address on every provider, such as `..`, a name holding `\`, or a
-  percent-encoded form of one, so everything listed can be read back. They also leave out the temporary names a
-  provider makes itself (Physical's `.wfp-<guid>.tmp` write files, Azure's `.wfp-tmp` folder at the root), and only
-  those: a name of yours that starts with `.wfp-` is listed like any other.
+  percent-encoded form of one, so everything listed can be read back. They also leave out two kinds of temporary
+  names the providers make: Physical's `.wfp-<guid>.tmp` write files and Azure's `.wfp-tmp` folder at the root. Every
+  other name is listed: a name of yours that starts with `.wfp-`, and the `.wfp-rename-<guid>.tmp` copy a case-only
+  rename holds for a moment on a store that ignores case.
 - **Create URLs** upload only if the file does not exist yet. A provider issues one natively only where the store
   enforces that condition; toward an S3-compatible server, which may ignore it, the gateway issues it.
 - **Signed URLs** never outlive the validity asked. A URL whose lifetime the service sets (Box, SharePoint) is returned

@@ -55,8 +55,9 @@ provider never disposes:
 var files = new WriteableMinioFileProvider(new MinioFileProviderOptions { BucketName = "files" }, client);
 ```
 
-With a client, the options give only the bucket, the root and `CreateBucketIfMissing`. The provider class is sealed:
-to change what it does, wrap it, or derive your own provider from `WriteableFileProvider<TOptions>`.
+With a client, the options give only the bucket, the root and `CreateBucketIfMissing`, and `AllowInsecureHttp` when
+the client's own endpoint is plain `http` toward a host that is not loopback. The provider class is sealed: to change
+what it does, wrap it, or derive your own provider from `WriteableFileProvider<TOptions>`.
 
 ## Configuration
 
@@ -64,7 +65,7 @@ to change what it does, wrap it, or derive your own provider from `WriteableFile
 |---|---|
 | `HostAndPort` | The server, as `host:port` or `host`, without a scheme, a path, a query or user info. Required. |
 | `UseSSL` | HTTPS when true. Plain HTTP (false) is allowed toward a loopback host only, unless `AllowInsecureHttp` is set. |
-| `AllowInsecureHttp` | Allows plain HTTP toward any host, such as a server on a private network. New in 2027. |
+| `AllowInsecureHttp` | Allows plain HTTP toward any host, such as a server on a private network, through `UseSSL` false or a client's own endpoint. New in 2027. |
 | `AccessKey`, `SecretKey` | The key pair, set together (one without the other throws `ArgumentException`). Without either, requests are anonymous and cannot be presigned. |
 | `BucketName` | The bucket. Required. |
 | `Region` | The server's region (`MINIO_SITE_REGION`). When empty, the provider asks the server once, on first use. New in 2027. |
@@ -85,7 +86,8 @@ A MinIO key pair (`AccessKey`, `SecretKey`), or none for anonymous access. For a
   an empty one does not. Names are case-sensitive. So a file and a folder may share a name: a file written at a
   folder's path, or a folder under a file's path, is stored and reads back by path. MinIO then lists only the file, and
   hides what is under the folder from every listing while the file exists; deleting the file shows the folder again.
-  `GetFileInfoAsync` of such a name describes the file.
+  `GetFileInfoAsync` of such a name describes the file. Deleting it removes the file first, and a second delete the
+  folder; a writeable local stream of a folder's path still throws `IOException`.
 - **Listings** leave out keys a path cannot name: an empty or whitespace segment, one of only dots and spaces such as
   `..`, a backslash, a control character, or a percent-encoded form of one of these. They carry no content type;
   `GetFileInfoAsync` does.
@@ -128,7 +130,7 @@ client you passed in need `AllowShorterValidity`, since the provider cannot see 
 
 A create URL (only if the file does not exist yet) throws `NotSupportedException`: its only guard would be the
 `If-None-Match: *` it signs, which MinIO releases without conditional writes ignore, so it could overwrite a file. The
-gateway issues create URLs instead, and enforces them.
+gateway issues create URLs instead, and checks the condition before the write (as `IfNotExists` does here).
 
 ## Limits
 

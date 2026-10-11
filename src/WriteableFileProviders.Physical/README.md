@@ -111,13 +111,17 @@ None: the provider reads and writes with the permissions of the process that run
   refused (`ArgumentException`). On Windows, so is a name Windows would read as another name or cannot hold: one that
   ends in `.` or a space, which Windows drops (`report.txt.` would name `report.txt`, `logs ` the folder `logs`), one
   that holds `"`, `<`, `>`, `|`, `?` or `*`, and a reserved device name (`CON`, `PRN`, `AUX`, `NUL`, `COM1` to `COM9`,
-  `LPT1` to `LPT9`), in any case, alone or with an extension (`con.txt`). Listings leave out names no path can
-  address: those names on Windows; on Linux and macOS a name holding `:` or `\`, a control character, or only dots and
-  spaces (`...`); on any system a name such as `%2e%2e` that decodes to one of these.
+  `LPT1` to `LPT9`, and `COM` or `LPT` followed by `¹`, `²` or `³`), in any case, alone or with an extension
+  (`con.txt`). So is an 8.3 short name (`REPORT~1.TXT`) of a file or folder whose long name differs, on a volume that
+  keeps them. Listings leave out names no path can address: those names on Windows; on Linux and macOS a name holding
+  `:` or `\`, a control character, or only dots and spaces (`...`); on any system a name such as `%2e%2e` that decodes
+  to one of these.
 - **A file and a folder** cannot share a name: writing a file at a folder's path, or under a file's path, throws
   `IOException`.
-- **Access.** Where the operating system refuses the process access to a file or a folder, any member throws
-  `UnauthorizedAccessException`: a read, a listing, a delete or a move as well as a write.
+- **Access.** Where the operating system refuses the process access to a file or a folder that a member opens, lists,
+  writes, moves or deletes, the member throws `UnauthorizedAccessException`, a read or a listing as well as a write. A
+  path the system will not look up at all, such as one inside a folder the process may not enter, reads as missing:
+  `GetFileInfoAsync` says it does not exist, and `DeleteAsync` returns false.
 - **Content types** are not kept: `UpdateFileOptions.ContentType` is ignored, and `ContentType` is null.
 - **The root.** Every path stays under the root folder, checked on the path: symbolic links and junctions inside the
   root are followed wherever they point. A recursive listing lists a linked folder but does not walk into it, since it

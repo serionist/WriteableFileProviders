@@ -1070,6 +1070,44 @@ public sealed class PhysicalProviderTests
     }
 
     [TestMethod]
+    public void RefusesWindowsNames_IsOnByDefaultOnlyOnWindows() =>
+        Assert.AreEqual(OperatingSystem.IsWindows(), _provider.RefusesWindowsNames);
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public async Task Paths_OnWindows_NamesWindowsReadsAsOthersAreRefusedByDefault()
+    {
+        await Write("a.txt", "original");
+        await Write("dir/inner.txt", "inner");
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => Write("a.txt.", "REPLACED"));
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => _provider.DeleteAsync("dir "));
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => _provider.GetFileInfoAsync("CON.txt"));
+        Assert.AreEqual("original", await Read("a.txt"));
+        Assert.AreEqual("inner", await Read("dir/inner.txt"));
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public async Task Paths_ShortNamesOfOtherNamesAreRefused()
+    {
+        // Where the volume keeps 8.3 short names, Windows answers LONGFO~1 for "long folder name" and REPORT~1.TXT for
+        // "report-2024.txt": such a path would write or delete another name.
+        await Write("long folder name/report-2024.txt", "original");
+        if (!Directory.Exists(Disk("LONGFO~1")))
+            Assert.Inconclusive("This volume keeps no 8.3 short names (fsutil 8dot3name).");
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => Write("LONGFO~1/REPORT~1.TXT", "REPLACED"));
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => Write("long folder name/REPORT~1.TXT", "REPLACED"));
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => _provider.GetFileInfoAsync("long folder name/report~1.txt"));
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => _provider.DeleteAsync("LONGFO~1"));
+        Assert.AreEqual("original", await Read("long folder name/report-2024.txt"));
+
+        // A long name that holds a tilde is a name like any other.
+        await Write("a~1.txt", "tilde");
+        Assert.AreEqual("tilde", await Read("A~1.TXT"));
+        Assert.IsFalse((await _provider.GetFileInfoAsync("x~1")).Exists);
+    }
+
+    [TestMethod]
     public async Task List_LeavesOutNamesWindowsReadsAsOthers()
     {
         // Such names exist where another program made them: through a \\?\ path on Windows, or any path on Linux and

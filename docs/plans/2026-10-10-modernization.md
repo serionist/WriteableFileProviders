@@ -2109,12 +2109,17 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     `DeleteAsync("dir ")` and `("dir.")`, `GetFileInfoAsync("x?")`, `CON.txt` and the other device and character cases,
     with `a.txt` and `dir` unchanged; such names made through `\\?\` on Windows (any path on Linux) are left out of
     listings; look-alikes (`CONSOLE.txt`, `COM10`, `report.con`) land as given; on Linux and macOS, with the switch
-    off, the names land as themselves.
+    off, the names land as themselves; on Windows the rule holds by default. Beyond the report, found by this half's
+    review: an 8.3 short name (`LONGFO~1`, `REPORT~1.TXT`) reached the long name it stands for, the same silent
+    overwrite or delete, since .NET's `GetFullPath` expands it; with the rule on, a path whose resolved disk path
+    differs from its segments (ignoring case) is refused with `ArgumentException`. A Windows test runs it where the
+    volume keeps short names (inconclusive elsewhere).
   - **F3:** `AmazonS3FileProviderOptions.AllowInsecureHttp` (`WhenWritingDefault`, so the golden shape holds; in
     `PublicAPI.Unshipped.txt`). An http `ServiceUrl`, or a given client whose `ServiceURL` is http (or that sends http
     to AWS, `UseHttp`; beyond the report, the same hole), toward a host that is not loopback throws `ArgumentException`
     naming the option, as MinIO's rule does. The offline tests opt in for `http://s3.test`; the emulator fixtures opt in
-    only off loopback (a remote Docker host).
+    only off loopback (a remote Docker host). For one meaning, MinIO's client constructor now holds a given client's own
+    endpoint to the same rule (its `AllowInsecureHttp`); the check is shared in the S3 core.
   - **Item 3 of "For the final review" (GCS signing), closed:** a signing refusal or failure (`GoogleApiException`,
     `HttpRequestException`, `TokenResponseException` from IAM's `signBlob`) becomes `NotSupportedException` with the
     cause inside, so the URL service falls back to the gateway (D24). Tested through the client's HTTP seam with a
@@ -2173,12 +2178,13 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
   - **Docs:** the Physical, Azure, Amazon S3, MinIO, Google Cloud Storage, Box and SharePoint READMEs, the root
     README's matrix (the folders column, the S3 and MinIO URL cells, the GCS gateway cell) and notes, the migration
     guide, the XML docs, and AGENTS.md (the live classes, the MinIO fixtures' flag).
-  - **Verified:** the solution builds strict; every non-Live test on Windows with `WFP_REQUIRE_DOCKER=1`: 2261, none
-    failed, 12 skipped (the three concurrent-append cases and nine Unix-only Physical tests); Physical (191: 189 passed,
-    the concurrent append and the Windows-only ACL test skipped) and Common (234 passed) in a `dotnet/sdk:10.0`
-    container as a non-root user; the coverage gate (Windows: AmazonS3 98.11/93.26, AzureBlob 99.22/91.12, Box
-    99.69/93.17, GCS 99.64/95.16, MinIO 98.20/91.52, Physical 99.52/94.17, SharePoint 99.76/91.52), by whose rule the
-    AmazonS3 branch floor rises from 91 to 92. No live suite ran (no accounts here; D21).
+  - **Verified:** the solution builds strict; every non-Live test on Windows with `WFP_REQUIRE_DOCKER=1`: 2265, none
+    failed, 12 skipped (the three concurrent-append cases and nine Unix-only Physical tests); Physical (194: 190 passed,
+    the concurrent append, the Windows-only ACL test and the two Windows-only name tests skipped) and Common (234
+    passed) in a `dotnet/sdk:10.0` container as a non-root user; the coverage gate (Windows: AmazonS3 98.11/93.26,
+    AzureBlob 99.22/91.12, Box 99.69/93.17, GCS 99.64/95.16, MinIO 98.22/91.57, Physical 99.53/93.81, SharePoint
+    99.76/91.52), by whose rule the AmazonS3 branch floor rises from 91 to 92. No live suite ran (no accounts here;
+    D21).
 
 ### For the maintainers
 

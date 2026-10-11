@@ -178,7 +178,7 @@ public sealed class WriteableAmazonS3FileProvider : WriteableFileProvider<Amazon
     /// AWS through the SDK's own endpoint, which enforces the <c>If-None-Match: *</c> it signs: toward an endpoint the
     /// options or the client name, a server may ignore that header and let the URL overwrite a file, so a create URL is
     /// <see cref="NotSupportedException"/> there, and WriteableFileProviders.AspNetCore issues a gateway URL, which
-    /// enforces it.
+    /// checks the condition before the write.
     /// </summary>
     /// <param name="permission">The permission.</param>
     protected override bool SupportsSignedUrl(SignedUrlAccess permission) =>
@@ -225,7 +225,7 @@ public sealed class WriteableAmazonS3FileProvider : WriteableFileProvider<Amazon
             serviceUrl = options.ServiceUrl;
         }
         if (client is not null)
-            RefuseInsecureHttp(options, PlainHttpEndpointOf(client.Config), "The client's endpoint");
+            RefuseInsecureHttp(options, S3Core.PlainHttpEndpointOf(client.Config), "The client's endpoint");
         var region = S3Core.NormalizeRegion(options.BucketRegion);
         if (!clientGiven && serviceUrl is null && region is null)
             throw new ArgumentException("BucketRegion is required unless ServiceUrl is set.", nameof(options));
@@ -261,15 +261,6 @@ public sealed class WriteableAmazonS3FileProvider : WriteableFileProvider<Amazon
                 $"{what} is plain http, so files would cross the network to '{plainHttp.Host}' in clear text. Use https, or set AllowInsecureHttp to accept plain HTTP.",
                 nameof(options));
         }
-    }
-
-    // The plain-http endpoint a client sends to: its ServiceURL when that is http, or S3's own when the client is set
-    // to use http; null when it uses https.
-    private static Uri? PlainHttpEndpointOf(IClientConfig config)
-    {
-        if (config.ServiceURL is { } url)
-            return Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttp ? uri : null;
-        return config.UseHttp ? new Uri("http://s3.amazonaws.com") : null;
     }
 
     // No endpoint, or a host name of S3's own: under amazonaws.com or amazonaws.com.cn (one trailing dot trimmed), with

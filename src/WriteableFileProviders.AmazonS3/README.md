@@ -90,7 +90,8 @@ anything else, pass your own `IAmazonS3` (see Use).
   an empty one does not. Names are case-sensitive. So a file and a folder may share a name: a file written at a
   folder's path, or a folder under a file's path, is stored, reads back by path, and a listing shows both (where the
   server is MinIO, which lists only the file and hides what is under the folder while the file exists, see the MinIO
-  package). `GetFileInfoAsync` of such a name describes the file.
+  package). `GetFileInfoAsync` of such a name describes the file. Deleting it removes the file first, and a second
+  delete the folder; a writeable local stream of a folder's path still throws `IOException`.
 - **Listings** leave out keys a path cannot name: an empty or whitespace segment, one of only dots and spaces such as
   `..`, a backslash, a control character, or a percent-encoded form of one of these. They carry no content type;
   `GetFileInfoAsync` does. A recursive listing is one flat, paged listing of the prefix.
@@ -136,9 +137,8 @@ gateway URL instead.
 
 - A create URL is issued only on AWS (no `ServiceUrl`, and no client with its own `ServiceURL`), which enforces the
   `If-None-Match: *` it signs. Toward a named endpoint, a server may ignore that header and let the URL overwrite a
-  file, so a create URL throws `NotSupportedException` there, and the gateway issues one, which enforces it. Read and
-  write URLs stay native.
-
+  file, so a create URL throws `NotSupportedException` there, and the gateway issues one, which checks the condition
+  before the write (as `IfNotExists` does toward that endpoint). Read and write URLs stay native.
 - A read URL can carry a download file name and a content type (`response-content-disposition`, `-type`), and needs
   the file to exist (`FileNotFoundException`). An upload URL with a download file name throws
   `NotSupportedException`.

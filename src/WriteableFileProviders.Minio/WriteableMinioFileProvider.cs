@@ -25,7 +25,7 @@ namespace WriteableFileProviders.Minio;
 /// <see cref="MinioFileProviderOptions.Region"/> names it) and checks the bucket once. Presigned read and write URLs
 /// live at most 7 days. A create URL (only if the file does not exist yet) throws <see cref="NotSupportedException"/>:
 /// its guard would be the <c>If-None-Match: *</c> it signs, which older MinIO releases ignore, so
-/// WriteableFileProviders.AspNetCore issues a gateway URL instead, which enforces it.
+/// WriteableFileProviders.AspNetCore issues a gateway URL instead, which checks the condition before the write.
 /// </para>
 /// </remarks>
 public sealed class WriteableMinioFileProvider : WriteableFileProvider<MinioFileProviderOptions>
@@ -40,23 +40,27 @@ public sealed class WriteableMinioFileProvider : WriteableFileProvider<MinioFile
     /// </exception>
     public WriteableMinioFileProvider(MinioFileProviderOptions options)
         : base(options) =>
-        _core = new S3Core(this, SettingsFor(Options, clientGiven: false), null, IsAddressable);
+        _core = new S3Core(this, SettingsFor(Options, client: null), null, IsAddressable);
 
     /// <summary>
     /// Creates the provider over an S3 client the caller built and owns, such as an <see cref="AmazonS3Client"/> with a
     /// <c>ServiceURL</c> and <c>ForcePathStyle</c>: it is never disposed by the provider. The options give the bucket,
     /// the root and <see cref="MinioFileProviderOptions.CreateBucketIfMissing"/>; the server, keys and region are not
     /// used. The provider cannot see when the client's credentials expire, so its presigned URLs need
-    /// <see cref="SignedUrlOptions.AllowShorterValidity"/>.
+    /// <see cref="SignedUrlOptions.AllowShorterValidity"/>. A client whose endpoint is plain http toward a host that is
+    /// not loopback needs <see cref="MinioFileProviderOptions.AllowInsecureHttp"/>.
     /// </summary>
     /// <param name="options">The options.</param>
     /// <param name="client">The client.</param>
-    /// <exception cref="ArgumentException">The options name no bucket.</exception>
+    /// <exception cref="ArgumentException">
+    /// The options name no bucket, or the client's endpoint is plain http toward a host that is not loopback without
+    /// <see cref="MinioFileProviderOptions.AllowInsecureHttp"/>.
+    /// </exception>
     public WriteableMinioFileProvider(MinioFileProviderOptions options, IAmazonS3 client)
         : base(options)
     {
         ArgumentNullException.ThrowIfNull(client);
-        _core = new S3Core(this, SettingsFor(Options, clientGiven: true), client, IsAddressable);
+        _core = new S3Core(this, SettingsFor(Options, client), client, IsAddressable);
     }
 
     /// <summary>The shared S3 core, for tests that tune its part sizes.</summary>
@@ -128,7 +132,7 @@ public sealed class WriteableMinioFileProvider : WriteableFileProvider<MinioFile
     /// Read and write URLs whenever the credential can sign. Never a create URL (only if the file does not exist yet):
     /// its guard is the <c>If-None-Match: *</c> it signs, which older MinIO releases ignore, so such a URL could
     /// overwrite a file; a create URL is <see cref="NotSupportedException"/>, and WriteableFileProviders.AspNetCore
-    /// issues a gateway URL, which enforces it.
+    /// issues a gateway URL, which checks the condition before the write.
     /// </summary>
     /// <param name="permission">The permission.</param>
     protected override bool SupportsSignedUrl(SignedUrlAccess permission) =>
@@ -161,12 +165,21 @@ public sealed class WriteableMinioFileProvider : WriteableFileProvider<MinioFile
         base.Dispose(disposing);
     }
 
-    private static S3CoreSettings SettingsFor(MinioFileProviderOptions options, bool clientGiven)
+    private static S3CoreSettings SettingsFor(MinioFileProviderOptions options, IAmazonS3? client)
     {
         if (string.IsNullOrWhiteSpace(options.BucketName))
             throw new ArgumentException("BucketName is required.", nameof(options));
-        if (clientGiven)
+        if (client is not null)
+        {
+            // The rule of UseSSL, for the client's own endpoint: plain HTTP only toward loopback, unless allowed.
+            if (S3Core.PlainHttpEndpointOf(client.Config) is { IsLoopback: false } plainHttp && !options.AllowInsecureHttp)
+            {
+                throw new ArgumentException(
+                    $"The client's endpoint is plain http, so files would cross the network to '{plainHttp.Host}' in clear text. Use https, or set AllowInsecureHttp to accept plain HTTP.",
+                    nameof(options));
+            }
             return new S3CoreSettings { Bucket = options.BucketName, CreateBucketIfMissing = options.CreateBucketIfMissing };
+        }
         var serviceUrl = ServiceUrlFor(options);
         if (string.IsNullOrEmpty(options.AccessKey) != string.IsNullOrEmpty(options.SecretKey))
             throw new ArgumentException("AccessKey and SecretKey go together: set both, or neither for anonymous access.", nameof(options));

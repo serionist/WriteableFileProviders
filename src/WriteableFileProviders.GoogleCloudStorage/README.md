@@ -101,7 +101,8 @@ copies and moves, appends to a new file, and seekable reads, local streams and r
 - **Folders** are prefixes: a folder exists while an object is under it, and lists as missing once the last one goes.
   An object named like a folder (`dir/`, as the console makes) is an empty folder. Names are case-sensitive. So a file
   and a folder may share a name: an object written at a folder's path, or under an object's path, is stored, reads back
-  by path, and a listing shows both. `GetFileInfoAsync` of such a name describes the file.
+  by path, and a listing shows both. `GetFileInfoAsync` of such a name describes the file. Deleting it removes the
+  file first, and a second delete the folder; a writeable local stream of a folder's path still throws `IOException`.
 - **Listings** leave out objects whose names no path can address: an empty segment (`a//b`), one of only dots and
   spaces (`x/../y`), a control character, a backslash, or a percent-encoded form of one of these.
 - **Versions:** a file's `ETag` is its generation. `UpdateFileOptions.IfMatch` and `IfNotExists` are generation

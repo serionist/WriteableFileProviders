@@ -58,9 +58,12 @@ internal sealed class RedactingNetworkClient(INetworkClient inner) : INetworkCli
     private static Dictionary<string, string> Keep(IReadOnlyDictionary<string, string>? values, HashSet<string> allowed) =>
         values?.Where(p => allowed.Contains(p.Key)).ToDictionary(p => p.Key, p => p.Value) ?? [];
 
-    // The scheme, host, port and path: no user info, query or fragment.
+    // The scheme, host, port and path: no user info, query or fragment. Only an http(s) URL is parsed: on Unix a rooted
+    // path such as "/2.0/files/1?access_token=…" parses as an absolute file URI whose path holds the escaped query, so
+    // anything else is cut at its first '?' or '#'.
     private static string? WithoutQuery(string? url) =>
         url is null ? null
-        : Uri.TryCreate(url, UriKind.Absolute, out var uri) ? uri.GetComponents(UriComponents.SchemeAndServer | UriComponents.Path, UriFormat.UriEscaped)
-        : url.Split('?', '#')[0];
+        : Uri.TryCreate(url, UriKind.Absolute, out var uri) && (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp)
+            ? uri.GetComponents(UriComponents.SchemeAndServer | UriComponents.Path, UriFormat.UriEscaped)
+            : url.Split('?', '#')[0];
 }

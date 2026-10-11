@@ -1,6 +1,5 @@
-# Code style: one line per rule, with its reason where it isn't obvious. A project builds with EnforceCodeStyleInBuild
-# and TreatWarningsAsErrors (Directory.Build.targets), so every `warning` here fails its build; a project that still
-# holds code from before the modernization sets WfpLegacy, which turns both off until its rewrite.
+# Code style: one line per rule, with its reason where it isn't obvious. Every project builds with
+# EnforceCodeStyleInBuild and TreatWarningsAsErrors (Directory.Build.targets), so every `warning` here fails its build.
 root = true
 
 [*]
@@ -89,6 +88,11 @@ dotnet_diagnostic.CA1861.severity = warning    # constant array arguments become
 dotnet_diagnostic.CA1875.severity = warning    # Regex.Count over Matches().Count
 dotnet_diagnostic.CA2007.severity = warning    # ConfigureAwait(false): a library must not capture its caller's context
 dotnet_diagnostic.SYSLIB1045.severity = warning  # [GeneratedRegex]; relaxed for tests in tests/.editorconfig
+
+# Errors. The packages' public API is declared in PublicAPI.*.txt (src/Directory.Build.props): a public member added or
+# removed without updating PublicAPI.Unshipped.txt fails the build.
+dotnet_diagnostic.RS0016.severity = error      # a public member missing from the PublicAPI files
+dotnet_diagnostic.RS0017.severity = error      # a PublicAPI entry with no public member left
 
 # Off.
 # CA1859: IReadOnlyList, IReadOnlyDictionary and IReadOnlySet return types are an immutability contract.

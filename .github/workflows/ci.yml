@@ -50,6 +50,22 @@ jobs:
         run: dotnet run eng/coverage-gate.cs -- artifacts/TestResults
       - name: Pack
         run: dotnet pack WriteableFileProviders.slnx --no-build -c Release -o artifacts/packages
+      # The check release.yml runs, here on this commit's prerelease, so a change that breaks it (such as the upper bound
+      # on dependencies between our packages, src/Directory.Build.targets) shows on its PR: every package at one version,
+      # the one MinVer gave Common.
+      - name: Check the packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          common=(artifacts/packages/WriteableFileProviders.Common.*.nupkg)
+          if [ "${#common[@]}" -ne 1 ]; then
+            echo "::error::Expected one WriteableFileProviders.Common package, found ${#common[@]}."
+            exit 1
+          fi
+          version="${common[0]##*/WriteableFileProviders.Common.}"
+          version="${version%.nupkg}"
+          dotnet run eng/package-check.cs -- artifacts/packages "$version"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:

@@ -278,35 +278,38 @@ public sealed class BoxLiveChecks
 /// <summary>
 /// The Box app the live suites use. Set <c>WFP_LIVE=1</c>, and either <c>WFP_BOX_CONFIG_FILE</c> (the path of the app's
 /// JSON configuration, as Box's developer console downloads it) with an optional <c>WFP_BOX_ROOT_FOLDER_ID</c>, or a
-/// <c>testsettings.json</c> next to this project (from <c>testsettings.sample.json</c>). Without them the live tests are
-/// inconclusive.
+/// <c>testsettings.json</c> next to this project (from <c>testsettings.sample.json</c>). Without <c>WFP_LIVE=1</c> the
+/// live tests are inconclusive; with it and no app, they fail, naming what to set.
 /// </summary>
 internal static class BoxLive
 {
-    private static readonly Lazy<(BoxFileProviderOptions? Options, string Reason)> _settings = new(Load);
+    private static readonly Lazy<BoxFileProviderOptions?> _settings = new(Load);
 
     public static string RootFolderId => Options(null).RootFolderId ?? "0";
 
     public static BoxFileProviderOptions Options(string? root)
     {
-        var (options, reason) = _settings.Value;
+        if (Environment.GetEnvironmentVariable("WFP_LIVE") != "1")
+            Assert.Inconclusive("Live suites run only with WFP_LIVE=1, against a Box app you own.");
+        var options = _settings.Value;
         if (options is null)
-            Assert.Inconclusive(reason);
+        {
+            Assert.Fail("WFP_LIVE=1, but no Box app is configured: set WFP_BOX_CONFIG_FILE (and optionally WFP_BOX_ROOT_FOLDER_ID), "
+                + "or BoxFileProvider_ClientId and the other keys of testsettings.sample.json in testsettings.json.");
+        }
         return new BoxFileProviderOptions(options.ClientId, options.ClientSecret, options.EnterpriseId, options.PublicKeyId,
             options.PrivateKey, options.Passphrase, options.RootFolderId) { RootDirectoryPath = root };
     }
 
-    private static (BoxFileProviderOptions?, string) Load()
+    private static BoxFileProviderOptions? Load()
     {
-        if (Environment.GetEnvironmentVariable("WFP_LIVE") != "1")
-            return (null, "Live suites run only with WFP_LIVE=1.");
         var rootFolderId = Environment.GetEnvironmentVariable("WFP_BOX_ROOT_FOLDER_ID") is { Length: > 0 } id ? id : "0";
         if (Environment.GetEnvironmentVariable("WFP_BOX_CONFIG_FILE") is { Length: > 0 } path)
         {
             var config = JsonNode.Parse(File.ReadAllText(path))!;
             var app = config["boxAppSettings"]!;
-            return (new BoxFileProviderOptions((string?)app["clientID"], (string?)app["clientSecret"], (string?)config["enterpriseID"],
-                (string?)app["appAuth"]?["publicKeyID"], (string?)app["appAuth"]?["privateKey"], (string?)app["appAuth"]?["passphrase"], rootFolderId), "");
+            return new BoxFileProviderOptions((string?)app["clientID"], (string?)app["clientSecret"], (string?)config["enterpriseID"],
+                (string?)app["appAuth"]?["publicKeyID"], (string?)app["appAuth"]?["privateKey"], (string?)app["appAuth"]?["passphrase"], rootFolderId);
         }
         var settings = Path.Combine(AppContext.BaseDirectory, "testsettings.json");
         if (File.Exists(settings))
@@ -315,10 +318,10 @@ internal static class BoxLive
             string? Get(string key) => (string?)json["BoxFileProvider_" + key] is { Length: > 0 } value ? value : null;
             if (Get("ClientId") is not null)
             {
-                return (new BoxFileProviderOptions(Get("ClientId"), Get("ClientSecret"), Get("EnterpriseId"), Get("PublicKeyId"),
-                    Get("PrivateKey"), Get("Passphrase"), Get("RootFolderId") ?? rootFolderId), "");
+                return new BoxFileProviderOptions(Get("ClientId"), Get("ClientSecret"), Get("EnterpriseId"), Get("PublicKeyId"),
+                    Get("PrivateKey"), Get("Passphrase"), Get("RootFolderId") ?? rootFolderId);
             }
         }
-        return (null, "No Box app: set WFP_BOX_CONFIG_FILE, or fill in testsettings.json.");
+        return null;
     }
 }

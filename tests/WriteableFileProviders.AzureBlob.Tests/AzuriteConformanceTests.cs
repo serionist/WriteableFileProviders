@@ -29,6 +29,8 @@ public sealed class AzuriteConformanceTests : ProviderConformanceTests
 
     protected override IWriteableFileProvider? CreateProviderWithMissingContainer() =>
         new WriteableAzureBlobFileProvider(Azurite.Options(Azurite.NewContainerName()));
+
+    protected override Task<bool> StoreRawFileAsync(IReadOnlyList<string> names, string text) => Azurite.StoreRawAsync(_containerName, names, text);
 }
 
 /// <summary>
@@ -55,7 +57,7 @@ public sealed class AzuriteStrictConformanceTests : ProviderConformanceTests
     {
         Azurite.CreateContainerAsync(_containerName).GetAwaiter().GetResult();
         var client = Azurite.Container(_containerName, new AzureHandler { MaxBlocks = BlockLimit });
-        return new WriteableAzureBlobFileProvider(client, new AzureFileProviderOptions { RootDirectoryPath = root })
+        return new WriteableAzureBlobFileProvider(new AzureFileProviderOptions { RootDirectoryPath = root }, client)
         {
             BlockSize = 1 << 20,
             MaxCommittedBlocks = BlockLimit,
@@ -64,5 +66,7 @@ public sealed class AzuriteStrictConformanceTests : ProviderConformanceTests
     }
 
     protected override IWriteableFileProvider? CreateProviderWithMissingContainer() =>
-        new WriteableAzureBlobFileProvider(Azurite.Container(Azurite.NewContainerName(), new AzureHandler()));
+        new WriteableAzureBlobFileProvider(null, Azurite.Container(Azurite.NewContainerName(), new AzureHandler()));
+
+    protected override Task<bool> StoreRawFileAsync(IReadOnlyList<string> names, string text) => Azurite.StoreRawAsync(_containerName, names, text);
 }

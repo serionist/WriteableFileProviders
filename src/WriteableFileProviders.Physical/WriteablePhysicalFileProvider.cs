@@ -27,10 +27,12 @@ namespace WriteableFileProviders.Physical;
 /// its source's bits exactly, whatever the umask, as <see cref="File.Copy(string, string)"/> does; both are set as the
 /// file is created, before any content is written. Access control lists and extended attributes are not carried over,
 /// nor, on Windows, the replaced file's own permissions. Other hard links to the file keep the old content, and a
-/// symbolic link at the path, a link to nothing included, is replaced by a file, its target left as it was.
+/// symbolic link at the path, a link to nothing included, is replaced by a file, its target left as it was; the new file
+/// takes the bits of the link's target, not the link's own.
 /// </para>
 /// <para>
-/// <b>Versions.</b> A file's <see cref="IWriteableFileInfo.ETag"/> is made from its last-write time and its length.
+/// <b>Versions.</b> A file's <see cref="IWriteableFileInfo.ETag"/> is made from its last-write time and its length; for a
+/// symbolic link to a file, those of its target, which reads open, as its <see cref="IFileInfo.Length"/> is.
 /// Each write through the provider stamps a last-write time later than the one it replaces, read back from the file
 /// system and stepped forward where it stores times coarsely (exFAT, HFS+, FAT), so it changes the ETag. Writes faster
 /// than that resolution step it further each time, so the time can run ahead of the clock without bound; bounding it
@@ -55,9 +57,12 @@ namespace WriteableFileProviders.Physical;
 /// </para>
 /// <para>
 /// <b>Names</b> are matched without regard to case on Windows and macOS, so a move between names that differ only in
-/// case renames the file, and with regard to case elsewhere. A <c>:</c> is not allowed in a name. Containment in the
-/// root is checked on the path: symbolic links and junctions inside the root are followed, except that a recursive
-/// listing lists a linked folder without walking into it.
+/// case renames the file, and with regard to case elsewhere. A <c>:</c> is not allowed in a name. Listings leave out
+/// the files and folders whose names a path cannot name (on Linux and macOS, a name holding <c>:</c>, <c>\</c> or a
+/// control character, or only dots and spaces; on any system, a percent-encoded form of those, such as
+/// <c>%2e%2e</c>), and never walk into such a folder, so everything listed can be read back. Containment in the root is
+/// checked on the path: symbolic links and junctions inside the root are followed, except that a recursive listing lists
+/// a linked folder without walking into it.
 /// </para>
 /// <para>
 /// <b>Not native:</b> signed URLs (WriteableFileProviders.AspNetCore issues gateway URLs) and content types (a given
@@ -124,6 +129,10 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
     internal bool IgnoresCase { get; init; } = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS();
 
     internal bool RenamesWithoutReplacing { get; init; } = OperatingSystem.IsWindows();
+
+    // How a link is followed to describe it: by walking the path as the kernel does (Linux, macOS), or by asking the system
+    // for the final target (Windows).
+    internal bool ResolvesLinksAsTheKernel { get; init; } = !OperatingSystem.IsWindows();
 
     internal TimeProvider Clock
     {
@@ -382,6 +391,10 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
         foreach (var entry in folder.EnumerateFileSystemInfos("*", _listing))
         {
             cancellationToken.ThrowIfCancellationRequested();
+            // A name a path cannot name again (on Linux, one with ':' or '\', a control character or only dots; anywhere,
+            // a percent-encoded form of those) is left out, and never walked into: everything listed can be read back.
+            if (!IsAddressable(entry.Name))
+                continue;
             if (entry is FileInfo file)
             {
                 if (!IsTempFile(file.Name))
@@ -457,7 +470,7 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
             var current = new FileInfo(target);
             if (expected is not null && VersionOf(current) != expected)
                 throw Changed(path, expected);
-            Stamp(current.LastWriteTimeUtc, TimeProvider.GetUtcNow().UtcDateTime, time =>
+            Stamp(Described(current).LastWriteTimeUtc, TimeProvider.GetUtcNow().UtcDateTime, time =>
             {
                 File.SetLastWriteTimeUtc(temp, time);
                 return File.GetLastWriteTimeUtc(temp);
@@ -483,11 +496,11 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
     //   name can be one, so an empty file is opened to read and write, which does not wait, even on a FIFO, and a handle
     //   that cannot seek is not a regular file. A device that seeks, such as /dev/null, passes as an empty file, and an
     //   empty file the process may write but not read is refused.
-    private static bool IsReplaceable(ResolvedPath path, string target, FileInfo replaced)
+    private bool IsReplaceable(ResolvedPath path, string target, FileInfo replaced)
     {
         try
         {
-            var access = replaced.Length == 0 ? FileAccess.ReadWrite : FileAccess.Write;
+            var access = Described(replaced).Length == 0 ? FileAccess.ReadWrite : FileAccess.Write;
             using var probe = new FileStream(target, FileMode.Open, access, ReadShare, bufferSize: 0);
             return probe.CanSeek ? true : throw new IOException($"The path '{path}' is not a regular file: a FIFO, a socket or a device.");
         }
@@ -532,15 +545,99 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
     private static string ETag(DateTime lastWriteTimeUtc, long length) =>
         string.Create(CultureInfo.InvariantCulture, $"{lastWriteTimeUtc.Ticks:x}-{length:x}");
 
-    private static string? VersionOf(FileInfo file) => file.Exists ? ETag(file.LastWriteTimeUtc, file.Length) : null;
+    private string? VersionOf(FileInfo file)
+    {
+        if (!file.Exists)
+            return null;
+        var described = Described(file);
+        return ETag(described.LastWriteTimeUtc, described.Length);
+    }
+
+    // What a path names as a file, as reads see it, found without opening it: describing a file never opens it, so a
+    // listing cannot wake a FIFO's reader, lose a writer's data, wait on a device or hold a share another process needs.
+    // FileInfo describes a symbolic link itself (its length is 0 on Windows, the length of its target's text on Linux,
+    // and its time is the link's), so a link is described by the file it leads to: on Windows the target the system
+    // resolves (ResolveLinkTarget asks for the final path on a handle without access), on Linux and macOS the path
+    // resolved as the kernel does (PhysicalPathOf). A link that leads nowhere (to nothing, in a loop, through too many
+    // links) is described as itself. Only a reparse point is asked for its target, a round trip on Windows and SMB.
+    private FileInfo Described(FileInfo file)
+    {
+        if (!file.Exists || (file.Attributes & FileAttributes.ReparsePoint) == 0 || file.LinkTarget is null)
+            return file;
+        try
+        {
+            var target = ResolvesLinksAsTheKernel
+                ? PhysicalPathOf(file.FullName) is { } resolved ? new FileInfo(resolved) : null
+                : file.ResolveLinkTarget(returnFinalTarget: true) as FileInfo;
+            return target is { Exists: true } ? target : file;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return file;
+        }
+    }
+
+    // How many symbolic links a path may pass through before the kernel gives up on it (ELOOP): 32 on macOS, 40 on Linux.
+    internal static int MaxLinks { get; } = OperatingSystem.IsMacOS() ? 32 : 40;
+
+    // The path the kernel opens for an absolute path, without opening it: walked a component at a time from its root,
+    // each symbolic link replaced by its target, a relative target resolved against the part already resolved, and '..'
+    // applied to that part, not to the text as written. Null where the kernel stops: past MaxLinks links (ELOOP), or at
+    // a component before the last that is missing (ENOENT) or not a folder (ENOTDIR), a trailing separator or '.'
+    // included, so 'missing/../x', 'file.txt/../x' and 'file.txt/' lead nowhere.
+    internal static string? PhysicalPathOf(string path)
+    {
+        char[] separators = [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar];
+        // A trailing separator asks for a folder, as '.' after the last name does.
+        IEnumerable<string> PartsOf(string text) =>
+            text.Split(separators, StringSplitOptions.RemoveEmptyEntries).Concat(text.Length > 0 && separators.Contains(text[^1]) ? ["."] : []);
+
+        var root = Path.GetPathRoot(path) ?? "";
+        var pending = new Stack<string>(PartsOf(path[root.Length..]).Reverse());
+        var resolved = root;
+        var links = 0;
+        while (pending.TryPop(out var part))
+        {
+            if (part == ".")
+                continue;
+            if (part == "..")
+            {
+                resolved = Path.GetDirectoryName(resolved) ?? resolved;
+                continue;
+            }
+            var next = Path.Join(resolved, part);
+            var entry = new FileInfo(next);
+            // Attributes are -1 when nothing is there; a link reports itself, whatever it leads to.
+            if ((int)entry.Attributes != -1 && (entry.Attributes & FileAttributes.ReparsePoint) != 0 && entry.LinkTarget is { } target)
+            {
+                if (++links > MaxLinks)
+                    return null;
+                var targetRoot = Path.GetPathRoot(target);
+                if (!string.IsNullOrEmpty(targetRoot))
+                    resolved = targetRoot;
+                foreach (var targetPart in PartsOf(target[(targetRoot?.Length ?? 0)..]).Reverse())
+                    pending.Push(targetPart);
+                continue;
+            }
+            // The kernel looks the next component up in this one, so it must be a folder.
+            if (pending.Count > 0 && !Directory.Exists(next))
+                return null;
+            resolved = next;
+        }
+        return resolved;
+    }
 
     private static string VersionOf(SafeFileHandle handle) => ETag(File.GetLastWriteTimeUtc(handle), RandomAccess.GetLength(handle));
 
     private static bool IsTempFile(string name) =>
         name.StartsWith(TempPrefix, StringComparison.Ordinal) && name.EndsWith(TempSuffix, StringComparison.Ordinal);
 
-    private WriteableFileInfo FileEntry(ProviderPath path, FileInfo file) =>
-        new(this, path, true, false, file.Length, file.LastWriteTimeUtc, file.FullName, ETag(file.LastWriteTimeUtc, file.Length));
+    // The physical path is the entry's own, under the root, even when it is a link to a file elsewhere.
+    private WriteableFileInfo FileEntry(ProviderPath path, FileInfo file)
+    {
+        var described = Described(file);
+        return new(this, path, true, false, described.Length, described.LastWriteTimeUtc, file.FullName, ETag(described.LastWriteTimeUtc, described.Length));
+    }
 
     private WriteableFileInfo FolderEntry(ProviderPath path, FileSystemInfo folder) =>
         new(this, path, true, true, -1, folder.LastWriteTimeUtc, folder.FullName);

@@ -107,6 +107,72 @@ public sealed class BoxMoveDeleteTests
     }
 
     [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task MoveAndCopy_SourceGoneMeanwhile_IsFileNotFound(bool move)
+    {
+        // Found, then deleted by someone else before the server-side move or copy: Box answers 404.
+        var box = new FakeBox();
+        var id = box.AddFile(FakeBox.RootId, "a.txt", "a");
+        box.Intercept = request =>
+        {
+            if (request.Method != HttpMethod.Get && request.RequestUri!.AbsolutePath.StartsWith($"/2.0/files/{id}", StringComparison.Ordinal))
+                box.Delete(id);
+            return null;
+        };
+        using var provider = _credentials.Provider(box);
+
+        var e = await Assert.ThrowsExactlyAsync<FileNotFoundException>(() => move ? provider.MoveAsync("a.txt", "b.txt") : provider.CopyAsync("a.txt", "b.txt"));
+        Assert.IsInstanceOfType<BoxApiException>(e.InnerException);
+        Assert.IsNull(box.IdOf("b.txt"));
+    }
+
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task MoveAndCopy_DestinationFolderGoneMeanwhile_IsIOException(bool move)
+    {
+        // Box answers 404 too when the destination folder was removed after it was made: the source is still there, so
+        // this is not "not found".
+        var box = new FakeBox();
+        var id = box.AddFile(FakeBox.RootId, "a.txt", "a");
+        box.Intercept = request =>
+        {
+            if (request.Method != HttpMethod.Get && request.RequestUri!.AbsolutePath.StartsWith($"/2.0/files/{id}", StringComparison.Ordinal)
+                && box.IdOf("dir") is { } folder)
+            {
+                box.Delete(folder);
+            }
+            return null;
+        };
+        using var provider = _credentials.Provider(box);
+
+        var e = await Assert.ThrowsExactlyAsync<IOException>(() => move ? provider.MoveAsync("a.txt", "dir/b.txt") : provider.CopyAsync("a.txt", "dir/b.txt"));
+        Assert.IsInstanceOfType<BoxApiException>(e.InnerException);
+        StringAssert.Contains(e.Message, "destination folder was removed");
+        Assert.AreEqual("a", box.ContentOf("a.txt"));
+    }
+
+    [TestMethod]
+    public async Task Move_CaseOnly_SourceGoneMeanwhile_IsFileNotFound()
+    {
+        // The rename through a temporary name maps Box's 404 as a direct rename does.
+        var box = new FakeBox { RefuseCaseOnlyRename = true };
+        var id = box.AddFile(FakeBox.RootId, "a.txt", "a");
+        var puts = 0;
+        box.Intercept = request =>
+        {
+            if (request.Method == HttpMethod.Put && ++puts == 2)
+                box.Delete(id);
+            return null;
+        };
+        using var provider = _credentials.Provider(box);
+
+        var e = await Assert.ThrowsExactlyAsync<FileNotFoundException>(() => provider.MoveAsync("a.txt", "A.txt"));
+        Assert.IsInstanceOfType<BoxApiException>(e.InnerException);
+    }
+
+    [TestMethod]
     public async Task Move_ToANameBoxRefuses_IsArgumentException()
     {
         var box = new FakeBox();

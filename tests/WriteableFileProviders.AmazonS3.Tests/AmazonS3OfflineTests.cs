@@ -182,6 +182,93 @@ public sealed class AmazonS3OfflineTests
     }
 
     [TestMethod]
+    [DataRow("http://s3.test", false, true)]
+    [DataRow("http://localhost:9000", false, true)]
+    [DataRow("http://localhost:9000", false, false)]
+    [DataRow("https://bucket.vpce-0a1b2c3d-4e5f6a7b.s3.eu-west-1.vpce.amazonaws.com", true, true)]
+    [DataRow("https://bucket.vpce-0a1b2c3d-4e5f6a7b.s3.eu-west-1.vpce.amazonaws.com", true, false)]
+    [DataRow("http://my-minio-123.eu-west-1.elb.amazonaws.com", false, false)]
+    [DataRow("http://ec2-3-250-1-2.eu-west-1.compute.amazonaws.com:9000", false, true)]
+    [DataRow("https://abcdef1234.execute-api.eu-west-1.amazonaws.com", false, false)]
+    [DataRow("https://s3-eu-west-1.amazonaws.com", false, true)]
+    public async Task AnEndpoint_IsS3OnlyOnS3HostNames(string endpoint, bool s3, bool givenClient)
+    {
+        // Any endpoint named, in the options' ServiceUrl or a given client's ServiceURL, gets its conditions checked first,
+        // S3's own included: a load balancer, an instance or an API under amazonaws.com may front another server. An
+        // endpoint that is one of S3's own host names, such as a VPC endpoint, still sends the requester-pays header and a
+        // created bucket's location; any other, a legacy dashed S3 name included, sends neither.
+        string? payer = "unset";
+        string? newBucket = null;
+        var missing = true;
+        async Task<HttpResponseMessage?> Answer(HttpRequestMessage r)
+        {
+            if (r.Method == HttpMethod.Head && r.RequestUri!.AbsolutePath.Trim('/') == "bucket" && missing)
+                return Empty(HttpStatusCode.NotFound);
+            if (r.Method == HttpMethod.Put && r.RequestUri!.AbsolutePath.Trim('/') == "bucket")
+            {
+                missing = false;
+                newBucket = r.Content is null ? "" : await r.Content.ReadAsStringAsync();
+                return Empty();
+            }
+            if (r.Method == HttpMethod.Head && r.RequestUri!.AbsolutePath.EndsWith("/f.txt", StringComparison.Ordinal))
+                payer = r.Headers.TryGetValues("x-amz-request-payer", out var values) ? string.Join(",", values) : null;
+            return Exists(r);
+        }
+        var factory = new InterceptingHttpClientFactory { Intercept = Answer };
+        using var client = new Amazon.S3.AmazonS3Client(new BasicAWSCredentials("AKIDEXAMPLE", "secret"),
+            new Amazon.S3.AmazonS3Config { ServiceURL = endpoint, ForcePathStyle = true, HttpClientFactory = factory });
+        var options = new AmazonS3FileProviderOptions("root", "AKIDEXAMPLE", "secret", "bucket", "eu-west-1") { CreateBucketIfMissing = true, ForcePathStyle = true };
+        WriteableAmazonS3FileProvider provider;
+        if (givenClient)
+        {
+            provider = new WriteableAmazonS3FileProvider(options, client);
+        }
+        else
+        {
+            options.ServiceUrl = endpoint;
+            provider = new WriteableAmazonS3FileProvider(options);
+            provider.Core.HttpClientFactory = factory;
+        }
+        using (provider)
+        {
+            Assert.IsTrue((await provider.GetFileInfoAsync("f.txt")).Exists);
+            Assert.AreEqual(s3 ? "requester" : null, payer, "The requester-pays header");
+            Assert.IsNotNull(newBucket, "The bucket was created");
+            // The location the provider gives; for a host under amazonaws.com the SDK may add one of its own, read from
+            // the host, so the request shows it only off AWS.
+            Assert.AreEqual(s3 ? "eu-west-1" : null, provider.Core.BucketLocation);
+            if (!new Uri(endpoint).Host.EndsWith(".amazonaws.com", StringComparison.OrdinalIgnoreCase))
+                Assert.IsFalse(newBucket.Contains("<LocationConstraint>", StringComparison.Ordinal), newBucket);
+            Assert.IsFalse(provider.Core.ChecksAtomically, "Conditions toward a named endpoint are checked first");
+        }
+    }
+
+    [TestMethod]
+    [DataRow(null, true)]
+    [DataRow("https://s3.amazonaws.com", true)]
+    [DataRow("https://S3.EU-WEST-1.AMAZONAWS.COM", true)]
+    [DataRow("https://s3.eu-west-1.amazonaws.com.", true)]
+    [DataRow("https://bucket.s3.eu-west-1.amazonaws.com", true)]
+    [DataRow("https://s3.dualstack.eu-west-1.amazonaws.com", true)]
+    [DataRow("https://bucket.vpce-0a1b2c3d-4e5f6a7b.s3.eu-west-1.vpce.amazonaws.com", true)]
+    [DataRow("https://s3.cn-north-1.amazonaws.com.cn", true)]
+    [DataRow("s3.eu-west-1.amazonaws.com", true)]
+    [DataRow("https://s3-fips.us-gov-west-1.amazonaws.com", false)]
+    [DataRow("https://s3-eu-west-1.amazonaws.com", false)]
+    [DataRow("https://s3-external-1.amazonaws.com", false)]
+    [DataRow("http://my-minio-123.eu-west-1.elb.amazonaws.com", false)]
+    [DataRow("http://ec2-3-250-1-2.eu-west-1.compute.amazonaws.com:9000", false)]
+    [DataRow("https://abcdef1234.execute-api.eu-west-1.amazonaws.com", false)]
+    [DataRow("http://localhost:9000", false)]
+    [DataRow("https://minio.example.com", false)]
+    [DataRow("https://s3.example.com", false)]
+    [DataRow("https://evilamazonaws.com", false)]
+    [DataRow("https://s3.amazonaws.com.example.org", false)]
+    [DataRow("http://[not a host", false)]
+    public void IsS3Endpoint_TakesS3HostNamesOnly(string? endpoint, bool s3) =>
+        Assert.AreEqual(s3, WriteableAmazonS3FileProvider.IsS3Endpoint(endpoint), endpoint);
+
+    [TestMethod]
     public async Task BucketCheck_ForbiddenIsNotMissing()
     {
         var (provider, _) = Offline(Endpoint(), answer: r => r.Method == HttpMethod.Head && r.RequestUri!.AbsolutePath.Trim('/') == "bucket"

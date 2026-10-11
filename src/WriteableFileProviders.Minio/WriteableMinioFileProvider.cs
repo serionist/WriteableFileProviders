@@ -142,19 +142,6 @@ public sealed class WriteableMinioFileProvider : WriteableFileProvider<MinioFile
         base.Dispose(disposing);
     }
 
-    // A listed name that the path validation would refuse, or would split into other segments, cannot be addressed.
-    private static bool IsAddressable(string name)
-    {
-        try
-        {
-            return ValidateSegments([name]) is [var only] && only == name;
-        }
-        catch (ArgumentException)
-        {
-            return false;
-        }
-    }
-
     private static S3CoreSettings SettingsFor(MinioFileProviderOptions options, bool clientGiven)
     {
         if (string.IsNullOrWhiteSpace(options.BucketName))

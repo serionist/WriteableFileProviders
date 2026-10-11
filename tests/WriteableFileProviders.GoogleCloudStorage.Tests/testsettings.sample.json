@@ -1,0 +1,8 @@
+{
+  "GoogleCloudStorageFileProvider_BucketName": "",
+  "GoogleCloudStorageFileProvider_ClientEmail": "",
+  "GoogleCloudStorageFileProvider_PrivateKey": "",
+  "GoogleCloudStorageFileProvider_CredentialsJson": "",
+  "GoogleCloudStorageFileProvider_ProjectId": "",
+  "GoogleCloudStorageFileProvider_RootPath": ""
+}

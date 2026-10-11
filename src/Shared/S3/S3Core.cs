@@ -63,6 +63,9 @@ internal sealed partial class S3Core(IWriteableFileProvider owner, S3CoreSetting
     /// </summary>
     public bool ChecksAtomically => _settings.ChecksAtomically;
 
+    /// <summary>The location a bucket the provider creates is given, or null for none (the server's own).</summary>
+    public string? BucketLocation => _settings.BucketLocation;
+
     /// <summary>Whether URLs can be presigned: never with anonymous credentials.</summary>
     public bool CanPresign => _settings.Credentials is not AnonymousAWSCredentials || _givenClient is not null;
 

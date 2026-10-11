@@ -1,7 +1,8 @@
 <Project>
 
   <!-- What every project shares lives here, once, never per .csproj. Packaging lives in src/Directory.Build.props, the
-       test projects' settings in tests/Directory.Build.props, and the strictness switch in Directory.Build.targets. -->
+       test projects' settings in tests/Directory.Build.props, and the strictness settings, which no project can turn off,
+       in Directory.Build.targets. -->
 
   <PropertyGroup Label="Language">
     <TargetFramework>net10.0</TargetFramework>

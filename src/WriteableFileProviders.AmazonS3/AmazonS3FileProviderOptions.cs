@@ -105,7 +105,12 @@ public sealed class AmazonS3FileProviderOptions : FileProviderOptions
 
     /// <summary>
     /// The endpoint of an S3-compatible server, such as <c>http://localhost:9000</c>, instead of AWS. Requests then carry
-    /// checksums only where S3 requires them, and presigned URLs use the endpoint's scheme. New in 2027.0.0.
+    /// checksums only where S3 requires them, presigned URLs use the endpoint's scheme, and the provider checks
+    /// conditions before a write as well as sending them, since a server behind the endpoint may ignore some. An endpoint
+    /// that is one of S3's own host names (under <c>amazonaws.com</c> or <c>amazonaws.com.cn</c>, with a label
+    /// <c>s3</c>, such as <c>s3.eu-west-1.amazonaws.com</c>, a dual-stack or a VPC endpoint; not the legacy dashed names
+    /// such as <c>s3-eu-west-1</c> or <c>s3-fips</c>) is still S3 for the rest: requests accept requester-pays charges,
+    /// and a bucket the provider creates gets the region as its location. New in 2027.0.0.
     /// </summary>
     /// <remarks>Written to JSON only when set, so a configuration that does not use it keeps the 2026 shape.</remarks>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]

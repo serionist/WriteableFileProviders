@@ -20,13 +20,13 @@ public sealed class SignedUrlTests
     private static WriteableAzureBlobFileProvider SharedKeyProvider(StubHandler handler, string scheme = "https", bool createContainer = false)
     {
         var client = new BlobContainerClient(new Uri($"{scheme}://account.blob.core.windows.net/files"), new StorageSharedKeyCredential("account", Azurite.AccountKey), AzureBlobOptionsTests.Offline(handler));
-        return new WriteableAzureBlobFileProvider(client, new AzureFileProviderOptions { CreateContainerIfMissing = createContainer }) { Clock = new FixedClock(_now) };
+        return new WriteableAzureBlobFileProvider(new AzureFileProviderOptions { CreateContainerIfMissing = createContainer }, client) { Clock = new FixedClock(_now) };
     }
 
     private static WriteableAzureBlobFileProvider TokenProvider(StubHandler handler, FixedClock? clock = null)
     {
         var client = new BlobContainerClient(new Uri("https://account.blob.core.windows.net/files"), new FakeCredential(), AzureBlobOptionsTests.Offline(handler));
-        return new WriteableAzureBlobFileProvider(client) { Clock = clock ?? new FixedClock(_now) };
+        return new WriteableAzureBlobFileProvider(null, client) { Clock = clock ?? new FixedClock(_now) };
     }
 
     // The blob service: a file exists, the container exists, and keys are issued for what was asked, if it ends within 7
@@ -236,7 +236,7 @@ public sealed class SignedUrlTests
             ? AzureHandler.Error(HttpStatusCode.Forbidden, "AuthenticationFailed")
             : StubHandler.BlobProperties());
         var client = new BlobContainerClient(new Uri("https://account.blob.core.windows.net/files?sv=2026-10-06&sp=rwdl&sig=x"), AzureBlobOptionsTests.Offline(handler));
-        using var provider = new WriteableAzureBlobFileProvider(client);
+        using var provider = new WriteableAzureBlobFileProvider(null, client);
         await Assert.ThrowsExactlyAsync<NotSupportedException>(() => provider.GetSignedUrlAsync("a.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5) }));
     }
 

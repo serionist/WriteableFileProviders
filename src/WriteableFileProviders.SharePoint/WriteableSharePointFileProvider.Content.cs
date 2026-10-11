@@ -58,6 +58,12 @@ public sealed partial class WriteableSharePointFileProvider
         var request = new RequestInformation { HttpMethod = Method.GET, URI = url };
         request.Headers.Add("Range", "bytes=0-0");
         using var response = await SendRawAsync(request, $"Reading '{path}'", streamed: true, cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode && response.StatusCode is not (HttpStatusCode.NotFound or HttpStatusCode.RequestedRangeNotSatisfiable))
+        {
+            // Refused or failed as a download would be (a 403 is UnauthorizedAccessException).
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            throw GraphErrors.FromResponse((int)response.StatusCode, body, $"Reading '{path}'");
+        }
         return response.StatusCode switch
         {
             HttpStatusCode.PartialContent when response.Content.Headers.ContentRange?.Length is { } total => total,

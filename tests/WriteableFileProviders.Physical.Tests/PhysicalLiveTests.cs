@@ -5,10 +5,11 @@ using WriteableFileProviders.Testing;
 namespace WriteableFileProviders.Physical.Tests;
 
 /// <summary>
-/// The conformance suite in a folder you name: a network share, another volume, another file system. The folder comes from
-/// the <c>WFP_PHYSICAL_ROOT</c> environment variable, or <c>PhysicalFileProvider_RootPath</c> in an optional
-/// testsettings.json next to this project; without either, every test fails. Each test works in a folder of its own under
-/// it and deletes it; the folder itself is left as it was.
+/// The conformance suite in a folder you name: a network share, another volume, another file system. Without
+/// <c>WFP_LIVE=1</c> it is inconclusive; with it, the folder comes from the <c>WFP_PHYSICAL_ROOT</c> environment
+/// variable, or <c>PhysicalFileProvider_RootPath</c> in an optional testsettings.json next to this project (see
+/// testsettings.sample.json), and without either every test fails. Each test works in a folder of its own under it and
+/// deletes it; the folder itself is left as it was.
 /// </summary>
 [TestClass]
 [TestCategory("Live")]
@@ -29,10 +30,19 @@ public sealed class PhysicalLiveTests : ProviderConformanceTests
 
     protected override IWriteableFileProvider CreateProvider(string? root)
     {
-        var folder = _base.Value ?? throw new AssertFailedException(
-            "Set WFP_PHYSICAL_ROOT, or PhysicalFileProvider_RootPath in tests/WriteableFileProviders.Physical.Tests/testsettings.json, to the folder to run in.");
+        if (Environment.GetEnvironmentVariable("WFP_LIVE") != "1")
+            Assert.Inconclusive("The live suite runs only with WFP_LIVE=1, in a folder you name.");
+        var folder = _base.Value;
+        if (folder is null)
+        {
+            Assert.Fail("WFP_LIVE=1, but no folder is configured: set WFP_PHYSICAL_ROOT, or PhysicalFileProvider_RootPath in testsettings.json, "
+                + "to the folder to run in.");
+        }
         return new WriteablePhysicalFileProvider(root is null ? folder : Path.Combine(folder, root));
     }
+
+    protected override Task<bool> StoreRawFileAsync(IReadOnlyList<string> names, string text) =>
+        Task.FromResult(_base.Value is { } folder && RawFiles.Store(folder, names, text));
 
     private static string? FindBase()
     {

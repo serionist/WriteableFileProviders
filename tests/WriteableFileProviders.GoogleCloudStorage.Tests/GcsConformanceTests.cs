@@ -32,6 +32,8 @@ public sealed class GcsConformanceTests : ProviderConformanceTests
 
     protected override IWriteableFileProvider? CreateProviderWithMissingContainer() =>
         new WriteableGoogleCloudStorageFileProvider(FakeGcs.Options(FakeGcs.MissingBucketName()));
+
+    protected override Task<bool> StoreRawFileAsync(IReadOnlyList<string> names, string text) => FakeGcs.StoreRawAsync(_bucket.Value, names, text);
 }
 
 /// <summary>
@@ -57,8 +59,10 @@ public sealed class GcsClientConformanceTests : ProviderConformanceTests
     }
 
     protected override IWriteableFileProvider CreateProvider(string? root) =>
-        new WriteableGoogleCloudStorageFileProvider(_client.Value, new GoogleCloudStorageFileProviderOptions { BucketName = _bucket.Value, RootDirectoryPath = root });
+        new WriteableGoogleCloudStorageFileProvider(new GoogleCloudStorageFileProviderOptions { BucketName = _bucket.Value, RootDirectoryPath = root }, _client.Value);
 
     protected override IWriteableFileProvider? CreateProviderWithMissingContainer() =>
-        new WriteableGoogleCloudStorageFileProvider(_client.Value, new GoogleCloudStorageFileProviderOptions { BucketName = FakeGcs.MissingBucketName() });
+        new WriteableGoogleCloudStorageFileProvider(new GoogleCloudStorageFileProviderOptions { BucketName = FakeGcs.MissingBucketName() }, _client.Value);
+
+    protected override Task<bool> StoreRawFileAsync(IReadOnlyList<string> names, string text) => FakeGcs.StoreRawAsync(_bucket.Value, names, text);
 }

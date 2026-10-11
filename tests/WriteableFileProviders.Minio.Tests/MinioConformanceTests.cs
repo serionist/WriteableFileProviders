@@ -27,6 +27,9 @@ public abstract class MinioConformanceTests : ProviderConformanceTests
     protected override IWriteableFileProvider? CreateProviderWithMissingContainer() =>
         Create("wfp-missing-" + Guid.NewGuid().ToString("N")[..12], _base);
 
+    protected override Task<bool> StoreRawFileAsync(IReadOnlyList<string> names, string text) =>
+        Endpoint.StoreRawAsync($"{_base}/{string.Join('/', names)}", text);
+
     private WriteableMinioFileProvider Create(string bucket, string root)
     {
         // On a local Docker the containers listen on loopback, where plain HTTP needs no opt-in.

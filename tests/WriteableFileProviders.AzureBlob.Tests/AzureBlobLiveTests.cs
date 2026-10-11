@@ -5,9 +5,10 @@ using WriteableFileProviders.Testing;
 namespace WriteableFileProviders.AzureBlob.Tests;
 
 /// <summary>
-/// The conformance suite against a real storage account: run it only against an account you own. It runs when WFP_LIVE=1,
-/// with the account from environment variables or from an optional testsettings.json next to this project (see
-/// testsettings.sample.json), and works under its own <c>wfp-test-&lt;guid&gt;/</c> folder, deleted afterwards.
+/// The conformance suite against a real storage account: run it only against an account you own. Without WFP_LIVE=1 it is
+/// inconclusive; with it, it takes the account from environment variables or from an optional testsettings.json next to
+/// this project (see testsettings.sample.json), fails naming what is missing, and works under its own
+/// <c>wfp-test-&lt;guid&gt;/</c> folder, deleted afterwards.
 /// </summary>
 /// <remarks>
 /// Environment variables: WFP_AZURE_ACCOUNT_NAME, WFP_AZURE_CONTAINER, and either WFP_AZURE_ACCOUNT_KEY or
@@ -61,25 +62,43 @@ public sealed class AzureBlobLiveTests : ProviderConformanceTests
         {
             if (Environment.GetEnvironmentVariable("WFP_LIVE") != "1")
                 Assert.Inconclusive("The live suite runs only with WFP_LIVE=1, against an account you own.");
-            return TryRead() ?? throw new AssertFailedException(
-                "WFP_LIVE=1 but no Azure account is configured: set WFP_AZURE_ACCOUNT_NAME, WFP_AZURE_CONTAINER and WFP_AZURE_ACCOUNT_KEY (or WFP_AZURE_USE_DEFAULT_CREDENTIAL=1), or fill testsettings.json.");
+            var settings = Read();
+            var missing = settings.Missing();
+            if (missing.Count > 0)
+                Assert.Fail($"WFP_LIVE=1, but the Azure storage account is not configured: set {string.Join(", ", missing)} in the environment or in testsettings.json.");
+            return settings;
         }
 
         public static LiveSettings? TryRead()
         {
+            var settings = Read();
+            return settings.Missing().Count == 0 ? settings : null;
+        }
+
+        private static LiveSettings Read()
+        {
             var file = ReadFile();
             string? Get(string variable, string key) =>
                 Environment.GetEnvironmentVariable(variable) is { Length: > 0 } value ? value : file.GetValueOrDefault(key);
-            var useDefaultCredential = Environment.GetEnvironmentVariable("WFP_AZURE_USE_DEFAULT_CREDENTIAL") == "1";
-            var settings = new LiveSettings(
+            return new LiveSettings(
                 Get("WFP_AZURE_ACCOUNT_NAME", "AzureBlobFileProvider_AccountName"),
                 Get("WFP_AZURE_ACCOUNT_KEY", "AzureBlobFileProvider_AccountKey"),
                 Get("WFP_AZURE_CONTAINER", "AzureBlobFileProvider_ContainerName") ?? "",
                 Environment.GetEnvironmentVariable("WFP_AZURE_URL"),
                 Get("WFP_AZURE_ROOT", "AzureBlobFileProvider_RootPath"),
-                useDefaultCredential);
-            var signsIn = useDefaultCredential || !string.IsNullOrEmpty(settings.AccountKey);
-            return signsIn && settings.Container.Length > 0 && (!string.IsNullOrEmpty(settings.AccountName) || !string.IsNullOrEmpty(settings.Url)) ? settings : null;
+                Environment.GetEnvironmentVariable("WFP_AZURE_USE_DEFAULT_CREDENTIAL") == "1");
+        }
+
+        private List<string> Missing()
+        {
+            var missing = new List<string>();
+            if (string.IsNullOrEmpty(AccountName) && string.IsNullOrEmpty(Url))
+                missing.Add("WFP_AZURE_ACCOUNT_NAME (or WFP_AZURE_URL)");
+            if (Container.Length == 0)
+                missing.Add("WFP_AZURE_CONTAINER");
+            if (!UseDefaultCredential && string.IsNullOrEmpty(AccountKey))
+                missing.Add("WFP_AZURE_ACCOUNT_KEY (or WFP_AZURE_USE_DEFAULT_CREDENTIAL=1)");
+            return missing;
         }
 
         private static Dictionary<string, string> ReadFile()

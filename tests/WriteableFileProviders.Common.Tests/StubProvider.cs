@@ -76,20 +76,18 @@ public sealed class StubProvider(StubOptions options) : WriteableFileProvider<St
 
     public string? ContentType { get; set; }
 
+    /// <summary>A character the provider's own segment rule refuses, as Physical and SharePoint refuse ':'.</summary>
+    public char? RefusedCharacter { get; set; }
+
     protected override bool SupportsAtomicPreconditions => AtomicPreconditions;
 
     protected override bool SupportsSignedUrl(SignedUrlAccess permission) => SignedUrls;
 
+    protected override bool IsSegmentAllowed(string part) => RefusedCharacter is not { } refused || !part.Contains(refused, StringComparison.Ordinal);
+
     public ProviderPath ResolveForTest(ProviderPath path) => Resolve(path).Path;
 
-    // The 2026 helpers stay tested until S12 removes them.
-#pragma warning disable CS0618
-    public string[] Relative(string[] absolute) => GetRelativeSegments(absolute);
-
-    public bool IsRoot(string[] absolute) => IsRootPath(absolute);
-
-    public static string? Pem(string? pem) => NormalizePem(pem);
-#pragma warning restore CS0618
+    public bool Addressable(string name) => IsAddressable(name);
 
     public Task AppendByRewrite(string path, Stream contents, UpdateFileOptions? options = null) =>
         AppendByRewriteAsync(Resolve(path), contents, options ?? UpdateFileOptions.Append, default);

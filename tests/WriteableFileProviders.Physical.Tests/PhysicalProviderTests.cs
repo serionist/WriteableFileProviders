@@ -332,6 +332,260 @@ public sealed class PhysicalProviderTests
     }
 
     [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task ALinkToAFile_IsDescribedPinnedAndWrittenAsItsTarget(bool resolvesAsTheKernel)
+    {
+        // A file reached through a symbolic link: its info, its listing entry and its ETag describe the target, which reads
+        // open, so a pinned read and an append through the link see one version (the link's own length is 0 on Windows,
+        // the length of its target's path on Linux). Describing it never opens the target. A write replaces the link with
+        // a file, and leaves the target as it was; ALinkBehindALinkedFolder checks the mode the new file takes. Both ways
+        // of following a link run on each system.
+        _provider.Dispose();
+        _provider = new WriteablePhysicalFileProvider(_root) { ResolvesLinksAsTheKernel = resolvesAsTheKernel };
+        await Write("target.txt", "0123456789");
+        try
+        {
+            File.CreateSymbolicLink(Disk("link.txt"), Disk("target.txt"));
+        }
+        catch (Exception e) when (OperatingSystem.IsWindows() && e is IOException or UnauthorizedAccessException)
+        {
+            Assert.Inconclusive($"Creating a symbolic link on Windows needs Developer Mode or elevation: {e.Message}");
+        }
+
+        var accessed = File.GetLastAccessTimeUtc(Disk("target.txt"));
+        var written = File.GetLastWriteTimeUtc(Disk("target.txt"));
+        var info = await _provider.GetFileInfoAsync("link.txt");
+        Assert.AreEqual(10, info.Length);
+        Assert.AreEqual(10, (await _provider.GetDirectoryContentsAsync("")).Single(e => e.Name == "link.txt").Length);
+        Assert.AreEqual(accessed, File.GetLastAccessTimeUtc(Disk("target.txt")), "Describing the link does not touch its target");
+        Assert.AreEqual(written, File.GetLastWriteTimeUtc(Disk("target.txt")), "Describing the link does not touch its target");
+        Assert.AreEqual((await _provider.GetFileInfoAsync("target.txt")).ETag, info.ETag);
+        Assert.AreEqual(Disk("link.txt"), info.PhysicalPath, "The path is the link's, inside the root");
+        Assert.AreEqual(10, (await _provider.GetDirectoryContentsAsync("")).Single(e => e.Name == "link.txt").Length);
+        await using (var range = await _provider.ReadRangeAsync("link.txt", 2, 3, new ReadOptions { IfMatch = info.ETag }))
+            Assert.AreEqual("234", await new StreamReader(range).ReadToEndAsync());
+        await using (var seekable = await _provider.OpenReadSeekableAsync("link.txt"))
+            Assert.AreEqual("0123456789", await new StreamReader(seekable).ReadToEndAsync());
+
+        await Write("link.txt", "ab", UpdateFileOptions.Append with { IfMatch = info.ETag });
+        Assert.AreEqual("0123456789ab", await Read("link.txt"));
+        Assert.IsNull(new FileInfo(Disk("link.txt")).LinkTarget, "The link is replaced by a file");
+        Assert.AreEqual("0123456789", await Read("target.txt"), "Its target is left as it was");
+
+        File.Delete(Disk("link.txt"));
+        File.CreateSymbolicLink(Disk("link.txt"), Disk("target.txt"));
+        await Write("link.txt", "new", new UpdateFileOptions { IfMatch = (await _provider.GetFileInfoAsync("link.txt")).ETag });
+        Assert.AreEqual("new", await Read("link.txt"));
+        Assert.AreEqual("0123456789", await Read("target.txt"));
+
+        // A link to a file the process may read but not write is described as well.
+        await Write("readonly.txt", "ro");
+        File.CreateSymbolicLink(Disk("ro-link.txt"), Disk("readonly.txt"));
+        File.SetAttributes(Disk("readonly.txt"), FileAttributes.ReadOnly);
+        try
+        {
+            Assert.AreEqual(2, (await _provider.GetFileInfoAsync("ro-link.txt")).Length);
+        }
+        finally
+        {
+            File.SetAttributes(Disk("readonly.txt"), FileAttributes.Normal);
+        }
+
+        // Links in a loop lead to no file: they are described as themselves, and a listing still works.
+        File.CreateSymbolicLink(Disk("loop1.txt"), Disk("loop2.txt"));
+        File.CreateSymbolicLink(Disk("loop2.txt"), Disk("loop1.txt"));
+        Assert.IsNotNull((await _provider.GetFileInfoAsync("loop1.txt")).ETag);
+        CollectionAssert.IsSubsetOf(new[] { "loop1.txt", "loop2.txt" }, Names());
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Linux | OperatingSystems.OSX)]
+    [UnsupportedOSPlatform("windows")]
+    public async Task ALinkBehindALinkedFolder_IsDescribedAndWrittenAsTheSystemResolvesIt()
+    {
+        // A deployment layout: current -> releases/r1, and releases/r1/secret.txt -> ../../shared/secret.txt. The system
+        // resolves the link from where it physically is, releases/r1, so it names site/shared/secret.txt, a private file;
+        // resolved as a string from site/current, the same text names a decoy outside the root. The info, the pinned read
+        // and the append all see the private file, and the file that replaces the link takes its mode (0600), not the
+        // decoy's (0644).
+        const UnixFileMode secret = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+        var site = Disk("site");
+        Directory.CreateDirectory(Path.Combine(site, "releases", "r1"));
+        Directory.CreateDirectory(Path.Combine(site, "shared"));
+        Directory.CreateDirectory(Disk("shared"));
+        File.WriteAllText(Path.Combine(site, "shared", "secret.txt"), "private");
+        File.SetUnixFileMode(Path.Combine(site, "shared", "secret.txt"), secret);
+        File.WriteAllText(Disk("shared", "secret.txt"), "decoy, longer");
+        File.SetUnixFileMode(Disk("shared", "secret.txt"), secret | UnixFileMode.GroupRead | UnixFileMode.OtherRead);
+        Directory.CreateSymbolicLink(Path.Combine(site, "current"), Path.Combine("releases", "r1"));
+        File.CreateSymbolicLink(Path.Combine(site, "releases", "r1", "secret.txt"), Path.Combine("..", "..", "shared", "secret.txt"));
+        using var provider = new WriteablePhysicalFileProvider(site);
+
+        var info = await provider.GetFileInfoAsync("current/secret.txt");
+        Assert.AreEqual(7, info.Length);
+        await using (var range = await provider.ReadRangeAsync("current/secret.txt", 1, 3, new ReadOptions { IfMatch = info.ETag }))
+            Assert.AreEqual("riv", await new StreamReader(range).ReadToEndAsync());
+        await provider.UpdateFileAsync("current/secret.txt", TestStreams.Text("+more"), UpdateFileOptions.Append with { IfMatch = info.ETag });
+
+        var replaced = Path.Combine(site, "releases", "r1", "secret.txt");
+        Assert.IsNull(new FileInfo(replaced).LinkTarget, "The link is replaced by a file");
+        Assert.AreEqual("private+more", File.ReadAllText(replaced));
+        Assert.AreEqual(secret, File.GetUnixFileMode(replaced), "The private file's mode");
+        Assert.AreEqual("private", File.ReadAllText(Path.Combine(site, "shared", "secret.txt")));
+        Assert.AreEqual("decoy, longer", File.ReadAllText(Disk("shared", "secret.txt")));
+
+        // A link to a file the process may read but not write is described as well.
+        File.WriteAllText(Path.Combine(site, "shared", "readonly.txt"), "ro");
+        File.SetUnixFileMode(Path.Combine(site, "shared", "readonly.txt"), UnixFileMode.UserRead);
+        File.CreateSymbolicLink(Path.Combine(site, "ro-link.txt"), Path.Combine("shared", "readonly.txt"));
+        Assert.AreEqual(2, (await provider.GetFileInfoAsync("ro-link.txt")).Length);
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Linux | OperatingSystems.OSX)]
+    public async Task ALinkToAFifo_IsListedAndRefusedWithoutWaiting()
+    {
+        // Opening a FIFO to read waits for a writer, and to write waits for a reader: a link to one is described, and a
+        // write through it refused as not a regular file, without either wait.
+        await MakeFifo("pipe");
+        File.CreateSymbolicLink(Disk("pipe-link"), Disk("pipe"));
+        var names = await Task.Run(() => Names()).WaitAsync(TimeSpan.FromSeconds(30));
+        CollectionAssert.Contains(names, "pipe-link");
+        var info = await _provider.GetFileInfoAsync("pipe-link").WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.IsTrue(info.Exists);
+        Assert.AreEqual(0, info.Length);
+        var refused = await Assert.ThrowsExactlyAsync<IOException>(() => _provider.UpdateFileAsync("pipe-link", TestStreams.Text("x")).WaitAsync(TimeSpan.FromSeconds(30)));
+        StringAssert.Contains(refused.Message, "not a regular file");
+        Assert.IsEmpty(TempFiles());
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Linux | OperatingSystems.OSX)]
+    public async Task ALinkToAFifo_IsDescribedWithoutOpeningIt()
+    {
+        // Describing a file never opens it. A FIFO the process may read but not write, which an open would wait on for a
+        // writer, is listed and described at once; and a reader waiting on a FIFO for a writer is not woken by a listing or
+        // an info of a link to it, as an open and close would wake it with an early end of file.
+        await MakeFifo("readonly-pipe", "0444");
+        File.CreateSymbolicLink(Disk("readonly-link"), Disk("readonly-pipe"));
+        await MakeFifo("pipe");
+        File.CreateSymbolicLink(Disk("pipe-link"), Disk("pipe"));
+        var reader = Task.Run(async () =>
+        {
+            await using var stream = new FileStream(Disk("pipe"), FileMode.Open, FileAccess.Read);
+            using var text = new StreamReader(stream);
+            return await text.ReadToEndAsync();
+        });
+        try
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(200)); // the reader waits in its open, for a writer
+
+            CollectionAssert.IsSubsetOf(new[] { "pipe-link", "readonly-link" }, await Task.Run(() => Names()).WaitAsync(TimeSpan.FromSeconds(30)));
+            Assert.AreEqual(0, (await _provider.GetFileInfoAsync("readonly-link").WaitAsync(TimeSpan.FromSeconds(30))).Length);
+            Assert.AreEqual(0, (await _provider.GetFileInfoAsync("pipe-link").WaitAsync(TimeSpan.FromSeconds(30))).Length);
+            await Task.Delay(TimeSpan.FromMilliseconds(200));
+            Assert.IsFalse(reader.IsCompleted, "The reader still waits for a writer");
+        }
+        finally
+        {
+            // Opened to read and write, which never waits, whether or not the reader still does.
+            await using var writer = new FileStream(Disk("pipe"), FileMode.Open, FileAccess.ReadWrite);
+            await writer.WriteAsync("hello"u8.ToArray());
+        }
+        Assert.AreEqual("hello", await reader.WaitAsync(TimeSpan.FromSeconds(30)));
+    }
+
+    [TestMethod]
+    public void PhysicalPathOf_ResolvesLinksFromWhereTheyAre()
+    {
+        // The walk Linux and macOS describe links with, run on every system: a relative target resolves against the part
+        // of the path already resolved, '..' climbs from where a linked folder leads, and a loop gives up.
+        var site = Disk("site");
+        Directory.CreateDirectory(Path.Combine(site, "releases", "r1"));
+        Directory.CreateDirectory(Path.Combine(site, "shared"));
+        File.WriteAllText(Path.Combine(site, "shared", "secret.txt"), "private");
+        try
+        {
+            Directory.CreateSymbolicLink(Path.Combine(site, "current"), Path.Combine("releases", "r1"));
+        }
+        catch (Exception e) when (OperatingSystem.IsWindows() && e is IOException or UnauthorizedAccessException)
+        {
+            Assert.Inconclusive($"Creating a symbolic link on Windows needs Developer Mode or elevation: {e.Message}");
+        }
+        File.CreateSymbolicLink(Path.Combine(site, "releases", "r1", "secret.txt"), Path.Combine("..", "..", "shared", "secret.txt"));
+        File.CreateSymbolicLink(Path.Combine(site, "absolute.txt"), Path.Combine(site, "current", "secret.txt"));
+        File.CreateSymbolicLink(Path.Combine(site, "loop1"), "loop2");
+        File.CreateSymbolicLink(Path.Combine(site, "loop2"), "loop1");
+
+        // The temp folder may itself be reached through a link (macOS: /var -> /private/var).
+        var secret = WriteablePhysicalFileProvider.PhysicalPathOf(Path.Combine(site, "shared", "secret.txt"));
+        Assert.AreEqual(secret, WriteablePhysicalFileProvider.PhysicalPathOf(Path.Combine(site, "current", "secret.txt")));
+        Assert.AreEqual(secret, WriteablePhysicalFileProvider.PhysicalPathOf(Path.Combine(site, "absolute.txt")));
+        Assert.AreEqual(secret, WriteablePhysicalFileProvider.PhysicalPathOf(Path.Combine(site, "current", ".", "..", "r1", "secret.txt")));
+        Assert.IsNull(WriteablePhysicalFileProvider.PhysicalPathOf(Path.Combine(site, "loop1")));
+        var root = Path.GetPathRoot(site)!;
+        Assert.AreEqual(root, WriteablePhysicalFileProvider.PhysicalPathOf(Path.Join(root, "..")));
+    }
+
+    [TestMethod]
+    public void PhysicalPathOf_StopsWhereTheKernelDoes()
+    {
+        // A component before the last must be a folder that is there (ENOENT, ENOTDIR), a trailing separator or '.'
+        // included; a missing last name is still a path. Links count up to the kernel's limit (ELOOP past it).
+        var folder = Disk("stops");
+        Directory.CreateDirectory(folder);
+        var file = Path.Combine(folder, "file.txt");
+        File.WriteAllText(file, "x");
+        var physicalFile = WriteablePhysicalFileProvider.PhysicalPathOf(file);
+        Assert.IsNotNull(physicalFile);
+        Assert.IsNull(WriteablePhysicalFileProvider.PhysicalPathOf(Path.Combine(folder, "missing", "..", "file.txt")));
+        Assert.IsNull(WriteablePhysicalFileProvider.PhysicalPathOf(Path.Combine(file, "..", "file.txt")));
+        Assert.IsNull(WriteablePhysicalFileProvider.PhysicalPathOf(file + Path.DirectorySeparatorChar));
+        Assert.IsNull(WriteablePhysicalFileProvider.PhysicalPathOf(Path.Combine(file, ".")));
+        Assert.AreEqual(WriteablePhysicalFileProvider.PhysicalPathOf(folder), WriteablePhysicalFileProvider.PhysicalPathOf(folder + Path.DirectorySeparatorChar));
+        Assert.AreEqual(Path.Combine(Path.GetDirectoryName(physicalFile)!, "missing.txt"), WriteablePhysicalFileProvider.PhysicalPathOf(Path.Combine(folder, "missing.txt")));
+
+        // Chains of links: one through exactly the limit resolves, one link more does not (32 on macOS, 40 elsewhere).
+        Assert.AreEqual(OperatingSystem.IsMacOS() ? 32 : 40, WriteablePhysicalFileProvider.MaxLinks);
+        try
+        {
+            Chain("a", WriteablePhysicalFileProvider.MaxLinks);
+        }
+        catch (Exception e) when (OperatingSystem.IsWindows() && e is IOException or UnauthorizedAccessException)
+        {
+            Assert.Inconclusive($"Creating a symbolic link on Windows needs Developer Mode or elevation: {e.Message}");
+        }
+        Chain("b", WriteablePhysicalFileProvider.MaxLinks + 1);
+        Assert.AreEqual(physicalFile, WriteablePhysicalFileProvider.PhysicalPathOf(Path.Combine(folder, "a0")));
+        Assert.IsNull(WriteablePhysicalFileProvider.PhysicalPathOf(Path.Combine(folder, "b0")));
+
+        // prefix0 -> prefix1 -> ... -> prefix(count - 1) -> file.txt: a path through count links.
+        void Chain(string prefix, int count)
+        {
+            for (var i = 0; i < count; i++)
+                File.CreateSymbolicLink(Path.Combine(folder, $"{prefix}{i}"), i == count - 1 ? "file.txt" : $"{prefix}{i + 1}");
+        }
+    }
+
+    // Makes a FIFO under the root with mkfifo, with the given permission bits; inconclusive where there is no mkfifo.
+    private async Task MakeFifo(string name, string mode = "0644")
+    {
+        Directory.CreateDirectory(_root);
+        try
+        {
+            using var mkfifo = Process.Start(new ProcessStartInfo("mkfifo") { ArgumentList = { "-m", mode, Disk(name) }, UseShellExecute = false })!;
+            await mkfifo.WaitForExitAsync();
+            if (mkfifo.ExitCode != 0)
+                Assert.Inconclusive($"mkfifo exited with {mkfifo.ExitCode}.");
+        }
+        catch (Win32Exception e)
+        {
+            Assert.Inconclusive($"mkfifo is not available: {e.Message}");
+        }
+    }
+
+    [TestMethod]
     public async Task Write_OverAnEmptyFileReplacesIt()
     {
         // An empty file is checked to be a regular file before it is replaced.

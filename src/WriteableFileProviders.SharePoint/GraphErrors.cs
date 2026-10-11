@@ -25,13 +25,15 @@ internal static class GraphErrors
 
     /// <summary>
     /// Whether the exception came from the SDK or the service and must be mapped: an error answer, retries that ran out
-    /// (<see cref="AggregateException"/>), a network failure, or an answer the SDK could not read (Kiota 2.0 raises
-    /// <see cref="InvalidOperationException"/> for an error body that is not JSON, and <see cref="JsonException"/> for a
-    /// JSON body that is malformed). Cancellation and disposal pass through.
+    /// (<see cref="AggregateException"/>), a network failure, no answer within the HTTP client's timeout (a
+    /// <see cref="TaskCanceledException"/> holding a <see cref="TimeoutException"/>), or an answer the SDK could not read
+    /// (Kiota 2.0 raises <see cref="InvalidOperationException"/> for an error body that is not JSON, and
+    /// <see cref="JsonException"/> for a JSON body that is malformed). Cancellation and disposal pass through.
     /// </summary>
     public static bool IsFailure(Exception exception) => exception switch
     {
         ApiException or AggregateException or HttpRequestException or JsonException => true,
+        TaskCanceledException { InnerException: TimeoutException } => true,
         ObjectDisposedException => false,
         InvalidOperationException => true,
         _ => false,
@@ -58,6 +60,8 @@ internal static class GraphErrors
                 };
             case HttpRequestException:
                 return new IOException($"{what} failed: {exception.Message}", exception);
+            case TaskCanceledException:
+                return new IOException($"{what} failed: the service did not answer within the HTTP client's timeout.", exception);
             default:
                 return new IOException($"{what} failed: Microsoft Graph answered something the SDK could not read.", exception);
         }

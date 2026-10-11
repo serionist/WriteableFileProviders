@@ -5,8 +5,8 @@ namespace WriteableFileProviders.S3.Testing;
 
 /// <summary>
 /// The account of a live suite: environment variables first, then an optional <c>testsettings.json</c> next to the test
-/// assembly (git-ignored). A live suite runs only with <c>WFP_LIVE=1</c> and its settings; otherwise its tests are
-/// inconclusive.
+/// assembly (git-ignored). Without <c>WFP_LIVE=1</c> a live suite's tests are inconclusive; with it, a missing setting
+/// fails them, naming what is missing.
 /// </summary>
 internal static class LiveSettings
 {
@@ -21,14 +21,18 @@ internal static class LiveSettings
         : _file[name] is { Length: > 0 } fromFile ? fromFile
         : null;
 
-    /// <summary>Makes the test inconclusive unless live runs are on and every named setting is present.</summary>
+    /// <summary>
+    /// Makes the test inconclusive unless live runs are on (<c>WFP_LIVE=1</c>), and fails it when they are on but a named
+    /// setting is missing.
+    /// </summary>
+    /// <param name="account">What the settings configure, for the failure message.</param>
     /// <param name="names">The settings the suite needs.</param>
-    public static void Require(params string[] names)
+    public static void Require(string account, params string[] names)
     {
         if (Environment.GetEnvironmentVariable("WFP_LIVE") != "1")
             Assert.Inconclusive("Live suites run only with WFP_LIVE=1, against an account you own.");
         var missing = names.Where(n => Get(n) is null).ToList();
         if (missing.Count > 0)
-            Assert.Inconclusive($"Set {string.Join(", ", missing)} in the environment or in testsettings.json.");
+            Assert.Fail($"WFP_LIVE=1, but the {account} is not configured: set {string.Join(", ", missing)} in the environment or in testsettings.json.");
     }
 }

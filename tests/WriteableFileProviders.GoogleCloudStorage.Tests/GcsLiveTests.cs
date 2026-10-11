@@ -8,10 +8,10 @@ using WriteableFileProviders.Testing;
 namespace WriteableFileProviders.GoogleCloudStorage.Tests;
 
 /// <summary>
-/// A real bucket for the live suites, from environment variables or an optional <c>testsettings.json</c> next to the
-/// test assembly (git-ignored): run them only against a bucket you own. They run only with <c>WFP_LIVE=1</c>; otherwise,
-/// or without a bucket and a service account key, they are inconclusive. Each test works under its own folder, which it
-/// deletes.
+/// A real bucket for the live suites, from environment variables or an optional <c>testsettings.json</c> next to this
+/// project (see testsettings.sample.json; git-ignored): run them only against a bucket you own. Without
+/// <c>WFP_LIVE=1</c> they are inconclusive; with it, a missing bucket or service account key fails them, naming what is
+/// missing. Each test works under its own folder, which it deletes.
 /// </summary>
 /// <remarks>
 /// Environment: <c>WFP_GCS_BUCKET</c>, <c>WFP_GCS_CLIENT_EMAIL</c> and <c>WFP_GCS_PRIVATE_KEY</c> (or
@@ -21,17 +21,17 @@ namespace WriteableFileProviders.GoogleCloudStorage.Tests;
 /// </remarks>
 internal static class GcsLive
 {
-    private static readonly Lazy<GoogleCloudStorageFileProviderOptions?> _options = new(Load);
+    private static readonly Lazy<(GoogleCloudStorageFileProviderOptions Options, string[] Missing)> _settings = new(Load);
 
     /// <summary>Options for the live bucket, under the given folder of its root.</summary>
     /// <param name="root">A folder under the configured root, or null for the root.</param>
     public static GoogleCloudStorageFileProviderOptions Options(string? root = null)
     {
-        if (_options.Value is not { } settings)
-        {
-            Assert.Inconclusive("The live suite runs with WFP_LIVE=1 and a bucket and service account key in WFP_GCS_* or testsettings.json.");
-            throw new InvalidOperationException();
-        }
+        if (Environment.GetEnvironmentVariable("WFP_LIVE") != "1")
+            Assert.Inconclusive("The live suite runs only with WFP_LIVE=1, against a bucket you own.");
+        var (settings, missing) = _settings.Value;
+        if (missing.Length > 0)
+            Assert.Fail($"WFP_LIVE=1, but the Google Cloud Storage bucket is not configured: set {string.Join(", ", missing)} in the environment or in testsettings.json.");
         return new GoogleCloudStorageFileProviderOptions
         {
             BucketName = settings.BucketName,
@@ -58,10 +58,8 @@ internal static class GcsLive
         return builder.Build();
     }
 
-    private static GoogleCloudStorageFileProviderOptions? Load()
+    private static (GoogleCloudStorageFileProviderOptions, string[]) Load()
     {
-        if (Environment.GetEnvironmentVariable("WFP_LIVE") != "1")
-            return null;
         var file = Path.Combine(AppContext.BaseDirectory, "testsettings.json");
         var settings = File.Exists(file) ? JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(File.ReadAllText(file)) ?? [] : [];
         string? Get(string variable, string key) =>
@@ -77,8 +75,14 @@ internal static class GcsLive
             ProjectId = Get("WFP_GCS_PROJECT_ID", "ProjectId"),
             RootDirectoryPath = Get("WFP_GCS_ROOT", "RootPath"),
         };
-        var hasKey = (options.ClientEmail is not null && options.PrivateKey is not null) || options.CredentialsJson is not null;
-        return options.BucketName is not null && hasKey ? options : null;
+        var missing = new List<string>();
+        if (options.BucketName is null)
+            missing.Add("WFP_GCS_BUCKET");
+        if (options.CredentialsJson is null && options.ClientEmail is null)
+            missing.Add("WFP_GCS_CLIENT_EMAIL (or WFP_GCS_CREDENTIALS_JSON)");
+        if (options.CredentialsJson is null && options.PrivateKey is null)
+            missing.Add("WFP_GCS_PRIVATE_KEY (or WFP_GCS_CREDENTIALS_JSON)");
+        return (options, [.. missing]);
     }
 }
 
@@ -140,7 +144,7 @@ public sealed class GcsLiveAtomicityTests
     {
         var client = GcsLive.CreateClient(http);
         _disposables.Add(client);
-        var provider = new WriteableGoogleCloudStorageFileProvider(client, GcsLive.Options(_root));
+        var provider = new WriteableGoogleCloudStorageFileProvider(GcsLive.Options(_root), client);
         _disposables.Add(provider);
         return provider;
     }

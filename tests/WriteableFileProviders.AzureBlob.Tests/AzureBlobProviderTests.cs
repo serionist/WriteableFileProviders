@@ -36,7 +36,7 @@ public sealed partial class AzureBlobProviderTests
 
     // A provider rooted at the test's own folder, over a client whose requests go through the handler.
     private WriteableAzureBlobFileProvider Provider(int retries = 2, AzureFileProviderOptions? options = null) =>
-        new(Azurite.Container(_containerName, _handler, retries), options ?? new AzureFileProviderOptions { RootDirectoryPath = _root });
+        new(options ?? new AzureFileProviderOptions { RootDirectoryPath = _root }, Azurite.Container(_containerName, _handler, retries));
 
     private string Name(string path) => $"{_root}/{path}";
 
@@ -234,7 +234,7 @@ public sealed partial class AzureBlobProviderTests
         // A client from a container SAS can neither sign a SAS nor get a user delegation key.
         var sas = _raw.GenerateSasUri(BlobContainerSasPermissions.All, DateTimeOffset.UtcNow.AddHours(1));
         var client = new BlobContainerClient(sas, Azurite.ClientOptions(_handler));
-        using var provider = new WriteableAzureBlobFileProvider(client, new AzureFileProviderOptions { RootDirectoryPath = _root });
+        using var provider = new WriteableAzureBlobFileProvider(new AzureFileProviderOptions { RootDirectoryPath = _root }, client);
         await Append(provider, "put.txt", "more");
         Assert.AreEqual("base;more", await ReadRaw("put.txt"));
         Assert.IsFalse(_handler.For(Name("put.txt")).Any(l => l.EndsWith("copy", StringComparison.Ordinal)), "No server-side copy");

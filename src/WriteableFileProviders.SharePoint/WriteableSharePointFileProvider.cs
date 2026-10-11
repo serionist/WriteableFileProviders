@@ -556,21 +556,4 @@ public sealed partial class WriteableSharePointFileProvider : WriteableFileProvi
         }
         return false;
     }
-
-    /// <summary>
-    /// Whether a listed name can be addressed through this provider: it passes the same segment validation as a caller's
-    /// path. A name that does not (one that decodes to <c>..</c>, or holds <c>:</c>) is left out of listings, so it is
-    /// never yielded or walked into.
-    /// </summary>
-    private bool IsAddressable(string name)
-    {
-        try
-        {
-            return Resolve(new ProviderPath(name)).RelativeSegments.Length == 1;
-        }
-        catch (ArgumentException)
-        {
-            return false;
-        }
-    }
 }

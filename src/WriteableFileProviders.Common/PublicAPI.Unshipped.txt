@@ -1,0 +1,318 @@
+#nullable enable
+abstract WriteableFileProviders.WriteableFileProvider<TOptions>.DeleteCoreAsync(WriteableFileProviders.ResolvedPath! path, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task<bool>!
+abstract WriteableFileProviders.WriteableFileProvider<TOptions>.EnumerateCoreAsync(WriteableFileProviders.ResolvedPath! path, System.Threading.CancellationToken cancellationToken) -> System.Collections.Generic.IAsyncEnumerable<WriteableFileProviders.IWriteableFileInfo!>!
+abstract WriteableFileProviders.WriteableFileProvider<TOptions>.GetFileInfoCoreAsync(WriteableFileProviders.ResolvedPath! path, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task<WriteableFileProviders.IWriteableFileInfo!>!
+abstract WriteableFileProviders.WriteableFileProvider<TOptions>.ReadFileCoreAsync(WriteableFileProviders.ResolvedPath! path, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task<System.IO.Stream!>!
+abstract WriteableFileProviders.WriteableFileProvider<TOptions>.UpdateFileCoreAsync(WriteableFileProviders.ResolvedPath! path, System.IO.Stream! contents, WriteableFileProviders.UpdateFileOptions! options, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task!
+override WriteableFileProviders.LocalFileStream.CanRead.get -> bool
+override WriteableFileProviders.LocalFileStream.CanSeek.get -> bool
+override WriteableFileProviders.LocalFileStream.CanWrite.get -> bool
+override WriteableFileProviders.LocalFileStream.DisposeAsync() -> System.Threading.Tasks.ValueTask
+override WriteableFileProviders.LocalFileStream.Flush() -> void
+override WriteableFileProviders.LocalFileStream.FlushAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task!
+override WriteableFileProviders.LocalFileStream.Length.get -> long
+override WriteableFileProviders.LocalFileStream.Position.get -> long
+override WriteableFileProviders.LocalFileStream.Position.set -> void
+override WriteableFileProviders.LocalFileStream.Read(byte[]! buffer, int offset, int count) -> int
+override WriteableFileProviders.LocalFileStream.Read(System.Span<byte> buffer) -> int
+override WriteableFileProviders.LocalFileStream.ReadAsync(byte[]! buffer, int offset, int count, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task<int>!
+override WriteableFileProviders.LocalFileStream.ReadAsync(System.Memory<byte> buffer, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<int>
+override WriteableFileProviders.LocalFileStream.Seek(long offset, System.IO.SeekOrigin origin) -> long
+override WriteableFileProviders.LocalFileStream.SetLength(long value) -> void
+override WriteableFileProviders.LocalFileStream.Write(byte[]! buffer, int offset, int count) -> void
+override WriteableFileProviders.LocalFileStream.Write(System.ReadOnlySpan<byte> buffer) -> void
+override WriteableFileProviders.LocalFileStream.WriteAsync(byte[]! buffer, int offset, int count, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task!
+override WriteableFileProviders.LocalFileStream.WriteAsync(System.ReadOnlyMemory<byte> buffer, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+override WriteableFileProviders.ProviderPath.Equals(object? obj) -> bool
+override WriteableFileProviders.ProviderPath.GetHashCode() -> int
+override WriteableFileProviders.ProviderPath.ToString() -> string!
+override WriteableFileProviders.RangeReadStream.CanRead.get -> bool
+override WriteableFileProviders.RangeReadStream.CanSeek.get -> bool
+override WriteableFileProviders.RangeReadStream.CanWrite.get -> bool
+override WriteableFileProviders.RangeReadStream.Flush() -> void
+override WriteableFileProviders.RangeReadStream.Length.get -> long
+override WriteableFileProviders.RangeReadStream.Position.get -> long
+override WriteableFileProviders.RangeReadStream.Position.set -> void
+override WriteableFileProviders.RangeReadStream.Read(byte[]! buffer, int offset, int count) -> int
+override WriteableFileProviders.RangeReadStream.Read(System.Span<byte> buffer) -> int
+override WriteableFileProviders.RangeReadStream.ReadAsync(byte[]! buffer, int offset, int count, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task<int>!
+override WriteableFileProviders.RangeReadStream.ReadAsync(System.Memory<byte> buffer, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<int>
+override WriteableFileProviders.RangeReadStream.Seek(long offset, System.IO.SeekOrigin origin) -> long
+override WriteableFileProviders.RangeReadStream.SetLength(long value) -> void
+override WriteableFileProviders.RangeReadStream.Write(byte[]! buffer, int offset, int count) -> void
+override WriteableFileProviders.ReadOptions.Equals(object? obj) -> bool
+override WriteableFileProviders.ReadOptions.GetHashCode() -> int
+override WriteableFileProviders.ReadOptions.ToString() -> string!
+override WriteableFileProviders.ResolvedPath.ToString() -> string!
+override WriteableFileProviders.SeekableReadOptions.Equals(object? obj) -> bool
+override WriteableFileProviders.SeekableReadOptions.GetHashCode() -> int
+override WriteableFileProviders.SeekableReadOptions.ToString() -> string!
+override WriteableFileProviders.SignedUrl.ToString() -> string!
+override WriteableFileProviders.SignedUrlOptions.Equals(object? obj) -> bool
+override WriteableFileProviders.SignedUrlOptions.GetHashCode() -> int
+override WriteableFileProviders.SignedUrlOptions.ToString() -> string!
+override WriteableFileProviders.UpdateFileOptions.Equals(object? obj) -> bool
+override WriteableFileProviders.UpdateFileOptions.GetHashCode() -> int
+override WriteableFileProviders.UpdateFileOptions.ToString() -> string!
+static WriteableFileProviders.DirectoryContents.NotFound.get -> WriteableFileProviders.DirectoryContents!
+static WriteableFileProviders.ProviderPath.implicit operator WriteableFileProviders.ProviderPath(string![]? segments) -> WriteableFileProviders.ProviderPath
+static WriteableFileProviders.ProviderPath.implicit operator WriteableFileProviders.ProviderPath(string? path) -> WriteableFileProviders.ProviderPath
+static WriteableFileProviders.ProviderPath.operator !=(WriteableFileProviders.ProviderPath left, WriteableFileProviders.ProviderPath right) -> bool
+static WriteableFileProviders.ProviderPath.operator ==(WriteableFileProviders.ProviderPath left, WriteableFileProviders.ProviderPath right) -> bool
+static WriteableFileProviders.ProviderPath.Parse(string? path) -> WriteableFileProviders.ProviderPath
+static WriteableFileProviders.ProviderPath.Root.get -> WriteableFileProviders.ProviderPath
+static WriteableFileProviders.ReadOptions.operator !=(WriteableFileProviders.ReadOptions? left, WriteableFileProviders.ReadOptions? right) -> bool
+static WriteableFileProviders.ReadOptions.operator ==(WriteableFileProviders.ReadOptions? left, WriteableFileProviders.ReadOptions? right) -> bool
+static WriteableFileProviders.SeekableReadOptions.operator !=(WriteableFileProviders.SeekableReadOptions? left, WriteableFileProviders.SeekableReadOptions? right) -> bool
+static WriteableFileProviders.SeekableReadOptions.operator ==(WriteableFileProviders.SeekableReadOptions? left, WriteableFileProviders.SeekableReadOptions? right) -> bool
+static WriteableFileProviders.SignedUrlOptions.operator !=(WriteableFileProviders.SignedUrlOptions? left, WriteableFileProviders.SignedUrlOptions? right) -> bool
+static WriteableFileProviders.SignedUrlOptions.operator ==(WriteableFileProviders.SignedUrlOptions? left, WriteableFileProviders.SignedUrlOptions? right) -> bool
+static WriteableFileProviders.UpdateFileOptions.Append.get -> WriteableFileProviders.UpdateFileOptions!
+static WriteableFileProviders.UpdateFileOptions.operator !=(WriteableFileProviders.UpdateFileOptions? left, WriteableFileProviders.UpdateFileOptions? right) -> bool
+static WriteableFileProviders.UpdateFileOptions.operator ==(WriteableFileProviders.UpdateFileOptions? left, WriteableFileProviders.UpdateFileOptions? right) -> bool
+static WriteableFileProviders.UpdateFileOptions.Overwrite.get -> WriteableFileProviders.UpdateFileOptions!
+static WriteableFileProviders.WriteableFileInfo.Folder(WriteableFileProviders.IWriteableFileProvider! provider, WriteableFileProviders.ProviderPath path, System.DateTimeOffset? lastModified = null) -> WriteableFileProviders.WriteableFileInfo!
+static WriteableFileProviders.WriteableFileInfo.Missing(WriteableFileProviders.IWriteableFileProvider! provider, WriteableFileProviders.ProviderPath path) -> WriteableFileProviders.WriteableFileInfo!
+static WriteableFileProviders.WriteableFileProvider<TOptions>.NotFound(WriteableFileProviders.ResolvedPath! path, System.Exception? innerException = null) -> System.IO.FileNotFoundException!
+static WriteableFileProviders.WriteableFileProvider<TOptions>.SpoolToTempFileAsync(System.IO.Stream! source, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task<System.IO.FileStream!>!
+static WriteableFileProviders.WriteableFileProvider<TOptions>.ValidateSegments(System.Collections.Generic.IEnumerable<string!>? segments) -> string![]!
+static WriteableFileProviders.WriteableFileProviderCompatibilityExtensions.CreateLocalFileStream(this WriteableFileProviders.IWriteableFileProvider! provider, bool readOnly, Microsoft.Extensions.FileProviders.IFileInfo! file) -> WriteableFileProviders.LocalFileStream!
+static WriteableFileProviders.WriteableFileProviderCompatibilityExtensions.CreateLocalFileStream(this WriteableFileProviders.IWriteableFileProvider! provider, bool readOnly, params string![]! pathSegments) -> WriteableFileProviders.LocalFileStream!
+static WriteableFileProviders.WriteableFileProviderCompatibilityExtensions.CreateLocalFileStream(this WriteableFileProviders.IWriteableFileProvider! provider, bool readOnly, string! subpath) -> WriteableFileProviders.LocalFileStream!
+static WriteableFileProviders.WriteableFileProviderCompatibilityExtensions.CreateLocalFileStreamAsync(this WriteableFileProviders.IWriteableFileProvider! provider, bool readOnly, Microsoft.Extensions.FileProviders.IFileInfo! file) -> System.Threading.Tasks.Task<WriteableFileProviders.LocalFileStream!>!
+static WriteableFileProviders.WriteableFileProviderCompatibilityExtensions.CreateLocalFileStreamAsync(this WriteableFileProviders.IWriteableFileProvider! provider, bool readOnly, params string![]! pathSegments) -> System.Threading.Tasks.Task<WriteableFileProviders.LocalFileStream!>!
+static WriteableFileProviders.WriteableFileProviderCompatibilityExtensions.CreateLocalFileStreamAsync(this WriteableFileProviders.IWriteableFileProvider! provider, bool readOnly, string! subpath) -> System.Threading.Tasks.Task<WriteableFileProviders.LocalFileStream!>!
+static WriteableFileProviders.WriteableFileProviderCompatibilityExtensions.Delete(this WriteableFileProviders.IWriteableFileProvider! provider, string! segment1, string! segment2, params string![]! more) -> bool
+static WriteableFileProviders.WriteableFileProviderCompatibilityExtensions.DeleteAsync(this WriteableFileProviders.IWriteableFileProvider! provider, string! segment1, string! segment2, params string![]! more) -> System.Threading.Tasks.Task<bool>!
+static WriteableFileProviders.WriteableFileProviderCompatibilityExtensions.GetDirectoryContents(this WriteableFileProviders.IWriteableFileProvider! provider, string! segment1, string! segment2, params string![]! more) -> Microsoft.Extensions.FileProviders.IDirectoryContents!
+static WriteableFileProviders.WriteableFileProviderCompatibilityExtensions.GetDirectoryContentsAsync(this WriteableFileProviders.IWriteableFileProvider! provider, string! segment1, string! segment2, params string![]! more) -> System.Threading.Tasks.Task<Microsoft.Extensions.FileProviders.IDirectoryContents!>!
+static WriteableFileProviders.WriteableFileProviderCompatibilityExtensions.GetFileInfo(this WriteableFileProviders.IWriteableFileProvider! provider, string! segment1, string! segment2, params string![]! more) -> WriteableFileProviders.IWriteableFileInfo!
+static WriteableFileProviders.WriteableFileProviderCompatibilityExtensions.GetFileInfoAsync(this WriteableFileProviders.IWriteableFileProvider! provider, string! segment1, string! segment2, params string![]! more) -> System.Threading.Tasks.Task<WriteableFileProviders.IWriteableFileInfo!>!
+static WriteableFileProviders.WriteableFileProviderCompatibilityExtensions.ReadFile(this WriteableFileProviders.IWriteableFileProvider! provider, string! segment1, string! segment2, params string![]! more) -> System.IO.Stream!
+static WriteableFileProviders.WriteableFileProviderCompatibilityExtensions.ReadFileAsync(this WriteableFileProviders.IWriteableFileProvider! provider, string! segment1, string! segment2, params string![]! more) -> System.Threading.Tasks.Task<System.IO.Stream!>!
+static WriteableFileProviders.WriteableFileProviderCompatibilityExtensions.UpdateFile(this WriteableFileProviders.IWriteableFileProvider! provider, string! subpath, WriteableFileProviders.UpdateFileMode mode, System.IO.Stream! contents) -> void
+static WriteableFileProviders.WriteableFileProviderCompatibilityExtensions.UpdateFile(this WriteableFileProviders.IWriteableFileProvider! provider, System.IO.Stream! contents, WriteableFileProviders.UpdateFileMode mode, Microsoft.Extensions.FileProviders.IFileInfo! file) -> void
+static WriteableFileProviders.WriteableFileProviderCompatibilityExtensions.UpdateFile(this WriteableFileProviders.IWriteableFileProvider! provider, System.IO.Stream! contents, WriteableFileProviders.UpdateFileMode mode, params string![]! pathSegments) -> void
+static WriteableFileProviders.WriteableFileProviderCompatibilityExtensions.UpdateFileAsync(this WriteableFileProviders.IWriteableFileProvider! provider, string! subpath, WriteableFileProviders.UpdateFileMode mode, System.IO.Stream! contents) -> System.Threading.Tasks.Task!
+static WriteableFileProviders.WriteableFileProviderCompatibilityExtensions.UpdateFileAsync(this WriteableFileProviders.IWriteableFileProvider! provider, System.IO.Stream! contents, WriteableFileProviders.UpdateFileMode mode, Microsoft.Extensions.FileProviders.IFileInfo! file) -> System.Threading.Tasks.Task!
+static WriteableFileProviders.WriteableFileProviderCompatibilityExtensions.UpdateFileAsync(this WriteableFileProviders.IWriteableFileProvider! provider, System.IO.Stream! contents, WriteableFileProviders.UpdateFileMode mode, params string![]! pathSegments) -> System.Threading.Tasks.Task!
+static WriteableFileProviders.WriteableFileProviderCompatibilityExtensions.WatchAsync(this WriteableFileProviders.IWriteableFileProvider! provider, string! filter) -> System.Threading.Tasks.Task<Microsoft.Extensions.Primitives.IChangeToken!>!
+static WriteableFileProviders.WriteableFileProviderExtensions.CreateLocalFileStream(this WriteableFileProviders.IWriteableFileProvider! provider, Microsoft.Extensions.FileProviders.IFileInfo! file, bool readOnly) -> WriteableFileProviders.LocalFileStream!
+static WriteableFileProviders.WriteableFileProviderExtensions.CreateLocalFileStream(this WriteableFileProviders.IWriteableFileProvider! provider, WriteableFileProviders.ProviderPath path, bool readOnly) -> WriteableFileProviders.LocalFileStream!
+static WriteableFileProviders.WriteableFileProviderExtensions.CreateLocalFileStreamAsync(this WriteableFileProviders.IWriteableFileProvider! provider, Microsoft.Extensions.FileProviders.IFileInfo! file, bool readOnly, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<WriteableFileProviders.LocalFileStream!>!
+static WriteableFileProviders.WriteableFileProviderExtensions.Delete(this WriteableFileProviders.IWriteableFileProvider! provider, Microsoft.Extensions.FileProviders.IFileInfo! fileOrFolder) -> bool
+static WriteableFileProviders.WriteableFileProviderExtensions.Delete(this WriteableFileProviders.IWriteableFileProvider! provider, WriteableFileProviders.ProviderPath path) -> bool
+static WriteableFileProviders.WriteableFileProviderExtensions.DeleteAsync(this WriteableFileProviders.IWriteableFileProvider! provider, Microsoft.Extensions.FileProviders.IFileInfo! fileOrFolder, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!
+static WriteableFileProviders.WriteableFileProviderExtensions.GetDirectoryContents(this WriteableFileProviders.IWriteableFileProvider! provider, WriteableFileProviders.ProviderPath path) -> Microsoft.Extensions.FileProviders.IDirectoryContents!
+static WriteableFileProviders.WriteableFileProviderExtensions.GetDownloadUrl(this WriteableFileProviders.IWriteableFileProvider! provider, Microsoft.Extensions.FileProviders.IFileInfo! file, System.TimeSpan validity) -> System.Uri!
+static WriteableFileProviders.WriteableFileProviderExtensions.GetDownloadUrl(this WriteableFileProviders.IWriteableFileProvider! provider, WriteableFileProviders.ProviderPath path, System.TimeSpan validity) -> System.Uri!
+static WriteableFileProviders.WriteableFileProviderExtensions.GetDownloadUrlAsync(this WriteableFileProviders.IWriteableFileProvider! provider, Microsoft.Extensions.FileProviders.IFileInfo! file, System.TimeSpan validity, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Uri!>!
+static WriteableFileProviders.WriteableFileProviderExtensions.GetDownloadUrlAsync(this WriteableFileProviders.IWriteableFileProvider! provider, WriteableFileProviders.ProviderPath path, System.TimeSpan validity, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Uri!>!
+static WriteableFileProviders.WriteableFileProviderExtensions.GetFileInfo(this WriteableFileProviders.IWriteableFileProvider! provider, WriteableFileProviders.ProviderPath path) -> WriteableFileProviders.IWriteableFileInfo!
+static WriteableFileProviders.WriteableFileProviderExtensions.Move(this WriteableFileProviders.IWriteableFileProvider! provider, Microsoft.Extensions.FileProviders.IFileInfo! file, WriteableFileProviders.ProviderPath destination) -> void
+static WriteableFileProviders.WriteableFileProviderExtensions.Move(this WriteableFileProviders.IWriteableFileProvider! provider, WriteableFileProviders.ProviderPath source, WriteableFileProviders.ProviderPath destination) -> void
+static WriteableFileProviders.WriteableFileProviderExtensions.MoveAsync(this WriteableFileProviders.IWriteableFileProvider! provider, Microsoft.Extensions.FileProviders.IFileInfo! file, WriteableFileProviders.ProviderPath destination, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+static WriteableFileProviders.WriteableFileProviderExtensions.ReadFile(this WriteableFileProviders.IWriteableFileProvider! provider, Microsoft.Extensions.FileProviders.IFileInfo! file) -> System.IO.Stream!
+static WriteableFileProviders.WriteableFileProviderExtensions.ReadFile(this WriteableFileProviders.IWriteableFileProvider! provider, WriteableFileProviders.ProviderPath path) -> System.IO.Stream!
+static WriteableFileProviders.WriteableFileProviderExtensions.ReadFileAsync(this WriteableFileProviders.IWriteableFileProvider! provider, Microsoft.Extensions.FileProviders.IFileInfo! file, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.IO.Stream!>!
+static WriteableFileProviders.WriteableFileProviderExtensions.UpdateFile(this WriteableFileProviders.IWriteableFileProvider! provider, Microsoft.Extensions.FileProviders.IFileInfo! file, System.IO.Stream! contents, WriteableFileProviders.UpdateFileOptions? options = null) -> void
+static WriteableFileProviders.WriteableFileProviderExtensions.UpdateFile(this WriteableFileProviders.IWriteableFileProvider! provider, WriteableFileProviders.ProviderPath path, System.IO.Stream! contents, WriteableFileProviders.UpdateFileMode mode) -> void
+static WriteableFileProviders.WriteableFileProviderExtensions.UpdateFile(this WriteableFileProviders.IWriteableFileProvider! provider, WriteableFileProviders.ProviderPath path, System.IO.Stream! contents, WriteableFileProviders.UpdateFileOptions? options = null) -> void
+static WriteableFileProviders.WriteableFileProviderExtensions.UpdateFileAsync(this WriteableFileProviders.IWriteableFileProvider! provider, Microsoft.Extensions.FileProviders.IFileInfo! file, System.IO.Stream! contents, WriteableFileProviders.UpdateFileOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+static WriteableFileProviders.WriteableFileProviderExtensions.UpdateFileAsync(this WriteableFileProviders.IWriteableFileProvider! provider, WriteableFileProviders.ProviderPath path, System.IO.Stream! contents, WriteableFileProviders.UpdateFileMode mode, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+static WriteableFileProviders.WriteableFileProviderSerializer.FromConfiguration(Microsoft.Extensions.Configuration.IConfiguration! configSection, params System.Reflection.Assembly![]! searchInAssemblies) -> WriteableFileProviders.IWriteableFileProvider!
+static WriteableFileProviders.WriteableFileProviderSerializer.FromJson(string! json, params System.Reflection.Assembly![]! searchInAssemblies) -> WriteableFileProviders.IWriteableFileProvider!
+static WriteableFileProviders.WriteableFileProviderSerializer.FromJson(System.Text.Json.JsonElement json, params System.Reflection.Assembly![]! searchInAssemblies) -> WriteableFileProviders.IWriteableFileProvider!
+static WriteableFileProviders.WriteableFileProviderSerializer.FromJson(System.Text.Json.Nodes.JsonObject! json, params System.Reflection.Assembly![]! searchInAssemblies) -> WriteableFileProviders.IWriteableFileProvider!
+static WriteableFileProviders.WriteableFileProviderSerializer.Register<TProvider>() -> void
+static WriteableFileProviders.WriteableFileProviderSerializer.ToJson(WriteableFileProviders.IWriteableFileProvider! provider) -> System.Text.Json.Nodes.JsonObject!
+static WriteableFileProviders.WriteableFileProviderSerializer.ToJsonString(WriteableFileProviders.IWriteableFileProvider! provider, bool indented = false) -> string!
+static WriteableFileProviders.WriteableFileProviderServiceCollectionExtensions.AddWriteableFileProvider(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, string! name, Microsoft.Extensions.Configuration.IConfiguration! configuration) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static WriteableFileProviders.WriteableFileProviderServiceCollectionExtensions.AddWriteableFileProvider(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, string! name, System.Func<System.IServiceProvider!, WriteableFileProviders.IWriteableFileProvider!>! factory) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+virtual WriteableFileProviders.FileProviderOptions.RootDirectoryPath.get -> string?
+virtual WriteableFileProviders.FileProviderOptions.RootDirectoryPath.set -> void
+virtual WriteableFileProviders.WriteableFileProvider<TOptions>.CopyCoreAsync(WriteableFileProviders.ResolvedPath! source, WriteableFileProviders.ResolvedPath! destination, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task!
+virtual WriteableFileProviders.WriteableFileProvider<TOptions>.CreateLocalFileStreamCoreAsync(WriteableFileProviders.ResolvedPath! path, bool readOnly, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task<WriteableFileProviders.LocalFileStream!>!
+virtual WriteableFileProviders.WriteableFileProvider<TOptions>.DeleteFileCoreAsync(WriteableFileProviders.ResolvedPath! path, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task!
+virtual WriteableFileProviders.WriteableFileProvider<TOptions>.Dispose(bool disposing) -> void
+virtual WriteableFileProviders.WriteableFileProvider<TOptions>.DisposeAsyncCore() -> System.Threading.Tasks.ValueTask
+virtual WriteableFileProviders.WriteableFileProvider<TOptions>.EnumerateRecursiveCoreAsync(WriteableFileProviders.ResolvedPath! path, System.Threading.CancellationToken cancellationToken) -> System.Collections.Generic.IAsyncEnumerable<WriteableFileProviders.IWriteableFileInfo!>!
+virtual WriteableFileProviders.WriteableFileProvider<TOptions>.FolderExistsCoreAsync(WriteableFileProviders.ResolvedPath! path, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task<bool>!
+virtual WriteableFileProviders.WriteableFileProvider<TOptions>.GetSignedUrlCoreAsync(WriteableFileProviders.ResolvedPath! path, WriteableFileProviders.SignedUrlOptions! options, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task<WriteableFileProviders.SignedUrl!>!
+virtual WriteableFileProviders.WriteableFileProvider<TOptions>.IsCaseInsensitive.get -> bool
+virtual WriteableFileProviders.WriteableFileProvider<TOptions>.IsNotFound(System.Exception! exception) -> bool
+virtual WriteableFileProviders.WriteableFileProvider<TOptions>.IsSegmentAllowed(string! part) -> bool
+virtual WriteableFileProviders.WriteableFileProvider<TOptions>.MaxSignedUrlValidity.get -> System.TimeSpan
+virtual WriteableFileProviders.WriteableFileProvider<TOptions>.MoveCoreAsync(WriteableFileProviders.ResolvedPath! source, WriteableFileProviders.ResolvedPath! destination, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task!
+virtual WriteableFileProviders.WriteableFileProvider<TOptions>.OpenReadSeekableCoreAsync(WriteableFileProviders.ResolvedPath! path, WriteableFileProviders.SeekableReadOptions! options, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task<System.IO.Stream!>!
+virtual WriteableFileProviders.WriteableFileProvider<TOptions>.ReadRangeCoreAsync(WriteableFileProviders.ResolvedPath! path, long offset, long? length, string? ifMatch, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task<System.IO.Stream!>!
+virtual WriteableFileProviders.WriteableFileProvider<TOptions>.SupportsAtomicPreconditions.get -> bool
+virtual WriteableFileProviders.WriteableFileProvider<TOptions>.SupportsSignedUrl(WriteableFileProviders.SignedUrlAccess permission) -> bool
+virtual WriteableFileProviders.WriteableFileProvider<TOptions>.SupportsSignedUrlContentHeaders(WriteableFileProviders.SignedUrlAccess permission) -> bool
+virtual WriteableFileProviders.WriteableFileProvider<TOptions>.WatchCore(string! filter) -> Microsoft.Extensions.Primitives.IChangeToken!
+WriteableFileProviders.DirectoryContents
+WriteableFileProviders.DirectoryContents.DirectoryContents(bool exists, System.Collections.Generic.IEnumerable<Microsoft.Extensions.FileProviders.IFileInfo!>! entries) -> void
+WriteableFileProviders.DirectoryContents.Exists.get -> bool
+WriteableFileProviders.DirectoryContents.GetEnumerator() -> System.Collections.Generic.IEnumerator<Microsoft.Extensions.FileProviders.IFileInfo!>!
+WriteableFileProviders.FileExistsException
+WriteableFileProviders.FileExistsException.FileExistsException() -> void
+WriteableFileProviders.FileExistsException.FileExistsException(string? message) -> void
+WriteableFileProviders.FileExistsException.FileExistsException(string? message, System.Exception? innerException) -> void
+WriteableFileProviders.FileProviderOptions
+WriteableFileProviders.FileProviderOptions.FileProviderOptions() -> void
+WriteableFileProviders.FileProviderOptions.RootDirectorySegments.get -> string![]!
+WriteableFileProviders.FileProviderOptions.RootDirectorySegments.set -> void
+WriteableFileProviders.IWriteableFileInfo
+WriteableFileProviders.IWriteableFileInfo.ContentType.get -> string?
+WriteableFileProviders.IWriteableFileInfo.ETag.get -> string?
+WriteableFileProviders.IWriteableFileInfo.Path.get -> WriteableFileProviders.ProviderPath
+WriteableFileProviders.IWriteableFileProvider
+WriteableFileProviders.IWriteableFileProvider.CopyAsync(WriteableFileProviders.ProviderPath source, WriteableFileProviders.ProviderPath destination, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+WriteableFileProviders.IWriteableFileProvider.CreateLocalFileStreamAsync(WriteableFileProviders.ProviderPath path, bool readOnly, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<WriteableFileProviders.LocalFileStream!>!
+WriteableFileProviders.IWriteableFileProvider.DeleteAsync(WriteableFileProviders.ProviderPath path, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!
+WriteableFileProviders.IWriteableFileProvider.EnumerateAsync(WriteableFileProviders.ProviderPath path, bool recursive = false, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<WriteableFileProviders.IWriteableFileInfo!>!
+WriteableFileProviders.IWriteableFileProvider.GetDirectoryContentsAsync(WriteableFileProviders.ProviderPath path, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Microsoft.Extensions.FileProviders.IDirectoryContents!>!
+WriteableFileProviders.IWriteableFileProvider.GetFileInfoAsync(WriteableFileProviders.ProviderPath path, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<WriteableFileProviders.IWriteableFileInfo!>!
+WriteableFileProviders.IWriteableFileProvider.GetSignedUrlAsync(WriteableFileProviders.ProviderPath path, WriteableFileProviders.SignedUrlOptions! options, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<WriteableFileProviders.SignedUrl!>!
+WriteableFileProviders.IWriteableFileProvider.MoveAsync(WriteableFileProviders.ProviderPath source, WriteableFileProviders.ProviderPath destination, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+WriteableFileProviders.IWriteableFileProvider.OpenReadSeekableAsync(WriteableFileProviders.ProviderPath path, WriteableFileProviders.SeekableReadOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.IO.Stream!>!
+WriteableFileProviders.IWriteableFileProvider.Options.get -> WriteableFileProviders.FileProviderOptions!
+WriteableFileProviders.IWriteableFileProvider.ReadFileAsync(WriteableFileProviders.ProviderPath path, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.IO.Stream!>!
+WriteableFileProviders.IWriteableFileProvider.ReadRangeAsync(WriteableFileProviders.ProviderPath path, long offset, long? length, WriteableFileProviders.ReadOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.IO.Stream!>!
+WriteableFileProviders.IWriteableFileProvider.UpdateFileAsync(WriteableFileProviders.ProviderPath path, System.IO.Stream! contents, WriteableFileProviders.UpdateFileOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+WriteableFileProviders.LocalFileStream
+WriteableFileProviders.LocalFileStream.CommitAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+WriteableFileProviders.LocalFileStream.Path.get -> WriteableFileProviders.ProviderPath
+WriteableFileProviders.LocalFileStream.Provider.get -> WriteableFileProviders.IWriteableFileProvider!
+WriteableFileProviders.LocalFileStream.ReadOnly.get -> bool
+WriteableFileProviders.LocalFileStream.SkipReUploadOnDispose.get -> bool
+WriteableFileProviders.LocalFileStream.SkipReUploadOnDispose.set -> void
+WriteableFileProviders.PreconditionFailedException
+WriteableFileProviders.PreconditionFailedException.PreconditionFailedException() -> void
+WriteableFileProviders.PreconditionFailedException.PreconditionFailedException(string? message) -> void
+WriteableFileProviders.PreconditionFailedException.PreconditionFailedException(string? message, System.Exception? innerException) -> void
+WriteableFileProviders.ProviderPath
+WriteableFileProviders.ProviderPath.Append(params string![]! segments) -> WriteableFileProviders.ProviderPath
+WriteableFileProviders.ProviderPath.Equals(WriteableFileProviders.ProviderPath other) -> bool
+WriteableFileProviders.ProviderPath.IsRoot.get -> bool
+WriteableFileProviders.ProviderPath.Name.get -> string!
+WriteableFileProviders.ProviderPath.Parent.get -> WriteableFileProviders.ProviderPath
+WriteableFileProviders.ProviderPath.ProviderPath() -> void
+WriteableFileProviders.ProviderPath.ProviderPath(params string![]? segments) -> void
+WriteableFileProviders.ProviderPath.Segments.get -> System.Collections.Generic.IReadOnlyList<string!>!
+WriteableFileProviders.RangeReadStream
+WriteableFileProviders.RangeReadStream.RangeReadStream(long length, System.Func<long, long, System.Threading.CancellationToken, System.Threading.Tasks.Task<System.IO.Stream!>!>! readRange, int bufferSize = 1048576) -> void
+WriteableFileProviders.ReadOptions
+WriteableFileProviders.ReadOptions.<Clone>$() -> WriteableFileProviders.ReadOptions!
+WriteableFileProviders.ReadOptions.Equals(WriteableFileProviders.ReadOptions? other) -> bool
+WriteableFileProviders.ReadOptions.IfMatch.get -> string?
+WriteableFileProviders.ReadOptions.IfMatch.init -> void
+WriteableFileProviders.ReadOptions.ReadOptions() -> void
+WriteableFileProviders.ResolvedPath
+WriteableFileProviders.ResolvedPath.AbsoluteSegments.get -> string![]!
+WriteableFileProviders.ResolvedPath.Child(string! name) -> WriteableFileProviders.ResolvedPath!
+WriteableFileProviders.ResolvedPath.IsRoot.get -> bool
+WriteableFileProviders.ResolvedPath.Name.get -> string!
+WriteableFileProviders.ResolvedPath.Parent.get -> WriteableFileProviders.ResolvedPath!
+WriteableFileProviders.ResolvedPath.Path.get -> WriteableFileProviders.ProviderPath
+WriteableFileProviders.ResolvedPath.RelativeSegments.get -> string![]!
+WriteableFileProviders.SeekableReadOptions
+WriteableFileProviders.SeekableReadOptions.<Clone>$() -> WriteableFileProviders.SeekableReadOptions!
+WriteableFileProviders.SeekableReadOptions.AllowModifications.get -> bool
+WriteableFileProviders.SeekableReadOptions.AllowModifications.init -> void
+WriteableFileProviders.SeekableReadOptions.BufferSize.get -> int
+WriteableFileProviders.SeekableReadOptions.BufferSize.init -> void
+WriteableFileProviders.SeekableReadOptions.Equals(WriteableFileProviders.SeekableReadOptions? other) -> bool
+WriteableFileProviders.SeekableReadOptions.SeekableReadOptions() -> void
+WriteableFileProviders.SignedUrl
+WriteableFileProviders.SignedUrl.ExpiresOn.get -> System.DateTimeOffset?
+WriteableFileProviders.SignedUrl.ExpiresOn.init -> void
+WriteableFileProviders.SignedUrl.Headers.get -> System.Collections.Generic.IReadOnlyDictionary<string!, string!>!
+WriteableFileProviders.SignedUrl.Headers.init -> void
+WriteableFileProviders.SignedUrl.Kind.get -> WriteableFileProviders.SignedUrlKind
+WriteableFileProviders.SignedUrl.Kind.init -> void
+WriteableFileProviders.SignedUrl.Method.get -> string!
+WriteableFileProviders.SignedUrl.Method.init -> void
+WriteableFileProviders.SignedUrl.SignedUrl() -> void
+WriteableFileProviders.SignedUrl.Url.get -> System.Uri!
+WriteableFileProviders.SignedUrl.Url.init -> void
+WriteableFileProviders.SignedUrlAccess
+WriteableFileProviders.SignedUrlAccess.Create = 1 -> WriteableFileProviders.SignedUrlAccess
+WriteableFileProviders.SignedUrlAccess.Read = 0 -> WriteableFileProviders.SignedUrlAccess
+WriteableFileProviders.SignedUrlAccess.Write = 2 -> WriteableFileProviders.SignedUrlAccess
+WriteableFileProviders.SignedUrlKind
+WriteableFileProviders.SignedUrlKind.Gateway = 2 -> WriteableFileProviders.SignedUrlKind
+WriteableFileProviders.SignedUrlKind.PreAuthenticated = 1 -> WriteableFileProviders.SignedUrlKind
+WriteableFileProviders.SignedUrlKind.Presigned = 0 -> WriteableFileProviders.SignedUrlKind
+WriteableFileProviders.SignedUrlOptions
+WriteableFileProviders.SignedUrlOptions.<Clone>$() -> WriteableFileProviders.SignedUrlOptions!
+WriteableFileProviders.SignedUrlOptions.AllowShorterValidity.get -> bool
+WriteableFileProviders.SignedUrlOptions.AllowShorterValidity.init -> void
+WriteableFileProviders.SignedUrlOptions.ContentType.get -> string?
+WriteableFileProviders.SignedUrlOptions.ContentType.init -> void
+WriteableFileProviders.SignedUrlOptions.DownloadFileName.get -> string?
+WriteableFileProviders.SignedUrlOptions.DownloadFileName.init -> void
+WriteableFileProviders.SignedUrlOptions.Equals(WriteableFileProviders.SignedUrlOptions? other) -> bool
+WriteableFileProviders.SignedUrlOptions.Permission.get -> WriteableFileProviders.SignedUrlAccess
+WriteableFileProviders.SignedUrlOptions.Permission.init -> void
+WriteableFileProviders.SignedUrlOptions.SignedUrlOptions() -> void
+WriteableFileProviders.SignedUrlOptions.Validity.get -> System.TimeSpan
+WriteableFileProviders.SignedUrlOptions.Validity.init -> void
+WriteableFileProviders.UpdateFileMode
+WriteableFileProviders.UpdateFileMode.Append = 1 -> WriteableFileProviders.UpdateFileMode
+WriteableFileProviders.UpdateFileMode.Overwrite = 0 -> WriteableFileProviders.UpdateFileMode
+WriteableFileProviders.UpdateFileOptions
+WriteableFileProviders.UpdateFileOptions.<Clone>$() -> WriteableFileProviders.UpdateFileOptions!
+WriteableFileProviders.UpdateFileOptions.ContentType.get -> string?
+WriteableFileProviders.UpdateFileOptions.ContentType.init -> void
+WriteableFileProviders.UpdateFileOptions.Equals(WriteableFileProviders.UpdateFileOptions? other) -> bool
+WriteableFileProviders.UpdateFileOptions.IfMatch.get -> string?
+WriteableFileProviders.UpdateFileOptions.IfMatch.init -> void
+WriteableFileProviders.UpdateFileOptions.IfNotExists.get -> bool
+WriteableFileProviders.UpdateFileOptions.IfNotExists.init -> void
+WriteableFileProviders.UpdateFileOptions.Mode.get -> WriteableFileProviders.UpdateFileMode
+WriteableFileProviders.UpdateFileOptions.Mode.init -> void
+WriteableFileProviders.UpdateFileOptions.UpdateFileOptions() -> void
+WriteableFileProviders.WriteableFileInfo
+WriteableFileProviders.WriteableFileInfo.ContentType.get -> string?
+WriteableFileProviders.WriteableFileInfo.CreateReadStream() -> System.IO.Stream!
+WriteableFileProviders.WriteableFileInfo.ETag.get -> string?
+WriteableFileProviders.WriteableFileInfo.Exists.get -> bool
+WriteableFileProviders.WriteableFileInfo.IsDirectory.get -> bool
+WriteableFileProviders.WriteableFileInfo.LastModified.get -> System.DateTimeOffset
+WriteableFileProviders.WriteableFileInfo.Length.get -> long
+WriteableFileProviders.WriteableFileInfo.Name.get -> string!
+WriteableFileProviders.WriteableFileInfo.Path.get -> WriteableFileProviders.ProviderPath
+WriteableFileProviders.WriteableFileInfo.PhysicalPath.get -> string?
+WriteableFileProviders.WriteableFileInfo.Provider.get -> WriteableFileProviders.IWriteableFileProvider!
+WriteableFileProviders.WriteableFileInfo.WriteableFileInfo(WriteableFileProviders.IWriteableFileProvider! provider, WriteableFileProviders.ProviderPath path, bool exists, bool isDirectory, long length, System.DateTimeOffset lastModified, string? physicalPath = null, string? etag = null, string? contentType = null) -> void
+WriteableFileProviders.WriteableFileProvider<TOptions>
+WriteableFileProviders.WriteableFileProvider<TOptions>.AppendByRewriteAsync(WriteableFileProviders.ResolvedPath! path, System.IO.Stream! contents, WriteableFileProviders.UpdateFileOptions! options, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task!
+WriteableFileProviders.WriteableFileProvider<TOptions>.CopyAsync(WriteableFileProviders.ProviderPath source, WriteableFileProviders.ProviderPath destination, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+WriteableFileProviders.WriteableFileProvider<TOptions>.CreateLocalFileStreamAsync(WriteableFileProviders.ProviderPath path, bool readOnly, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<WriteableFileProviders.LocalFileStream!>!
+WriteableFileProviders.WriteableFileProvider<TOptions>.DeleteAsync(WriteableFileProviders.ProviderPath path, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!
+WriteableFileProviders.WriteableFileProvider<TOptions>.Dispose() -> void
+WriteableFileProviders.WriteableFileProvider<TOptions>.DisposeAsync() -> System.Threading.Tasks.ValueTask
+WriteableFileProviders.WriteableFileProvider<TOptions>.EnumerateAsync(WriteableFileProviders.ProviderPath path, bool recursive = false, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<WriteableFileProviders.IWriteableFileInfo!>!
+WriteableFileProviders.WriteableFileProvider<TOptions>.GetDirectoryContents(string! subpath) -> Microsoft.Extensions.FileProviders.IDirectoryContents!
+WriteableFileProviders.WriteableFileProvider<TOptions>.GetDirectoryContentsAsync(WriteableFileProviders.ProviderPath path, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Microsoft.Extensions.FileProviders.IDirectoryContents!>!
+WriteableFileProviders.WriteableFileProvider<TOptions>.GetFileInfo(string! subpath) -> Microsoft.Extensions.FileProviders.IFileInfo!
+WriteableFileProviders.WriteableFileProvider<TOptions>.GetFileInfoAsync(WriteableFileProviders.ProviderPath path, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<WriteableFileProviders.IWriteableFileInfo!>!
+WriteableFileProviders.WriteableFileProvider<TOptions>.GetSignedUrlAsync(WriteableFileProviders.ProviderPath path, WriteableFileProviders.SignedUrlOptions! options, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<WriteableFileProviders.SignedUrl!>!
+WriteableFileProviders.WriteableFileProvider<TOptions>.IsAddressable(string! name) -> bool
+WriteableFileProviders.WriteableFileProvider<TOptions>.MoveAsync(WriteableFileProviders.ProviderPath source, WriteableFileProviders.ProviderPath destination, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+WriteableFileProviders.WriteableFileProvider<TOptions>.OpenReadSeekableAsync(WriteableFileProviders.ProviderPath path, WriteableFileProviders.SeekableReadOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.IO.Stream!>!
+WriteableFileProviders.WriteableFileProvider<TOptions>.Options.get -> TOptions!
+WriteableFileProviders.WriteableFileProvider<TOptions>.ReadFileAsync(WriteableFileProviders.ProviderPath path, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.IO.Stream!>!
+WriteableFileProviders.WriteableFileProvider<TOptions>.ReadRangeAsync(WriteableFileProviders.ProviderPath path, long offset, long? length, WriteableFileProviders.ReadOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.IO.Stream!>!
+WriteableFileProviders.WriteableFileProvider<TOptions>.Resolve(WriteableFileProviders.ProviderPath path) -> WriteableFileProviders.ResolvedPath!
+WriteableFileProviders.WriteableFileProvider<TOptions>.TimeProvider.get -> System.TimeProvider!
+WriteableFileProviders.WriteableFileProvider<TOptions>.TimeProvider.set -> void
+WriteableFileProviders.WriteableFileProvider<TOptions>.ToJson() -> System.Text.Json.Nodes.JsonObject!
+WriteableFileProviders.WriteableFileProvider<TOptions>.UpdateFileAsync(WriteableFileProviders.ProviderPath path, System.IO.Stream! contents, WriteableFileProviders.UpdateFileOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+WriteableFileProviders.WriteableFileProvider<TOptions>.Watch(string! filter) -> Microsoft.Extensions.Primitives.IChangeToken!
+WriteableFileProviders.WriteableFileProvider<TOptions>.WriteableFileProvider(TOptions! options) -> void
+WriteableFileProviders.WriteableFileProviderCompatibilityExtensions
+WriteableFileProviders.WriteableFileProviderExtensions
+WriteableFileProviders.WriteableFileProviderSerializer
+WriteableFileProviders.WriteableFileProviderServiceCollectionExtensions

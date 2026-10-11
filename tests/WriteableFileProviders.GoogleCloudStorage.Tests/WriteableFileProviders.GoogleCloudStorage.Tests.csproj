@@ -2,7 +2,7 @@
 
   <ItemGroup>
     <None Remove="testsettings.json" />
-    <!-- Optional: a real account for the live suite (GcsLive*). Absent, it is inconclusive; nothing else needs it. -->
+    <!-- Optional: a real account for the live suites (GcsLive*), from testsettings.sample.json. It is git-ignored. -->
     <Content Include="testsettings.json" Condition="Exists('testsettings.json')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>

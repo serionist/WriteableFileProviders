@@ -19,8 +19,6 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="WriteableFileProviders.Common.Tests" />
-    <!-- The legacy suite probes provider internals with paths the public API refuses; it goes as each provider moves to the conformance suite. -->
-    <InternalsVisibleTo Include="WriteableFileProviders.Tests" />
   </ItemGroup>
 
 </Project>

@@ -2,7 +2,7 @@
 
   <ItemGroup>
     <None Remove="testsettings.json" />
-    <!-- Optional, for the live suite only: PhysicalFileProvider_RootPath names the folder it runs in. -->
+    <!-- Optional, for the live suite only: PhysicalFileProvider_RootPath names the folder it runs in (testsettings.sample.json). It is git-ignored. -->
     <Content Include="testsettings.json" Condition="Exists('testsettings.json')" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

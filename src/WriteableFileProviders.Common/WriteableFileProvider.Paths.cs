@@ -59,30 +59,22 @@ public abstract partial class WriteableFileProvider<TOptions>
     /// <returns>False to reject the segment.</returns>
     protected virtual bool IsSegmentAllowed(string part) => true;
 
-    /// <summary>The segments after the root segments of an absolute path.</summary>
-    /// <param name="absoluteSegments">The root segments followed by the relative ones.</param>
-    [Obsolete("Removed before 2027.0.0: use ResolvedPath.RelativeSegments.")]
-    protected string[] GetRelativeSegments(string[] absoluteSegments)
-    {
-        ArgumentNullException.ThrowIfNull(absoluteSegments);
-        return [.. absoluteSegments.Skip(Options.RootDirectorySegments.Length)];
-    }
-
-    /// <summary>Whether absolute segments point to the provider root (no segments after the root segments).</summary>
-    /// <param name="absoluteSegments">The root segments followed by the relative ones.</param>
-    [Obsolete("Removed before 2027.0.0: use ResolvedPath.IsRoot.")]
-    protected bool IsRootPath(string[] absoluteSegments) => GetRelativeSegments(absoluteSegments ?? []).Length == 0;
-
     /// <summary>
-    /// Turns escaped newline sequences (a key pasted into an environment variable or a secret) into real newlines. A PEM
-    /// body never contains a backslash, so a valid key is returned unchanged.
+    /// Whether a name the store lists can be named again by a path: it is one segment (no <c>/</c> or <c>\</c>) that
+    /// passes the same checks as a caller's path, <see cref="ValidateSegments"/> and <see cref="IsSegmentAllowed"/>, also
+    /// after percent-decoding. A listing leaves out every name for which this is false, and never walks into such a folder,
+    /// so everything it lists can be read back.
     /// </summary>
-    /// <param name="pem">The key.</param>
-    [Obsolete("Removed before 2027.0.0: it moves into the Box and Google Cloud Storage providers, its only users.")]
-    protected static string? NormalizePem(string? pem) =>
-        string.IsNullOrEmpty(pem) || !pem.Contains('\\', StringComparison.Ordinal)
-            ? pem
-            : pem.Replace("\\r\\n", "\n", StringComparison.Ordinal).Replace("\\n", "\n", StringComparison.Ordinal).Replace("\\r", "\n", StringComparison.Ordinal);
+    /// <param name="name">A file or folder name, as the store lists it.</param>
+    /// <returns>True when a path can name it.</returns>
+    protected bool IsAddressable(string name) =>
+        !string.IsNullOrEmpty(name)
+        && name.IndexOfAny(_segmentSeparators) < 0
+        && IsValidPart(name)
+        && DecodedForms(name) is { } decoded
+        && decoded.TrueForAll(d => Array.TrueForAll(d.Split(_segmentSeparators), IsValidPart))
+        && IsSegmentAllowed(name)
+        && decoded.TrueForAll(IsSegmentAllowed);
 
     private ResolvedPath ResolveReadable(ProviderPath path)
     {

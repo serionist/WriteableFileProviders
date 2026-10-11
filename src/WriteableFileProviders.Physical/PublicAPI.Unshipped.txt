@@ -1,0 +1,8 @@
+#nullable enable
+override WriteableFileProviders.Physical.PhysicalFileProviderOptions.RootDirectoryPath.get -> string?
+override WriteableFileProviders.Physical.PhysicalFileProviderOptions.RootDirectoryPath.set -> void
+WriteableFileProviders.Physical.PhysicalFileProviderOptions
+WriteableFileProviders.Physical.PhysicalFileProviderOptions.PhysicalFileProviderOptions() -> void
+WriteableFileProviders.Physical.WriteablePhysicalFileProvider
+WriteableFileProviders.Physical.WriteablePhysicalFileProvider.WriteablePhysicalFileProvider(string! rootPath) -> void
+WriteableFileProviders.Physical.WriteablePhysicalFileProvider.WriteablePhysicalFileProvider(WriteableFileProviders.Physical.PhysicalFileProviderOptions! options) -> void

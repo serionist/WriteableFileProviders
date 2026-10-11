@@ -79,6 +79,19 @@ internal static class Azurite
             await Container(containerName).DeleteIfExistsAsync();
     }
 
+    /// <summary>
+    /// Uploads a blob named by the names joined with '/', past the provider. Not a name with a control character, which an
+    /// XML listing cannot carry back.
+    /// </summary>
+    /// <returns>False for a name that cannot be listed back.</returns>
+    public static async Task<bool> StoreRawAsync(string containerName, IReadOnlyList<string> names, string text)
+    {
+        if (names.Any(n => n.Any(char.IsControl)))
+            return false;
+        await Container(containerName).GetBlobClient(string.Join('/', names)).UploadAsync(BinaryData.FromString(text), overwrite: true);
+        return true;
+    }
+
     private static AzuriteContainer Start()
     {
         try

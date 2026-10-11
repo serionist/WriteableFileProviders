@@ -16,8 +16,9 @@ namespace WriteableFileProviders.AmazonS3;
 /// <see cref="UpdateFileOptions.IfNotExists"/> go to the store with the write, and an append (a rewrite of the whole file)
 /// writes with <c>If-Match</c> on the version it read. A copy refuses an existing destination with <c>If-None-Match: *</c>,
 /// and a move deletes the source with <c>If-Match</c> on the version it copied, undoing the copy when the source changed.
-/// AWS checks all of these atomically. An S3-compatible server (<see cref="AmazonS3FileProviderOptions.ServiceUrl"/>) may
-/// ignore some of them, so there the provider also checks them first, which is not atomic.
+/// AWS checks all of these atomically. Toward an endpoint that <see cref="AmazonS3FileProviderOptions.ServiceUrl"/> or
+/// a given client names, which may be an S3-compatible server that ignores some of them, the provider also checks them
+/// first, which is not atomic.
 /// </para>
 /// <para>
 /// Nothing touches the network until the first call, which resolves the credentials of the default chain if asked and
@@ -39,14 +40,23 @@ public sealed class WriteableAmazonS3FileProvider : WriteableFileProvider<Amazon
 
     /// <summary>
     /// Creates the provider over a client the caller built and owns (for its own credentials, endpoint or retries): it is
-    /// never disposed by the provider. The options give the bucket, the root, the storage class and
-    /// <see cref="AmazonS3FileProviderOptions.CreateBucketIfMissing"/>; their credentials, region and endpoint are not
-    /// used. The provider cannot see when the client's credentials expire, so its presigned URLs need
+    /// never disposed by the provider. Every request goes through the client, with its own credentials, region and
+    /// endpoint; the options' credentials, <see cref="AmazonS3FileProviderOptions.ForcePathStyle"/> and
+    /// <see cref="AmazonS3FileProviderOptions.UseDefaultCredentials"/> are not used. The options give the bucket, the root,
+    /// the storage class and <see cref="AmazonS3FileProviderOptions.CreateBucketIfMissing"/>, and two more:
+    /// <see cref="AmazonS3FileProviderOptions.ServiceUrl"/>, when set (as when the client's own <c>ServiceURL</c> is),
+    /// makes the provider check conditions before a write too; and when that endpoint is not one of S3's own host names
+    /// (under <c>amazonaws.com</c> or <c>amazonaws.com.cn</c>, with an <c>s3</c> label, such as
+    /// <c>s3.eu-west-1.amazonaws.com</c>, a dual-stack or a VPC endpoint), no requester-pays header is sent either. On
+    /// S3, <see cref="AmazonS3FileProviderOptions.BucketRegion"/> is the location of a bucket the provider creates. The
+    /// provider cannot see when the client's credentials expire, so its presigned URLs need
     /// <see cref="SignedUrlOptions.AllowShorterValidity"/>.
     /// </summary>
     /// <param name="options">The options.</param>
     /// <param name="client">The client.</param>
-    /// <exception cref="ArgumentException">The options name no bucket.</exception>
+    /// <exception cref="ArgumentException">
+    /// The options name no bucket, or <see cref="AmazonS3FileProviderOptions.ServiceUrl"/> is not an http or https URL.
+    /// </exception>
     public WriteableAmazonS3FileProvider(AmazonS3FileProviderOptions options, IAmazonS3 client)
         : this(options, client ?? throw new ArgumentNullException(nameof(client)), null)
     {
@@ -68,8 +78,9 @@ public sealed class WriteableAmazonS3FileProvider : WriteableFileProvider<Amazon
     internal S3Core Core => _core;
 
     /// <summary>
-    /// True on AWS, which checks <c>If-Match</c> and <c>If-None-Match</c> atomically. On an S3-compatible server the
-    /// provider checks them first too (not atomic), and still sends them.
+    /// True on AWS through the SDK's own endpoint, which checks <c>If-Match</c> and <c>If-None-Match</c> atomically.
+    /// Toward an endpoint the options or the client name, which may be an S3-compatible server, the provider checks them
+    /// first too (not atomic), and still sends them.
     /// </summary>
     protected override bool SupportsAtomicPreconditions => _core.ChecksAtomically;
 
@@ -167,19 +178,6 @@ public sealed class WriteableAmazonS3FileProvider : WriteableFileProvider<Amazon
         base.Dispose(disposing);
     }
 
-    // A listed name that the path validation would refuse, or would split into other segments, cannot be addressed.
-    private static bool IsAddressable(string name)
-    {
-        try
-        {
-            return ValidateSegments([name]) is [var only] && only == name;
-        }
-        catch (ArgumentException)
-        {
-            return false;
-        }
-    }
-
     private static S3CoreSettings SettingsFor(AmazonS3FileProviderOptions options, IAmazonS3? client, AWSCredentials? credentials)
     {
         var clientGiven = client is not null;
@@ -195,6 +193,8 @@ public sealed class WriteableAmazonS3FileProvider : WriteableFileProvider<Amazon
         var region = S3Core.NormalizeRegion(options.BucketRegion);
         if (!clientGiven && serviceUrl is null && region is null)
             throw new ArgumentException("BucketRegion is required unless ServiceUrl is set.", nameof(options));
+        // S3 on AWS, unless the options or the given client name an endpoint other than S3's own.
+        var onS3 = IsS3Endpoint(serviceUrl) && IsS3Endpoint(client?.Config.ServiceURL);
         return new S3CoreSettings
         {
             Bucket = options.BucketName,
@@ -204,13 +204,33 @@ public sealed class WriteableAmazonS3FileProvider : WriteableFileProvider<Amazon
             Credentials = clientGiven ? null : credentials ?? CredentialsFor(options),
             StorageClass = options.StorageClassForNewFiles,
             // A requester-pays bucket on AWS needs every request to accept the charge; it costs nothing elsewhere.
-            RequesterPays = serviceUrl is null,
-            // AWS checks conditions atomically; an S3-compatible server, ours or the given client's, may ignore some.
+            RequesterPays = onS3,
+            // Only the SDK's own AWS endpoint is left to check conditions alone: any endpoint named, S3's own included,
+            // may front a server that ignores some (a load balancer or an instance under amazonaws.com), so the provider
+            // checks them first there, at the cost of one HEAD; AWS still enforces the headers it sends.
             ChecksAtomically = serviceUrl is null && client?.Config.ServiceURL is null,
-            // Outside us-east-1, AWS needs the region as a new bucket's location; other servers use their own.
-            BucketLocation = serviceUrl is null && region is not null and not "us-east-1" ? region : null,
+            // Outside us-east-1, S3 needs the region as a new bucket's location; other servers use their own.
+            BucketLocation = onS3 && region is not null and not "us-east-1" ? region : null,
             CreateBucketIfMissing = options.CreateBucketIfMissing,
         };
+    }
+
+    // No endpoint, or a host name of S3's own: under amazonaws.com or amazonaws.com.cn (one trailing dot trimmed), with a
+    // label that is exactly "s3", as in s3.amazonaws.com, s3.eu-west-1.amazonaws.com, bucket.s3.eu-west-1.amazonaws.com,
+    // s3.dualstack.eu-west-1.amazonaws.com or a VPC endpoint's bucket.vpce-0abc.s3.eu-west-1.vpce.amazonaws.com. A load
+    // balancer's, an instance's or an API's name under amazonaws.com is not S3's, nor are the legacy dashed names
+    // (s3-eu-west-1, s3-external-1, s3-fips): with those, requests do not accept requester-pays charges and a created
+    // bucket gets no location, the safe side for a server that may not be S3.
+    internal static bool IsS3Endpoint(string? url)
+    {
+        if (url is null)
+            return true;
+        if (!Uri.TryCreate(url.Contains("://", StringComparison.Ordinal) ? url : "https://" + url, UriKind.Absolute, out var uri))
+            return false;
+        var host = uri.Host.EndsWith('.') ? uri.Host[..^1] : uri.Host;
+        var underAws = host.EndsWith(".amazonaws.com", StringComparison.OrdinalIgnoreCase)
+            || host.EndsWith(".amazonaws.com.cn", StringComparison.OrdinalIgnoreCase);
+        return underAws && host.Split('.').Any(label => label.Equals("s3", StringComparison.OrdinalIgnoreCase));
     }
 
     // Null: the default credential chain, resolved on first use.

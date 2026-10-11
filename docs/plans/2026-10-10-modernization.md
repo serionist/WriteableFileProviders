@@ -119,7 +119,8 @@ tests/WriteableFileProviders.<Package>.Tests/   one per package
     `GenerateDocumentationFile`, `Nullable`.
   - The `-> warning` lines in `.editorconfig` become warnings.
   - While a project is still old code it sets `WfpLegacy=true`, which relaxes these. Each rewrite removes it, and at
-    the end no project has it.
+    the end no project has it. Done in S12 part 2: the last one, the old test project, is deleted, and the switch with
+    it.
 - **Versions:** MinVer sets them; Common's hard-coded `<Version>1.1.2</Version>` goes (F50).
 
 ### The behaviour contract (D4)
@@ -333,13 +334,13 @@ public class PreconditionFailedException : IOException      public class FileExi
 
 | Provider | SDK | What changes besides the contract and the API |
 |---|---|---|
-| Physical | BCL | Readers share `ReadWrite | Delete` (P20); atomic writes (temp file, then `File.Move` overwrite) (F3); append rewrites through a temp file, so it is atomic; synthesized ETag (D15); local stream on a temp copy (F5); ranges through `RandomAccess`; `Watch` through `PhysicalFilesWatcher` (F54); signed URLs only through the gateway. |
+| Physical | BCL | Readers share `ReadWrite | Delete` (P20); atomic writes (temp file, then `File.Move` overwrite) (F3); append rewrites through a temp file, so it is atomic; synthesized ETag (D15); local stream on a temp copy (F5); ranges through `RandomAccess`; `Watch` through `PhysicalFilesWatcher` (F54); signed URLs only through the gateway. Listings leave out names a path cannot name, such as `a:b` on Linux or `%2e%2e` anywhere (D27, S12); a symbolic link to a file is described by its target (S12). |
 | AzureBlob | Azure.Storage.Blobs 12.30, Azure.Identity 1.21 | Block blobs (D5); `OpenReadAsync` gives a native seekable stream (F64); `AzureFileStream` goes (F15, F70); ranges; service SAS with no start time (F40); user delegation SAS with `UseDefaultAzureCredential`; read and write SAS; ETag conditions; append commits with `IfMatch` (D19); legacy append blobs (P30): a block blob cannot replace an append blob in place, so the sequence is (1) stage the new content to a temp block blob, (2) delete the destination with `IfMatch` on the ETag read, (3) copy the temp blob onto the destination and poll until done, (4) delete the temp blob only after the copy succeeds; on any failure the temp blob stays and the exception names it. From (2) until the copy of (3) completes the file is missing, or empty while the server copy runs, which the XML docs and the migration guide say. Azurite tests cover overwrite and append over a legacy blob, and a failed copy that leaves the content in the temp blob; a public constructor that takes a `BlobContainerClient` (D17). |
 | AmazonS3 | AWSSDK.S3 4.x | `ServiceUrl`, `ForcePathStyle` and the default credential chain (additive options); multipart above a threshold (F65); ranges with `EtagToMatch`; presigned GET and PUT; `IfNoneMatch` and `IfMatch`; the public absolute-path members go (F1, F2); never disposes the caller's stream (F41). Shared internal `S3Core`, which also sets the checksum behaviour (`WHEN_REQUIRED`) for a custom `ServiceUrl`, so the tests run the production configuration; presigned URLs honour D18 for expiring credentials; a public constructor that takes an `IAmazonS3` (D17). `ReadFileVersionAsync` (added in S0) stays, on `ProviderPath`. |
 | Minio | AWSSDK.S3 4.x via `S3Core` | D6 and D7; `S3Core` builds the client so every stored MinIO configuration keeps working (P23): path-style forced, the scheme from `UseSSL`, and the region discovered once per bucket (`GetBucketLocation`, cached) unless the new `Region` option names it, with a unit test of the client configuration; download URLs now work (F45); Extensions 9 and System.Reactive leave consumers' graphs (F73). |
 | GoogleCloudStorage | Google.Cloud.Storage.V1 5.x | `Endpoint` option for fake-gcs-server (F75), and the tests build their client through the public constructor (D23); ranges with generation pinning; V4 signed GET and PUT; move by conditional copy then delete (D16); `IfGenerationMatch`; append through `AppendByRewriteAsync` (F4); credentials created lazily (F13); a public constructor that takes a `StorageClient` (D17). As built in S8: reads, ranged or whole, stream through a raw media GET on the client's own HTTP client (Google's byte-range sample), pinned with `generation` and `ifGenerationMatch`, a 416 read as empty; copies and moves send `ifGenerationMatch=0`; a move deletes with the copied `generation` and `ifGenerationMatch` and, when the source was written meanwhile, undoes the copy and throws `PreconditionFailedException`; a missing bucket is told from a missing object by a one-object list; `CreateBucketIfMissing` needs `ProjectId` or a key that names its project. After review round 1 of #27: the class is `sealed` (D25); `Endpoint`, `AllowInsecureHttp` and `CreateBucketIfMissing` are written to JSON only when set (D26); a plain-`http` `Endpoint` toward a host that is not loopback needs `AllowInsecureHttp` (D7, as MinIO); copies are not retried; downloads send the client's customer-supplied encryption key. |
 | SharePoint | Microsoft.Graph 6, Graph.Core 4 | Lazy initialization (F13); `WorkFolderPath` folded into the root (F7); `LargeFileUploadTask`, or a loop with `ReadAtLeastAsync`, with one bounded retry (F8, F39); only `itemNotFound` means not-found (F66); one folder creator (F62); ranges on the download URL, falling back to skipping when the range is ignored; pre-authenticated read URL per D18; certificate and managed-identity sign-in (D17); a public constructor that takes a `GraphServiceClient` (D17). |
-| Box | Box.V2.Core 10 (the generated SDK) | Lazy authentication (F13, F32); marker paging (F67); every call resolves the path fresh, as today (no path-to-id cache, D23); range reads pinned to the file version (P15); never rewinds the caller's stream (F6); pre-authenticated read URL per D18; a public constructor that takes a Box client (D17). |
+| Box | Box.V2.Core 10 (the generated SDK) | Lazy authentication (F13, F32); marker paging (F67); every call resolves the path fresh, as today (no path-to-id cache, D23); range reads pinned to the file version (P15); never rewinds the caller's stream (F6); pre-authenticated read URL per D18; a public constructor that takes a Box client (D17). Listings leave out names Box allows and a path cannot name, such as `...` or `%2e%2e` (D27, S12). |
 
 ### Signed URLs and the gateway
 
@@ -465,7 +466,7 @@ public class PreconditionFailedException : IOException      public class FileExi
     providers. `normalizePath`, `fileSegments` and both `RunTaskSerial` overloads go (`ProviderPath.Parse`,
     `IWriteableFileInfo.Path`, await). `createLocalFileStreamAsync` and the public virtual `CreateLocalFileStreamAsync`
     become `CreateLocalFileStreamCoreAsync`; the public member is no longer virtual. `GetRelativeSegments`, `IsRootPath`
-    and `NormalizePem` are `[Obsolete]` and go before 2027.0.0 (S12).
+    and `NormalizePem` were `[Obsolete]` and went in S12.
   - Capability hooks whose defaults refuse or weaken an operation until a provider overrides them:
     `SupportsAtomicPreconditions`, `IsCaseInsensitive`, `SupportsSignedUrl`, `SupportsSignedUrlContentHeaders`,
     `MaxSignedUrlValidity`, and the `TimeProvider` property.
@@ -501,8 +502,9 @@ public class PreconditionFailedException : IOException      public class FileExi
   Microsoft.Graph 5 → 6 and Graph.Core 3 → 4, Google.Cloud.Storage.V1 4 → 5. Common no longer brings in
   Microsoft.Extensions.Configuration. Each gets a section in the migration guide.
 - **Mixing lines (P21):** every WriteableFileProviders package must be on the same major; a `2026.10.10.x` provider does
-  not load against Common 2027. The migration guide and every README say so, and S12 makes the packed dependency on
-  Common carry an upper bound (`[2027.0.0, 2028.0.0)`) if MSBuild can express it, else documents why not.
+  not load against Common 2027. The migration guide and every README say so, and since S12 part 2 the packed dependency
+  on Common carries an upper bound, `[V, NextMajor.0.0-0)` such as `[2027.0.0, 2028.0.0-0)`, so mixing majors gives a
+  restore warning (NU1608) rather than a type-load failure at run time.
 - **Packages:**
   - The new `WriteableFileProviders.AspNetCore`.
   - Newtonsoft.Json and Minio leave the dependency graph.
@@ -631,7 +633,7 @@ Status: `todo`, `done` (with the PR), `wontfix` (with the reason). F-numbers are
 | F24 | AWS SDK v3 end of support | S7 | done (S7): AWSSDK.S3 4.0.104.2 |
 | F25 | Box.V2.Core 5.8 outdated | S10 | done (S10): Box.V2.Core 10.19.0 (`Box.Sdk.Gen`), no Newtonsoft, no advisory |
 | F26 | Azure.Identity unused and deprecated | S6 | done (S6): AzureBlob uses it (`UseDefaultAzureCredential`) at the one shared version, 1.21.0, which SharePoint also takes |
-| F27 | Coverage not configured or enforced | S3, S12 | todo |
+| F27 | Coverage not configured or enforced | S3, S12 | done: S3 (#20) the coverage collection and the gate; every floor is 90% or more of lines and branches (S12 part 2) |
 | F28 | Download URL test passes on NotSupported | S4 (suite), S7, S8 | S4 done (suite: `NotSupportedException` is asserted exactly where the fixture says so, never swallowed); S7 done (offline expiry and credential-lifetime tests; presigned URLs used for real on S3Mock and MinIO, of which only MinIO checks signatures and expiry; on AWS a manual check, see "For the maintainers"); S8 done (`GcsOptionsTests` checks `X-Goog-Expires`, `ExpiresOn` and the signed headers offline; `GcsClientConformanceTests` asserts `NotSupportedException` without a signer) |
 | F29 | No cleanup after failed live tests | S4 (suite) | done (S4): each conformance test works under its own root folder, deleted in `[TestCleanup]` whether it passed or failed |
 | F30 | Configuration shape not pinned | S3 | todo |
@@ -660,7 +662,7 @@ Status: `todo`, `done` (with the PR), `wontfix` (with the reason). F-numbers are
 | F53 | Root guard written seven times | S4 | S4 done (one resolution in the base); S5 done (Physical's own root guard goes; it keeps only the check that the disk path is under the root); S6 done (Azure has no guard of its own); S7 done (no guard of their own); S8 done (GCS's own guard is gone); S9 done (SharePoint's guard is gone); S10 done for Box (its guards are gone) |
 | F54 | Seven identical Watch overrides | S4, S5 | done: S4 removed the seven overrides; S5 implements Physical's `Watch` through `PhysicalFilesWatcher` |
 | F55 | UseLocalCommon switch | S2 | done (#19) |
-| F56 | Test-suite dead weight | S2 (runsettings, publish profile), S5–S10 (with TestBase) | in part; S5 deleted `PyhsicalFileProvider` (its TestContext stub), `PhysicalReadTests`, `SegmentValidationTests` and the Physical test setting; S8 done for GCS (its TestBase suite, its TestContext stub and its settings keys are gone) |
+| F56 | Test-suite dead weight | S2 (runsettings, publish profile), S5–S10 (with TestBase) | in part; S5 deleted `PyhsicalFileProvider` (its TestContext stub), `PhysicalReadTests`, `SegmentValidationTests` and the Physical test setting; S8 done for GCS (its TestBase suite, its TestContext stub and its settings keys are gone); S12 part 2 deleted the old test project, `TestBase` with it |
 | F57 | Contract cases missing from the shared suite | S4 | done (S4): the conformance suite |
 | F58 | Root and segment exceptions undocumented | S4 | done (S4): the interface documents them |
 | F59 | Interface docs copy-paste | S4 | done (S4): the interface docs are rewritten |
@@ -1563,6 +1565,220 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
       append).
     - The whole solution on Windows with `WFP_REQUIRE_DOCKER=1`: 920 tests, none failed. The 36 skipped are the
       `AWS_ENDPOINT_URL_S3` suites and Physical's six.
+
+- **2026-10-11, S12 part 2, harmonize (#16):** branch `16-harmonize` (worktree `D:\workspaces\wfp-wt\16b`), built in
+  parallel with the docs half (`16-docs`), which wrote the READMEs and the migration guide as if this half were done.
+  - **D27 on every provider:** Box listed names Box allows and the path rules refuse (`...`, a literal `%2e%2e`), and
+    Physical listed `%2e%2e` anywhere and, on Linux and macOS, names with `:` or `\`, control characters or only dots;
+    both now leave them out and never walk into such a folder, through a private `IsAddressable` like the other five
+    providers' (resolving the name as a one-segment path). A Common helper would remove the seven copies, but adds to
+    the Common API door, so it is left to the final review. The conformance suite now checks the rule everywhere:
+    `StoreRawFileAsync`, a fixture hook (default: stores nothing, and the test is inconclusive), stores files past the
+    provider under such names, at the top and as a folder one level down; `List_LeavesOutNamesThePathRulesRefuse` lists
+    one level and recursively, reads back every entry listed, and checks that a folder delete removes what it leaves
+    out. Every offline and emulator fixture implements the hook (disk, the in-memory store, `FakeBox`, `GraphFake`, the
+    emulators' own SDK clients), and so does `PhysicalLiveTests`; the other live fixtures do not. A fixture reports a
+    name its store cannot hold: Windows (Physical) holds only the percent-encoded names, S3, MinIO and Azure skip
+    control characters (an XML listing cannot carry them back), and MinIO refuses `a\b.txt` (400). With each provider's
+    filter disabled, the test fails on all fifteen fixtures. The in-memory reference provider follows the rule too.
+  - **The live-class rule**, said once in AGENTS.md: inconclusive without `WFP_LIVE=1`; with it, a missing setting fails
+    the class, naming it. S3 and MinIO (`tests/Shared/S3/LiveSettings`), Google Cloud Storage and Box were inconclusive
+    either way, and Physical failed even without `WFP_LIVE`; all follow it now, and Azure names only what is missing.
+    Google Cloud Storage and Physical got a `testsettings.sample.json` like the other test projects.
+  - **D25 and D26:** checked, no miss. Every provider class is sealed; every options property new in 2027 is
+    `WhenWritingDefault` (four on S3, three on MinIO, two on Azure, three on GCS, three on SharePoint; Box and Physical
+    add none), against the 2026 options at `aa265f5`. The options classes keep their 2026 sealing (S3's and GCS's
+    sealed, the others not), which D25 does not cover.
+  - **Removed:** Common's `[Obsolete]` `GetRelativeSegments`, `IsRootPath` and `NormalizePem` (nothing called them; the
+    migration guide's two rows say "Gone"); the `WfpLegacy` switch, since no project set it once the old test project
+    went; `tests/WriteableFileProviders.Tests` with its lock file, sample settings, `.slnx` entry and Common's
+    `InternalsVisibleTo` (every `TestBase` case lives in the conformance suite or the options tests). The review lens
+    that named `TestBase` names the conformance suite.
+  - **PublicAPI files:** `Microsoft.CodeAnalysis.PublicApiAnalyzers` 5.6.0 (central version, private) on every package
+    under `src/`, through `src/Directory.Build.props`; `PublicAPI.Shipped.txt` holds `#nullable enable`,
+    `PublicAPI.Unshipped.txt` the 2027 surface, generated with `dotnet format analyzers --diagnostics RS0016`. RS0016
+    and RS0017 are errors (`.editorconfig`). RS0026/RS0027 flagged designed overloads: the extension methods' sync and
+    `IFileInfo` forms, three `Stream` overrides, and the four 2026 S3 options constructors; each is suppressed by
+    member, with its reason, so the rules stay on for new members. The analyzer caught the constructor reorder below at
+    once.
+  - **From the main session (items 10–13):**
+    - P21: `src/Directory.Build.targets` (new; it imports the root one) rewrites `_ProjectReferencesWithVersions` after
+      `_GetProjectReferenceVersions` to `[V, NextMajor.0.0)`, NextMajor being `$(MinVerMajor)` + 1 (NuGet/Home#5556's
+      workaround holds on SDK 10.0.401). `eng/package-check.cs` requires exactly that range. Checked: a pack of every
+      package gives `[2027.0.0-alpha.0.108, 2028.0.0)`, a `--no-build -c Release` pack the same, a pack at 2029.3.1
+      `[2029.3.1, 2030.0.0)`; the check passes on the pack and fails on another version.
+    - One constructor order, `(options, client)`: Azure's became `(AzureFileProviderOptions? options,
+      BlobContainerClient container)` (options null for the container's root, no longer optional) and GCS's
+      `(GoogleCloudStorageFileProviderOptions options, StorageClient client)`; S3 `(options, IAmazonS3)`, MinIO
+      `(options, IAmazonS3)`, Box `(options, IBoxClient)` and SharePoint `(options, GraphServiceClient)` were already
+      so.
+    - XML docs: the S3 `(options, IAmazonS3)` constructor now says `ServiceUrl` marks the store S3-compatible and
+      `BucketRegion` places a created bucket; `UpdateFileCoreAsync` says the conditions always reach it.
+    - Physical and a symbolic link to a file: FileInfo describes the link (length 0 on Windows) while reads open the
+      target, so the info and listings had the link's length, and a pinned or seekable read, or an append, through the
+      link always failed its version check (a new test reproduced it on Windows). The length, time and ETag now come
+      from the target, the physical path stays the link's own, and a write still replaces the link with a file. (As
+      first built, the target came from `ResolveLinkTarget(true)` and also gave the new file's mode; review round 1
+      below replaced both, and corrects what this line said about modes: only a dangling link has a mode of its own,
+      FileInfo reporting the target's for any other.) A link to nothing, or in a loop, is described as itself.
+  - **Error types outside the contract (item 9),** from a read of every provider. Fixed, each with a test that fails
+    without it: Box's server-side move and copy of a source deleted meanwhile (404) is `FileNotFoundException`, as on
+    SharePoint and S3; SharePoint's HTTP client timeout (`TaskCanceledException` holding a `TimeoutException`) is
+    `IOException`, no longer a cancellation; SharePoint's measuring request maps a refused answer as a download does
+    (403 is `UnauthorizedAccessException`). **For the final review** (each is a decision, or needs more than a small
+    fix):
+    1. One policy for errors outside the contract. SharePoint maps every failure (401/403 to
+       `UnauthorizedAccessException`, the rest to `IOException`); the others let SDK exceptions escape: Azure
+       (`RequestFailedException`, `AggregateException` after its retries, Azure.Identity's exceptions; none documented),
+       S3 and MinIO (`AmazonS3Exception`, `AmazonClientException`, `HttpRequestException`, `TimeoutException`; not
+       documented), GCS (`GoogleApiException`, `HttpRequestException`, `TokenResponseException`; only a 403 documented),
+       Box (`BoxApiException` documented; `BoxSdkException` for a network failure after retries, sign-in included, and
+       `JsonException` for an unreadable answer, not documented). Either document each provider's, or map them all the
+       SharePoint way, which changes what consumers catch and flips GCS tests that pin `GoogleApiException`.
+    2. Azure: a plain read's resumed download throws a raw `RequestFailedException` 412 or 404 mid-read, where seekable
+       reads map them (`BlobReadStream`; the fix is small, but its test needs a body cut mid-way); a delete maps only
+       `SnapshotsPresent`, while a move turns any 4xx refusal of the source delete into `IOException`;
+       `CreateContainerIfMissing` refused with 403 escapes raw.
+    3. GCS: an identity without `iam.serviceAccounts.signBlob` gets `HttpRequestException` from signing, not the
+       `NotSupportedException` the docs promise, so the gateway cannot take over; the raw media GETs probably do not get
+       the SDK's retries (unverified); missing Application Default Credentials throw `InvalidOperationException`, the
+       contract's type for a missing bucket.
+    4. Timeouts that look like cancellation: GCS's raw download (`TaskCanceledException`), Azure's inside its
+       `AggregateException`.
+    5. SharePoint: Azure.Identity's `AuthenticationFailedException` escapes raw from every member (Kiota asks for the
+       token inside each request); a site answer without an id throws `InvalidOperationException`, the missing site's
+       type.
+    6. S3: `CreateBucketIfMissing` with a name another account owns gets 409 `BucketAlreadyExists` from every member; a
+       file delete's `AccessDenied` escapes as `AmazonS3Exception`, while a folder delete's is `IOException`.
+    7. Physical on Windows: names with `"`, `<`, `>`, `|`, `?` or `*` pass validation, read as missing and fail late
+       with `IOException`, not `ArgumentException`; a trailing dot or space aliases (`a.` names `a`). Its
+       `UnauthorizedAccessException` from reads, listings, deletes and moves is documented for writes only.
+  - **Coverage** (Windows, every non-Live test): AmazonS3 98.06/92.53, AspNetCore 100/99.01, AzureBlob 99.22/91.00, Box
+    99.68/93.07, Common 95.65/91.79, GCS 99.64/95.28, MinIO 98.32/91.27, Physical 99.46/94.52, SharePoint 99.76/91.48
+    (lines/branches). Linux container: Physical 100/97.95, Common (its own tests only) 95.75/91.99. By the Tests rule
+    (the whole-point floor of the lower of Linux and Windows, minus one) no floor rises: each is already there or above
+    (Common, MinIO and SharePoint stay above it). Every floor is 90% or more of lines and branches; CI's Linux figures
+    are for the main session to check.
+  - **Verified:** the solution builds strict; every non-Live test on Windows with `WFP_REQUIRE_DOCKER=1`: 2089, none
+    failed, 8 skipped (the three concurrent-append cases of Physical and SharePoint, and five Unix-only Physical tests);
+    Physical (142: 140 passed, the concurrent append and the Windows-only ACL test skipped) and Common (223 passed) in a
+    `dotnet/sdk:10.0` container as a non-root user; the coverage gate; the pack and the package check. No live suite ran
+    (no accounts here; D21).
+  - **For the docs:** the migration guide and the Physical README may say that a symbolic link to a file is described
+    by its target, and that a write through it takes the target's permission bits.
+
+- **2026-10-11, S12 part 2, harmonize, review round 1 (PR #41, read at `edf7323`):** needs-fixes, one major; D27's test,
+  folder deletes of hidden names, the live-class rule on all ten classes, the PublicAPI wiring and its suppressions, the
+  removed helpers and the error mappings were verified. Fixed:
+  - **F1 (major, security):** Physical followed a link by string (`ResolveLinkTarget(true)`), which resolves a relative
+    target against the link's path as written, while the system resolves it from where the link physically is. In a
+    deploy layout (`current -> releases/r1`, `releases/r1/secret.txt -> ../../shared/secret.txt`) it named a decoy
+    outside the root while reads opened the private file, and an append then wrote the private content into a file with
+    the decoy's mode. The mode now comes from the path's own `FileInfo` again, as before this half (it reports the
+    target's mode for any link but a dangling one, which has no mode of its own; the log line above said "0777"), and a
+    copy's from its source's. A link's length, time and ETag are read from a handle the system opened through it; a FIFO
+    behind a link is opened to read and write, so the open does not wait (only a FIFO the process may not write still
+    would, as a read of it does), and one that cannot seek has length 0, so a write through the link refuses it as not a
+    regular file. When nothing opens (a link to nothing, in a loop, unreadable), the link's own entry is used. Tests,
+    run on Linux in the `dotnet/sdk:10.0` container as a non-root user: the deploy layout (the length, a pinned read, an
+    append, the 0600 mode kept, the decoy untouched, a read-only target), and a link to a FIFO listed and refused
+    without waiting. The general link test no longer asserts a mode it could not tell apart.
+  - **F2:** the upper bound excluded only the next major's release, not its prereleases (`2028.0.0-rc.1` satisfied
+    `[2027.0.0, 2028.0.0)`). The packed range is now `[V, NextMajor.0.0-0)`, `-0` being the lowest prerelease, in
+    `src/Directory.Build.targets` and `eng/package-check.cs`; checked with NuGet.Versioning 6.14.0, which keeps the form
+    as written and refuses `2028.0.0-0`, `2028.0.0-alpha.0.1`, `2028.0.0-rc.1` and `2028.0.0` while taking every 2027
+    version from V on, and on a local pack (`[2027.0.0-alpha.0.119, 2028.0.0-0)`, the package check passing).
+  - **F3:** a 404 on Box's server-side move or copy no longer always means "source not found": the source is looked up
+    again, and only a missing one is `FileNotFoundException`; otherwise `IOException` (the source changed, or the
+    destination folder was removed meanwhile). The rename through a temporary name maps its 404 the same way, where it
+    used to let `BoxApiException` out. Tests: the destination folder removed during a move and a copy, and the source
+    deleted during a case-only rename.
+  - **F4:** `RawFiles.Store` reports a name the file system refuses (exFAT, vfat or SMB from Linux) as not storable,
+    as the S3 fixture does a 400, so the D27 test does not fail in `PhysicalLiveTests` on such a share.
+  - **F5:** only a reparse point is asked for its link target (a round trip on Windows and SMB).
+  - **F6:** a client whose `Config.ServiceURL` is set now counts as S3-compatible for the requester-pays header and a
+    created bucket's location too, as it already did for the conditions; offline test.
+  - **F7:** the root `Directory.Build.props` no longer speaks of a strictness switch.
+  - **F8:** `ci.yml`'s Linux job runs `eng/package-check.cs` on its prerelease pack, at the version MinVer gave Common
+    (read from the package's file name), so a change that breaks the bound shows on its PR. actionlint 1.7.12 passes.
+  - **F9:** floors from CI's Linux run at `edf7323` (AmazonS3 98.55/93.57, AspNetCore 100/99.01, AzureBlob 99.38/92.27,
+    Box 99.80/94.12, Common 96.04/92.58, GCS 99.77/96.03, MinIO 99.01/92.64, Physical 100/98.63, SharePoint
+    99.85/91.89) and the Windows run above: by the rule, only AspNetCore's branch floor rises, from 97 to 98.
+  - **F10 (decided by the main session under the maintainer's standing instruction; it adds to the Common API, as part
+    of the 2027 surface):** one protected helper, `WriteableFileProvider<TOptions>.IsAddressable(string name)`, says
+    whether a listed name is one segment a path accepts, with `ValidateSegments`, the provider's `IsSegmentAllowed` and
+    both again on the percent-decoded forms, exactly as `Resolve` would. The seven private copies are gone (S3, MinIO,
+    Azure and GCS called the static `ValidateSegments` and so skipped `IsSegmentAllowed`; none of them overrides it, so
+    their listings do not change). It is in `PublicAPI.Unshipped.txt`, and a unit test pins it, with an
+    `IsSegmentAllowed` override, against what `Resolve` accepts for each name.
+  - **Verified:** the solution builds strict; every non-Live test on Windows with `WFP_REQUIRE_DOCKER=1`: 2096, none
+    failed, 10 skipped (the three concurrent-append cases, and seven Unix-only Physical tests); Physical (144: 142
+    passed, the concurrent append and the Windows-only ACL test skipped) and Common (224 passed) in the container as a
+    non-root user; the coverage gate (Windows: Physical 99.47/93.92, AspNetCore 100/99.01 over its new 98; Linux
+    container: Physical 100/97.97); the pack and the package check.
+
+- **2026-10-11, S12 part 2, harmonize, review round 2 (PR #41, read at `4b74a81`):** F2–F10 verified, and round 1's F1
+  fix too; one new major and one owner call, both decided by the main session:
+  - **N1 (major, sensitive; decided: never open a file to describe it):** round 1 described a link by opening its
+    target, read-write first, from listings, `GetFileInfo` and the version checks. The reviewer's Linux probes, as a
+    non-root user: a reader waiting on a FIFO behind a link got an early end of file, a writer's message was lost, a
+    FIFO the process may read but not write hung every listing in `open()` (no token cancels it, so anyone who can make
+    a link and a FIFO in the root could hang them all), inotify saw OPEN and CLOSE_WRITE, and on Windows the handle made
+    another process's `File.OpenRead` fail. Before this half, listings never opened a target. Now nothing opens a file
+    to describe it:
+    - Checked first in the container: .NET's FileInfo for a link on Linux reports the link's own length (its target's
+      text) and time, only its mode through the link; in the deploy layout it gave 23 bytes and the link's time, not the
+      private file's 7 bytes. So a link is described by `PhysicalPathOf`: the path walked a component at a time from its
+      root, each link replaced by its target, a relative target resolved against the part already resolved and `..`
+      applied to that part, giving up after 40 links; then a FileInfo of the result, which stat describes without
+      opening. On Windows, `ResolveLinkTarget(returnFinalTarget: true)`, which asks the system for the final path on a
+      handle without access. A link that leads nowhere is described as itself; only a reparse point is asked (F5).
+      `ResolvesLinksAsTheKernel` (internal, per system like the others) lets the tests run both ways on each system.
+    - `OpenThroughLink` is gone. Writes keep `IsReplaceable`'s probe; a link to a FIFO now has length 0 from stat, so a
+      write through it is still refused as not a regular file without waiting.
+    - Tests: the link test runs both ways and checks the target's last-access and last-write times unchanged; the deploy
+      layout test stays; on Linux, a link to a FIFO the process may read but not write is listed and described at once,
+      and a reader waiting on a FIFO is still waiting after a listing and an info of a link to it (then released by a
+      writer, and it reads what was written); `PhysicalPathOf` is tested on every system (the deploy layout, an absolute
+      target, `..` through a linked folder, a loop, `..` at the root).
+  - **N2 (owner call; decided: AWS hosts are AWS):** since F6 a client with its own `ServiceURL` counted as
+    S3-compatible, so AWS clients through a VPC endpoint, FIPS or dual-stack lost requester-pays and the location of a
+    created bucket. For both the options' `ServiceUrl` and a client's `ServiceURL`, a host that is `s3.amazonaws.com`,
+    or ends in `.amazonaws.com` or `.amazonaws.com.cn`, is AWS for all three settings (`ChecksAtomically`,
+    `RequesterPays`, `BucketLocation`). Offline tests: a VPC endpoint and MinIO's `localhost:9000`, each through the
+    options and through a client, and the host rule on its own. The XML docs say so; the AmazonS3 README's lines are
+    for the docs PR.
+  - **Verified:** the solution builds strict; every non-Live test on Windows with `WFP_REQUIRE_DOCKER=1`: 2115, none
+    failed, 11 skipped (the three concurrent-append cases and eight Unix-only Physical tests); Physical (147: 145
+    passed, the concurrent append and the Windows-only ACL test skipped) and Common (224 passed) in the container as a
+    non-root user; the coverage gate (Windows: Physical 99.50/94.38, AmazonS3 97.97/92.33; Linux container: Physical
+    100/97.19).
+
+- **2026-10-11, S12 part 2, harmonize, review round 3 (PR #41, read at `b74825e`):** N1 verified (strace showed only
+  lstat, stat and readlink when describing; the walk matched `realpath -e` and `stat -L` on 1,530 paths over 12
+  layouts). Two items, decided by the main session:
+  - **N3 (major, data integrity; the round-2 instruction corrected):** any host under `amazonaws.com` passed round 2's
+    rule, including names that front other servers (a load balancer, an instance, API Gateway), so a MinIO or Ceph
+    server behind one got `SupportsAtomicPreconditions` true and no check first, which could lose concurrent writes
+    (D15). Now: `ChecksAtomically` is true only with no endpoint named (neither `ServiceUrl` nor a client's
+    `ServiceURL`), so the provider checks conditions first toward any endpoint, S3's own included (one HEAD; AWS still
+    enforces the headers sent). `IsS3Endpoint` takes only S3's own host names (under `amazonaws.com` or
+    `amazonaws.com.cn` after one trailing dot is trimmed, with a label exactly `s3`: `s3.amazonaws.com`,
+    `s3.eu-west-1.amazonaws.com`, `bucket.s3.eu-west-1.amazonaws.com`, dual-stack, a VPC endpoint), and drives only
+    `RequesterPays` and `BucketLocation`; the legacy dashed names (`s3-eu-west-1`, `s3-external-1`, `s3-fips`) do not
+    match, the safe direction, and the docs say so. Tests: the VPC endpoint (conditions checked first, requester-pays
+    and the location on), MinIO's localhost, an ELB, an EC2 and an API Gateway host, and a legacy dashed host (all off),
+    each through the options or a client, and the host rule on 21 names. Found on the way: for a host under
+    `amazonaws.com` the AWS SDK adds a `LocationConstraint` of its own, read from the host, when the request names none,
+    so the test checks the provider's setting (`S3Core.BucketLocation`) there and the request body only off AWS.
+  - **N4:** `PhysicalPathOf` stops where the kernel does: a component before the last that is missing or not a folder
+    (a trailing separator or `.` included: `missing/../x`, `file.txt/../x`, `file.txt/`) leads nowhere, and the link is
+    described as itself; the link limit is 32 on macOS and 40 elsewhere (`MaxLinks`). Unit tests for both, a chain of
+    exactly the limit resolving and one link more not.
+  - **Verified:** the solution builds strict; every non-Live test on Windows with `WFP_REQUIRE_DOCKER=1`: 2129, none
+    failed, 11 skipped (as in round 2); Physical (148: 146 passed, the same two skipped) and Common (224 passed) in the
+    container as a non-root user; the coverage gate (Windows: AmazonS3 98.08/92.78, Physical 99.50/94.15; Linux
+    container: Physical 100/96.81).
 
 ### For the maintainers
 

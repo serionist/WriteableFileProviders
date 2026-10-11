@@ -27,6 +27,9 @@ public abstract class AmazonS3ConformanceTests : ProviderConformanceTests
     protected override IWriteableFileProvider? CreateProviderWithMissingContainer() =>
         Create("wfp-missing-" + Guid.NewGuid().ToString("N")[..12], _base);
 
+    protected override Task<bool> StoreRawFileAsync(IReadOnlyList<string> names, string text) =>
+        Endpoint.StoreRawAsync($"{_base}/{string.Join('/', names)}", text);
+
     private WriteableAmazonS3FileProvider Create(string bucket, string root)
     {
         var provider = new WriteableAmazonS3FileProvider(new AmazonS3FileProviderOptions(root, Endpoint.AccessKey, Endpoint.SecretKey, bucket, "us-east-1")

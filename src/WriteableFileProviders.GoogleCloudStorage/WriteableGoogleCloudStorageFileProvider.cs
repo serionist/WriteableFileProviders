@@ -84,10 +84,10 @@ public sealed class WriteableGoogleCloudStorageFileProvider : WriteableFileProvi
     /// <see cref="GoogleCloudStorageFileProviderOptions.ProjectId"/> are used; the credential properties and the endpoint
     /// are the client's own. Signed URLs need a client whose credential can sign.
     /// </summary>
-    /// <param name="client">The client; the caller keeps it and disposes it.</param>
     /// <param name="options">The options.</param>
+    /// <param name="client">The client; the caller keeps it and disposes it.</param>
     /// <exception cref="ArgumentException">The bucket is missing.</exception>
-    public WriteableGoogleCloudStorageFileProvider(StorageClient client, GoogleCloudStorageFileProviderOptions options) : base(options)
+    public WriteableGoogleCloudStorageFileProvider(GoogleCloudStorageFileProviderOptions options, StorageClient client) : base(options)
     {
         ArgumentNullException.ThrowIfNull(client);
         _bucket = RequireBucket(Options);
@@ -684,21 +684,9 @@ public sealed class WriteableGoogleCloudStorageFileProvider : WriteableFileProvi
 
     private static string FolderPrefix(ResolvedPath path) => path.AbsoluteSegments.Length == 0 ? "" : Key(path) + "/";
 
-    // An entry the API can address again: one valid segment. Objects named otherwise (such as 'a//b' or '..') are left
-    // out of listings.
-    private static string? EntryName(string name)
-    {
-        if (name.Length == 0)
-            return null;
-        try
-        {
-            return ValidateSegments([name]) is [var part] && part == name ? name : null;
-        }
-        catch (ArgumentException)
-        {
-            return null;
-        }
-    }
+    // An entry the API can address again (IsAddressable). Objects named otherwise (such as 'a//b' or '..') are left out of
+    // listings.
+    private string? EntryName(string name) => IsAddressable(name) ? name : null;
 
     // A generation is positive: 0 would turn "this version" into "no version yet".
     private static long? ParseGeneration(string etag) =>

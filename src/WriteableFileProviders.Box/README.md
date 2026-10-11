@@ -35,9 +35,9 @@ must be on the same major version: a `2026.10.10.x` package does not load agains
 ```csharp
 using WriteableFileProviders;
 
-services.AddWriteableFileProvider("files", configuration.GetSection("Files"));
+services.AddWriteableFileProvider(configuration.GetSection("Files"));
 
-// [FromKeyedServices("files")] IWriteableFileProvider files
+// then inject IWriteableFileProvider files
 await files.UpdateFileAsync("reports/2026.csv", stream);              // parent folders are created
 await using var slice = await files.ReadRangeAsync("big.bin", 1_000_000, 4096);
 await files.MoveAsync("reports/2026.csv", "archive/2026.csv");         // on the server

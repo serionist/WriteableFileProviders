@@ -41,7 +41,7 @@ From configuration, with `WriteableFileProviderSerializer.FromConfiguration(sect
 ```
 
 ```csharp
-services.AddWriteableFileProvider("files", configuration.GetSection("Files"));
+services.AddWriteableFileProvider(configuration.GetSection("Files"));
 ```
 
 With a client you build yourself (a managed identity, custom retries or transport, Aspire), which the provider never

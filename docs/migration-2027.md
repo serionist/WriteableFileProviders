@@ -96,7 +96,10 @@ and go in the next major; each names the call that replaces it.
 New: `ReadRangeAsync` (byte ranges), `OpenReadSeekableAsync` (a seekable stream that reads ranges on demand),
 `EnumerateAsync` (one level or recursive, as `IAsyncEnumerable`), `CopyAsync`, `UpdateFileOptions` (content type,
 `IfMatch`, `IfNotExists`), `GetSignedUrlAsync` (read, create and write URLs), `RangeReadStream`, and DI registration
-(`services.AddWriteableFileProvider(name, configuration)`, keyed by name).
+(`services.AddWriteableFileProvider(configuration)` or `AddWriteableFileProvider(factory)`), which registers a singleton
+`IWriteableFileProvider` that the container builds and disposes. Each call adds one, so `GetServices` sees them all; an
+app with several providers tells them apart its own way, such as keyed services
+(`AddKeyedSingleton<IWriteableFileProvider>(key, ...)`).
 
 ## Common: writing your own provider
 
@@ -478,14 +481,17 @@ What changed: 2027.0.0 adds `WriteableFileProviders.AspNetCore`, for ASP.NET Cor
 onto it, so there is nothing to migrate; it is the way to keep handing out download links where a provider's own URLs
 changed:
 
-- **`IWriteableFileUrlService.GetSignedUrlAsync(providerName, path, options)`** asks the keyed provider for its native
-  URL and, when the provider throws `NotSupportedException`, issues a URL of the app's own gateway instead. A provider
-  throws it when it cannot sign the URL asked for: Physical signs none, and Box and SharePoint sign only download URLs
-  whose lifetime their service sets. So the service gives a 2026 caller of `GetDownloadUrl` a URL that does what was
-  asked on every provider.
-- **The gateway** (`AddWriteableFileProviderGateway`, `MapWriteableFileProviderGateway`) serves `GET`, `HEAD` (with
-  HTTP ranges) and `PUT` on `{BasePath}/{token}/{fileName?}`. The token is an ASP.NET Core Data Protection payload, so
-  an app on several instances shares its key ring, and one-time upload URLs need a shared `IGatewayReplayStore`.
+- **`IWriteableFileUrlService.GetSignedUrlAsync(path, options)`** asks the app's `IWriteableFileProvider` for its
+  native URL and, when the provider throws `NotSupportedException`, issues a URL of the app's own gateway instead;
+  `GetSignedUrlAsync(path, options, providerKey)` does the same for a provider registered under a key
+  (`AddKeyedSingleton<IWriteableFileProvider>(providerKey, ...)`). A provider throws it when it cannot sign the URL
+  asked for: Physical signs none, and Box and SharePoint sign only download URLs whose lifetime their service sets. So
+  the service gives a 2026 caller of `GetDownloadUrl` a URL that does what was asked on every provider, the local disk
+  included.
+- **The gateway** (`AddWriteableFileProviderGateway(publicBaseUri)`, or `AddWriteableFileProviderGateway(options => ...)`
+  for the other options, then `MapWriteableFileProviderGateway()`) serves `GET`, `HEAD` (with HTTP ranges) and `PUT` on
+  `{BasePath}/{token}/{fileName?}`. The token is an ASP.NET Core Data Protection payload, so an app on several
+  instances shares its key ring, and one-time upload URLs need a shared `IGatewayReplayStore`.
 - **Defaults fail closed:** `PublicBaseUri` is required and gateway URLs never use the request's `Host`; gateway
   download URLs live at most 7 days and gateway upload URLs 1 hour by default; gateway upload URLs work once; uploads
   are capped at 100 MiB; a download is served as the content type its read URL names, else

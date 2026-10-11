@@ -45,11 +45,11 @@ operations are extension methods (`ReadFile`, `UpdateFile`, `Delete`, `Move`, `C
 ```
 
 `Type` is the provider's class name, matched without regard to case; the other keys are its options' property names.
-With dependency injection, as a keyed singleton the container creates on first use and disposes:
+With dependency injection, as a singleton `IWriteableFileProvider` the container creates on first use and disposes:
 
 ```csharp
-services.AddWriteableFileProvider("files", configuration.GetSection("Files"));
-// then: [FromKeyedServices("files")] IWriteableFileProvider files
+services.AddWriteableFileProvider(configuration.GetSection("Files"));
+// then inject IWriteableFileProvider; for several, use keyed services, GetServices or interfaces of your own
 ```
 
 `WriteableFileProviderSerializer` also builds a provider from JSON (`FromJson`) and writes one back (`ToJson`,

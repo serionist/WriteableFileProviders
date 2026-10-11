@@ -38,7 +38,7 @@ From configuration, with `WriteableFileProviderSerializer.FromConfiguration(sect
 ```
 
 ```csharp
-services.AddWriteableFileProvider("files", configuration.GetSection("Files"));
+services.AddWriteableFileProvider(configuration.GetSection("Files"));
 ```
 
 The provider class is sealed: to change what it does, wrap it, or derive your own provider from

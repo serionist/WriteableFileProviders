@@ -1,7 +1,7 @@
 namespace WriteableFileProviders.AspNetCore;
 
 /// <summary>
-/// The options of the signed-URL gateway (<see cref="WriteableFileProviderGatewayServiceCollectionExtensions.AddWriteableFileProviderGateway"/>)
+/// The options of the signed-URL gateway (<see cref="WriteableFileProviderGatewayServiceCollectionExtensions.AddWriteableFileProviderGateway(Microsoft.Extensions.DependencyInjection.IServiceCollection, Action{WriteableFileProviderGatewayOptions})"/>)
 /// and of the URL service (<see cref="IWriteableFileUrlService"/>). They are validated when the app starts.
 /// </summary>
 /// <remarks>

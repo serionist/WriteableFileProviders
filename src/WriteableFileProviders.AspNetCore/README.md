@@ -32,7 +32,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme).AddCookie();   // or your own scheme
 builder.Services.AddAuthorization();
 builder.Services.AddSingleton<IReportAccess, ReportAccess>();
-builder.Services.AddWriteableFileProvider("files", builder.Configuration.GetSection("Files"));
+builder.Services.AddWriteableFileProvider(builder.Configuration.GetSection("Files"));
 builder.Services.AddWriteableFileProviderGateway(options =>
 {
     // Required, and never taken from the request. A host name of its own, which this app also answers on, and which
@@ -50,7 +50,7 @@ app.MapGet("/reports/{id}/link", async (string id, ClaimsPrincipal user, IReport
 {
     if (!await reports.CanReadAsync(user, id))
         return Results.Forbid();
-    var url = await urls.GetSignedUrlAsync("files", $"reports/{id}.pdf", new SignedUrlOptions
+    var url = await urls.GetSignedUrlAsync($"reports/{id}.pdf", new SignedUrlOptions
     {
         Validity = TimeSpan.FromMinutes(15),
         DownloadFileName = $"Report {id}.pdf",
@@ -82,7 +82,8 @@ An upload URL works the same way: `Permission = SignedUrlAccess.Create` (only if
 
 ## Configuration
 
-The options of `AddWriteableFileProviderGateway`:
+`AddWriteableFileProviderGateway(new Uri("https://files.example.com/"))` takes the defaults below with that
+`PublicBaseUri`; `AddWriteableFileProviderGateway(options => ...)` sets any of them:
 
 | Option | Default | What it does |
 |---|---|---|
@@ -102,7 +103,9 @@ gives a URL that lives the maximum, with its true `ExpiresOn`. The options are v
 
 ### Which URL you get
 
-`GetSignedUrlAsync(providerName, path, options)` looks the provider up by the name it was registered under, then:
+`GetSignedUrlAsync(path, options)` takes the app's `IWriteableFileProvider` (the last one registered, when there are
+several), and `GetSignedUrlAsync(path, options, providerKey)` the one registered with
+`AddKeyedSingleton<IWriteableFileProvider>(providerKey, ...)`; the gateway serves each URL from the same provider. Then:
 
 1. Unless `PreferGateway` is set, it calls the provider's `GetSignedUrlAsync`. If that returns, you get the provider's
    own URL (`SignedUrl.Kind` is `Presigned` or `PreAuthenticated`).
@@ -184,8 +187,8 @@ Tokens use your app's Data Protection key ring, which `AddWriteableFileProviderG
 - **Keys kept only in memory** lose every issued URL when the app restarts.
 - **Revoking a key** invalidates every URL protected with it.
 
-The token format and its purpose chain (`WriteableFileProviders.Gateway.v1`, the provider name, the access) are kept
-stable: a URL issued by one version redeems on the next.
+The token format and its purpose chain (`WriteableFileProviders.Gateway.v1`, the provider's key when it has one, the
+access) are kept stable: a URL issued by one version redeems on the next.
 
 ### One-time uploads
 

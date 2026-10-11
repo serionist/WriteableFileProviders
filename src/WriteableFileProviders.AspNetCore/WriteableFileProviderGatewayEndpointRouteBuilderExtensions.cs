@@ -39,7 +39,7 @@ public static class WriteableFileProviderGatewayEndpointRouteBuilderExtensions
     /// <param name="endpoints">The app's endpoints.</param>
     /// <returns>A builder for conventions on the gateway's endpoints.</returns>
     /// <exception cref="InvalidOperationException">
-    /// <see cref="WriteableFileProviderGatewayServiceCollectionExtensions.AddWriteableFileProviderGateway"/> was not called.
+    /// <c>AddWriteableFileProviderGateway</c> was not called.
     /// </exception>
     /// <exception cref="OptionsValidationException">The options are not valid.</exception>
     public static IEndpointConventionBuilder MapWriteableFileProviderGateway(this IEndpointRouteBuilder endpoints)

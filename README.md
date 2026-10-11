@@ -91,14 +91,18 @@ configuration:
 }
 ```
 
-Register it as a keyed singleton, under a name of your choice:
+Register it as a singleton `IWriteableFileProvider`, which the container builds on first use and disposes:
 
 ```csharp
-builder.Services.AddWriteableFileProvider("files", builder.Configuration.GetSection("Files"));
+builder.Services.AddWriteableFileProvider(builder.Configuration.GetSection("Files"));
 
-app.MapGet("/reports/{year}", async (int year, [FromKeyedServices("files")] IWriteableFileProvider files) =>
+app.MapGet("/reports/{year}", async (int year, IWriteableFileProvider files) =>
     Results.Stream(await files.ReadFileAsync($"reports/{year}.csv"), "text/csv"));
 ```
+
+For several providers, tell them apart your own way: keyed services
+(`AddKeyedSingleton<IWriteableFileProvider>("archive", ...)` and `[FromKeyedServices("archive")]`), `GetServices`, or
+interfaces of your own.
 
 Or build it yourself, and keep it as JSON:
 
@@ -249,14 +253,14 @@ provider for its native URL and, where the provider throws `NotSupportedExceptio
 app instead, which serves `GET`, `HEAD` (with ranges) and `PUT` on ASP.NET Core Data Protection tokens:
 
 ```csharp
-builder.Services.AddWriteableFileProviderGateway(options =>
-    options.PublicBaseUri = new Uri("https://files.example.com/"));
+builder.Services.AddWriteableFileProviderGateway(new Uri("https://files.example.com/"));
 // ...
 app.MapWriteableFileProviderGateway();
 
 // In an endpoint that has checked the caller may read the file:
-SignedUrl url = await urls.GetSignedUrlAsync("files", "reports/2026.pdf",
+SignedUrl url = await urls.GetSignedUrlAsync("reports/2026.pdf",
     new SignedUrlOptions { Validity = TimeSpan.FromMinutes(15) });
+// For a provider registered under a key: GetSignedUrlAsync(path, options, "archive").
 ```
 
 Its [README](src/WriteableFileProviders.AspNetCore/README.md) covers the options, the one-time upload tokens, serving

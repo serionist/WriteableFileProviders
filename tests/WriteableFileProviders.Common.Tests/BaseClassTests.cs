@@ -193,28 +193,66 @@ public sealed class BaseClassTests
     }
 
     [TestMethod]
-    public async Task DependencyInjection_RegistersKeyedSingletons()
+    public async Task DependencyInjection_OneProvider_IsASingletonByInterface_ThatTheContainerDisposes()
     {
-        var store = "di-" + Guid.NewGuid().ToString("N");
         var services = new ServiceCollection();
-        services.AddWriteableFileProvider("memory", _ => new InMemoryFileProvider(new InMemoryFileProviderOptions { StoreName = store }));
-        services.AddWriteableFileProvider("physical", new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        services.AddWriteableFileProvider(_ => Stub());
+        StubProvider provider;
+        await using (var container = services.BuildServiceProvider())
+        {
+            provider = (StubProvider)container.GetRequiredService<IWriteableFileProvider>();
+            Assert.AreSame(provider, container.GetRequiredService<IWriteableFileProvider>());
+            Assert.IsNull(container.GetKeyedService<IWriteableFileProvider>("any"));
+            Assert.IsFalse(provider.Disposed);
+        }
+        Assert.IsTrue(provider.Disposed);
+    }
+
+    [TestMethod]
+    public async Task DependencyInjection_FromConfiguration_BuildsTheProviderOnFirstUse()
+    {
+        var services = new ServiceCollection();
+        services.AddWriteableFileProvider(new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["Type"] = "WriteablePhysicalFileProvider",
             ["RootDirectoryPath"] = Path.Combine(Path.GetTempPath(), "wfp-di-" + Guid.NewGuid().ToString("N")),
         }).Build());
-        await using (var container = services.BuildServiceProvider())
+        await using var container = services.BuildServiceProvider();
+
+        Assert.AreEqual("WriteablePhysicalFileProvider", container.GetRequiredService<IWriteableFileProvider>().GetType().Name);
+    }
+
+    [TestMethod]
+    public async Task DependencyInjection_TwoProviders_AreBothRegistered_AndTheLastIsTheOneInjected()
+    {
+        var store = "di-" + Guid.NewGuid().ToString("N");
+        var services = new ServiceCollection();
+        services.AddWriteableFileProvider(_ => Stub());
+        services.AddWriteableFileProvider(_ => new InMemoryFileProvider(new InMemoryFileProviderOptions { StoreName = store }));
+        try
         {
-            var memory = container.GetRequiredKeyedService<IWriteableFileProvider>("memory");
-            Assert.AreSame(memory, container.GetRequiredKeyedService<IWriteableFileProvider>("memory"));
-            Assert.IsInstanceOfType<InMemoryFileProvider>(memory);
-            Assert.AreEqual("WriteablePhysicalFileProvider", container.GetRequiredKeyedService<IWriteableFileProvider>("physical").GetType().Name);
+            await using var container = services.BuildServiceProvider();
+
+            var all = container.GetServices<IWriteableFileProvider>().ToList();
+            Assert.HasCount(2, all);
+            Assert.IsInstanceOfType<StubProvider>(all[0]);
+            Assert.IsInstanceOfType<InMemoryFileProvider>(all[1]);
+            Assert.AreSame(all[1], container.GetRequiredService<IWriteableFileProvider>());
         }
-        InMemoryFileProvider.ClearStore(store);
-        Assert.ThrowsExactly<ArgumentNullException>(() => services.AddWriteableFileProvider("x", (IConfiguration)null!));
-        Assert.ThrowsExactly<ArgumentException>(() => services.AddWriteableFileProvider("", _ => null!));
-        Assert.ThrowsExactly<ArgumentNullException>(() => services.AddWriteableFileProvider("x", (Func<IServiceProvider, IWriteableFileProvider>)null!));
-        Assert.ThrowsExactly<ArgumentNullException>(() => ((IServiceCollection)null!).AddWriteableFileProvider("x", _ => null!));
+        finally
+        {
+            InMemoryFileProvider.ClearStore(store);
+        }
+    }
+
+    [TestMethod]
+    public void DependencyInjection_NullArguments_Throw()
+    {
+        var services = new ServiceCollection();
+        Assert.ThrowsExactly<ArgumentNullException>(() => services.AddWriteableFileProvider((IConfiguration)null!));
+        Assert.ThrowsExactly<ArgumentNullException>(() => services.AddWriteableFileProvider((Func<IServiceProvider, IWriteableFileProvider>)null!));
+        Assert.ThrowsExactly<ArgumentNullException>(() => ((IServiceCollection)null!).AddWriteableFileProvider(_ => null!));
+        Assert.IsEmpty(services);
     }
 
     [TestMethod]

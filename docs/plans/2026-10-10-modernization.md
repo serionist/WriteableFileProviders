@@ -336,8 +336,10 @@ public class PreconditionFailedException : IOException      public class FileExi
     first.
   - A golden corpus generated from the old Newtonsoft code pins all of this (F30, F48).
 - **DI:**
-  - `services.AddWriteableFileProvider(name, IConfiguration)` and `AddWriteableFileProvider(name, factory)` register
-    keyed singletons.
+  - `services.AddWriteableFileProvider(IConfiguration)` and `AddWriteableFileProvider(factory)` register a plain
+    singleton `IWriteableFileProvider` (`AddSingleton`, so several are all in `GetServices`); an app with several
+    providers tells them apart itself, such as with keyed services. Changed in S12 part 2 (simplify, the maintainer's
+    request of 2026-10-11): S4 registered keyed singletons by name.
   - It lives in Common, on `Microsoft.Extensions.DependencyInjection.Abstractions`.
 - **Package references:** `Microsoft.Extensions.Configuration` and Newtonsoft go (F72, D9).
 
@@ -368,12 +370,15 @@ public class PreconditionFailedException : IOException      public class FileExi
 - **Box and SharePoint:** read only, through their fixed-lifetime pre-authenticated URLs, under D18.
 - **Physical:** none natively.
 - **`WriteableFileProviders.AspNetCore`:**
-  - `AddWriteableFileProviderGateway(options)` and `MapWriteableFileProviderGateway()` serve GET, HEAD and PUT on
-    `{BasePath}/{token}/{fileName?}`.
-  - `IWriteableFileUrlService.GetSignedUrlAsync(providerName, path, options)` tries the provider's native URL first,
-    unless `PreferGateway` is set, and falls back to a gateway URL when the native call throws `NotSupportedException`.
+  - `AddWriteableFileProviderGateway(options)` (or `(publicBaseUri)`, added in S12 part 2) and
+    `MapWriteableFileProviderGateway()` serve GET, HEAD and PUT on `{BasePath}/{token}/{fileName?}`.
+  - `IWriteableFileUrlService.GetSignedUrlAsync(path, options)`, for the app's `IWriteableFileProvider`, and
+    `GetSignedUrlAsync(path, options, providerKey)`, for a keyed one (both since S12 part 2; S11 took a provider name
+    first), try the provider's native URL first, unless `PreferGateway` is set, and fall back to a gateway URL when the
+    native call throws `NotSupportedException`.
   - **Tokens:** ASP.NET Core Data Protection time-limited payloads, with purpose
-    `WriteableFileProviders.Gateway.v1/<provider>/<permission>`.
+    `WriteableFileProviders.Gateway.v1/<provider>/<permission>` (built as a chain in S11; since S12 part 2, a token for
+    the app's default provider has an empty provider segment and leaves the provider out of the chain).
     - The payload holds the path, permission, content type, file name and a `jti`.
     - A bad token returns 404.
     - The path comes only from the token and is validated again.
@@ -722,7 +727,7 @@ Status: `todo`, `done` (with the PR), `wontfix` (with the reason). F-numbers are
 | P2.6 ETags and conditional writes | S4, S5–S10 | done: S4 (API, non-atomic default); S5 (Physical: synthesized ETag, atomic `IfNotExists`, `IfMatch` checked before the rename); S6 (Azure, atomic); S7 (atomic on AWS; on MinIO and other S3-compatible servers checked first and sent to the server); S8 (GCS: the generation, atomic); S9 (SharePoint: checked, and sent to the service; D15 as amended); S10 (Box: `IfNotExists` atomic, `IfMatch` checked until the live run, D15) |
 | P2.7 Content type on write and read | S4, S5–S10 | done: S4 (API, hint); S5 (Physical keeps none; the hint is ignored, D24); S6 (Azure); S7 (S3, MinIO); S8 (GCS); S9 (SharePoint reports the service's type and ignores the hint); S10 (Box keeps none: ignored, null) |
 | P2.8 Async listing, recursive | S4, S5–S10 | done: S4 (API, default walk); S5 (Physical: its own walk, which lists linked folders without entering them); S6 (Azure: one flat listing); S7 (a recursive walk is one paged listing); S8 (GCS: paged prefix listing, the base's walk); S9 (SharePoint: paged children, the base's walk); S10 (Box: marker paging, recursive by folder id) |
-| P2.9 Dependency injection | S4, S11 | done: S4 (registration); S11 (`AddWriteableFileProviderGateway`, `MapWriteableFileProviderGateway`, keyed providers resolved by name) |
+| P2.9 Dependency injection | S4, S11, S12 | done: S4 (registration); S11 (`AddWriteableFileProviderGateway`, `MapWriteableFileProviderGateway`, keyed providers resolved by name); S12 part 2 (one provider by interface, `AddWriteableFileProviderGateway(publicBaseUri)`, the URL service for the default provider or a key) |
 | P2.10 More credential options | S6, S7, S8 | done: S6 (`UseDefaultAzureCredential`, a `BlobContainerClient` constructor); S7 (`UseDefaultCredentials`, a caller's `IAmazonS3`); S8 (GCS: a given `StorageClient`, the `Endpoint`, lazy Application Default Credentials); S9 (SharePoint: certificate and `DefaultAzureCredential` sign-in, a `GraphServiceClient` constructor); S10 (Box: an `IBoxClient` constructor) |
 | P2.11 Server-side copy, GCS native move | S4, S5–S10 | done: S4 (API, default); S5 (Physical: a native rename; copy streams into the destination's temp file); S6 (Azure Copy Blob); S7 (CopyObject, in parts above 5 GiB); S8 (GCS copies by rewrite; native move stays under Later, D16); S9 (SharePoint: `/copy` and its monitor, move by `PATCH`); S10 (Box: copy and move on the server) |
 | P2.12 Physical Watch | S5 | done (S5): `PhysicalFilesWatcher` |
@@ -2231,6 +2236,46 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     AmazonS3 98.19/93.84, AspNetCore 100/99.01, AzureBlob 99.33/91.93, Box 99.71/93.12, Common 96.87/93.14, GCS
     99.49/94.29, MinIO 98.18/91.85, Physical 99.34/94.12, SharePoint 99.77/91.30). The AmazonS3 branch floor rose from
     91 to 92 in round 2, by this branch's own figures. No live suite ran (no accounts here; D21).
+
+- **2026-10-11, S12 part 2, simplify (#16):** branch `16-simplify` (worktree `D:\workspaces\wfp-wt\16f`), built beside
+  `16-launch` from the maintainer's requests of 2026-10-11 (a simple API; one provider by interface, several the app's
+  choice; download URLs for the local disk in a few lines).
+  - **DI without keys (Common):** `AddWriteableFileProvider(IConfiguration)` and `AddWriteableFileProvider(factory)`
+    register a plain singleton `IWriteableFileProvider` with `AddSingleton`, not `TryAdd`, so every registration is in
+    `GetServices` and the last one is injected; the container builds it on first use and disposes it. The keyed `name`
+    overloads are gone. Tests: one provider (same instance, disposed with the container), from configuration, two
+    registered (`GetServices` sees both, the last is injected), null arguments.
+  - **The URL service and the gateway, for the default provider or a key:** `IWriteableFileUrlService` has
+    `GetSignedUrlAsync(path, options, ct)`, for the container's `IWriteableFileProvider`, and
+    `GetSignedUrlAsync(path, options, providerKey, ct)`, for one the app registered with
+    `AddKeyedSingleton<IWriteableFileProvider>(key, ...)`. One name for both, the key after the options so it cannot be
+    taken for a path, and the token last as on every async member. No call binds to both: only the keyed form takes a
+    string after the options, and a `null` key goes to it and throws. The analyzer's RS0026 (two overloads with optional
+    parameters) is suppressed for the pair, with its reason, as Common does for its 2027 overloads. Rejected: an optional
+    key (`string? providerKey = null` before the token makes `GetSignedUrlAsync(path, options, ct)` fail to compile, a
+    trap in every minimal API), a second method name (two names for one operation), and a keyed URL service per key
+    (`AnyKey` registrations: more machinery than the overload). No default provider registered:
+    `InvalidOperationException`; an unknown key: `ArgumentException` naming `providerKey`. The gateway resolves the
+    same way: no key `GetService<IWriteableFileProvider>()`, a key `GetKeyedService<IWriteableFileProvider>(key)`.
+  - **The token (a one-way door, opened by the maintainer's request for this release):** the format is kept,
+    `{access}.{provider}.{payload}`; an empty provider segment means the default provider, and its purpose chain leaves
+    the provider out (`WriteableFileProviders.Gateway.v1`, the access). Not an empty purpose: Data Protection allows it
+    but advises against it. Not a fixed name such as `default`: a key of that name would share the chain. A chain one
+    purpose shorter matches no keyed chain, since Data Protection authenticates the number of purposes, so neither kind
+    of token redeems as the other (tested both ways, and with a key that spells the access). A key is never empty, so
+    the empty segment names no keyed provider. Tokens issued with a provider name since S11 redeem as keyed ones,
+    unchanged: `GatewayTokenGoldenTests`' existing tokens and literal tests pass untouched (only additions to the file),
+    and three default-provider goldens, issued once with the same test key and never regenerated, plus literal-built
+    tokens and the literal format, pin the new form. AGENTS.md's door text says it.
+  - **One-call gateway setup:** `AddWriteableFileProviderGateway(Uri publicBaseUri)`, next to the options form.
+    `TutorialTests` runs the root README's tutorial line for line over the Physical provider (TestServer, a temp
+    folder): the link endpoint returns a gateway URL, which downloads the file. The same snippet, with its three
+    `using`s, also compiles as a standalone web app.
+  - **The simplicity pass over the nine packages' PublicAPI files:** nothing beyond the above is implemented here; the
+    candidates, each with its trade-off, are in the PR for the main session to decide.
+  - **Docs:** XML docs of every changed member; the migration guide's DI line and its AspNetCore section; AGENTS.md's
+    gateway door and tests line; and the READMEs' DI and URL service snippets, edited only so they compile (the launch
+    half rewrites the READMEs).
 
 ### For the maintainers
 

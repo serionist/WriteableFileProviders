@@ -5,7 +5,7 @@ using Microsoft.Net.Http.Headers;
 namespace WriteableFileProviders.AspNetCore;
 
 /// <summary>The <see cref="IWriteableFileUrlService"/>: the provider's native URL, or a gateway URL.</summary>
-/// <param name="services">Where the keyed providers are registered.</param>
+/// <param name="services">Where the providers are registered.</param>
 /// <param name="codec">Writes gateway tokens.</param>
 /// <param name="gatewayOptions">The gateway's options.</param>
 /// <param name="timeProvider">The clock for expiry times.</param>
@@ -13,17 +13,38 @@ internal sealed class WriteableFileUrlService(
     IServiceProvider services, GatewayTokenCodec codec, IOptions<WriteableFileProviderGatewayOptions> gatewayOptions, TimeProvider timeProvider)
     : IWriteableFileUrlService
 {
-    public async Task<SignedUrl> GetSignedUrlAsync(string providerName, ProviderPath path, SignedUrlOptions options, CancellationToken cancellationToken = default)
+    public async Task<SignedUrl> GetSignedUrlAsync(ProviderPath path, SignedUrlOptions options, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrEmpty(providerName);
+        Validate(options);
+        var provider = services.GetService<IWriteableFileProvider>()
+            ?? throw new InvalidOperationException(
+                "No IWriteableFileProvider is registered without a key: register one with AddWriteableFileProvider, or pass the key of a keyed one.");
+        return await IssueAsync(providerName: null, provider, path, options, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<SignedUrl> GetSignedUrlAsync(ProviderPath path, SignedUrlOptions options, string providerKey, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(providerKey);
+        Validate(options);
+        var provider = services.GetKeyedService<IWriteableFileProvider>(providerKey)
+            ?? throw new ArgumentException($"No IWriteableFileProvider is registered under the key '{providerKey}'.", nameof(providerKey));
+        return await IssueAsync(providerKey, provider, path, options, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static void Validate(SignedUrlOptions options)
+    {
         ArgumentNullException.ThrowIfNull(options);
         if (options.Validity <= TimeSpan.Zero)
             throw new ArgumentOutOfRangeException(nameof(options), options.Validity, "The validity must be positive.");
         if (!Enum.IsDefined(options.Permission))
             throw new ArgumentOutOfRangeException(nameof(options), options.Permission, "Unknown access.");
-        var provider = services.GetKeyedService<IWriteableFileProvider>(providerName)
-            ?? throw new ArgumentException($"No IWriteableFileProvider is registered under the name '{providerName}'.", nameof(providerName));
+    }
 
+    // The provider's native URL, else a gateway URL. The provider's key goes into a gateway token, so the gateway serves
+    // the URL from the same provider; null is the app's default provider.
+    private async Task<SignedUrl> IssueAsync(
+        string? providerName, IWriteableFileProvider provider, ProviderPath path, SignedUrlOptions options, CancellationToken cancellationToken)
+    {
         if (!GatewayOptions.PreferGateway)
         {
             try
@@ -41,7 +62,7 @@ internal sealed class WriteableFileUrlService(
     private WriteableFileProviderGatewayOptions GatewayOptions => gatewayOptions.Value;
 
     private async Task<SignedUrl> IssueGatewayUrlAsync(
-        string providerName, IWriteableFileProvider provider, ProviderPath path, SignedUrlOptions options, CancellationToken cancellationToken)
+        string? providerName, IWriteableFileProvider provider, ProviderPath path, SignedUrlOptions options, CancellationToken cancellationToken)
     {
         var gateway = GatewayOptions;
         var access = options.Permission;

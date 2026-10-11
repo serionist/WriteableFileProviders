@@ -1049,6 +1049,9 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     without `WFP_LIVE`: 74 skipped, exit 9); before `--` it counts skipped tests and exits 0.
   - Verified: actionlint 1.7.12 and the schema checks pass; the masking ran in bash with `jq` (Alpine) on a sample
     Box configuration and on a key in both forms; the package check passes on a fresh pack of nine packages.
+  - Main-session check of the round: every fix verified; the live suite step now names `shell: bash`, because the
+    default shell runs without `pipefail`, so a `jq` that failed in a masking pipeline went unnoticed and the step
+    carried on unmasked.
 
 ### For the maintainers
 

@@ -186,6 +186,9 @@ jobs:
       # Only this job's provider gets its secrets; every other variable stays empty, so no suite can read another
       # account's credentials. The names are those the live test classes read.
       - name: Run the live suite
+        # bash -eo pipefail (the default shell has no pipefail), so a jq that fails in a masking pipeline stops the
+        # step before any test runs.
+        shell: bash
         env:
           WFP_LIVE: "1"
           WFP_AZURE_ACCOUNT_NAME: ${{ matrix.provider == 'AzureBlob' && secrets.WFP_AZURE_ACCOUNT_NAME || '' }}

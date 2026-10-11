@@ -28,7 +28,7 @@ links, `docs/guide/`.
 | `docs/reviews/` | Reports of whole-repo or whole-folder reviews. A change's own review goes in its PR. |
 | `.claude/skills/` | The work loop: `start-work`, `review-plan`, `review-code`, `finish-work`. |
 | `WriteableFileProviders.slnx` | The solution. |
-| `Directory.Build.props`, `Directory.Build.targets` | Settings every project shares; `src/` and `tests/` add their own (for `src/`, packaging, package validation, the trim and AOT analyzers, and the upper bound of a packed dependency on one of our packages, `[V, NextMajor.0.0-0)`; for `tests/`, test project settings). The root `.targets` file holds the strictness settings, where no project can turn them off. |
+| `Directory.Build.props`, `Directory.Build.targets` | Settings every project shares; `src/` and `tests/` add their own (for `src/`, packaging, package validation, the trim and AOT analyzers, and the upper bound of a packed dependency on one of our packages, `[V, NextMajor.0.0-alpha)`; for `tests/`, test project settings). The root `.targets` file holds the strictness settings, where no project can turn them off. |
 | `Directory.Packages.props` | Every package version, once (central package management). A `.csproj` names packages without versions. |
 | `global.json`, `nuget.config` | The SDK and the test runner; the package source (nuget.org only). |
 | `eng/` | `coverage-gate.cs`, the coverage gate, and `coverage.json`, the floor of each assembly; `package-check.cs`, which checks a release's packages before they are pushed; `render-assets.sh`, which renders the PNGs in `docs/assets/` with Docker. |

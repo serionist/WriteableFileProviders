@@ -1,46 +1,48 @@
 # Releasing
 
-How a release reaches nuget.org: a maintainer tags a commit of `main`, `release.yml` builds, tests and packs it, a
-maintainer approves the push, and the packages and the GitHub release appear. No API key exists anywhere: nuget.org's
-trusted publishing trades the job's OIDC token for a key that lives an hour. Versions follow the
-[versioning policy](guide/versioning.md).
+A maintainer tags a commit of `main`. `release.yml` builds, tests and packs it, a maintainer approves the push, and the
+packages and the GitHub release appear. There is no API key: nuget.org trusted publishing trades the job's OIDC token
+for a key that lives one hour. Versions follow the [versioning policy](guide/versioning.md).
 
 ## Once: set it up
 
-In this order, before the first tag. A workflow that names an environment creates it, unprotected, the first time it
-runs, so protect the environment before it holds a secret or nuget.org trusts it.
+Do these in order, before the first tag. A workflow creates the environment it names, unprotected, on its first run:
+protect `nuget` before it holds a secret or nuget.org trusts it.
 
-1. **Reserve the `WriteableFileProviders.` prefix** on nuget.org, so no one else can publish a package under it and
-   ours show the verified mark: email `account@nuget.org` from the account that owns the packages, `serionist`, naming
-   that profile and the prefix `WriteableFileProviders.*`. nuget.org answers with its decision; ask before the first
-   tag, since the new `WriteableFileProviders.AspNetCore` id is free until it is published or reserved.
-2. **Protect the `nuget` environment** (Settings, Environments, New environment, `nuget`):
-   - Required reviewers: the maintainers, so a person approves every push to nuget.org after the tests pass. Leave
-     "Prevent self-review" off if one maintainer releases alone.
+1. Reserve the package prefix on nuget.org: email `account@nuget.org` from the account that owns the packages. Ask
+   before the first tag: the new id `WriteableFileProviders.AspNetCore` is free until it is published or reserved.
+   - Profile: `serionist`
+   - Prefix: `WriteableFileProviders.*`
+2. Protect the `nuget` environment (Settings > Environments > New environment).
+   - Name: `nuget`
+   - Required reviewers: the maintainers. Leave "Prevent self-review" off if one maintainer releases alone.
    - Deployment branches and tags: Selected branches and tags, with the tag rule `v*` only.
-3. **A tag ruleset on `v*`** (Settings, Rules, Rulesets, New tag ruleset): target tags matching `v*`, with the rules
-   that restrict creations, updates and deletions. Its bypass list takes roles, not people: add the Repository admin
-   and Write roles. Today that is exactly the two maintainers; anyone given write access later can tag too.
-4. **The `NUGET_USER` secret** of the `nuget` environment: `serionist`, the nuget.org profile name (not the email) of
-   the account that owns the `WriteableFileProviders.*` packages.
-5. **Trusted publishing on nuget.org**, signed in as `serionist`: your user name, Trusted Publishing, and add a policy:
-   - owner: `serionist`, the account that owns the packages;
-   - Repository Owner `serionist`, Repository `WriteableFileProviders`, Workflow File `release.yml` (the file name
-     only), Environment `nuget`;
-   - scopes: publishing new packages and new versions of existing packages, for the glob `WriteableFileProviders.*`.
-     New packages matter: `WriteableFileProviders.AspNetCore` is a new id in 2027.0.0.
+3. Add a tag ruleset (Settings > Rules > Rulesets > New tag ruleset).
+   - Target: tags matching `v*`
+   - Rules: restrict creations, restrict updates, restrict deletions
+   - Bypass list: the Repository admin and Write roles (today the two maintainers; anyone given write access later can
+     tag too)
+4. Add the `NUGET_USER` secret to the `nuget` environment.
+   - Value: `serionist`, the nuget.org profile name (not the email)
+5. Add a trusted publishing policy on nuget.org, signed in as `serionist` (your user name > Trusted Publishing).
+   - Owner: `serionist`
+   - Repository Owner: `serionist`
+   - Repository: `WriteableFileProviders`
+   - Workflow File: `release.yml` (the file name only)
+   - Environment: `nuget`
+   - Scopes: new packages and new versions of existing packages, glob `WriteableFileProviders.*` (new packages matter:
+     `WriteableFileProviders.AspNetCore` is new in 2027.0.0)
 
 ## Every release
 
-1. **Make `main` ready.** CI is green on the commit to release, the live suites of any provider that changed have run
-   against the maintainers' accounts (`live.yml`), and `CHANGELOG.md` has the release's section: its heading is the
-   version with the date, such as `## 2027.0.0 (2026-10-20)`, replacing `(unreleased)`. That section becomes the
-   GitHub release's notes, and `release.yml` refuses a stable tag without it, or whose heading still says
-   "unreleased", before anything is pushed. Merge it in a pull request like any change.
-2. **Optionally, a release candidate:** tag `v2027.0.0-rc.1` on that commit and push it. It runs the whole release
-   and publishes prereleases, `2027.0.0-rc.1`, to nuget.org; its notes are the `2027.0.0` section, or notes GitHub
-   generates when there is none yet.
-3. **Tag the release** on the commit of `main`, annotated:
+1. Make `main` ready, in a pull request like any change:
+   - CI is green on the commit to release.
+   - The live suites (`live.yml`) have run for every provider that changed.
+   - `CHANGELOG.md` has the release's section, dated: `## 2027.0.0 (2026-10-20)`, not `(unreleased)`. It becomes the
+     GitHub release notes, and `release.yml` refuses a stable tag without it.
+2. Optional: tag a release candidate, `v2027.0.0-rc.1`, on that commit. It runs the whole release and publishes
+   `2027.0.0-rc.1` prereleases. Its notes are the `2027.0.0` section, or notes GitHub generates when there is none.
+3. Tag the release on the commit of `main`, annotated:
 
    ```
    git fetch origin
@@ -48,50 +50,53 @@ runs, so protect the environment before it holds a secret or nuget.org trusts it
    git push origin v2027.0.0
    ```
 
-4. **Watch `release.yml`** (Actions, Release). It checks the tag is on `main` and the changelog has the version's
-   section, builds, runs the tests with coverage and the coverage gate, packs every package at the tag's version, and
-   checks them (`eng/package-check.cs`: every package at that version, each depending on our other packages within its
-   major). It also waits for `ci.yml` to conclude success on the tagged commit, Windows job included.
-5. **Approve the deployment** when the `nuget` job asks (Review deployments, `nuget`, Approve). It pushes every
-   `.nupkg` and `.snupkg`; then the GitHub release is created with the packages attached.
+4. Watch `release.yml` (Actions > Release). It:
+   - checks the tag is on `main` and the changelog has the version's section;
+   - builds, and runs the tests with coverage and the coverage gate;
+   - packs every package at the tag's version and checks them (`eng/package-check.cs`: every package at that version,
+     each depending on our other packages within its major);
+   - waits for `ci.yml` to succeed on the tagged commit, Windows job included.
+5. Approve the deployment when the `nuget` job asks (Review deployments > `nuget` > Approve). It pushes every `.nupkg`
+   and `.snupkg`, then creates the GitHub release with the packages attached.
 
-If a step fails before the approval, nothing was published: fix `main`, then tag a new commit (a moved tag needs the
-ruleset's bypass), or re-run the workflow once CI is green. If the push fails halfway, re-run the failed jobs:
-`--skip-duplicate` pushes only what is missing.
+If it fails:
+
+- Before the approval, nothing was published. Fix `main` and tag a new commit (moving a tag needs the ruleset's
+  bypass), or re-run the workflow once CI is green.
+- During the push, re-run the failed jobs. `--skip-duplicate` pushes only what is missing.
 
 ## Afterwards: check nuget.org
 
-Within an hour or so of the push (validation and indexing take a while):
+Give validation and indexing an hour or so, then check:
 
-- Each of the nine packages, `WriteableFileProviders.Common`, `.Physical`, `.AzureBlob`, `.AmazonS3`, `.Minio`,
-  `.GoogleCloudStorage`, `.Box`, `.SharePoint` and `.AspNetCore`, is listed at the version, with its README, the icon,
-  the MIT licence and the release notes link.
-- Each provider's dependencies show `WriteableFileProviders.Common (>= 2027.0.0 && < 2028.0.0-0)`.
-- The symbols: open a package in NuGet Package Explorer (its nuget.org page links it), whose Health section shows
-  Source Link, a deterministic build and the compiler flags as valid.
+- All nine packages are listed at the version, each with its README, the icon, the MIT licence and the release notes
+  link: `WriteableFileProviders.Common`, `.Physical`, `.AzureBlob`, `.AmazonS3`, `.Minio`, `.GoogleCloudStorage`,
+  `.Box`, `.SharePoint`, `.AspNetCore`.
+- Each provider depends on `WriteableFileProviders.Common (>= 2027.0.0 && < 2028.0.0-0)`.
+- The symbols: open a package in NuGet Package Explorer (linked from its nuget.org page). Its Health section shows
+  Source Link, deterministic build and compiler flags as valid.
 - The GitHub release has the notes and the packages.
-- A new project restores the packages from nuget.org and runs the getting-started guide (`docs/guide/getting-started.md`).
+- A new project restores the packages from nuget.org and runs the getting-started guide
+  (`docs/guide/getting-started.md`).
 
-Then, for the first 2027 release only, unlist every version below `2026.10.10` of each package (its Manage page on
-nuget.org lists them), keeping `2026.10.10.x` listed for .NET 8 consumers.
+After the first 2027 release only: unlist every version below `2026.10.10` of each package (its Manage page on
+nuget.org). Keep `2026.10.10.x` listed for .NET 8 apps.
 
 ## Afterwards: turn on the package validation baseline
 
-Package validation already runs on every pack. After the first release on nuget.org, it can also compare each new
-package with that release, to catch a breaking change before it ships. In `src/Directory.Build.props`, beside
-`EnablePackageValidation`:
+Package validation runs on every pack. After the first release on nuget.org, add the baseline to
+`src/Directory.Build.props`, next to `EnablePackageValidation`:
 
 ```xml
 <PackageValidationBaselineVersion>2027.0.0</PackageValidationBaselineVersion>
 ```
 
-The SDK then adds each package's 2027.0.0 as a `PackageDownload` at restore, from nuget.org, and the pack fails on a
-change that breaks it (`CP0002` and the like). The pull request that sets it shows CI's locked restore and pack passing
-with it. A package first released after 2027.0.0 has no such baseline: its project sets its own
-`PackageValidationBaselineVersion` once its first version ships, and an empty one until then, which turns the baseline
-check off for it.
+Restore then downloads each package's 2027.0.0 from nuget.org, and the pack fails on a change that breaks it (`CP0002`
+and the like). The pull request that sets it shows CI's locked restore and pack passing.
 
-A minor release keeps the baseline at the major's first release, or moves it to the latest release. A new major breaks
-on purpose: generate the suppressions once with `dotnet pack -p:ApiCompatGenerateSuppressionFile=true`, review the
-`CompatibilitySuppressions.xml` each project gets in its pull request, and after the major ships, delete those files
-and set the baseline to it.
+- **A package first released after 2027.0.0:** its project sets an empty `PackageValidationBaselineVersion`, which
+  turns the check off, until its first version ships; then that version.
+- **A minor release:** keep the baseline at the major's first release, or move it to the latest release.
+- **A new major:** generate the suppressions with `dotnet pack -p:ApiCompatGenerateSuppressionFile=true`, and review
+  each project's `CompatibilitySuppressions.xml` in its pull request. After the major ships, delete those files and set
+  the baseline to it.

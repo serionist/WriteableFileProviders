@@ -2637,7 +2637,8 @@ is missing when `WFP_LIVE=1` is set without them.
 
 **The release (D28):**
 
-- [ ] Confirm László Nemes and Starschema agree to MIT (D8) before tagging v2027.0.0.
+- [x] Confirm László Nemes and Starschema agree to MIT (D8) before tagging v2027.0.0. Done 2026-10-11: @serionist
+  discussed it with László Nemes, and MIT is agreed.
 - [ ] Once everything above that blocks it is done, and the final review of S12 has merged: date the `2027.0.0`
   heading of `CHANGELOG.md` in a PR, optionally tag `v2027.0.0-rc.1` on `main` for a prerelease, then `v2027.0.0`.
   `release.yml` asks the `nuget` environment's reviewers before it pushes ([docs/releasing.md](../releasing.md),

@@ -219,7 +219,7 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
             throw AlreadyExists(path);
         // Before anything else opens it: a file the write must not replace is refused, and the new file takes the mode of
         // the one it replaces.
-        var like = replaced.Exists && IsReplaceable(path, target, replaced) ? Followed(replaced) : null;
+        var like = replaced.Exists && IsReplaceable(path, target, replaced) ? replaced : null;
         if (options.Mode == UpdateFileMode.Append && like is not null)
         {
             // A file deleted since the probe is reported as missing.
@@ -298,7 +298,7 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
         {
             try
             {
-                await CommitAsync(destination, FullPath(destination), expected: null, mustBeNew: true, Followed(new FileInfo(from)), input.CopyToAsync, cancellationToken).ConfigureAwait(false);
+                await CommitAsync(destination, FullPath(destination), expected: null, mustBeNew: true, new FileInfo(from), input.CopyToAsync, cancellationToken).ConfigureAwait(false);
             }
             catch (PreconditionFailedException e)
             {
@@ -403,19 +403,6 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
         }
     }
 
-    // A listed name a path can name again: one segment that passes the same checks as a caller's path.
-    private bool IsAddressable(string name)
-    {
-        try
-        {
-            return Resolve(new ProviderPath(name)).RelativeSegments.Length == 1;
-        }
-        catch (ArgumentException)
-        {
-            return false;
-        }
-    }
-
     private IEnumerable<IWriteableFileInfo> EnumerateRecursive(ResolvedPath path, CancellationToken cancellationToken)
     {
         var folders = new Queue<ResolvedPath>();
@@ -479,7 +466,7 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
             var current = new FileInfo(target);
             if (expected is not null && VersionOf(current) != expected)
                 throw Changed(path, expected);
-            Stamp(Followed(current).LastWriteTimeUtc, TimeProvider.GetUtcNow().UtcDateTime, time =>
+            Stamp(Describe(current).LastWriteTimeUtc, TimeProvider.GetUtcNow().UtcDateTime, time =>
             {
                 File.SetLastWriteTimeUtc(temp, time);
                 return File.GetLastWriteTimeUtc(temp);
@@ -509,7 +496,7 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
     {
         try
         {
-            var access = Followed(replaced).Length == 0 ? FileAccess.ReadWrite : FileAccess.Write;
+            var access = Describe(replaced).Length == 0 ? FileAccess.ReadWrite : FileAccess.Write;
             using var probe = new FileStream(target, FileMode.Open, access, ReadShare, bufferSize: 0);
             return probe.CanSeek ? true : throw new IOException($"The path '{path}' is not a regular file: a FIFO, a socket or a device.");
         }
@@ -558,23 +545,48 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
     {
         if (!file.Exists)
             return null;
-        var data = Followed(file);
-        return ETag(data.LastWriteTimeUtc, data.Length);
+        var (length, lastWriteTimeUtc) = Describe(file);
+        return ETag(lastWriteTimeUtc, length);
     }
 
-    // What a path names as a file: for a symbolic link to a file, its final target, which reads open, so the length, the
-    // time, the ETag and the mode come from what is read; otherwise (a file, a link to nothing or in a loop) the entry.
-    private static FileInfo Followed(FileInfo file)
+    // The length and last-write time of what a path names as a file, as reads see it. FileInfo describes a symbolic link
+    // itself (its length is 0 on Windows, its target's text on Linux), while a read opens what the system resolves, which
+    // a string-based resolution can get wrong (a relative target behind a linked folder). So for a link, they are read
+    // from a handle the system opened through it, and from the link's own entry when nothing opens (a link to nothing,
+    // in a loop, or to a file the process may not read). Something that cannot seek (a FIFO, a socket, a device) has
+    // length 0, as FileInfo gives one reached directly, so a write through the link refuses it as not a regular file.
+    // Only a reparse point is asked for its target, which costs a round trip on Windows and over SMB.
+    private static (long Length, DateTime LastWriteTimeUtc) Describe(FileInfo file)
     {
-        if (file.LinkTarget is null)
-            return file;
+        if (!file.Exists)
+            return (0, file.LastWriteTimeUtc);
+        if ((file.Attributes & FileAttributes.ReparsePoint) == 0 || file.LinkTarget is null)
+            return (file.Length, file.LastWriteTimeUtc);
         try
         {
-            return file.ResolveLinkTarget(returnFinalTarget: true) is FileInfo { Exists: true } target ? target : file;
+            using var handle = OpenThroughLink(file.FullName);
+            using var target = new FileStream(handle, FileAccess.Read, bufferSize: 0);
+            return (target.CanSeek ? target.Length : 0, File.GetLastWriteTimeUtc(handle));
         }
-        catch (IOException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            return file;
+            return (file.Length, file.LastWriteTimeUtc);
+        }
+    }
+
+    // A link may lead to a FIFO (Linux, macOS), which an open to read waits on until a writer comes, so the link is first
+    // opened to read and write, which does not wait; to read only when that fails, as for a file the process may not
+    // write or one another process holds without sharing writes. (A FIFO the process may not write still waits there, as
+    // a read of it does.)
+    private static SafeFileHandle OpenThroughLink(string path)
+    {
+        try
+        {
+            return File.OpenHandle(path, FileMode.Open, FileAccess.ReadWrite, ReadShare);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return File.OpenHandle(path, FileMode.Open, FileAccess.Read, ReadShare);
         }
     }
 
@@ -586,8 +598,8 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
     // The physical path is the entry's own, under the root, even when it is a link to a file elsewhere.
     private WriteableFileInfo FileEntry(ProviderPath path, FileInfo file)
     {
-        var data = Followed(file);
-        return new(this, path, true, false, data.Length, data.LastWriteTimeUtc, file.FullName, ETag(data.LastWriteTimeUtc, data.Length));
+        var (length, lastWriteTimeUtc) = Describe(file);
+        return new(this, path, true, false, length, lastWriteTimeUtc, file.FullName, ETag(lastWriteTimeUtc, length));
     }
 
     private WriteableFileInfo FolderEntry(ProviderPath path, FileSystemInfo folder) =>

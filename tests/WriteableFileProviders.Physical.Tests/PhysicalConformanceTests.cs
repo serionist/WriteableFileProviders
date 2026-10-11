@@ -44,19 +44,28 @@ internal static class RawFiles
     /// <param name="folder">The folder.</param>
     /// <param name="names">The file's names under it, one per level.</param>
     /// <param name="text">The content.</param>
-    /// <returns>False when a name cannot be held here.</returns>
+    /// <returns>False when a name cannot be held here, by this system or by the file system the folder is on.</returns>
     public static bool Store(string folder, IReadOnlyList<string> names, string text)
     {
         if (!names.All(CanHold))
             return false;
         var path = Path.Combine([folder, .. names]);
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.WriteAllText(path, text);
-        return true;
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, text);
+            return true;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // A file system that refuses the name (exFAT, vfat or SMB from Linux refuse ':' and others), as a store
+            // answering 400 does.
+            return false;
+        }
     }
 
     // Windows refuses its reserved characters (where ':' would name a stream and '\' separates) and drops a trailing dot
-    // or space; Linux and macOS hold any name without '/'.
+    // or space; Linux and macOS hold any name without '/', though not every file system they mount does.
     private static bool CanHold(string name) =>
         !OperatingSystem.IsWindows() || (name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0 && !name.EndsWith('.') && !name.EndsWith(' '));
 }

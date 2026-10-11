@@ -103,6 +103,39 @@ public sealed class BaseClassTests
     }
 
     [TestMethod]
+    public void IsAddressable_IsWhatAOneSegmentPathAccepts_TheProvidersOwnRuleIncluded()
+    {
+        using var provider = Stub();
+        string[] addressable = ["a.txt", "a%41", "50%.txt", "a:b", "a%3Ab", "x y", "..a", "%"];
+        string[] refused = ["", " ", ".", "..", "...", ". .", "a/b", "a\\b", "x\u0001y", "%2e%2e", "%252e%252e", "a%2F..%2Fb", "%2F", "%00"];
+        foreach (var name in addressable)
+            Assert.IsTrue(provider.Addressable(name), name);
+        foreach (var name in refused)
+            Assert.IsFalse(provider.Addressable(name), name);
+
+        // The provider's own rule applies, also to the decoded forms, as it does to a caller's path.
+        provider.RefusedCharacter = ':';
+        Assert.IsFalse(provider.Addressable("a:b"));
+        Assert.IsFalse(provider.Addressable("a%3Ab"));
+        Assert.IsTrue(provider.Addressable("ab"));
+
+        // A name is addressable exactly when a path of that one segment resolves to it.
+        foreach (var name in addressable.Concat(refused))
+        {
+            bool resolves;
+            try
+            {
+                resolves = provider.ResolveForTest(new ProviderPath(name)).Segments is [var only] && only == name;
+            }
+            catch (ArgumentException)
+            {
+                resolves = false;
+            }
+            Assert.AreEqual(resolves, provider.Addressable(name), name);
+        }
+    }
+
+    [TestMethod]
     public async Task Helpers()
     {
         using var provider = Stub("tenant/a");

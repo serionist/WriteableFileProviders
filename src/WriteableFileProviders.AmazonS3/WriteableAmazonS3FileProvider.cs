@@ -174,19 +174,6 @@ public sealed class WriteableAmazonS3FileProvider : WriteableFileProvider<Amazon
         base.Dispose(disposing);
     }
 
-    // A listed name that the path validation would refuse, or would split into other segments, cannot be addressed.
-    private static bool IsAddressable(string name)
-    {
-        try
-        {
-            return ValidateSegments([name]) is [var only] && only == name;
-        }
-        catch (ArgumentException)
-        {
-            return false;
-        }
-    }
-
     private static S3CoreSettings SettingsFor(AmazonS3FileProviderOptions options, IAmazonS3? client, AWSCredentials? credentials)
     {
         var clientGiven = client is not null;
@@ -202,6 +189,8 @@ public sealed class WriteableAmazonS3FileProvider : WriteableFileProvider<Amazon
         var region = S3Core.NormalizeRegion(options.BucketRegion);
         if (!clientGiven && serviceUrl is null && region is null)
             throw new ArgumentException("BucketRegion is required unless ServiceUrl is set.", nameof(options));
+        // AWS, unless the options or the given client name another endpoint: then an S3-compatible server.
+        var onAws = serviceUrl is null && client?.Config.ServiceURL is null;
         return new S3CoreSettings
         {
             Bucket = options.BucketName,
@@ -211,11 +200,11 @@ public sealed class WriteableAmazonS3FileProvider : WriteableFileProvider<Amazon
             Credentials = clientGiven ? null : credentials ?? CredentialsFor(options),
             StorageClass = options.StorageClassForNewFiles,
             // A requester-pays bucket on AWS needs every request to accept the charge; it costs nothing elsewhere.
-            RequesterPays = serviceUrl is null,
-            // AWS checks conditions atomically; an S3-compatible server, ours or the given client's, may ignore some.
-            ChecksAtomically = serviceUrl is null && client?.Config.ServiceURL is null,
+            RequesterPays = onAws,
+            // AWS checks conditions atomically; an S3-compatible server may ignore some.
+            ChecksAtomically = onAws,
             // Outside us-east-1, AWS needs the region as a new bucket's location; other servers use their own.
-            BucketLocation = serviceUrl is null && region is not null and not "us-east-1" ? region : null,
+            BucketLocation = onAws && region is not null and not "us-east-1" ? region : null,
             CreateBucketIfMissing = options.CreateBucketIfMissing,
         };
     }

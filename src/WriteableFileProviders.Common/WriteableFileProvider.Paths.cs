@@ -59,6 +59,23 @@ public abstract partial class WriteableFileProvider<TOptions>
     /// <returns>False to reject the segment.</returns>
     protected virtual bool IsSegmentAllowed(string part) => true;
 
+    /// <summary>
+    /// Whether a name the store lists can be named again by a path: it is one segment (no <c>/</c> or <c>\</c>) that
+    /// passes the same checks as a caller's path, <see cref="ValidateSegments"/> and <see cref="IsSegmentAllowed"/>, also
+    /// after percent-decoding. A listing leaves out every name for which this is false, and never walks into such a folder,
+    /// so everything it lists can be read back.
+    /// </summary>
+    /// <param name="name">A file or folder name, as the store lists it.</param>
+    /// <returns>True when a path can name it.</returns>
+    protected bool IsAddressable(string name) =>
+        !string.IsNullOrEmpty(name)
+        && name.IndexOfAny(_segmentSeparators) < 0
+        && IsValidPart(name)
+        && DecodedForms(name) is { } decoded
+        && decoded.TrueForAll(d => Array.TrueForAll(d.Split(_segmentSeparators), IsValidPart))
+        && IsSegmentAllowed(name)
+        && decoded.TrueForAll(IsSegmentAllowed);
+
     private ResolvedPath ResolveReadable(ProviderPath path)
     {
         var resolved = Resolve(path);

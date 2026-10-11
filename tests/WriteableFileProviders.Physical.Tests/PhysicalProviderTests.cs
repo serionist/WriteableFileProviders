@@ -335,11 +335,10 @@ public sealed class PhysicalProviderTests
     public async Task ALinkToAFile_IsDescribedPinnedAndWrittenAsItsTarget()
     {
         // A file reached through a symbolic link: its info, its listing entry and its ETag describe the target, which reads
-        // open, so a pinned read and an append through the link see one version. A write replaces the link with a file
-        // that takes the target's permission bits, and leaves the target as it was.
+        // open, so a pinned read and an append through the link see one version (the link's own length is 0 on Windows,
+        // the length of its target's path on Linux). A write replaces the link with a file, and leaves the target as it
+        // was; ALinkBehindALinkedFolder checks the mode the new file takes.
         await Write("target.txt", "0123456789");
-        if (!OperatingSystem.IsWindows())
-            File.SetUnixFileMode(Disk("target.txt"), UnixFileMode.UserRead | UnixFileMode.UserWrite);
         try
         {
             File.CreateSymbolicLink(Disk("link.txt"), Disk("target.txt"));
@@ -363,8 +362,6 @@ public sealed class PhysicalProviderTests
         Assert.AreEqual("0123456789ab", await Read("link.txt"));
         Assert.IsNull(new FileInfo(Disk("link.txt")).LinkTarget, "The link is replaced by a file");
         Assert.AreEqual("0123456789", await Read("target.txt"), "Its target is left as it was");
-        if (!OperatingSystem.IsWindows())
-            Assert.AreEqual(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(Disk("link.txt")), "The target's mode, not the link's");
 
         File.Delete(Disk("link.txt"));
         File.CreateSymbolicLink(Disk("link.txt"), Disk("target.txt"));
@@ -372,11 +369,96 @@ public sealed class PhysicalProviderTests
         Assert.AreEqual("new", await Read("link.txt"));
         Assert.AreEqual("0123456789", await Read("target.txt"));
 
+        // A link to a file the process may read but not write is described as well.
+        await Write("readonly.txt", "ro");
+        File.CreateSymbolicLink(Disk("ro-link.txt"), Disk("readonly.txt"));
+        File.SetAttributes(Disk("readonly.txt"), FileAttributes.ReadOnly);
+        try
+        {
+            Assert.AreEqual(2, (await _provider.GetFileInfoAsync("ro-link.txt")).Length);
+        }
+        finally
+        {
+            File.SetAttributes(Disk("readonly.txt"), FileAttributes.Normal);
+        }
+
         // Links in a loop lead to no file: they are described as themselves, and a listing still works.
         File.CreateSymbolicLink(Disk("loop1.txt"), Disk("loop2.txt"));
         File.CreateSymbolicLink(Disk("loop2.txt"), Disk("loop1.txt"));
         Assert.IsNotNull((await _provider.GetFileInfoAsync("loop1.txt")).ETag);
         CollectionAssert.IsSubsetOf(new[] { "loop1.txt", "loop2.txt" }, Names());
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Linux | OperatingSystems.OSX)]
+    [UnsupportedOSPlatform("windows")]
+    public async Task ALinkBehindALinkedFolder_IsDescribedAndWrittenAsTheSystemResolvesIt()
+    {
+        // A deployment layout: current -> releases/r1, and releases/r1/secret.txt -> ../../shared/secret.txt. The system
+        // resolves the link from where it physically is, releases/r1, so it names site/shared/secret.txt, a private file;
+        // resolved as a string from site/current, the same text names a decoy outside the root. The info, the pinned read
+        // and the append all see the private file, and the file that replaces the link takes its mode (0600), not the
+        // decoy's (0644).
+        const UnixFileMode secret = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+        var site = Disk("site");
+        Directory.CreateDirectory(Path.Combine(site, "releases", "r1"));
+        Directory.CreateDirectory(Path.Combine(site, "shared"));
+        Directory.CreateDirectory(Disk("shared"));
+        File.WriteAllText(Path.Combine(site, "shared", "secret.txt"), "private");
+        File.SetUnixFileMode(Path.Combine(site, "shared", "secret.txt"), secret);
+        File.WriteAllText(Disk("shared", "secret.txt"), "decoy, longer");
+        File.SetUnixFileMode(Disk("shared", "secret.txt"), secret | UnixFileMode.GroupRead | UnixFileMode.OtherRead);
+        Directory.CreateSymbolicLink(Path.Combine(site, "current"), Path.Combine("releases", "r1"));
+        File.CreateSymbolicLink(Path.Combine(site, "releases", "r1", "secret.txt"), Path.Combine("..", "..", "shared", "secret.txt"));
+        using var provider = new WriteablePhysicalFileProvider(site);
+
+        var info = await provider.GetFileInfoAsync("current/secret.txt");
+        Assert.AreEqual(7, info.Length);
+        await using (var range = await provider.ReadRangeAsync("current/secret.txt", 1, 3, new ReadOptions { IfMatch = info.ETag }))
+            Assert.AreEqual("riv", await new StreamReader(range).ReadToEndAsync());
+        await provider.UpdateFileAsync("current/secret.txt", TestStreams.Text("+more"), UpdateFileOptions.Append with { IfMatch = info.ETag });
+
+        var replaced = Path.Combine(site, "releases", "r1", "secret.txt");
+        Assert.IsNull(new FileInfo(replaced).LinkTarget, "The link is replaced by a file");
+        Assert.AreEqual("private+more", File.ReadAllText(replaced));
+        Assert.AreEqual(secret, File.GetUnixFileMode(replaced), "The private file's mode");
+        Assert.AreEqual("private", File.ReadAllText(Path.Combine(site, "shared", "secret.txt")));
+        Assert.AreEqual("decoy, longer", File.ReadAllText(Disk("shared", "secret.txt")));
+
+        // A link to a file the process may read but not write is described as well.
+        File.WriteAllText(Path.Combine(site, "shared", "readonly.txt"), "ro");
+        File.SetUnixFileMode(Path.Combine(site, "shared", "readonly.txt"), UnixFileMode.UserRead);
+        File.CreateSymbolicLink(Path.Combine(site, "ro-link.txt"), Path.Combine("shared", "readonly.txt"));
+        Assert.AreEqual(2, (await provider.GetFileInfoAsync("ro-link.txt")).Length);
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Linux | OperatingSystems.OSX)]
+    public async Task ALinkToAFifo_IsListedAndRefusedWithoutWaiting()
+    {
+        // Opening a FIFO to read waits for a writer, and to write waits for a reader: a link to one is described, and a
+        // write through it refused as not a regular file, without either wait.
+        Directory.CreateDirectory(_root);
+        try
+        {
+            using var mkfifo = Process.Start(new ProcessStartInfo("mkfifo", Disk("pipe")) { UseShellExecute = false })!;
+            await mkfifo.WaitForExitAsync();
+            if (mkfifo.ExitCode != 0)
+                Assert.Inconclusive($"mkfifo exited with {mkfifo.ExitCode}.");
+        }
+        catch (Win32Exception e)
+        {
+            Assert.Inconclusive($"mkfifo is not available: {e.Message}");
+        }
+        File.CreateSymbolicLink(Disk("pipe-link"), Disk("pipe"));
+        var names = await Task.Run(() => Names()).WaitAsync(TimeSpan.FromSeconds(30));
+        CollectionAssert.Contains(names, "pipe-link");
+        var info = await _provider.GetFileInfoAsync("pipe-link").WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.IsTrue(info.Exists);
+        Assert.AreEqual(0, info.Length);
+        var refused = await Assert.ThrowsExactlyAsync<IOException>(() => _provider.UpdateFileAsync("pipe-link", TestStreams.Text("x")).WaitAsync(TimeSpan.FromSeconds(30)));
+        StringAssert.Contains(refused.Message, "not a regular file");
+        Assert.IsEmpty(TempFiles());
     }
 
     [TestMethod]

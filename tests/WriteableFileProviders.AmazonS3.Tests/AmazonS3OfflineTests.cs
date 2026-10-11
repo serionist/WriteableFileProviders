@@ -182,6 +182,43 @@ public sealed class AmazonS3OfflineTests
     }
 
     [TestMethod]
+    public async Task GivenClient_WithAnEndpointOfItsOwn_IsTreatedAsS3Compatible()
+    {
+        // A client whose ServiceURL is set talks to an S3-compatible server, as ServiceUrl in the options does: no
+        // requester-pays header, conditions checked first, and no AWS location for a bucket it creates.
+        string? payer = "unset";
+        string? newBucket = null;
+        var missing = true;
+        var factory = new InterceptingHttpClientFactory
+        {
+            Intercept = async r =>
+            {
+                if (r.Method == HttpMethod.Head && r.RequestUri!.AbsolutePath.Trim('/') == "bucket" && missing)
+                    return Empty(HttpStatusCode.NotFound);
+                if (r.Method == HttpMethod.Put && r.RequestUri!.AbsolutePath.Trim('/') == "bucket")
+                {
+                    missing = false;
+                    newBucket = r.Content is null ? "" : await r.Content.ReadAsStringAsync();
+                    return Empty();
+                }
+                if (r.Method == HttpMethod.Head && r.RequestUri!.AbsolutePath.EndsWith("/f.txt", StringComparison.Ordinal))
+                    payer = r.Headers.TryGetValues("x-amz-request-payer", out var values) ? string.Join(",", values) : null;
+                return Exists(r);
+            },
+        };
+        using var client = new Amazon.S3.AmazonS3Client(new BasicAWSCredentials("AKIDEXAMPLE", "secret"),
+            new Amazon.S3.AmazonS3Config { ServiceURL = "http://s3.test", ForcePathStyle = true, HttpClientFactory = factory });
+        using var provider = new WriteableAmazonS3FileProvider(
+            new AmazonS3FileProviderOptions { BucketName = "bucket", BucketRegion = "eu-west-1", RootDirectoryPath = "root", CreateBucketIfMissing = true }, client);
+
+        Assert.IsTrue((await provider.GetFileInfoAsync("f.txt")).Exists);
+        Assert.IsNull(payer, "No requester-pays header");
+        Assert.IsNotNull(newBucket, "The bucket was created");
+        Assert.IsFalse(newBucket.Contains("LocationConstraint", StringComparison.Ordinal), newBucket);
+        Assert.IsFalse(provider.Core.ChecksAtomically);
+    }
+
+    [TestMethod]
     public async Task BucketCheck_ForbiddenIsNotMissing()
     {
         var (provider, _) = Offline(Endpoint(), answer: r => r.Method == HttpMethod.Head && r.RequestUri!.AbsolutePath.Trim('/') == "bucket"

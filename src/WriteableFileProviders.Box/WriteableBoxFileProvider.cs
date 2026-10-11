@@ -276,6 +276,10 @@ public sealed partial class WriteableBoxFileProvider : WriteableFileProvider<Box
             {
                 throw NameRefused(destination, refused);
             }
+            catch (BoxApiException missing) when (missing.ResponseInfo.StatusCode == 404)
+            {
+                throw await GoneAsync("Moving", source, destination, missing, cancellationToken).ConfigureAwait(false);
+            }
         }
         catch (BoxApiException e) when (IsNameInUse(e))
         {
@@ -287,8 +291,7 @@ public sealed partial class WriteableBoxFileProvider : WriteableFileProvider<Box
         }
         catch (BoxApiException e) when (e.ResponseInfo.StatusCode == 404)
         {
-            // Deleted or moved by someone else since it was found.
-            throw NotFound(source, e);
+            throw await GoneAsync("Moving", source, destination, e, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -315,9 +318,19 @@ public sealed partial class WriteableBoxFileProvider : WriteableFileProvider<Box
         }
         catch (BoxApiException e) when (e.ResponseInfo.StatusCode == 404)
         {
-            // Deleted by someone else since it was found, or the version found has gone.
-            throw NotFound(source, e);
+            throw await GoneAsync("Copying", source, destination, e, cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    // Box answered 404 to a move or copy of a file it had found. The file may have been deleted or moved meanwhile, or
+    // the destination folder removed, or (for a copy) the version found deleted: asking again for the source tells
+    // "not found" from the rest.
+    private async Task<IOException> GoneAsync(string what, ResolvedPath source, ResolvedPath destination, BoxApiException e, CancellationToken cancellationToken)
+    {
+        var now = await FindAsync(source.AbsoluteSegments, cancellationToken).ConfigureAwait(false);
+        return now is { IsFolder: false }
+            ? new IOException($"{what} '{source}' to '{destination}' failed: the source changed or the destination folder was removed meanwhile.", e)
+            : NotFound(source, e);
     }
 
     /// <inheritdoc />
@@ -388,20 +401,6 @@ public sealed partial class WriteableBoxFileProvider : WriteableFileProvider<Box
 
     private IWriteableFileInfo EntryInfo(ResolvedPath path, Entry entry) =>
         entry.IsFolder ? WriteableFileInfo.Folder(this, path.Path) : Info(path.Path, entry);
-
-    // A listed name a path can name again: one segment that passes the same checks as a caller's path. Box allows names
-    // the path rules refuse (only dots such as '...', a literal '%2e%2e'); listings leave them out and never walk into them.
-    private bool IsAddressable(string name)
-    {
-        try
-        {
-            return Resolve(new ProviderPath(name)).RelativeSegments.Length == 1;
-        }
-        catch (ArgumentException)
-        {
-            return false;
-        }
-    }
 
     private WriteableFileInfo Info(ProviderPath path, Entry file) =>
         new(this, path, true, false, file.Length, file.LastModified ?? DateTimeOffset.UnixEpoch, etag: file.ETag);

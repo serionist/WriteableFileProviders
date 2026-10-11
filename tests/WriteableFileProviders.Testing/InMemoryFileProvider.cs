@@ -190,19 +190,6 @@ public sealed class InMemoryFileProvider(InMemoryFileProviderOptions options) : 
 
     private static string Key(ResolvedPath path) => string.Join('/', path.AbsoluteSegments);
 
-    // A listed name a path can name again: one segment that passes the same checks as a caller's path.
-    private bool IsAddressable(string name)
-    {
-        try
-        {
-            return Resolve(new ProviderPath(name)).RelativeSegments.Length == 1;
-        }
-        catch (ArgumentException)
-        {
-            return false;
-        }
-    }
-
     private static string Name(string key) => key[(key.LastIndexOf('/') + 1)..];
 
     private static bool IsChild(string folderKey, string key, StringComparison comparison) =>

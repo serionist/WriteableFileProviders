@@ -395,21 +395,8 @@ public sealed partial class WriteableAzureBlobFileProvider : WriteableFileProvid
         }
     }
 
-    // A name the provider can address as one segment: what a listing shows. Blob names with empty, dot-only or
-    // backslashed segments, or the provider's own hidden .wfp- entries, are left out.
-    private static bool IsListable(string name)
-    {
-        if (name.Length == 0 || name.StartsWith(HiddenPrefix, StringComparison.Ordinal) || name.Contains('\\', StringComparison.Ordinal))
-            return false;
-        try
-        {
-            return ValidateSegments([name]).Length == 1;
-        }
-        catch (ArgumentException)
-        {
-            return false;
-        }
-    }
+    // What a listing shows: a name a path can name again (IsAddressable), but not the provider's own hidden .wfp- entries.
+    private bool IsListable(string name) => !name.StartsWith(HiddenPrefix, StringComparison.Ordinal) && IsAddressable(name);
 
     private async Task<bool> HasBlobsUnderAsync(ResolvedPath path, CancellationToken cancellationToken)
     {

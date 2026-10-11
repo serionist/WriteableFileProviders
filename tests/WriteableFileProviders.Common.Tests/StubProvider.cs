@@ -76,11 +76,18 @@ public sealed class StubProvider(StubOptions options) : WriteableFileProvider<St
 
     public string? ContentType { get; set; }
 
+    /// <summary>A character the provider's own segment rule refuses, as Physical and SharePoint refuse ':'.</summary>
+    public char? RefusedCharacter { get; set; }
+
     protected override bool SupportsAtomicPreconditions => AtomicPreconditions;
 
     protected override bool SupportsSignedUrl(SignedUrlAccess permission) => SignedUrls;
 
+    protected override bool IsSegmentAllowed(string part) => RefusedCharacter is not { } refused || !part.Contains(refused, StringComparison.Ordinal);
+
     public ProviderPath ResolveForTest(ProviderPath path) => Resolve(path).Path;
+
+    public bool Addressable(string name) => IsAddressable(name);
 
     public Task AppendByRewrite(string path, Stream contents, UpdateFileOptions? options = null) =>
         AppendByRewriteAsync(Resolve(path), contents, options ?? UpdateFileOptions.Append, default);

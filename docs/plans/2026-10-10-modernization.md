@@ -503,7 +503,7 @@ public class PreconditionFailedException : IOException      public class FileExi
   Microsoft.Extensions.Configuration. Each gets a section in the migration guide.
 - **Mixing lines (P21):** every WriteableFileProviders package must be on the same major; a `2026.10.10.x` provider does
   not load against Common 2027. The migration guide and every README say so, and since S12 part 2 the packed dependency
-  on Common carries an upper bound, `[V, NextMajor.0.0)` such as `[2027.0.0, 2028.0.0)`, so mixing majors gives a
+  on Common carries an upper bound, `[V, NextMajor.0.0-0)` such as `[2027.0.0, 2028.0.0-0)`, so mixing majors gives a
   restore warning (NU1608) rather than a type-load failure at run time.
 - **Packages:**
   - The new `WriteableFileProviders.AspNetCore`.
@@ -1617,9 +1617,10 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     - Physical and a symbolic link to a file: FileInfo describes the link (length 0 on Windows) while reads open the
       target, so the info and listings had the link's length, and a pinned or seekable read, or an append, through the
       link always failed its version check (a new test reproduced it on Windows). The length, time and ETag now come
-      from the final target (`ResolveLinkTarget(true)`), the physical path stays the link's own, and a write still
-      replaces the link with a file, which now takes the target's permission bits, not the link's (on Linux a link's own
-      mode is 0777). A link to nothing, or in a loop, is described as itself.
+      from the target, the physical path stays the link's own, and a write still replaces the link with a file. (As
+      first built, the target came from `ResolveLinkTarget(true)` and also gave the new file's mode; review round 1
+      below replaced both, and corrects what this line said about modes: only a dangling link has a mode of its own,
+      FileInfo reporting the target's for any other.) A link to nothing, or in a loop, is described as itself.
   - **Error types outside the contract (item 9),** from a read of every provider. Fixed, each with a test that fails
     without it: Box's server-side move and copy of a source deleted meanwhile (404) is `FileNotFoundException`, as on
     SharePoint and S3; SharePoint's HTTP client timeout (`TaskCanceledException` holding a `TimeoutException`) is
@@ -1665,6 +1666,56 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     (no accounts here; D21).
   - **For the docs:** the migration guide and the Physical README may say that a symbolic link to a file is described
     by its target, and that a write through it takes the target's permission bits.
+
+- **2026-10-11, S12 part 2, harmonize, review round 1 (PR #41, read at `edf7323`):** needs-fixes, one major; D27's test,
+  folder deletes of hidden names, the live-class rule on all ten classes, the PublicAPI wiring and its suppressions, the
+  removed helpers and the error mappings were verified. Fixed:
+  - **F1 (major, security):** Physical followed a link by string (`ResolveLinkTarget(true)`), which resolves a relative
+    target against the link's path as written, while the system resolves it from where the link physically is. In a
+    deploy layout (`current -> releases/r1`, `releases/r1/secret.txt -> ../../shared/secret.txt`) it named a decoy
+    outside the root while reads opened the private file, and an append then wrote the private content into a file with
+    the decoy's mode. The mode now comes from the path's own `FileInfo` again, as before this half (it reports the
+    target's mode for any link but a dangling one, which has no mode of its own; the log line above said "0777"), and a
+    copy's from its source's. A link's length, time and ETag are read from a handle the system opened through it; a FIFO
+    behind a link is opened to read and write, so the open does not wait (only a FIFO the process may not write still
+    would, as a read of it does), and one that cannot seek has length 0, so a write through the link refuses it as not a
+    regular file. When nothing opens (a link to nothing, in a loop, unreadable), the link's own entry is used. Tests,
+    run on Linux in the `dotnet/sdk:10.0` container as a non-root user: the deploy layout (the length, a pinned read, an
+    append, the 0600 mode kept, the decoy untouched, a read-only target), and a link to a FIFO listed and refused
+    without waiting. The general link test no longer asserts a mode it could not tell apart.
+  - **F2:** the upper bound excluded only the next major's release, not its prereleases (`2028.0.0-rc.1` satisfied
+    `[2027.0.0, 2028.0.0)`). The packed range is now `[V, NextMajor.0.0-0)`, `-0` being the lowest prerelease, in
+    `src/Directory.Build.targets` and `eng/package-check.cs`; checked with NuGet.Versioning 6.14.0, which keeps the form
+    as written and refuses `2028.0.0-0`, `2028.0.0-alpha.0.1`, `2028.0.0-rc.1` and `2028.0.0` while taking every 2027
+    version from V on, and on a local pack (`[2027.0.0-alpha.0.119, 2028.0.0-0)`, the package check passing).
+  - **F3:** a 404 on Box's server-side move or copy no longer always means "source not found": the source is looked up
+    again, and only a missing one is `FileNotFoundException`; otherwise `IOException` (the source changed, or the
+    destination folder was removed meanwhile). The rename through a temporary name maps its 404 the same way, where it
+    used to let `BoxApiException` out. Tests: the destination folder removed during a move and a copy, and the source
+    deleted during a case-only rename.
+  - **F4:** `RawFiles.Store` reports a name the file system refuses (exFAT, vfat or SMB from Linux) as not storable,
+    as the S3 fixture does a 400, so the D27 test does not fail in `PhysicalLiveTests` on such a share.
+  - **F5:** only a reparse point is asked for its link target (a round trip on Windows and SMB).
+  - **F6:** a client whose `Config.ServiceURL` is set now counts as S3-compatible for the requester-pays header and a
+    created bucket's location too, as it already did for the conditions; offline test.
+  - **F7:** the root `Directory.Build.props` no longer speaks of a strictness switch.
+  - **F8:** `ci.yml`'s Linux job runs `eng/package-check.cs` on its prerelease pack, at the version MinVer gave Common
+    (read from the package's file name), so a change that breaks the bound shows on its PR. actionlint 1.7.12 passes.
+  - **F9:** floors from CI's Linux run at `edf7323` (AmazonS3 98.55/93.57, AspNetCore 100/99.01, AzureBlob 99.38/92.27,
+    Box 99.80/94.12, Common 96.04/92.58, GCS 99.77/96.03, MinIO 99.01/92.64, Physical 100/98.63, SharePoint
+    99.85/91.89) and the Windows run above: by the rule, only AspNetCore's branch floor rises, from 97 to 98.
+  - **F10 (decided by the main session under the maintainer's standing instruction; it adds to the Common API, as part
+    of the 2027 surface):** one protected helper, `WriteableFileProvider<TOptions>.IsAddressable(string name)`, says
+    whether a listed name is one segment a path accepts, with `ValidateSegments`, the provider's `IsSegmentAllowed` and
+    both again on the percent-decoded forms, exactly as `Resolve` would. The seven private copies are gone (S3, MinIO,
+    Azure and GCS called the static `ValidateSegments` and so skipped `IsSegmentAllowed`; none of them overrides it, so
+    their listings do not change). It is in `PublicAPI.Unshipped.txt`, and a unit test pins it, with an
+    `IsSegmentAllowed` override, against what `Resolve` accepts for each name.
+  - **Verified:** the solution builds strict; every non-Live test on Windows with `WFP_REQUIRE_DOCKER=1`: 2096, none
+    failed, 10 skipped (the three concurrent-append cases, and seven Unix-only Physical tests); Physical (144: 142
+    passed, the concurrent append and the Windows-only ACL test skipped) and Common (224 passed) in the container as a
+    non-root user; the coverage gate (Windows: Physical 99.47/93.92, AspNetCore 100/99.01 over its new 98; Linux
+    container: Physical 100/97.97); the pack and the package check.
 
 ### For the maintainers
 

@@ -117,7 +117,8 @@ Each package has a test project of its own, `tests/WriteableFileProviders.<Packa
   `AzuriteStrictConformanceTests` (over a container client whose pipeline, `AzureHandler`, refuses what Azure refuses
   and Azurite allows: replacing an append blob, more blocks than the limit, here lowered to 6), and
   `AzureBlobProviderTests` (2026 append blobs, block restaging, races injected through the pipeline, missing
-  containers, signed URLs used over HTTP); `AzureBlobOptionsTests` and `SignedUrlTests` offline.
+  containers, signed URLs used over HTTP, failures part of the way); `AzureBlobOptionsTests`, `SignedUrlTests`,
+  `AzureErrorTests` and `AzureRootTests` offline.
 - **Amazon S3 and MinIO:** each runs the suite and the shared S3 behaviour tests (`tests/Shared/S3`, linked into both)
   against S3Mock 5.2.3 and MinIO (`cgr.dev/chainguard/minio`, pinned by digest, run as root), and offline tests that
   fake S3 behind the AWS SDK's HTTP layer. The S3Mock fixtures declare its two bugs as capabilities: an aborted
@@ -125,7 +126,7 @@ Each package has a test project of its own, `tests/WriteableFileProviders.<Packa
 - **Google Cloud Storage**, on fake-gcs-server: `GcsConformanceTests` (through the options, with a service account key
   generated for the run and the `Endpoint` option), `GcsClientConformanceTests` (over a `StorageClient` the test built,
   which cannot sign) and `GcsProviderTests` (the missing bucket, bucket creation, signed URLs used for real, races and
-  server answers injected through the client's HTTP seam); `GcsOptionsTests` offline.
+  server answers injected through the client's HTTP seam); `GcsOptionsTests` and `GcsErrorTests` offline.
 - **SharePoint**, offline against `GraphFake`, a stateful in-memory Microsoft Graph at the end of the SDK's own HTTP
   pipeline: the suite through both constructors (a caller's `GraphServiceClient`, and options with a work folder), and
   unit tests of the requests sent, upload sessions, races the service settles, faults and the options.
@@ -213,7 +214,9 @@ feature or a new target framework in a minor; a fix in a patch.
 - **The configuration shape:** `WriteableFileProviderSerializer` builds a provider from its `Type` and the property
   names of its options class, from configuration or JSON (System.Text.Json since 2027.0.0). Consumers keep that in
   configuration files and databases, so renaming a provider class, an options property or the `Type` key breaks what
-  they stored. Every later reader reads what an earlier version wrote (the goldens pin it); the reverse is not promised.
+  they stored. Every later reader reads what an earlier version wrote (the goldens pin it), except a root with a dot
+  segment, refused since 2027.0.0 because it reached outside the root (final review F1, agreed on
+  [#3](https://github.com/serionist/WriteableFileProviders/issues/3#issuecomment-6108746458)); the reverse is not promised.
 - **The gateway's URLs:** the token format and its Data Protection purpose chain (`WriteableFileProviders.Gateway.v1`,
   the provider name, the access) and the URL shape `{BasePath}/{token}/{fileName?}`. A URL issued by one version
   redeems on the next; a new format gets a new purpose version and the old one keeps redeeming.

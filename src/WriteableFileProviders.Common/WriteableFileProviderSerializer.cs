@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -18,6 +19,11 @@ namespace WriteableFileProviders;
 /// two types share throws. Loaded assemblies are not searched, so a third-party provider is registered or passed in.
 /// </para>
 /// <para>
+/// It finds types and reads options through reflection, so its members warn in a trimmed or native AOT app. There,
+/// build the provider in code, with its options bound by the configuration binder's source generator:
+/// <c>new WriteableAzureBlobFileProvider(section.Get&lt;AzureBlobFileProviderOptions&gt;()!)</c>.
+/// </para>
+/// <para>
 /// Values are read leniently, as the 2026 serializer read them: a number or a boolean into a string, the strings
 /// <c>"true"</c>/<c>"false"</c> into a boolean, and a type that converts from a string (such as an SDK's constant class)
 /// from a string or from an object holding it under <c>Value</c>. Such a type is written as a string.
@@ -26,6 +32,9 @@ namespace WriteableFileProviders;
 public static class WriteableFileProviderSerializer
 {
     private const string TypeKey = "Type";
+
+    /// <summary>Why the serializer's members warn in a trimmed or native AOT app, and what to do instead.</summary>
+    internal const string AotMessage = "WriteableFileProviderSerializer finds provider types by name and reads their options through reflection, which trimming and native AOT break. Build the provider in code instead, with its options from the configuration binder: new WriteableAzureBlobFileProvider(section.Get<AzureBlobFileProviderOptions>()!).";
 
     private static readonly Dictionary<string, string> _builtInProviders = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -57,6 +66,8 @@ public static class WriteableFileProviderSerializer
     /// <param name="configSection">The section.</param>
     /// <param name="searchInAssemblies">Assemblies to search first for the provider type.</param>
     /// <exception cref="ArgumentException">The <c>Type</c> is missing, unknown or ambiguous, or a value cannot be converted.</exception>
+    [RequiresUnreferencedCode(AotMessage)]
+    [RequiresDynamicCode(AotMessage)]
     public static IWriteableFileProvider FromConfiguration(IConfiguration configSection, params Assembly[] searchInAssemblies)
     {
         ArgumentNullException.ThrowIfNull(configSection);
@@ -91,6 +102,8 @@ public static class WriteableFileProviderSerializer
     /// <param name="json">The JSON: an object with <c>Type</c> and the options' properties.</param>
     /// <param name="searchInAssemblies">Assemblies to search first for the provider type.</param>
     /// <exception cref="ArgumentException">The <c>Type</c> is missing, unknown or ambiguous, or the JSON does not fit the options.</exception>
+    [RequiresUnreferencedCode(AotMessage)]
+    [RequiresDynamicCode(AotMessage)]
     public static IWriteableFileProvider FromJson(string json, params Assembly[] searchInAssemblies)
     {
         ArgumentNullException.ThrowIfNull(json);
@@ -102,6 +115,8 @@ public static class WriteableFileProviderSerializer
     /// <param name="json">The object: <c>Type</c> and the options' properties.</param>
     /// <param name="searchInAssemblies">Assemblies to search first for the provider type.</param>
     /// <exception cref="ArgumentException">The <c>Type</c> is missing, unknown or ambiguous, or the JSON does not fit the options.</exception>
+    [RequiresUnreferencedCode(AotMessage)]
+    [RequiresDynamicCode(AotMessage)]
     public static IWriteableFileProvider FromJson(JsonObject json, params Assembly[] searchInAssemblies)
     {
         ArgumentNullException.ThrowIfNull(json);
@@ -112,6 +127,8 @@ public static class WriteableFileProviderSerializer
     /// <param name="json">The element: an object with <c>Type</c> and the options' properties.</param>
     /// <param name="searchInAssemblies">Assemblies to search first for the provider type.</param>
     /// <exception cref="ArgumentException">The <c>Type</c> is missing, unknown or ambiguous, or the JSON does not fit the options.</exception>
+    [RequiresUnreferencedCode(AotMessage)]
+    [RequiresDynamicCode(AotMessage)]
     public static IWriteableFileProvider FromJson(JsonElement json, params Assembly[] searchInAssemblies)
     {
         if (json.ValueKind != JsonValueKind.Object)
@@ -141,6 +158,8 @@ public static class WriteableFileProviderSerializer
     /// passwords, tokens) and must never be logged.
     /// </summary>
     /// <param name="provider">The provider.</param>
+    [RequiresUnreferencedCode(AotMessage)]
+    [RequiresDynamicCode(AotMessage)]
     public static JsonObject ToJson(IWriteableFileProvider provider)
     {
         ArgumentNullException.ThrowIfNull(provider);
@@ -152,6 +171,8 @@ public static class WriteableFileProviderSerializer
     /// <summary>The provider as JSON text; see <see cref="ToJson"/>. It contains secrets: never log it.</summary>
     /// <param name="provider">The provider.</param>
     /// <param name="indented">Whether to indent the JSON.</param>
+    [RequiresUnreferencedCode(AotMessage)]
+    [RequiresDynamicCode(AotMessage)]
     public static string ToJsonString(IWriteableFileProvider provider, bool indented = false) =>
         ToJson(provider).ToJsonString(new JsonSerializerOptions(OptionsJson.Options) { WriteIndented = indented });
 
@@ -159,6 +180,7 @@ public static class WriteableFileProviderSerializer
     /// <param name="typeName">The provider's class name.</param>
     /// <param name="searchInAssemblies">Assemblies to search first.</param>
     /// <exception cref="ArgumentException">The name is missing, unknown or ambiguous.</exception>
+    [RequiresUnreferencedCode(AotMessage)]
     internal static Type ResolveProviderType(string? typeName, params Assembly[] searchInAssemblies)
     {
         if (string.IsNullOrEmpty(typeName))
@@ -172,6 +194,7 @@ public static class WriteableFileProviderSerializer
             : throw new ArgumentException($"FileProvider cannot be parsed. Type: '{typeName}' is not recognized. Pass its assembly, or register it with WriteableFileProviderSerializer.Register<T>().", nameof(typeName));
     }
 
+    [RequiresUnreferencedCode(AotMessage)]
     private static Type? Find(string typeName, IEnumerable<Assembly> assemblies)
     {
         var matches = assemblies.Distinct().SelectMany(TypesOf)
@@ -185,6 +208,7 @@ public static class WriteableFileProviderSerializer
         };
     }
 
+    [RequiresUnreferencedCode(AotMessage)]
     private static IEnumerable<Type> TypesOf(Assembly assembly)
     {
         try
@@ -222,6 +246,7 @@ public static class WriteableFileProviderSerializer
         throw new ArgumentException($"No options type can be found for provider {providerType.Name}: it does not derive from WriteableFileProvider<TOptions>.");
     }
 
+    [RequiresUnreferencedCode(AotMessage)]
     private static IWriteableFileProvider Create(Type providerType, Type optionsType, object options)
     {
         var constructor = providerType.GetConstructor([optionsType])

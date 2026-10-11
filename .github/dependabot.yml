@@ -81,6 +81,8 @@ updates:
       actions:
         patterns: ["*"]
 
+  # An SDK update leaves the lock files alone: the one package the SDK adds at its own version, the trim analyzer's,
+  # is pinned in src/Directory.Build.targets.
   - package-ecosystem: dotnet-sdk
     directory: /
     schedule:

@@ -32,6 +32,13 @@ internal sealed record GatewayTokenPayload
     public required string Id { get; init; }
 }
 
+/// <summary>
+/// The payload's JSON, generated at build time so it needs no reflection: the default options, which the golden tokens
+/// pin.
+/// </summary>
+[JsonSerializable(typeof(GatewayTokenPayload))]
+internal sealed partial class GatewayTokenJsonContext : JsonSerializerContext;
+
 /// <summary>A token the gateway could read: the provider it names, its payload, and when it expires.</summary>
 /// <param name="ProviderName">
 /// The key the provider is registered under (<c>AddKeyedSingleton&lt;IWriteableFileProvider&gt;(key, ...)</c>), or null for
@@ -73,7 +80,7 @@ internal sealed class GatewayTokenCodec(IDataProtectionProvider dataProtectionPr
         if (providerName is { Length: 0 })
             throw new ArgumentException("A provider key is never empty.", nameof(providerName));
         var code = AccessCode(payload.Access);
-        var json = JsonSerializer.SerializeToUtf8Bytes(payload);
+        var json = JsonSerializer.SerializeToUtf8Bytes(payload, GatewayTokenJsonContext.Default.GatewayTokenPayload);
         var protectedPayload = Protector(providerName, payload.Access).Protect(json, expiresOn);
         var key = providerName is null ? "" : WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(providerName));
         return string.Join('.', code, key, WebEncoders.Base64UrlEncode(protectedPayload));
@@ -115,7 +122,7 @@ internal sealed class GatewayTokenCodec(IDataProtectionProvider dataProtectionPr
         GatewayTokenPayload? payload;
         try
         {
-            payload = JsonSerializer.Deserialize<GatewayTokenPayload>(json);
+            payload = JsonSerializer.Deserialize(json, GatewayTokenJsonContext.Default.GatewayTokenPayload);
         }
         catch (JsonException)
         {

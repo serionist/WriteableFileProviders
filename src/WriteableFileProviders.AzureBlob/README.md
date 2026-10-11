@@ -9,7 +9,8 @@ An Azure Blob Storage container as an `IWriteableFileProvider`, on `Azure.Storag
 dotnet add package WriteableFileProviders.AzureBlob
 ```
 
-Needs .NET 10. Keep every WriteableFileProviders package in an app on the same major version.
+Needs .NET 10, and is native AOT compatible. Keep every WriteableFileProviders package in an app on the same
+major version.
 
 ## Use
 

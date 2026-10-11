@@ -11,6 +11,8 @@
     <IsPackable>false</IsPackable>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <WfpTestApplication>$([System.String]::Copy('$(MSBuildProjectName)').EndsWith('.Tests'))</WfpTestApplication>
+    <!-- WriteableFileProviders.Aot is an app that CI publishes with native AOT, not a test: it takes no MSTest. -->
+    <WfpAotApplication>$([System.String]::Copy('$(MSBuildProjectName)').Equals('WriteableFileProviders.Aot'))</WfpAotApplication>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(WfpTestApplication)' == 'true'">
@@ -19,7 +21,7 @@
     <EnableMSTestRunner>true</EnableMSTestRunner>
   </PropertyGroup>
 
-  <ItemGroup>
+  <ItemGroup Condition="'$(WfpAotApplication)' != 'true'">
     <PackageReference Include="MSTest.TestFramework" />
     <PackageReference Include="MSTest.Analyzers" PrivateAssets="all" />
   </ItemGroup>

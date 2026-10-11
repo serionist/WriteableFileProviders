@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Primitives;
@@ -61,6 +62,8 @@ public abstract partial class WriteableFileProvider<TOptions> : IWriteableFilePr
     /// The provider as JSON, in the shape <see cref="WriteableFileProviderSerializer"/> reads back. Warning: it contains
     /// the options' secrets (keys, passwords, tokens) and must never be logged.
     /// </summary>
+    [RequiresUnreferencedCode(WriteableFileProviderSerializer.AotMessage)]
+    [RequiresDynamicCode(WriteableFileProviderSerializer.AotMessage)]
     public JsonObject ToJson() => WriteableFileProviderSerializer.ToJson(this);
 
     /// <inheritdoc />

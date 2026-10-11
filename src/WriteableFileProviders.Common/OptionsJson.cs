@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Reflection;
 using System.Text.Encodings.Web;
@@ -10,6 +11,8 @@ namespace WriteableFileProviders;
 /// The JSON settings that keep the configuration shape the 2026 (Newtonsoft) serializer wrote and read: PascalCase
 /// names read case-insensitively, nulls written, and the lenient conversions stored configuration relies on.
 /// </summary>
+[RequiresUnreferencedCode(WriteableFileProviderSerializer.AotMessage)]
+[RequiresDynamicCode(WriteableFileProviderSerializer.AotMessage)]
 internal static class OptionsJson
 {
     public static JsonSerializerOptions Options { get; } = Create();
@@ -73,6 +76,8 @@ internal static class OptionsJson
     /// an SDK's constant class: reads the string, or an object holding it under "Value" (what the 2026 serializer wrote
     /// for such types), and writes the string.
     /// </summary>
+    [RequiresUnreferencedCode(WriteableFileProviderSerializer.AotMessage)]
+    [RequiresDynamicCode(WriteableFileProviderSerializer.AotMessage)]
     private sealed class StringConvertibleConverterFactory : JsonConverterFactory
     {
         public override bool CanConvert(Type typeToConvert) =>
@@ -93,6 +98,8 @@ internal static class OptionsJson
         }
     }
 
+    [RequiresUnreferencedCode(WriteableFileProviderSerializer.AotMessage)]
+    [RequiresDynamicCode(WriteableFileProviderSerializer.AotMessage)]
     private sealed class StringConvertibleConverter<T>(Func<string, object?> fromString) : JsonConverter<T>
         where T : class
     {

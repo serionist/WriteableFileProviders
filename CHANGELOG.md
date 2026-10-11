@@ -37,6 +37,10 @@ break and what to do.
   - SharePoint on Microsoft Graph 6, with certificate and managed identity sign-in;
   - every cloud provider takes your own SDK client too.
 - **System.Text.Json** reads and writes stored configurations. Newtonsoft.Json is gone from every package.
+- **Native AOT:** every package but GoogleCloudStorage and Box works in trimmed and native AOT apps, which CI checks
+  by publishing and running one. Building a provider from configuration by its `Type` warns there: bind the options
+  and build the provider in code
+  ([Native AOT](https://github.com/serionist/WriteableFileProviders#native-aot)).
 - **MIT licence**, a package icon, and SemVer versions in lockstep.
 
 ### Breaking changes

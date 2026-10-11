@@ -2,6 +2,14 @@
 
   <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.targets', '$(MSBuildThisFileDirectory)../'))" />
 
+  <!-- IsAotCompatible makes the SDK reference the trim analyzer's package, Microsoft.NET.ILLink.Tasks, at the SDK's own
+       runtime version, which the lock files then hold: every SDK patch would change it and fail a locked restore. It is
+       pinned here instead, so an SDK update leaves the lock files alone; raise it on purpose, and restore to update
+       them. -->
+  <ItemGroup>
+    <KnownILLinkPack Update="@(KnownILLinkPack)" ILLinkPackVersion="10.0.12" />
+  </ItemGroup>
+
   <!-- Every package releases at one version, and a package of one major does not load against Common of another: its
        types are not there. So a packed dependency on one of our packages is bounded above by the next major and its
        prereleases, [V, NextMajor.0.0-0) (-0 is the lowest prerelease), and mixing majors gives a restore warning

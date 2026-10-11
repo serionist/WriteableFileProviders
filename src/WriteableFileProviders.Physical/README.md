@@ -9,7 +9,8 @@ A folder on the local disk as an `IWriteableFileProvider`, with atomic writes an
 dotnet add package WriteableFileProviders.Physical
 ```
 
-Needs .NET 10. Keep every WriteableFileProviders package in an app on the same major version.
+Needs .NET 10, and is native AOT compatible. Keep every WriteableFileProviders package in an app on the same
+major version.
 
 ## Use
 

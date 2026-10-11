@@ -9,7 +9,8 @@ An Amazon S3 bucket, or a bucket on an S3-compatible server, as an `IWriteableFi
 dotnet add package WriteableFileProviders.AmazonS3
 ```
 
-Needs .NET 10. Keep every WriteableFileProviders package in an app on the same major version.
+Needs .NET 10, and is native AOT compatible. Keep every WriteableFileProviders package in an app on the same
+major version.
 
 ## Use
 

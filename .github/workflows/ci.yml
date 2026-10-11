@@ -1,6 +1,7 @@
 # Build, test with coverage, and pack, on every pull request and every push to main. The emulator suites start their
 # containers through Testcontainers, which needs Docker: present on the Linux runner, where WFP_REQUIRE_DOCKER makes a
 # missing emulator fail the run instead of leaving its tests inconclusive. Live suites (TestCategory=Live) never run here.
+# The Native AOT job publishes tests/WriteableFileProviders.Aot with native AOT and runs it (its README says why).
 name: CI
 
 on:
@@ -92,6 +93,59 @@ jobs:
         with:
           name: packages
           path: artifacts/packages
+
+  aot:
+    name: Native AOT (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+      # The native AOT compiler links with clang and zlib. The runner image has them; this covers an image that
+      # does not.
+      - name: Native AOT prerequisites
+        run: |
+          if ! command -v clang >/dev/null || ! dpkg -s zlib1g-dev >/dev/null 2>&1; then
+            sudo apt-get update && sudo apt-get install -y --no-install-recommends clang zlib1g-dev
+          fi
+      # The emulators the app runs against, on loopback, at the versions the test fixtures pin. They start while the app
+      # publishes.
+      - name: Start Azurite and MinIO
+        run: |
+          docker run -d --name azurite -p 127.0.0.1:10000:10000 mcr.microsoft.com/azure-storage/azurite:3.37.0 \
+            azurite-blob --blobHost 0.0.0.0 --skipApiVersionCheck
+          docker run -d --name minio -p 127.0.0.1:9000:9000 --user 0 \
+            -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
+            cgr.dev/chainguard/minio@sha256:7df55d002b698e4494a131b848dd553361bbe58b7e19f62d9623c29af1ba9ccf server /data
+      # Restored on its own: publish -r would restore every project for that runtime, which their lock files do not
+      # hold.
+      - name: Restore (locked)
+        run: dotnet restore tests/WriteableFileProviders.Aot --locked-mode
+      # Fails on any trim or AOT warning in the packages or the SDKs they call, but one folded IL2104
+      # (tests/WriteableFileProviders.Aot/README.md).
+      - name: Publish with native AOT
+        run: dotnet publish tests/WriteableFileProviders.Aot --no-restore -c Release -r linux-x64 -o artifacts/aot
+      - name: Wait for the emulators
+        run: |
+          for _ in $(seq 60); do
+            if curl -sf http://127.0.0.1:9000/minio/health/ready >/dev/null && curl -s -o /dev/null http://127.0.0.1:10000/; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs azurite; docker logs minio
+          echo "::error::Azurite or MinIO did not start."
+          exit 1
+      - name: Run the native app
+        env:
+          WFP_AOT_AZURITE: 127.0.0.1:10000
+          WFP_AOT_MINIO: 127.0.0.1:9000
+        run: artifacts/aot/WriteableFileProviders.Aot
 
   windows:
     name: Build and test (Windows)

@@ -64,7 +64,7 @@ using WriteableFileProviders.Physical;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton<IWriteableFileProvider>(new WriteablePhysicalFileProvider("files"));
-builder.Services.AddWriteableFileProviderGateway(new Uri("https://localhost:5001"));
+builder.Services.AddWriteableFileProviderGateway(new Uri("http://localhost:5000"));
 var app = builder.Build();
 app.MapWriteableFileProviderGateway();
 app.MapGet("/link/{**path}", async (string path, IWriteableFileUrlService urls) =>
@@ -72,11 +72,11 @@ app.MapGet("/link/{**path}", async (string path, IWriteableFileUrlService urls) 
 app.Run();
 ```
 
-Run it with `dotnet run --urls https://localhost:5001` and open `/link/reports/2026.csv`: the answer is a link that
+Run it with `dotnet run --urls http://localhost:5000` and open `/link/reports/2026.csv`: the answer is a link that
 downloads the file for an hour.
 
 - The `Uri` is the gateway's public address, the URL the app is reached at, which every link is built from. It must be
-  `https`, or plain `http` to a loopback host such as `localhost`.
+  `https`, or plain `http` to a loopback host such as `localhost`, as here.
 - `AddSingleton` with an instance leaves the provider to you: the container disposes only what it creates. Register
   `AddWriteableFileProvider(_ => new WriteablePhysicalFileProvider("files"))` to have it disposed.
 - `/link` hands a working link to anyone who asks. A real app checks that the caller may read the file first.

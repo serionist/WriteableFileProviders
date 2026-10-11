@@ -44,7 +44,7 @@ using WriteableFileProviders.Physical;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton<IWriteableFileProvider>(new WriteablePhysicalFileProvider("files"));
-builder.Services.AddWriteableFileProviderGateway(new Uri("https://localhost:5001"));
+builder.Services.AddWriteableFileProviderGateway(new Uri("http://localhost:5000"));
 var app = builder.Build();
 app.MapWriteableFileProviderGateway();
 app.MapGet("/link/{**path}", async (string path, IWriteableFileUrlService urls) =>
@@ -52,11 +52,12 @@ app.MapGet("/link/{**path}", async (string path, IWriteableFileUrlService urls) 
 app.Run();
 ```
 
-`GET /link/reports/2026.csv` answers with a URL such as `https://localhost:5001/files/<token>/2026.csv`, which
+`GET /link/reports/2026.csv` answers with a URL such as `http://localhost:5000/files/<token>/2026.csv`, which
 downloads `files/reports/2026.csv` for an hour.
 
 - **`PublicBaseUri`**, the `Uri` given here, must be the URL your app is reached at from outside: gateway URLs are
-  built from it, never from the request. It is `https`, or plain `http` to a loopback host such as `localhost`.
+  built from it, never from the request. It is `https`, or plain `http` to a loopback host such as `localhost`, as
+  here. Run the app at that address: `dotnet run --urls http://localhost:5000`.
 - **`AddSingleton(instance)`** registers a provider the container does not dispose, since it did not create it. To
   have the container dispose it, register a factory: `builder.Services.AddWriteableFileProvider(_ => new
   WriteablePhysicalFileProvider("files"))`.

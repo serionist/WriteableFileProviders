@@ -1369,7 +1369,8 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
       storage class. The LocalStack suites are gone, and S0's positive test is `ReadFileVersionAsync` on `ProviderPath`
       against a versioned S3Mock bucket.
   - **Beyond the plan:**
-    - An append keeps the file's content type when the caller names none.
+    - An append, and a local stream's commit, keep the file's content type when the caller names none: Common does
+      this since S8, so the provider keeps no helper of its own.
     - HeadBucket answering 403 or a redirect counts as "exists, or cannot be asked", so tight IAM policies keep working;
       a missing bucket is still reported by the first `NoSuchBucket`, and the check runs again after one.
     - Listings skip keys a path cannot name: an empty segment, `..`, a backslash, or a segment the provider refuses.
@@ -1385,8 +1386,6 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     lines and 93.0% of branches, Minio 99.2% and 88.3%; floors 97/91 and 98/87.
   - **Not verified:** anything only AWS shows: the live suite, and a manual checklist, under "For the maintainers".
   - **For later steps:**
-    - A local stream commits with no content type, so editing a file through one stores `application/octet-stream` on
-      S3 and MinIO; keeping the type needs the base's commit to pass it (Common; S12 or a follow-up).
     - No PublicAPI files yet: Common has none either (S12).
     - Docker Desktop's container clock can drift, so near-7-day presigns can be refused locally; CI's Linux containers
       share the host clock.

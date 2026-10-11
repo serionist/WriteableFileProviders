@@ -119,8 +119,8 @@ public sealed class WriteableAmazonS3FileProvider : WriteableFileProvider<Amazon
         ArgumentNullException.ThrowIfNull(options);
         if (options.Mode == UpdateFileMode.Append)
         {
-            var keep = await _core.KeepContentTypeAsync(path, options, cancellationToken).ConfigureAwait(false);
-            await AppendByRewriteAsync(path, contents, keep, cancellationToken).ConfigureAwait(false);
+            // The base keeps the file's content type when the caller names none.
+            await AppendByRewriteAsync(path, contents, options, cancellationToken).ConfigureAwait(false);
             return;
         }
         await _core.WriteAsync(path, contents, options, cancellationToken).ConfigureAwait(false);

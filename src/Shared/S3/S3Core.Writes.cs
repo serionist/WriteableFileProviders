@@ -50,20 +50,6 @@ internal sealed partial class S3Core
         }
     }
 
-    /// <summary>The caller's options for an append, with the file's current content type when they name none.</summary>
-    /// <param name="path">The file.</param>
-    /// <param name="options">The caller's options.</param>
-    /// <param name="cancellationToken">Cancels the call.</param>
-    public async Task<UpdateFileOptions> KeepContentTypeAsync(ResolvedPath path, UpdateFileOptions options, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(path);
-        ArgumentNullException.ThrowIfNull(options);
-        if (options.ContentType is not null)
-            return options;
-        var head = await HeadAsync(Key(path), cancellationToken).ConfigureAwait(false);
-        return head?.Headers.ContentType is { } contentType ? options with { ContentType = contentType } : options;
-    }
-
     /// <summary>
     /// Copies a file on the server, refusing an existing destination (<c>If-None-Match: *</c>, atomic on AWS) and a
     /// source that changed since it was checked. Above <see cref="MaxSingleCopySize"/> it copies in parts.

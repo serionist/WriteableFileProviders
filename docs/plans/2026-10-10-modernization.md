@@ -2452,6 +2452,14 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
   after its first commit, which replaced the plan and review ids outside `docs/plans/` and `docs/reviews/` with the
   reasons they stood for (D1-D32, F1-F79 and P1-P41 stay the records here).
 
+- **2026-10-11, docs rewritten short (#49, #50, #51), at the maintainer's request:** "short, to the point, easy to
+  read, no walls of text". The README shows the interface, the providers and how signed links work (#47); the package
+  READMEs share one shape (install, use, options table, authentication, what's different; 1,317 lines to 767); the
+  guide pages are code first with each rule on one page (Signed URLs 301 lines to 150); the migration guide is a
+  checklist and short "2026 → 2027 → what to do" tables (512 lines to 352; one missing break added: Box and SharePoint
+  reads no longer seek). Every sample compiles, and all 154 links and anchors in the docs resolve. Code, tests and
+  docs no longer cite plan or review ids (#48), and AGENTS.md holds that rule.
+
 ### For the maintainers
 
 What this session cannot do, in the order to do it: first what closes a security exposure, then the review of what

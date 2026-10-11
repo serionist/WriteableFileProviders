@@ -21,15 +21,15 @@ links with the same code everywhere. Native AOT compatible, except Google Cloud 
 
 | Package | Store | Native AOT | Downloads |
 |---|---|---|---|
-| [Physical](src/WriteableFileProviders.Physical/README.md) | A folder on the local disk | Yes | [![Downloads](https://img.shields.io/nuget/dt/WriteableFileProviders.Physical?label=)](https://www.nuget.org/packages/WriteableFileProviders.Physical) |
-| [AzureBlob](src/WriteableFileProviders.AzureBlob/README.md) | Azure Blob Storage | Yes | [![Downloads](https://img.shields.io/nuget/dt/WriteableFileProviders.AzureBlob?label=)](https://www.nuget.org/packages/WriteableFileProviders.AzureBlob) |
-| [AmazonS3](src/WriteableFileProviders.AmazonS3/README.md) | Amazon S3, or an S3-compatible server | Yes | [![Downloads](https://img.shields.io/nuget/dt/WriteableFileProviders.AmazonS3?label=)](https://www.nuget.org/packages/WriteableFileProviders.AmazonS3) |
-| [Minio](src/WriteableFileProviders.Minio/README.md) | MinIO | Yes | [![Downloads](https://img.shields.io/nuget/dt/WriteableFileProviders.Minio?label=)](https://www.nuget.org/packages/WriteableFileProviders.Minio) |
-| [GoogleCloudStorage](src/WriteableFileProviders.GoogleCloudStorage/README.md) | Google Cloud Storage | No | [![Downloads](https://img.shields.io/nuget/dt/WriteableFileProviders.GoogleCloudStorage?label=)](https://www.nuget.org/packages/WriteableFileProviders.GoogleCloudStorage) |
-| [Box](src/WriteableFileProviders.Box/README.md) | Box | No | [![Downloads](https://img.shields.io/nuget/dt/WriteableFileProviders.Box?label=)](https://www.nuget.org/packages/WriteableFileProviders.Box) |
-| [SharePoint](src/WriteableFileProviders.SharePoint/README.md) | SharePoint, through Microsoft Graph | Yes | [![Downloads](https://img.shields.io/nuget/dt/WriteableFileProviders.SharePoint?label=)](https://www.nuget.org/packages/WriteableFileProviders.SharePoint) |
-| [AspNetCore](src/WriteableFileProviders.AspNetCore/README.md) | Signed links for every store, served by your app | Yes | [![Downloads](https://img.shields.io/nuget/dt/WriteableFileProviders.AspNetCore?label=)](https://www.nuget.org/packages/WriteableFileProviders.AspNetCore) |
-| [Common](src/WriteableFileProviders.Common/README.md) | The interface, the base class and configuration | Yes | [![Downloads](https://img.shields.io/nuget/dt/WriteableFileProviders.Common?label=)](https://www.nuget.org/packages/WriteableFileProviders.Common) |
+| [Physical](src/WriteableFileProviders.Physical/README.md) | A folder on the local disk | ✓ | [![Downloads](https://img.shields.io/nuget/dt/WriteableFileProviders.Physical?label=)](https://www.nuget.org/packages/WriteableFileProviders.Physical) |
+| [AzureBlob](src/WriteableFileProviders.AzureBlob/README.md) | Azure Blob Storage | ✓ | [![Downloads](https://img.shields.io/nuget/dt/WriteableFileProviders.AzureBlob?label=)](https://www.nuget.org/packages/WriteableFileProviders.AzureBlob) |
+| [AmazonS3](src/WriteableFileProviders.AmazonS3/README.md) | Amazon S3, or an S3-compatible server | ✓ | [![Downloads](https://img.shields.io/nuget/dt/WriteableFileProviders.AmazonS3?label=)](https://www.nuget.org/packages/WriteableFileProviders.AmazonS3) |
+| [Minio](src/WriteableFileProviders.Minio/README.md) | MinIO | ✓ | [![Downloads](https://img.shields.io/nuget/dt/WriteableFileProviders.Minio?label=)](https://www.nuget.org/packages/WriteableFileProviders.Minio) |
+| [GoogleCloudStorage](src/WriteableFileProviders.GoogleCloudStorage/README.md) | Google Cloud Storage | | [![Downloads](https://img.shields.io/nuget/dt/WriteableFileProviders.GoogleCloudStorage?label=)](https://www.nuget.org/packages/WriteableFileProviders.GoogleCloudStorage) |
+| [Box](src/WriteableFileProviders.Box/README.md) | Box | | [![Downloads](https://img.shields.io/nuget/dt/WriteableFileProviders.Box?label=)](https://www.nuget.org/packages/WriteableFileProviders.Box) |
+| [SharePoint](src/WriteableFileProviders.SharePoint/README.md) | SharePoint, through Microsoft Graph | ✓ | [![Downloads](https://img.shields.io/nuget/dt/WriteableFileProviders.SharePoint?label=)](https://www.nuget.org/packages/WriteableFileProviders.SharePoint) |
+| [AspNetCore](src/WriteableFileProviders.AspNetCore/README.md) | Signed links for every store, served by your app | ✓ | [![Downloads](https://img.shields.io/nuget/dt/WriteableFileProviders.AspNetCore?label=)](https://www.nuget.org/packages/WriteableFileProviders.AspNetCore) |
+| [Common](src/WriteableFileProviders.Common/README.md) | The interface, the base class and configuration | ✓ | [![Downloads](https://img.shields.io/nuget/dt/WriteableFileProviders.Common?label=)](https://www.nuget.org/packages/WriteableFileProviders.Common) |
 
 Each package is `WriteableFileProviders.<name>` on NuGet, all at the same version, and brings
 `WriteableFileProviders.Common`.

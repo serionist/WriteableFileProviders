@@ -7,13 +7,13 @@ Where a store can't do something, the provider throws `NotSupportedException`.
 
 | Provider | Package | SDK | Folders | Case | Native AOT | Tested against |
 |---|---|---|---|---|---|---|
-| Physical | [Physical](../../src/WriteableFileProviders.Physical/README.md) | .NET file APIs | Real | Ignored on Windows and macOS | Yes | A temp folder |
-| Azure Blob | [AzureBlob](../../src/WriteableFileProviders.AzureBlob/README.md) | Azure.Storage.Blobs 12, block blobs | Prefixes | Kept | Yes | Azurite |
-| Amazon S3 | [AmazonS3](../../src/WriteableFileProviders.AmazonS3/README.md) | AWSSDK.S3 4 | Prefixes | Kept | Yes | S3Mock, MinIO |
-| MinIO | [Minio](../../src/WriteableFileProviders.Minio/README.md) | AWSSDK.S3 4 (no Minio SDK) | Prefixes | Kept | Yes | S3Mock, MinIO |
-| Google Cloud Storage | [GoogleCloudStorage](../../src/WriteableFileProviders.GoogleCloudStorage/README.md) | Google.Cloud.Storage.V1 5 | Prefixes | Kept | No | fake-gcs-server |
-| Box | [Box](../../src/WriteableFileProviders.Box/README.md) | Box.V2.Core 10 (`Box.Sdk.Gen`) | Real | Ignored | No | A fake Box API |
-| SharePoint | [SharePoint](../../src/WriteableFileProviders.SharePoint/README.md) | Microsoft.Graph 6 | Real | Ignored | Yes | A fake Graph API |
+| Physical | [Physical](../../src/WriteableFileProviders.Physical/README.md) | .NET file APIs | Real | Ignored on Windows and macOS | ✓ | A temp folder |
+| Azure Blob | [AzureBlob](../../src/WriteableFileProviders.AzureBlob/README.md) | Azure.Storage.Blobs 12, block blobs | Prefixes | Kept | ✓ | Azurite |
+| Amazon S3 | [AmazonS3](../../src/WriteableFileProviders.AmazonS3/README.md) | AWSSDK.S3 4 | Prefixes | Kept | ✓ | S3Mock, MinIO |
+| MinIO | [Minio](../../src/WriteableFileProviders.Minio/README.md) | AWSSDK.S3 4 (no Minio SDK) | Prefixes | Kept | ✓ | S3Mock, MinIO |
+| Google Cloud Storage | [GoogleCloudStorage](../../src/WriteableFileProviders.GoogleCloudStorage/README.md) | Google.Cloud.Storage.V1 5 | Prefixes | Kept | | fake-gcs-server |
+| Box | [Box](../../src/WriteableFileProviders.Box/README.md) | Box.V2.Core 10 (`Box.Sdk.Gen`) | Real | Ignored | | A fake Box API |
+| SharePoint | [SharePoint](../../src/WriteableFileProviders.SharePoint/README.md) | Microsoft.Graph 6 | Real | Ignored | ✓ | A fake Graph API |
 
 - What real and prefix folders mean, and the names each provider refuses: [Paths and listings](paths-and-listings.md).
 - CI runs the conformance suite on every provider against the store in the last column; the emulators start through

@@ -222,10 +222,10 @@ feature or a new target framework in a minor; a fix in a patch.
   protected `...CoreAsync` members and helpers, which third-party providers build on; `ProviderPath`, `ResolvedPath`,
   `WriteableFileInfo`, `DirectoryContents`, `FileProviderOptions`; `UpdateFileMode`, `UpdateFileOptions`,
   `ReadOptions`, `SeekableReadOptions`; `SignedUrl`, `SignedUrlOptions`, `SignedUrlAccess`, `SignedUrlKind`;
-  `LocalFileStream`; `PreconditionFailedException`, `FileExistsException`; the DI extensions; and
-  `WriteableFileProviderCompatibilityExtensions`, the `[Obsolete]` 2026 forms that go in 2028.0.0. Every provider and
-  every consumer builds on them; removing a member or changing what it means breaks them. docs/migration-2027.md records
-  each break of 2027.0.0.
+  `LocalFileStream`; `PreconditionFailedException`, `FileAlreadyExistsException`, `FileExistsException`; the DI
+  extensions; and `WriteableFileProviderCompatibilityExtensions`, the `[Obsolete]` 2026 forms that go in 2028.0.0.
+  Every provider and every consumer builds on them; removing a member or changing what it means breaks them.
+  docs/migration-2027.md records each break of 2027.0.0.
 - **The configuration shape:** `WriteableFileProviderSerializer` builds a provider from its `Type` and the property
   names of its options class, from configuration or JSON (System.Text.Json since 2027.0.0). Consumers keep that in
   configuration files and databases, so renaming a provider class, an options property or the `Type` key breaks what

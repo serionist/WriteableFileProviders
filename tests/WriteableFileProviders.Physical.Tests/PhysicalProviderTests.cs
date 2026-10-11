@@ -709,7 +709,7 @@ public sealed class PhysicalProviderTests
     {
         TakeNewNames(byRenameWithoutReplacing);
         var contents = new InterceptingStream(Encoding.UTF8.GetBytes("mine"), () => File.WriteAllText(Disk("f.txt"), "theirs"));
-        var e = await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => _provider.UpdateFileAsync("f.txt", contents, new UpdateFileOptions { IfNotExists = true }));
+        var e = await Assert.ThrowsExactlyAsync<FileAlreadyExistsException>(() => _provider.UpdateFileAsync("f.txt", contents, new UpdateFileOptions { IfNotExists = true }));
         Assert.IsInstanceOfType<IOException>(e.InnerException);
         Assert.AreEqual("theirs", await Read("f.txt"));
         Assert.IsEmpty(TempFiles());
@@ -735,7 +735,7 @@ public sealed class PhysicalProviderTests
     {
         TakeNewNames(byRenameWithoutReplacing);
         var contents = new InterceptingStream(Encoding.UTF8.GetBytes("mine"), () => File.WriteAllText(Disk("f.txt"), "theirs"));
-        await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => _provider.UpdateFileAsync("f.txt", contents, UpdateFileOptions.Append));
+        await Assert.ThrowsExactlyAsync<FileAlreadyExistsException>(() => _provider.UpdateFileAsync("f.txt", contents, UpdateFileOptions.Append));
         Assert.AreEqual("theirs", await Read("f.txt"));
         Assert.IsEmpty(TempFiles());
     }
@@ -748,7 +748,7 @@ public sealed class PhysicalProviderTests
         await Write("f.txt", "b", UpdateFileOptions.Append with { IfMatch = etag });
         Assert.AreEqual("ab", await Read("f.txt"));
         await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => Write("f.txt", "c", UpdateFileOptions.Append with { IfMatch = etag }));
-        await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => Write("f.txt", "c", UpdateFileOptions.Append with { IfNotExists = true }));
+        await Assert.ThrowsExactlyAsync<FileAlreadyExistsException>(() => Write("f.txt", "c", UpdateFileOptions.Append with { IfNotExists = true }));
         await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => Write("missing.txt", "c", UpdateFileOptions.Append with { IfMatch = etag }));
         Assert.AreEqual("ab", await Read("f.txt"));
         Assert.IsFalse(File.Exists(Disk("missing.txt")));

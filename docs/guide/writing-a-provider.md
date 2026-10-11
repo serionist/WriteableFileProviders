@@ -67,7 +67,7 @@ Declare what the store can do. Until you do, the base refuses or weakens the ope
 
 | Member | Default | Effect of the default |
 |---|---|---|
-| `SupportsAtomicPreconditions` | false | The base checks `IfMatch` and `IfNotExists` just before the write: checked, not atomic. |
+| `SupportsAtomicPreconditions` | false | The base checks `IfMatch` and `IfNotExists` just before the write: checked, not atomic. Only a file fails `IfNotExists` there; a folder at the path reaches your `UpdateFileCoreAsync`, which answers as it does without conditions. |
 | `IsCaseInsensitive` | false | Moving `a.txt` to `A.txt` is an ordinary move. When true, it is a rename: the destination check is skipped, and the default `MoveCoreAsync` goes through a temporary name. |
 | `SupportsSignedUrl(access)` | false | `GetSignedUrlAsync` throws `NotSupportedException`. |
 | `SupportsSignedUrlContentHeaders(access)` | false | A URL with `DownloadFileName` or `ContentType` throws `NotSupportedException`. |

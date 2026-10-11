@@ -52,7 +52,10 @@ append and a local stream's commit keep the file's type.
 ## Append
 
 Where the store has no native append, the provider rewrites the file on condition that it is still the version it read.
-If another write landed in between, the append throws `PreconditionFailedException`: retry it.
+If another write landed in between, the append throws `PreconditionFailedException`: retry it. An append to a missing
+file that another writer creates at the same moment ends differently by provider: most refuse it with
+`FileAlreadyExistsException`, and Azure Blob appends after the new content. Either way the other writer's content is
+kept ([providers compared](providers.md#reads-and-writes)).
 
 - The condition is atomic on Azure Blob, Google Cloud Storage and S3 on AWS.
 - Elsewhere it is checked, so a write that lands between the check and the rewrite can be lost.
@@ -66,7 +69,11 @@ await files.UpdateFileAsync("settings.json", edited, new UpdateFileOptions { IfM
 await files.UpdateFileAsync("once.txt", stream, new UpdateFileOptions { IfNotExists = true });       // only if absent
 ```
 
-- A condition that fails throws `PreconditionFailedException`, and nothing is written.
+- A condition that fails throws `PreconditionFailedException`, and nothing is written. When the file already exists
+  under `IfNotExists`, it is `FileAlreadyExistsException`, which derives from it: catch that first to tell "created
+  meanwhile" from "changed meanwhile".
+- Only a file counts for `IfNotExists`. A folder at the path gets what a write without conditions gets there:
+  `IOException` where folders are real, the file stored beside the folder on an object store.
 - Setting both throws `ArgumentException`.
 - The `ETag` is the store's version of the file: a generation on Google Cloud Storage, a file version id on Box, the
   last-write time and length on Physical.

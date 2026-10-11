@@ -43,10 +43,13 @@ internal sealed partial class S3Core
         }
         catch (AmazonS3Exception e) when (IsConditionFailure(e) || (options.IfMatch is not null && IsNotFound(e)))
         {
-            // 412: the condition failed; 409: a concurrent conditional write won; 404 with If-Match: no file to match.
-            throw options.IfNotExists
-                ? new PreconditionFailedException($"The file '{path}' already exists.", e)
-                : Changed(path, options.IfMatch, e);
+            // 412: the condition failed; 409: a concurrent operation on the key won; 404 with If-Match: no file to match.
+            if (!options.IfNotExists)
+                throw Changed(path, options.IfMatch, e);
+            // A 409 also answers a write that a concurrent delete overtook, so the file need not be there.
+            if (e.StatusCode == HttpStatusCode.PreconditionFailed || await ExistsAfterConflictAsync(path).ConfigureAwait(false))
+                throw new FileAlreadyExistsException($"The file '{path}' already exists.", e);
+            throw new PreconditionFailedException($"Writing '{path}' conflicted with a concurrent operation on it, and nothing was written; the write can be retried.", e);
         }
     }
 
@@ -206,9 +209,25 @@ internal sealed partial class S3Core
     /// <param name="CopyETag">The copy's ETag.</param>
     public readonly record struct CopyResult(string SourceETag, string? CopyETag);
 
-    // 412 Precondition Failed, or the 409 S3 answers when a concurrent conditional write to the same key won.
+    // 412 Precondition Failed, or the 409 S3 answers when a concurrent operation on the same key won.
     private static bool IsConditionFailure(AmazonS3Exception e) =>
         e.StatusCode == HttpStatusCode.PreconditionFailed || e.ErrorCode == "ConditionalRequestConflict";
+
+    // Whether a file is at the path after a create lost a conflict; false when the store cannot say, so the caller
+    // reports the conflict rather than a file that may not be there.
+    private async Task<bool> ExistsAfterConflictAsync(ResolvedPath path)
+    {
+        try
+        {
+            return await HeadAsync(Key(path), CancellationToken.None).ConfigureAwait(false) is not null;
+        }
+#pragma warning disable CA1031 // The write's own failure is the one to report; this only picks its type.
+        catch (Exception)
+#pragma warning restore CA1031
+        {
+            return false;
+        }
+    }
 
     private async Task PutAsync(IAmazonS3 client, ResolvedPath path, PartBuffer buffer, UpdateFileOptions options, CancellationToken cancellationToken)
     {

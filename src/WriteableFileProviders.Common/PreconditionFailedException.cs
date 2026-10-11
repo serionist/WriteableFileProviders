@@ -1,8 +1,8 @@
 namespace WriteableFileProviders;
 
 /// <summary>
-/// A condition on a read or a write did not hold: the file's version is not the one given, the file already exists, or it
-/// changed while it was read.
+/// A condition on a read or a write did not hold: the file's version is not the one given, the file already exists
+/// (<see cref="FileAlreadyExistsException"/>, which derives from this type), or it changed while it was read.
 /// </summary>
 public class PreconditionFailedException : IOException
 {

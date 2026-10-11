@@ -234,7 +234,7 @@ public sealed class WriteableGoogleCloudStorageFileProvider : WriteableFileProvi
             }
             catch (GoogleApiException e) when (e.HttpStatusCode == HttpStatusCode.PreconditionFailed)
             {
-                throw options.IfNotExists ? new PreconditionFailedException($"The file '{path}' already exists.", e) : Changed(path, options.IfMatch!, e);
+                throw options.IfNotExists ? new FileAlreadyExistsException($"The file '{path}' already exists.", e) : Changed(path, options.IfMatch!, e);
             }
             catch (GoogleApiException e) when (e.HttpStatusCode == HttpStatusCode.NotFound)
             {

@@ -60,7 +60,8 @@ public sealed class StubOptions : FileProviderOptions
 
 /// <summary>
 /// A provider with every hook the tests want to see: a store error that means "not found", atomic preconditions, Watch,
-/// and a missing core for paths named "missing".
+/// and a missing core for paths named "missing". A path named "file.txt" is a file, one named "folder" a folder, and
+/// any other is missing.
 /// </summary>
 public sealed class StubProvider(StubOptions options) : WriteableFileProvider<StubOptions>(options)
 {
@@ -69,6 +70,12 @@ public sealed class StubProvider(StubOptions options) : WriteableFileProvider<St
     public UpdateFileOptions? LastUpdate { get; private set; }
 
     public bool AtomicPreconditions { get; set; }
+
+    /// <summary>
+    /// What the store throws for a create-only write, as a store does when a file appeared after the base class's check;
+    /// null to write.
+    /// </summary>
+    public Exception? CreateFailure { get; set; }
 
     public bool SignedUrls { get; set; }
 
@@ -99,9 +106,12 @@ public sealed class StubProvider(StubOptions options) : WriteableFileProvider<St
     public Task<bool> FolderExists(string path) => FolderExistsCoreAsync(Resolve(path), default);
 
     protected override Task<IWriteableFileInfo> GetFileInfoCoreAsync(ResolvedPath path, CancellationToken cancellationToken) =>
-        Task.FromResult<IWriteableFileInfo>(path.Name == "file.txt"
-            ? new WriteableFileInfo(this, path.Path, true, false, 4, DateTimeOffset.UtcNow, etag: ETag, contentType: ContentType)
-            : WriteableFileInfo.Missing(this, path.Path));
+        Task.FromResult<IWriteableFileInfo>(path.Name switch
+        {
+            "file.txt" => new WriteableFileInfo(this, path.Path, true, false, 4, DateTimeOffset.UtcNow, etag: ETag, contentType: ContentType),
+            "folder" => WriteableFileInfo.Folder(this, path.Path),
+            _ => WriteableFileInfo.Missing(this, path.Path),
+        });
 
     protected override async IAsyncEnumerable<IWriteableFileInfo> EnumerateCoreAsync(ResolvedPath path, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
@@ -117,6 +127,8 @@ public sealed class StubProvider(StubOptions options) : WriteableFileProvider<St
     protected override Task UpdateFileCoreAsync(ResolvedPath path, Stream contents, UpdateFileOptions options, CancellationToken cancellationToken)
     {
         LastUpdate = options;
+        if (CreateFailure is { } failure && options.IfNotExists)
+            throw failure;
         return Task.CompletedTask;
     }
 

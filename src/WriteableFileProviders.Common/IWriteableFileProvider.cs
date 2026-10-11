@@ -22,7 +22,8 @@ namespace WriteableFileProviders;
 /// </para>
 /// <para>
 /// Every member throws only these types, on every provider: <see cref="ArgumentException"/> (a path or an option),
-/// <see cref="FileNotFoundException"/>, <see cref="FileExistsException"/>, <see cref="PreconditionFailedException"/>,
+/// <see cref="FileNotFoundException"/>, <see cref="FileExistsException"/>, <see cref="PreconditionFailedException"/>
+/// (and <see cref="FileAlreadyExistsException"/>, which derives from it),
 /// <see cref="NotSupportedException"/> (a feature this provider or store cannot give),
 /// <see cref="InvalidOperationException"/> (the store is not set up as configured: a missing container, bucket, library or
 /// root folder, or no credentials to find), <see cref="UnauthorizedAccessException"/> (the store refused the credential or
@@ -98,7 +99,8 @@ public interface IWriteableFileProvider : IFileProvider, IDisposable, IAsyncDisp
     /// </param>
     /// <param name="options">How to write; overwrite with no conditions by default.</param>
     /// <param name="cancellationToken">Cancels the call.</param>
-    /// <exception cref="PreconditionFailedException">A condition in <paramref name="options"/> did not hold.</exception>
+    /// <exception cref="FileAlreadyExistsException"><see cref="UpdateFileOptions.IfNotExists"/> is set and a file is at the path.</exception>
+    /// <exception cref="PreconditionFailedException">Another condition in <paramref name="options"/> did not hold.</exception>
     /// <exception cref="ArgumentException">Both <see cref="UpdateFileOptions.IfMatch"/> and <see cref="UpdateFileOptions.IfNotExists"/> are set.</exception>
     /// <exception cref="InvalidOperationException">The path is the provider root.</exception>
     Task UpdateFileAsync(ProviderPath path, Stream contents, UpdateFileOptions? options = null, CancellationToken cancellationToken = default);

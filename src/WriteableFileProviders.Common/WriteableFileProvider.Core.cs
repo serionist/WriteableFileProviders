@@ -169,7 +169,8 @@ public abstract partial class WriteableFileProvider<TOptions>
 
     /// <summary>
     /// Copies a file whose source exists and whose destination does not. The default reads the source and writes the
-    /// destination with <see cref="UpdateFileOptions.IfNotExists"/>; a store that copies on the server overrides it.
+    /// destination with <see cref="UpdateFileOptions.IfNotExists"/>, so a destination created meanwhile throws
+    /// <see cref="FileExistsException"/>; a store that copies on the server overrides it.
     /// </summary>
     /// <param name="source">The file to copy.</param>
     /// <param name="destination">The new file.</param>
@@ -178,7 +179,18 @@ public abstract partial class WriteableFileProvider<TOptions>
     {
         var contents = await ReadFileCoreAsync(source, cancellationToken).ConfigureAwait(false);
         await using (contents.ConfigureAwait(false))
-            await UpdateWithPreconditionsAsync(destination, contents, new UpdateFileOptions { IfNotExists = true }, cancellationToken).ConfigureAwait(false);
+        {
+            try
+            {
+                await UpdateWithPreconditionsAsync(destination, contents, new UpdateFileOptions { IfNotExists = true }, cancellationToken).ConfigureAwait(false);
+            }
+            // Only the create-only failure: the source's own stream may throw the base type (a pinned read whose file
+            // changed), which passes as it is.
+            catch (FileAlreadyExistsException e)
+            {
+                throw new FileExistsException($"The destination '{destination}' already exists.", e);
+            }
+        }
     }
 
     /// <summary>
@@ -337,16 +349,18 @@ public abstract partial class WriteableFileProvider<TOptions>
         ArgumentNullException.ThrowIfNull(contents);
         ArgumentNullException.ThrowIfNull(options);
         var info = await GetFileInfoCoreAsync(path, cancellationToken).ConfigureAwait(false);
-        if (options.IfNotExists && info.Exists)
-            throw new PreconditionFailedException($"The file '{path}' already exists.");
+        // Only a file is appended to; a folder at the path gets the store's own answer to the rewrite below.
+        var isFile = info.Exists && !info.IsDirectory;
+        if (options.IfNotExists && isFile)
+            throw new FileAlreadyExistsException($"The file '{path}' already exists.");
         if (options.IfMatch is not null && !string.Equals(info.ETag, options.IfMatch, StringComparison.Ordinal))
             throw new PreconditionFailedException($"The file '{path}' changed: its version is no longer '{options.IfMatch}'.");
-        if (info.Exists && !info.IsDirectory && info.ETag is null)
+        if (isFile && info.ETag is null)
             throw new NotSupportedException($"{GetType().Name} keeps no version of '{path}', so an append could lose a concurrent write.");
         var temp = StreamUtilities.CreateTempFile();
         await using (temp.ConfigureAwait(false))
         {
-            if (info.Exists && !info.IsDirectory)
+            if (isFile)
             {
                 var existing = await ReadFileCoreAsync(path, cancellationToken).ConfigureAwait(false);
                 await using (existing.ConfigureAwait(false))
@@ -354,11 +368,13 @@ public abstract partial class WriteableFileProvider<TOptions>
             }
             await contents.CopyToAsync(temp, cancellationToken).ConfigureAwait(false);
             temp.Position = 0;
+            // The rewrite replaces exactly the file that was read, or creates one where there was none: a file written
+            // meanwhile makes it fail rather than be lost.
             var rewrite = options with
             {
                 Mode = UpdateFileMode.Overwrite,
-                IfMatch = info.Exists ? info.ETag : null,
-                IfNotExists = !info.Exists,
+                IfMatch = isFile ? info.ETag : null,
+                IfNotExists = !isFile,
                 // An append does not change what the file is.
                 ContentType = options.ContentType ?? info.ContentType,
             };
@@ -416,8 +432,9 @@ public abstract partial class WriteableFileProvider<TOptions>
         if (!SupportsAtomicPreconditions && (options.IfMatch is not null || options.IfNotExists))
         {
             var info = await GetFileInfoCoreAsync(path, cancellationToken).ConfigureAwait(false);
-            if (options.IfNotExists && info.Exists)
-                throw new PreconditionFailedException($"The file '{path}' already exists.");
+            // Only a file counts: a folder at the path gets the store's own answer to the write, as without conditions.
+            if (options.IfNotExists && info.Exists && !info.IsDirectory)
+                throw new FileAlreadyExistsException($"The file '{path}' already exists.");
             if (options.IfMatch is not null && !string.Equals(info.ETag, options.IfMatch, StringComparison.Ordinal))
                 throw new PreconditionFailedException($"The file '{path}' changed: its version is no longer '{options.IfMatch}'.");
         }

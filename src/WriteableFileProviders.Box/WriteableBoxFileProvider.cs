@@ -285,6 +285,11 @@ public sealed partial class WriteableBoxFileProvider : WriteableFileProvider<Box
         {
             throw NameRefused(destination, e);
         }
+        catch (BoxApiException e) when (e.ResponseInfo.StatusCode == 404)
+        {
+            // Deleted or moved by someone else since it was found.
+            throw NotFound(source, e);
+        }
     }
 
     /// <inheritdoc />
@@ -307,6 +312,11 @@ public sealed partial class WriteableBoxFileProvider : WriteableFileProvider<Box
         catch (BoxApiException e) when (IsNameRefused(e))
         {
             throw NameRefused(destination, e);
+        }
+        catch (BoxApiException e) when (e.ResponseInfo.StatusCode == 404)
+        {
+            // Deleted by someone else since it was found, or the version found has gone.
+            throw NotFound(source, e);
         }
     }
 

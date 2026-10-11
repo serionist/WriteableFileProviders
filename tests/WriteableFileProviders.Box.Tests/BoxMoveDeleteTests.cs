@@ -107,6 +107,27 @@ public sealed class BoxMoveDeleteTests
     }
 
     [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task MoveAndCopy_SourceGoneMeanwhile_IsFileNotFound(bool move)
+    {
+        // Found, then deleted by someone else before the server-side move or copy: Box answers 404.
+        var box = new FakeBox();
+        var id = box.AddFile(FakeBox.RootId, "a.txt", "a");
+        box.Intercept = request =>
+        {
+            if (request.Method != HttpMethod.Get && request.RequestUri!.AbsolutePath.StartsWith($"/2.0/files/{id}", StringComparison.Ordinal))
+                box.Delete(id);
+            return null;
+        };
+        using var provider = _credentials.Provider(box);
+
+        var e = await Assert.ThrowsExactlyAsync<FileNotFoundException>(() => move ? provider.MoveAsync("a.txt", "b.txt") : provider.CopyAsync("a.txt", "b.txt"));
+        Assert.IsInstanceOfType<BoxApiException>(e.InnerException);
+        Assert.IsNull(box.IdOf("b.txt"));
+    }
+
+    [TestMethod]
     public async Task Move_ToANameBoxRefuses_IsArgumentException()
     {
         var box = new FakeBox();

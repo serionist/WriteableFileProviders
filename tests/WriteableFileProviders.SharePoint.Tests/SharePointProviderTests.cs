@@ -645,6 +645,15 @@ public sealed class SharePointProviderTests
         fake.BreakNext(1, ItemGet);
         Assert.IsInstanceOfType<HttpRequestException>((await Assert.ThrowsExactlyAsync<IOException>(() => provider.GetFileInfoAsync("f.txt"))).InnerException);
 
+        // No answer within the HTTP client's timeout is a failure, not a cancellation. HttpClient reports its timeout as a
+        // TaskCanceledException holding a TimeoutException; one without it is a cancellation and passes through.
+        fake.Intercept = r => ItemGet(r) ? throw new TaskCanceledException("No answer in time (injected).", new TimeoutException()) : null;
+        var timedOut = await Assert.ThrowsExactlyAsync<IOException>(() => provider.GetFileInfoAsync("f.txt"));
+        Assert.IsInstanceOfType<TimeoutException>(timedOut.InnerException?.InnerException);
+        fake.Intercept = r => ItemGet(r) ? throw new TaskCanceledException("Cancelled (injected).") : null;
+        await Assert.ThrowsExactlyAsync<TaskCanceledException>(() => provider.GetFileInfoAsync("f.txt"));
+        fake.Intercept = null;
+
         fake.Intercept = r => ItemGet(r) ? new HttpResponseMessage(HttpStatusCode.NotFound) : null;
         Assert.IsFalse((await provider.GetFileInfoAsync("f.txt")).Exists, "A 404 without a body is still missing");
         fake.Intercept = r => ItemGet(r) ? new HttpResponseMessage(HttpStatusCode.NoContent) : null;
@@ -1096,6 +1105,13 @@ public sealed class SharePointProviderTests
         fake.OmitDownloadUrls = true;
         await Assert.ThrowsExactlyAsync<IOException>(() => provider.GetFileInfoAsync("f.txt"));
         fake.OmitDownloadUrls = false;
+
+        // A refused or failed measuring request is reported as a download's would be.
+        fake.Intercept = r => r.Host == GraphFake.DownloadHost ? Answer(HttpStatusCode.Forbidden, GraphFake.ErrorJson("accessDenied", "Access denied")) : null;
+        StringAssert.Contains((await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(() => provider.GetFileInfoAsync("f.txt"))).Message, "accessDenied");
+        fake.Intercept = r => r.Host == GraphFake.DownloadHost ? Answer(HttpStatusCode.InternalServerError, GraphFake.ErrorJson("generalException", "Boom")) : null;
+        StringAssert.Contains((await Assert.ThrowsExactlyAsync<IOException>(() => provider.GetFileInfoAsync("f.txt"))).Message, "500 generalException");
+        fake.Intercept = null;
 
         // A file Graph gives no ETag cannot be pinned.
         fake.Intercept = r => r.Method == "GET" && r.Path.EndsWith("/f.txt:", StringComparison.Ordinal)

@@ -2493,10 +2493,9 @@ merged, the repository's settings, the live runs, and the release. Kept current 
   `-0`, which nuget.org refuses), so a 2026
   provider cannot restore against Common 2027: today's 2026.10.10.x providers carry no upper bound, so an application
   that mixes in a 2027 package gets no restore warning, only a type load failure at run time (the root README's
-  Versioning section says to update every package together).
+  Versioning section says to update every package together). Decided 2026-10-11 by @serionist: not shipped.
 
 **Review what merged (D13):**
- Decided 2026-10-11 by @serionist: not shipped.
 - [ ] Review the merged PRs of #3 after the fact: #17 (S0), #18 (S1), #19 (S2), #20 and #22 (S3), #21 (plan round 2),
   #23 (S4), #24 (S11), #25 (S10), #26 (S5), #27 (S8), #28 (S9), #29 (S6), #30 (S7), #31 (S12 part 1), #41 (S12 part 2,
   harmonize), the docs PR of S12 part 2 and the final review's, as they merge; and Dependabot's #32 (the SDK in

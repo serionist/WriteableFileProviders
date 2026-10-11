@@ -54,10 +54,13 @@ not (Physical, Box; SharePoint names the type from the file name). Without one, 
 default, such as `application/octet-stream`, while an append and a local stream's commit keep the type the file has.
 `IWriteableFileInfo.ContentType` reports it, or null where the store keeps none.
 
-**Appends** never silently lose a concurrent write. Where the store has no append, the provider rewrites the file on
-the condition that it is still the version it read, and throws `PreconditionFailedException` when another write landed
-meanwhile: retry the append then. On Physical, Box and SharePoint that condition is checked rather than atomic (see
-below). Every file needs an `ETag` for an append by rewrite; one without throws `NotSupportedException`.
+**Appends** never silently lose a concurrent write where the store enforces the condition. Where the store has no
+append, the provider rewrites the file on the condition that it is still the version it read, and throws
+`PreconditionFailedException` when another write landed meanwhile: retry the append then. The condition is atomic on
+Azure Blob Storage, Google Cloud Storage and S3 on AWS. On Physical, Box and SharePoint it is checked rather than
+atomic; on MinIO, and on S3 toward a named endpoint, it is checked and then sent, atomic only where the server enforces
+`If-Match`. Where it is not atomic, a write that lands between the check and the rewrite can be lost (see below). Every
+file needs an `ETag` for an append by rewrite; one without throws `NotSupportedException`.
 
 ## Conditions
 

@@ -35,32 +35,16 @@ A signed URL is a bearer credential: issue one only to a caller who may read or 
 
 ## Download links for local files
 
-The gateway gives every provider URLs, the local disk included. An app that serves links to files in a folder:
+The gateway gives every provider URLs, the local disk included. The README tutorial's
+[step 2](../../README.md#2-download-links-for-local-files) is the minimal app: a Physical provider, the gateway at
+`http://localhost:5000`, and a `/link/{**path}` endpoint that returns `GetSignedUrlAsync(path, ...).Url.AbsoluteUri`.
+`GET /link/reports/2026.csv` answers with a URL such as `http://localhost:5000/files/<token>/2026.csv`, which downloads
+`files/reports/2026.csv` for an hour.
 
-```csharp
-using WriteableFileProviders;
-using WriteableFileProviders.AspNetCore;
-using WriteableFileProviders.Physical;
-
-var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddSingleton<IWriteableFileProvider>(new WriteablePhysicalFileProvider("files"));
-builder.Services.AddWriteableFileProviderGateway(new Uri("http://localhost:5000"));
-var app = builder.Build();
-app.MapWriteableFileProviderGateway();
-app.MapGet("/link/{**path}", async (string path, IWriteableFileUrlService urls) =>
-    (await urls.GetSignedUrlAsync(path, new SignedUrlOptions { Validity = TimeSpan.FromHours(1) })).Url.ToString());
-app.Run();
-```
-
-`GET /link/reports/2026.csv` answers with a URL such as `http://localhost:5000/files/<token>/2026.csv`, which
-downloads `files/reports/2026.csv` for an hour.
-
-- **`PublicBaseUri`**, the `Uri` given here, must be the URL your app is reached at from outside: gateway URLs are
-  built from it, never from the request. It is `https`, or plain `http` to a loopback host such as `localhost`, as
-  here. Run the app at that address: `dotnet run --urls http://localhost:5000`.
-- **`AddSingleton(instance)`** registers a provider the container does not dispose, since it did not create it. To
-  have the container dispose it, register a factory: `builder.Services.AddWriteableFileProvider(_ => new
-  WriteablePhysicalFileProvider("files"))`.
+- **`PublicBaseUri`**, the `Uri` given to `AddWriteableFileProviderGateway`, is the URL your app is reached at from
+  outside and every gateway URL is built from, never the request's: `https`, or plain `http` to a loopback host such
+  as `localhost`. Run the app at that address, such as `dotnet run --urls http://localhost:5000`.
+- **Return `Url.AbsoluteUri`**, the escaped form, when you hand a link out as text: `Uri.ToString()` unescapes it.
 - **The `/link` endpoint hands a bearer link to anyone who asks.** A real app checks that the caller may read the file
   first, as in the [AspNetCore README](../../src/WriteableFileProviders.AspNetCore/README.md#use).
 
@@ -206,11 +190,8 @@ The gateway itself logs nothing.
 
 ### Limits
 
-- At most 7 days of validity, like the native URLs.
-- An upload is one `PUT` of the whole body: no multipart, no resume. Large uploads are bounded by `MaxUploadBytes` and
-  by the provider.
-- `Content-Type` on a typed upload URL must match, parameters included (case aside): send `SignedUrl.Headers`.
-- Downloads are always `attachment`.
+The gateway's limits (validity, one `PUT` per upload, typed uploads, attachment downloads) are in the
+[AspNetCore README](../../src/WriteableFileProviders.AspNetCore/README.md#limits).
 
 ## Native URLs, provider by provider
 

@@ -75,7 +75,7 @@ agreement for a one-way door. D20 records how the two maintainers agree for this
 | D5 | Azure on block blobs | Writes go through staged blocks. Append stages a block and recommits the list. Existing append blobs stay readable; appending to one rewrites it as a block blob. |
 | D6 | MinIO on the S3 code | `WriteableMinioFileProvider` and `MinioFileProviderOptions` keep their names and properties. They run on AWSSDK.S3 through an internal core shared with the S3 provider. The Minio SDK dependency goes. |
 | D7 | Safer defaults | MinIO (F10), amended in round 2 (P36): `UseSSL` stays a `bool`, because every configuration saved with `ToJson` holds `"UseSSL": false` and an unset value cannot be told apart. `UseSSL = false` toward a host that is not loopback throws, unless the new `AllowInsecureHttp` option is `true`. Stored configurations that point at plain-HTTP MinIO on another host add that option; the migration guide says how to find them. SharePoint (F7): the effective root is `WorkFolderPath` followed by `RootDirectorySegments`, after removing one leading copy of the work folder from `RootDirectorySegments`, so a configuration that sets both to the same folder keeps working. Caller paths are never stripped, and the options are never mutated, so `ToJson` round-trips. Round 2 (P37): S9 pins every overlap shape the old `StripWorkFolder` handled (a full copy, a partial prefix, a caller path that starts with the work folder, case differences) in a table test, and a strict-prefix shape that would relocate files throws at construction; the relocated shapes are listed in the migration guide. |
-| D8 | MIT licence | Settled by @serionist on 2026-10-11 (the maintainer's choice, D20): MIT, "Copyright (c) 2018-2026 the WriteableFileProviders contributors". `LICENSE` at the root; `PackageLicenseExpression` MIT and that copyright line in `src/Directory.Build.props`; contributions under MIT (CONTRIBUTING.md); the README's Licence section. Built in S12's launch half (`16-launch`). Before: once László Nemes and Starschema (a co-owner of the nuget.org ids) agree, with no `LICENSE` file until then. |
+| D8 | MIT licence | MIT, "Copyright (c) 2018-2026 the WriteableFileProviders contributors", chosen by @serionist on 2026-10-11. The agreement of László Nemes and Starschema that D8 asked for is for the maintainer to confirm before 2027.0.0 is tagged. Built in S12's launch half (`16-launch`): `LICENSE` at the root; `PackageLicenseExpression` MIT and that copyright line in `src/Directory.Build.props`; contributions under MIT (CONTRIBUTING.md); the README's Licence section. Before: once László Nemes and Starschema (a co-owner of the nuget.org ids) agree, with no `LICENSE` file until then. |
 | D9 | No Newtonsoft anywhere | Not in our code, our packages or our tests, and no bridge package; System.Text.Json only. GCS's own SDK (`Google.Apis`) still depends on it transitively, which we cannot change. |
 | D10 | Build files | `Directory.Build.props` for shared properties, `Directory.Packages.props` for central package management, with lock files. |
 | D11 | Testcontainers | Emulator tests start their containers through Testcontainers; no manual `docker run`. |
@@ -2365,7 +2365,9 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     signed URL and error details moved to the guide, with a summary and a link. Every sample uses the final API:
     `AddWriteableFileProvider(configuration)`, `UpdateFileOptions.Append`, `AzureBlobFileProviderOptions`, `Access`.
   - **Licence (D8):** `LICENSE`, `PackageLicenseExpression` MIT and the copyright line, the README's Licence section,
-    CONTRIBUTING's line that contributions are MIT. The maintainers' licence item is gone.
+    CONTRIBUTING's line that contributions are MIT. MIT is the maintainer's choice; the agreement of László Nemes and
+    Starschema that D8 asked for is for the maintainer to confirm before the tag, the first item under the release in
+    the list for the maintainers.
   - **Findability:** the shared tags (`ifileprovider`, `fileprovider`, `filesystem`, `file-storage`, `storage`,
     `cloud-storage`, `upload`, `download`, `signed-url`, `writeable`) and each package's own; descriptions that lead with
     what the package does and name the other stores; `PackageReleaseNotes` linking the changelog and the migration
@@ -2389,6 +2391,35 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     project, the blocks with their own `using`s with nothing else imported; the release-notes extraction was run on
     the changelog with gawk and mawk; the move-to-shipped script was run on this branch and the packages built with it.
     No code changed, so the coverage gate was not re-run.
+  - **Review round 1 (PR #45, read at `04c06a6`):** no blocker or major; every finding fixed:
+    - F1: step 3 says Azure's link is a user delegation SAS when the identity holds a Storage Blob Data role at the
+      account (or Storage Blob Delegator), else the gateway's.
+    - F2 and F15: one project carries the tutorial (`dotnet new web`, then each step's package). Step 2 registers with
+      `AddWriteableFileProvider(_ => ...)`, so step 3 changes only the registration; the disposal bullet, step 3's aside
+      and step 4's endpoint went; `TutorialTests` follows.
+    - F3: links are handed out as `Url.AbsoluteUri`, since `Uri.ToString()` unescapes.
+    - F4: an append's condition on MinIO, and on S3 toward a named endpoint, is checked and then sent.
+    - F5 to F7: links inside the root are followed (README); Common's README names the dot-segment root; the changelog
+      lists S3's plain-http refusal.
+    - F8 and F9 (decided): the tag ruleset's bypass takes roles (Repository admin and Write); the prefix reservation
+      comes first; the trusted publishing policy is owned by `serionist`, scoped to new packages and new versions on
+      `WriteableFileProviders.*`; `NUGET_USER` is `serionist`.
+    - F10 (decided): `release.yml`'s build job fails a stable tag whose CHANGELOG section is missing or still says
+      unreleased, before the approval; prereleases keep the generated-notes fallback. actionlint passes.
+    - F11 to F14: the props file names the runbook's section; "the job's OIDC token"; the baseline is a
+      `PackageDownload` at restore, and a package first released later sets its own or none; `release.yml`'s setup
+      header points to the runbook.
+    - F16 (decided: one copy): the signed URL page links the tutorial's step 2 instead of repeating it; the gateway's
+      limits live in the AspNetCore README, the singleton rule in the signed URL page.
+    - F17 (decided: trim): the package READMEs drop the bullets that restated the guide's rules (prefix folders,
+      unaddressable names, a missing container or bucket, the error contract) for one line that links the guide; every
+      provider-specific fact stays.
+    - Q1: D8 records MIT as the maintainer's choice; the agreement of László Nemes and Starschema is the first item
+      under the release in the list for the maintainers.
+    - Verified: the solution builds in Release; pack and the package check pass at `2027.0.0-alpha.0.118` and
+      `2027.0.0`; the 40 C# blocks of the docs compile; the AspNetCore tests pass (233, `TutorialTests` included);
+      actionlint 1.7.7 is clean; the 25 docs have no broken link or anchor; the changelog gate was run on a dated, an
+      undated and a missing section and on a prerelease.
 
 ### For the maintainers
 
@@ -2450,16 +2481,18 @@ merged, the repository's settings, the live runs, and the release. Kept current 
 **Environments** (a workflow that names an environment creates it unprotected on its first run, so protect each one
 before it holds a secret or nuget.org trusts it):
 
-- [ ] Configure the release (`release.yml`, whose header says the same; [docs/releasing.md](../releasing.md), "Once:
-  set it up", has each step), in this order:
-  1. The `nuget` environment: required reviewers, the maintainers; deployment tags `v*` only.
-  2. A tag ruleset on `v*`, so only the maintainers create, move or delete release tags.
-  3. The `nuget` environment's secret `NUGET_USER`: the nuget.org profile name (not the email) of the account that
-     owns the packages.
-  4. On nuget.org, as that account, a trusted publishing policy: owner `serionist`, repository
-     `WriteableFileProviders`, workflow `release.yml`, environment `nuget`.
-  5. Reserve the `WriteableFileProviders.` id prefix on nuget.org: an email from the owning account to
-     `account@nuget.org`.
+- [ ] Configure the release ([docs/releasing.md](../releasing.md), "Once: set it up", has each step), in this
+  order, before the first tag:
+  1. Reserve the `WriteableFileProviders.` id prefix on nuget.org: an email from the owning account, `serionist`, to
+     `account@nuget.org`, naming the prefix `WriteableFileProviders.*`.
+  2. The `nuget` environment: required reviewers, the maintainers; deployment tags `v*` only.
+  3. A tag ruleset on `v*` restricting creations, updates and deletions. Its bypass takes roles, not users: Repository
+     admin and Write (today exactly the two maintainers; anyone given write later can tag).
+  4. The `nuget` environment's secret `NUGET_USER`: `serionist`, the nuget.org profile name (not the email) of the
+     account that owns the packages.
+  5. On nuget.org, as `serionist`, a trusted publishing policy owned by `serionist`: repository owner `serionist`,
+     repository `WriteableFileProviders`, workflow `release.yml`, environment `nuget`, with the scopes for new
+     packages and new versions on the glob `WriteableFileProviders.*` (`WriteableFileProviders.AspNetCore` is a new id).
 - [ ] Create the `live-cloud` environment for `live.yml`, protected first: deployment branches `main` only, and no
   required reviewers (the nightly run would wait). Then one secret per `WFP_*` variable the workflow maps, for
   accounts you own and keep for it: Box's app configuration JSON as the one secret `WFP_BOX_CONFIG_JSON`; Google Cloud
@@ -2561,6 +2594,7 @@ is missing when `WFP_LIVE=1` is set without them.
 
 **The release (D28):**
 
+- [ ] Confirm László Nemes and Starschema agree to MIT (D8) before tagging v2027.0.0.
 - [ ] Once everything above that blocks it is done, and the final review of S12 has merged: date the `2027.0.0`
   heading of `CHANGELOG.md` in a PR, optionally tag `v2027.0.0-rc.1` on `main` for a prerelease, then `v2027.0.0`.
   `release.yml` asks the `nuget` environment's reviewers before it pushes ([docs/releasing.md](../releasing.md),

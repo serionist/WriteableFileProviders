@@ -56,6 +56,8 @@ break and what to do about it.
 - Every provider changed behaviour to follow the contract: missing containers and buckets are no longer created unless
   asked, moves refuse an existing destination, MinIO refuses plain HTTP to a host that is not loopback unless
   `AllowInsecureHttp` is set, SharePoint's work folder is the start of the root, and more, provider by provider.
+- Amazon S3 refuses plain `http` toward a host that is not loopback, whether through `ServiceUrl`, a client you pass
+  in, or an endpoint the AWS SDK takes from its configuration, unless `AllowInsecureHttp` is set.
 - A stored root with a dot segment (`tenants/../other`) no longer builds.
 
 [Moving from 2026](https://github.com/serionist/WriteableFileProviders/blob/main/docs/migration-2027.md) has each

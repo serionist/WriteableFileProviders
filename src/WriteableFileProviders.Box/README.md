@@ -99,16 +99,17 @@ the SDK's `BoxApiException` inside, without the token request it sent.
 
 ## How it behaves
 
-- **Folders are real:** an empty folder exists, and `GetFileInfoAsync` on a folder says it exists and is a directory.
-  A file and a folder cannot share a name: writing a file at a folder's path, or under a file's path, throws
-  `IOException`.
-- **Names ignore case:** a folder cannot hold `a.txt` and `A.txt`; moving `a.txt` to `A.txt` renames it. Writing
-  `A.TXT` over `a.txt` keeps the stored name.
+The rules every provider shares (real folders, case, the names a listing leaves out, the exceptions) are in the guide:
+[paths](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/paths-and-listings.md), [reading and
+writing](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/reading-and-writing.md), and
+[errors](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/errors.md#box) with this provider's
+own mapping. What follows is this provider's own.
+
+- **Names:** writing `A.TXT` over `a.txt` keeps the stored name.
 - **Paths are resolved on every call:** Box has no lookup by path, so each call lists the folders on its path from the
   root folder down (with marker paging, 1000 entries a page). Deep paths and very large folders cost one or more calls
   per level; nothing is cached between calls, so a change made elsewhere is seen at once.
-- **Listings** leave out items that are neither files nor folders (web links), and names no path can address: a name of
-  only dots and spaces (`...`), or one such as `%2e%2e` that decodes to one.
+- **Listings** also leave out items that are neither files nor folders (web links).
 - **Writes:** the caller's stream is copied to a local temp file from its current position, then uploaded: in one
   request below 20 MiB, through a chunked upload session at or above it (exact part sizes, part and whole-file digests,
   the session aborted on failure). Box makes the new version only once the upload is complete, so a write that fails
@@ -125,10 +126,9 @@ the SDK's `BoxApiException` inside, without the token request it sent.
   the version it opened, unless `AllowModifications` is set, and throws `PreconditionFailedException` once the file has
   changed. The download itself, from Box's pre-authenticated URL, throws `FileNotFoundException` or `IOException` with
   its HTTP status only: that URL is a credential, so no error carries it.
-- **Errors:** Box's 401 and 403, and a sign-in Box refuses, throw `UnauthorizedAccessException`, and any other failure
-  of Box or the network `IOException`, with the SDK's `BoxApiException` inside. That exception can carry the request's
-  credentials, which the provider strips from the errors of the clients it builds or copies
-  ([Errors](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/errors.md#box) says exactly what
+- **Errors** carry the SDK's `BoxApiException` inside, which keeps the request it sent, credentials included; the
+  provider strips them from the errors of the clients it builds or copies, and not from another `IBoxClient`'s
+  ([errors](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/errors.md#box) says exactly what
   each keeps).
 - **Move and copy** run on the server, on files only; they create the destination's folders and refuse an existing
   destination with `FileExistsException`. A move is one call, or, when Box refuses a case-only rename, three through a

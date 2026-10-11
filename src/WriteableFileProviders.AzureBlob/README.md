@@ -54,8 +54,8 @@ await using var files = new WriteableAzureBlobFileProvider(new AzureBlobFileProv
 
 The options come first, as on every provider's client constructor. With a client, only the root and
 `CreateContainerIfMissing` are read from them (pass `new()` for the container's root; null throws
-`ArgumentNullException`); a `ContainerName` that differs from the client's throws `ArgumentException`. The provider class is sealed: to change what it does, wrap it,
-or derive your own provider from `WriteableFileProvider<TOptions>`.
+`ArgumentNullException`); a `ContainerName` that differs from the client's throws `ArgumentException`. The provider
+class is sealed: to change what it does, wrap it, or derive your own provider from `WriteableFileProvider<TOptions>`.
 
 ## Configuration
 
@@ -85,6 +85,13 @@ exactly as 2026.10.10.x stored it. `ToJson` output contains the account key: nev
 
 ## How it behaves
 
+The rules every provider shares (prefix folders, a file and a folder sharing a name, the names a listing leaves out, a
+missing container, the exceptions) are in the guide:
+[paths](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/paths-and-listings.md), [reading and
+writing](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/reading-and-writing.md), and
+[errors](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/errors.md#azure-blob-storage) with
+this provider's own mapping. What follows is this provider's own.
+
 - **Block blobs.** An overwrite stages its content as blocks while it reads your stream, and commits them in one
   request: a write that fails leaves the old content, and readers never see half of it. `IfMatch` and `IfNotExists` are
   checked by that commit, atomically. The commit sets the content type you give, or `application/octet-stream`; the
@@ -103,15 +110,9 @@ exactly as 2026.10.10.x stored it. `ToJson` output contains the account key: nev
 - **Content type:** stored when you give one, `application/octet-stream` otherwise, and reported by `GetFileInfoAsync`
   and listings. An append keeps the stored type unless it gives one, and keeps the encoding, cache control, language,
   disposition, metadata and a tier set on the blob.
-- **Folders** are name prefixes: a folder exists while some blob is under it (or a `dir/` marker blob another tool
-  made). Names are case-sensitive. So a file and a folder may share a name: a blob written at a folder's path, or under
-  a blob's path, is stored, reads back by path, and a listing shows both. `GetFileInfoAsync` of such a name describes
-  the file. Deleting it removes the file first, and a second delete the folder; a writeable local stream of a folder's
-  path still throws `IOException`.
-- **Listings** leave out blob names no path can address (an empty or whitespace segment, one of only dots and spaces
-  such as `..`, a control character, a backslash, or a percent-encoded form of one of these) and the provider's own
-  temporary folder, `.wfp-tmp` at the provider root. Every other name, one of yours that starts with `.wfp-` included,
-  is listed. A recursive listing is one flat listing of the prefix.
+- **Folders:** a `dir/` marker blob another tool made counts as a folder.
+- **Listings** hide the provider's own temporary folder, `.wfp-tmp` at the provider root. A recursive listing is one
+  flat listing of the prefix.
 - **Reads:** `ReadRangeAsync` asks Azure for the range, checking `ReadOptions.IfMatch` atomically.
   `OpenReadSeekableAsync` is the SDK's own seekable stream, pinned to the version it opened unless modifications are
   allowed: a change throws `PreconditionFailedException`, a delete `FileNotFoundException`.
@@ -121,11 +122,6 @@ exactly as 2026.10.10.x stored it. `ToJson` output contains the account key: nev
 - **Snapshots are never deleted.** Deleting or moving a blob that has snapshots throws `IOException` and leaves it as
   it was; delete the snapshots first. A folder delete removes its blobs page by page, so it can stop there with some
   already gone. The one exception is the conversion of a 2026 append blob, below.
-- **A missing container** makes every member that reaches it throw `InvalidOperationException`, naming it and
-  `CreateContainerIfMissing`.
-- **Errors:** Azure's 401 and 403 and a refused sign-in throw `UnauthorizedAccessException`, and any other failure of
-  Azure or the network, after the SDK's retries, `IOException`
-  ([Errors](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/errors.md#azure-blob-storage)).
 
 ### Append blobs written by 2026.10.10.x
 

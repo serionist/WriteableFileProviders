@@ -99,13 +99,14 @@ local streams and read URLs of a missing file. Only `ReadFileAsync` and `ReadRan
 
 ## How it behaves
 
-- **Folders** are prefixes: a folder exists while an object is under it, and lists as missing once the last one goes.
-  An object named like a folder (`dir/`, as the console makes) is an empty folder. Names are case-sensitive. So a file
-  and a folder may share a name: an object written at a folder's path, or under an object's path, is stored, reads back
-  by path, and a listing shows both. `GetFileInfoAsync` of such a name describes the file. Deleting it removes the
-  file first, and a second delete the folder; a writeable local stream of a folder's path still throws `IOException`.
-- **Listings** leave out objects whose names no path can address: an empty segment (`a//b`), one of only dots and
-  spaces (`x/../y`), a control character, a backslash, or a percent-encoded form of one of these.
+The rules every provider shares (prefix folders, a file and a folder sharing a name, the names a listing leaves out, a
+missing bucket, the exceptions) are in the guide:
+[paths](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/paths-and-listings.md), [reading and
+writing](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/reading-and-writing.md), and
+[errors](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/errors.md#google-cloud-storage) with
+this provider's own mapping. What follows is this provider's own.
+
+- **Folders:** an object named like a folder (`dir/`, as the console makes) is an empty folder.
 - **Versions:** a file's `ETag` is its generation. `UpdateFileOptions.IfMatch` and `IfNotExists` are generation
   preconditions Cloud Storage checks atomically.
 - **Writes** are resumable uploads: the object appears only when every byte arrived, so a write that fails leaves the
@@ -123,12 +124,6 @@ local streams and read URLs of a missing file. Only `ReadFileAsync` and `ReadRan
   lost answer would find its own copy and report the destination as taken. So when a copy or a move fails with a server
   error or a timeout, the copy may still have landed: check the destination before you try again (after a move, the
   source is still there).
-- **Missing bucket:** every member that reaches the bucket throws `InvalidOperationException` naming it, unless
-  `CreateBucketIfMissing` is set.
-- **Errors:** Cloud Storage's 401 and 403, and a credential Google's token endpoint refuses, throw
-  `UnauthorizedAccessException`; no Application Default Credentials to find, `InvalidOperationException`; any other
-  failure, `IOException`
-  ([Errors](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/errors.md#google-cloud-storage)).
 
 ## Signed URLs
 

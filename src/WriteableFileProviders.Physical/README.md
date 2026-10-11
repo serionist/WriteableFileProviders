@@ -63,6 +63,12 @@ None: the provider reads and writes with the permissions of the process that run
 
 ## How it behaves
 
+The rules every provider shares (the paths, a file and a folder never sharing a name, the exceptions) are in the guide:
+[paths](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/paths-and-listings.md), [reading and
+writing](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/reading-and-writing.md), and
+[errors](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/errors.md#physical) with this
+provider's own mapping. What follows is this provider's own.
+
 - **Writes are atomic.** An overwrite, an append, a copy and a local stream's commit write a temp file named
   `.wfp-<guid>.tmp` next to the target, then rename it over the target, so the file has its old content or its new
   content, never a part. A failed write removes its temp file where it can; a crash, or a temp file that cannot be
@@ -118,8 +124,6 @@ None: the provider reads and writes with the permissions of the process that run
   keeps them. Listings leave out names no path can address: those names on Windows; on Linux and macOS a name holding
   `:` or `\`, a control character, or only dots and spaces (`...`); on any system a name such as `%2e%2e` that decodes
   to one of these.
-- **A file and a folder** cannot share a name: writing a file at a folder's path, or under a file's path, throws
-  `IOException`.
 - **Access.** Where the operating system refuses the process access to a file or a folder that a member opens, lists,
   writes, moves or deletes, the member throws `UnauthorizedAccessException`, a read or a listing as well as a write. A
   path the system will not look up at all, such as one inside a folder the process may not enter, reads as missing:
@@ -136,8 +140,6 @@ None: the provider reads and writes with the permissions of the process that run
   content in place. The first `Watch` creates the root folder if it is missing. It relies on file system events, which
   some network and container-mounted folders do not deliver; set `DOTNET_USE_POLLING_FILE_WATCHER` to `1` or `true` to
   poll instead.
-- **Errors** are the file system's own `UnauthorizedAccessException` and `IOException`, with no SDK in between
-  ([Errors](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/errors.md#physical)).
 
 ## Signed URLs
 

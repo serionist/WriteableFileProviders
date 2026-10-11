@@ -99,13 +99,14 @@ provider to release the HTTP client and certificate it created.
 
 ## How it behaves
 
-- **Folders are real:** an empty folder exists, and writes, moves and copies create missing parents. A folder's
-  `Length` is -1. A file and a folder cannot share a name: writing a file at a folder's path, or under a file's path,
-  throws `IOException`.
-- **Names ignore case:** `a.txt` and `A.txt` are one file; moving one to the other renames it.
+The rules every provider shares (real folders, case, the names a listing leaves out, the exceptions) are in the guide:
+[paths](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/paths-and-listings.md), [reading and
+writing](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/reading-and-writing.md), and
+[errors](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/errors.md#sharepoint) with this
+provider's own mapping. What follows is this provider's own.
+
 - **Path segments** may not contain `:` (Graph's path syntax), escaped or not. A `%` is sent escaped, so `a%41` names an
-  item called `a%41`, not `aA`. Listings leave out items whose names the provider cannot address, such as one that
-  decodes to `..`.
+  item called `a%41`, not `aA`.
 - **Writes** copy the stream, from its position, to a temp file first, so a source that fails sends nothing. Up to
   4 MiB a file goes in one request; above, through an upload session in 5 MiB fragments that the service commits with
   the last one. A fragment answered 500, 502, 503, 504 or 416, cut off by the network, or answered without progress is
@@ -130,10 +131,6 @@ provider to release the HTTP client and certificate it created.
   at most; then it throws `IOException` naming the copy's last status. The service may still finish that copy
   afterwards and create the destination.
 - **Delete** sends items to the site's recycle bin.
-- **Errors:** only a 404 means "not found". 401 and 403, and a refused sign-in, throw `UnauthorizedAccessException`;
-  throttling after the SDK's retries, and other failures, `IOException`; a missing site or library
-  `InvalidOperationException`
-  ([Errors](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/errors.md#sharepoint)).
 
 ## Signed URLs
 

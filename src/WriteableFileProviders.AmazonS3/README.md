@@ -86,15 +86,18 @@ anything else, pass your own `IAmazonS3` (see Use).
 
 ## How it behaves
 
-- **Folders** are key prefixes: a folder exists while a key is under it (or a `dir/` marker key another tool made), and
-  an empty one does not. Names are case-sensitive. So a file and a folder may share a name: a file written at a
-  folder's path, or a folder under a file's path, is stored, reads back by path, and a listing shows both (where the
-  server is MinIO, which lists only the file and hides what is under the folder while the file exists, see the MinIO
-  package). `GetFileInfoAsync` of such a name describes the file. Deleting it removes the file first, and a second
-  delete the folder; a writeable local stream of a folder's path still throws `IOException`.
-- **Listings** leave out keys a path cannot name: an empty or whitespace segment, one of only dots and spaces such as
-  `..`, a backslash, a control character, or a percent-encoded form of one of these. They carry no content type;
-  `GetFileInfoAsync` does. A recursive listing is one flat, paged listing of the prefix.
+The rules every provider shares (prefix folders, a file and a folder sharing a name, the names a listing leaves out, a
+missing bucket, the exceptions) are in the guide:
+[paths](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/paths-and-listings.md), [reading and
+writing](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/reading-and-writing.md), and
+[errors](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/errors.md#amazon-s3) with this
+provider's own mapping. What follows is this provider's own.
+
+- **Folders:** a `dir/` marker key another tool made counts as a folder. Toward a MinIO server, a file and a folder that
+  share a name list as the file only, and what is under the folder is hidden while the file exists (see the MinIO
+  package).
+- **Listings** carry no content type; `GetFileInfoAsync` does. A recursive listing is one flat, paged listing of the
+  prefix.
 - **Writes** up to 8 MiB go in one request, larger ones in a multipart upload of 8 MiB parts. Parts grow past
   10,000 × 8 MiB (about 78 GiB) for a stream that knows its length, and past the first 1,000 parts (about 7.8 GiB) for
   one that does not. S3 replaces a file only once all of it arrived, so a failed write leaves the old content. The
@@ -120,9 +123,6 @@ anything else, pass your own `IAmazonS3` (see Use).
   it.
 - **Versions:** `ReadFileVersionAsync(versionId, path)` reads a version in a bucket with versioning.
 - Nothing touches the network before the first call, which resolves the credentials (if asked) and checks the bucket.
-- **Errors:** S3's 401 and 403, and an expired or invalid session token, throw `UnauthorizedAccessException`, and any
-  other failure of S3 or the network, after the SDK's retries, `IOException`
-  ([Errors](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/errors.md#amazon-s3) has the codes).
 
 ## Signed URLs
 
@@ -136,8 +136,7 @@ credential that signs it, so a credential that expires sooner, or whose expiry c
 
 - 10,000 parts per file: up to 5 TiB from a stream that knows its length, about 430 GiB from one that does not.
 - Copies over 5 GiB take one request per part, plus two.
-- A missing bucket throws `InvalidOperationException` naming the bucket and `CreateBucketIfMissing`. The bucket is
-  checked once, on first use; a bucket deleted later is reported by the next call that finds it gone.
+- The bucket is checked once, on first use; a bucket deleted later is reported by the next call that finds it gone.
 - Toward an endpoint named by `ServiceUrl` or a client's `ServiceURL`, conditions are checked first and then sent,
   atomic only where the server enforces them, and create URLs come from the gateway; this holds for S3's own host
   names too, since a name under `amazonaws.com` may front another server. Unless the endpoint is one of S3's own host

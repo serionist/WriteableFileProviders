@@ -4,19 +4,8 @@
 # concluded success on the tagged commit, which covers what this workflow does not run (the Windows build and tests). A
 # tag with a prerelease suffix (v2027.1.0-rc.1) makes a prerelease on both. docs/releasing.md is the runbook.
 #
-# What the maintainers configure once, in this order. A workflow that names an environment creates it, unprotected, the
-# first time it runs, so the environment is protected before it holds a secret or nuget.org trusts it:
-# 1. In GitHub, Settings > Environments > nuget:
-#    - required reviewers: the maintainers, so a person approves every push to nuget.org after the tests pass;
-#    - deployment branches and tags: tags matching v* only.
-# 2. A tag ruleset on v*, so only the maintainers can create, move or delete a release tag.
-# 3. Then the nuget environment's secret NUGET_USER: the nuget.org profile name (not the email) of the account that owns
-#    the packages and the policy below.
-# 4. Then, on nuget.org, signed in as the account that owns the WriteableFileProviders.* packages: Trusted Publishing >
-#    a policy with repository owner "serionist", repository "WriteableFileProviders", workflow file "release.yml" and
-#    environment "nuget". The policy covers every package that account owns.
-#
-# No long-lived API key exists anywhere: NuGet/login trades the job's OIDC token for a key that lives one hour.
+# Setup: docs/releasing.md. No long-lived API key exists anywhere: NuGet/login trades the job's OIDC token for a key that
+# lives one hour.
 name: Release
 
 on:
@@ -54,6 +43,31 @@ jobs:
             echo "::error::$GITHUB_REF_NAME is not on main. A release is tagged on a commit of main."
             exit 1
           fi
+      # A stable release's notes are its CHANGELOG.md section (the github-release job), so a stable tag needs one, dated:
+      # a "## <version>" heading (or "## [<version>]") that no longer says unreleased, with something under it. It is
+      # checked here, before the approval, so nothing is pushed without it. A prerelease may have none: its notes fall
+      # back to its release's section, or to notes GitHub generates.
+      - name: Check the changelog has a section for a stable version
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          case "$version" in *-*) echo "$version is a prerelease: no changelog section required."; exit 0 ;; esac
+          heading=$(awk -v version="$version" '
+            /^## / { h = $2; gsub(/[][]/, "", h); if (h == version) { print; exit } }
+          ' CHANGELOG.md)
+          body=$(awk -v version="$version" '
+            /^## / { if (found) exit; h = $2; gsub(/[][]/, "", h); if (h == version) { found = 1; next } }
+            found { print }
+          ' CHANGELOG.md)
+          if [ -z "$heading" ] || ! grep -q '[^[:space:]]' <<<"$body"; then
+            echo "::error::CHANGELOG.md has no section for $version. Add one, dated, before tagging (docs/releasing.md)."
+            exit 1
+          fi
+          if grep -qi 'unreleased' <<<"$heading"; then
+            echo "::error::CHANGELOG.md's heading for $version still says unreleased: '$heading'. Date it before tagging."
+            exit 1
+          fi
+          echo "CHANGELOG.md has a section for $version: $heading"
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           global-json-file: global.json

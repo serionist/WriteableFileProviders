@@ -54,7 +54,7 @@ services.AddWriteableFileProvider(configuration.GetSection("Files"));
 `WriteableFileProviderSerializer` also builds a provider from JSON (`FromJson`) and writes one back (`ToJson`,
 `ToJsonString`); the JSON holds the options' secrets, so never log it. A provider from elsewhere is registered with
 `WriteableFileProviderSerializer.Register<TProvider>()`, or its assembly passed in. Configurations stored by the 2026
-versions read unchanged.
+versions read unchanged, except a root with a dot segment (`tenants/../other`), which no longer builds.
 
 ## Learn more
 

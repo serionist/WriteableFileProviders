@@ -32,6 +32,9 @@ Each store is a package of its own (see [Providers](#providers)), and each bring
 
 ## Tutorial
 
+One project carries the four steps: `dotnet new web -o Files`, then, in `Files`,
+`dotnet add package WriteableFileProviders.Physical`. Each step's code is its `Program.cs`, run with `dotnet run`.
+
 ### 1. Files on the local disk
 
 ```csharp
@@ -50,12 +53,15 @@ await foreach (var entry in files.EnumerateAsync("reports"))
     Console.WriteLine($"{entry.Name}: {entry.Length} bytes");
 ```
 
-Paths are relative to the provider's root, the `files` folder, and never reach outside it. A write is atomic, so a
-write that fails leaves the old content, and it creates the folders above the file.
+Paths are relative to the provider's root, the `files` folder, and never reach outside it (symbolic links inside it
+are followed: [Paths](docs/guide/paths-and-listings.md#paths)). A write is atomic, so a write that fails leaves the old
+content, and it creates the folders above the file.
 
 ### 2. Download links for local files
 
-The gateway in `WriteableFileProviders.AspNetCore` serves signed links for any store, the local disk included:
+The gateway in `WriteableFileProviders.AspNetCore` serves signed links for any store, the local disk included. In the
+same project, where step 1 wrote `files/reports/2026.csv`, `dotnet add package WriteableFileProviders.AspNetCore`, and
+`Program.cs` becomes:
 
 ```csharp
 using WriteableFileProviders;
@@ -63,22 +69,20 @@ using WriteableFileProviders.AspNetCore;
 using WriteableFileProviders.Physical;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddSingleton<IWriteableFileProvider>(new WriteablePhysicalFileProvider("files"));
+builder.Services.AddWriteableFileProvider(_ => new WriteablePhysicalFileProvider("files"));
 builder.Services.AddWriteableFileProviderGateway(new Uri("http://localhost:5000"));
 var app = builder.Build();
 app.MapWriteableFileProviderGateway();
 app.MapGet("/link/{**path}", async (string path, IWriteableFileUrlService urls) =>
-    (await urls.GetSignedUrlAsync(path, new SignedUrlOptions { Validity = TimeSpan.FromHours(1) })).Url.ToString());
+    (await urls.GetSignedUrlAsync(path, new SignedUrlOptions { Validity = TimeSpan.FromHours(1) })).Url.AbsoluteUri);
 app.Run();
 ```
 
 Run it with `dotnet run --urls http://localhost:5000` and open `/link/reports/2026.csv`: the answer is a link that
 downloads the file for an hour.
 
-- The `Uri` is the gateway's public address, the URL the app is reached at, which every link is built from. It must be
-  `https`, or plain `http` to a loopback host such as `localhost`, as here.
-- `AddSingleton` with an instance leaves the provider to you: the container disposes only what it creates. Register
-  `AddWriteableFileProvider(_ => new WriteablePhysicalFileProvider("files"))` to have it disposed.
+- The `Uri` is the gateway's public address, the URL the app is reached at and every link is built from: `https`, or
+  plain `http` to a loopback host such as `localhost`, as here.
 - `/link` hands a working link to anyone who asks. A real app checks that the caller may read the file first.
 
 ### 3. The same code on a cloud store
@@ -100,9 +104,10 @@ builder.Services.AddWriteableFileProvider(builder.Configuration.GetSection("File
 }
 ```
 
-With `WriteableFileProviders.AzureBlob` added, `/link` now answers with Azure's own SAS link, which downloads straight
-from the store; the gateway serves what a store cannot sign. Another store is another `Type` and its keys, listed in
-its package's README; `"Type": "WriteablePhysicalFileProvider", "RootDirectoryPath": "files"` is step 2 again.
+With `WriteableFileProviders.AzureBlob` added, `/link` now answers with a user delegation SAS, which downloads
+straight from the store, when the identity holds a Storage Blob Data role at the account (or Storage Blob Delegator);
+otherwise with the gateway's link ([Authentication](src/WriteableFileProviders.AzureBlob/README.md#authentication)).
+Another store is another `Type` and its keys, listed in its package's README.
 
 ### 4. One provider, or several
 
@@ -112,12 +117,10 @@ your own way, with keyed services, `GetServices<IWriteableFileProvider>()` or a 
 ```csharp
 builder.Services.AddKeyedSingleton<IWriteableFileProvider>("archive",
     (_, _) => WriteableFileProviderSerializer.FromConfiguration(builder.Configuration.GetSection("Archive")));
-
-app.MapGet("/archive/{**path}", async (string path, [FromKeyedServices("archive")] IWriteableFileProvider archive) =>
-    Results.Stream(await archive.ReadFileAsync(path)));
 ```
 
-Links for it name the key: `urls.GetSignedUrlAsync(path, options, providerKey: "archive")`.
+Links for it name the key: `urls.GetSignedUrlAsync(path, options, providerKey: "archive")`. Every provider the gateway
+serves is a [singleton](docs/guide/signed-urls.md#the-url-service).
 
 ## Providers
 

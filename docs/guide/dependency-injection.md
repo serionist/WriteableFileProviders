@@ -72,13 +72,10 @@ builder.Services.AddSingleton(_ => new ArchiveFiles(
     WriteableFileProviderSerializer.FromConfiguration(builder.Configuration.GetSection("Archive"))));
 ```
 
-**With the gateway, register every provider as a singleton**, whichever way you tell them apart:
-`AddWriteableFileProvider`, `AddSingleton` or `AddKeyedSingleton`, never scoped or transient, unless it resolves to
-the same store in every scope. The URL service resolves the provider from the root container when it issues a URL,
-and the gateway from the request's services when it redeems one, so a provider per scope, such as one per tenant,
-would let a URL be redeemed against another tenant's store. The gateway serves only providers registered as
-`IWriteableFileProvider`, plain or keyed: links for a provider held by a type of your own need it registered under a
-key too.
+**With the gateway, register every provider it serves as a singleton**, whichever way you tell them apart
+(`AddWriteableFileProvider`, `AddSingleton`, `AddKeyedSingleton`): [Signed URLs](signed-urls.md#the-url-service) says
+why. The gateway serves only providers registered as `IWriteableFileProvider`, plain or keyed: links for a provider
+held by a type of your own need it registered under a key too.
 
 ## Configuration
 

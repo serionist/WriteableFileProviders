@@ -82,15 +82,16 @@ A MinIO key pair (`AccessKey`, `SecretKey`), or none for anonymous access. For a
 
 ## How it behaves
 
-- **Folders** are key prefixes: a folder exists while a key is under it (or a `dir/` marker key another tool made), and
-  an empty one does not. Names are case-sensitive. So a file and a folder may share a name: a file written at a
-  folder's path, or a folder under a file's path, is stored and reads back by path. MinIO then lists only the file, and
-  hides what is under the folder from every listing while the file exists; deleting the file shows the folder again.
-  `GetFileInfoAsync` of such a name describes the file. Deleting it removes the file first, and a second delete the
-  folder; a writeable local stream of a folder's path still throws `IOException`.
-- **Listings** leave out keys a path cannot name: an empty or whitespace segment, one of only dots and spaces such as
-  `..`, a backslash, a control character, or a percent-encoded form of one of these. They carry no content type;
-  `GetFileInfoAsync` does.
+The rules every provider shares (prefix folders, the names a listing leaves out, a missing bucket, the exceptions) are
+in the guide: [paths](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/paths-and-listings.md),
+[reading and writing](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/reading-and-writing.md),
+and [errors](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/errors.md#minio) with this
+provider's own mapping. What follows is this provider's own.
+
+- **Folders:** a `dir/` marker key another tool made counts as a folder. Where a file and a folder share a name, MinIO
+  lists only the file, and hides what is under the folder from every listing while the file exists; deleting the file
+  shows the folder again.
+- **Listings** carry no content type; `GetFileInfoAsync` does.
 - **Reads** stream from the server (2026 downloaded the whole file to a temp file first). `ReadRangeAsync` is a ranged
   GET, sent with `If-Match` when `ReadOptions.IfMatch` is set; `OpenReadSeekableAsync` reads ranged GETs pinned with
   `If-Match` to the version it opened, unless `AllowModifications` is set.
@@ -111,9 +112,6 @@ A MinIO key pair (`AccessKey`, `SecretKey`), or none for anonymous access. For a
 - No storage class is sent: MinIO refuses the ones it does not know.
 - Nothing touches the network before the first call, which asks for the region (unless `Region` names it) and checks
   the bucket.
-- **Errors:** the server's 401 and 403, and an expired or invalid session token, throw `UnauthorizedAccessException`,
-  and any other failure of the server or the network, after the SDK's retries, `IOException`, a wrong `Region` included
-  ([Errors](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/errors.md#minio) has the codes).
 
 ## Signed URLs
 

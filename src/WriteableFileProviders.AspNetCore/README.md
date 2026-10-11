@@ -84,9 +84,7 @@ An upload URL works the same way: `Access = SignedUrlAccess.Create` (only if the
 `SignedUrlAccess.Write` (create or replace). The client sends `PUT` to `SignedUrl.Url` with the headers in
 `SignedUrl.Headers`. For a provider registered under a key (`AddKeyedSingleton<IWriteableFileProvider>(key, ...)`),
 pass the key: `GetSignedUrlAsync(path, options, providerKey)`. Every provider the gateway serves, default or keyed,
-must be a singleton, or resolve to the same store in every scope: the URL service resolves it from the root container
-when it issues a URL, and the gateway from the request's services when it redeems one, so a scoped or transient
-provider per tenant would let a URL be redeemed against another tenant's store.
+must be a singleton ([why](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/signed-urls.md#the-url-service)).
 
 ## Configuration
 

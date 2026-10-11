@@ -22,10 +22,6 @@ public sealed class BoxConformanceTests : ProviderConformanceTests
 
     protected override TimeSpan? FixedSignedUrlLifetime => WriteableBoxFileProvider.DownloadUrlLifetime;
 
-    // D15 as amended: IfMatch is checked just before the write, not atomically, until a live run confirms that Box
-    // matches the quoted If-Match the SDK sends. BoxAtomicConformanceTests runs this rule with the header on.
-    protected override bool DetectsConcurrentAppends => false;
-
     protected override long LargeFileSize => BoxFixture.LargeFileSize;
 
     protected override IWriteableFileProvider CreateProvider(string? root) => BoxFixture.Tune(TestCredentials.Default.Provider(_box, root));

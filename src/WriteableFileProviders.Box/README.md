@@ -27,10 +27,11 @@ The provider signs in as a Box app's service account, with server authentication
 
 Sign-in happens on the first call that needs Box: building the provider does no network I/O (it reads the private key,
 so a wrong key or passphrase fails there). Box's access tokens last an hour; when Box answers 401, the SDK fetches a new
-one and retries.
+one and retries. A sign-in Box refuses throws the SDK's `BoxApiException` without the token request, which held the
+client secret.
 
 To sign in another way (OAuth, a developer token, as-user calls), to use a proxy or custom retries, build the Box client
-yourself and pass it in; the provider never disposes it:
+yourself and pass it in; the provider never disposes it, and its authentication's errors are its own:
 
 ```csharp
 using Box.Sdk.Gen;
@@ -101,11 +102,15 @@ await files.MoveAsync("reports/2026.csv", "archive/2026.csv");         // one se
   request below 20 MiB, through a chunked upload session at or above it. Box makes the new version only once the upload is
   complete, so a write that fails leaves the old content. An append rewrites the file on the version it read.
 - **Content types:** Box keeps none, so `UpdateFileOptions.ContentType` is ignored and `ContentType` is null.
+- **ETags:** a file's `ETag` is the id of its current Box file version, which no other version of any file shares. A
+  file deleted and created again under the same name has a new ETag, although Box's own `etag` starts again at `0`.
 - **Conditions:** `IfNotExists` is atomic (Box refuses a name that is taken). `IfMatch` is compared with the file's
   `ETag` just before the write, which is not atomic: a write that lands in between is replaced. The same holds for the
   version an append rewrites.
 - **Reads** stream the download; `ReadRangeAsync` and `OpenReadSeekableAsync` fetch byte ranges of the file version
-  they were pinned to, and throw `PreconditionFailedException` once the file has changed.
+  they were pinned to, and throw `PreconditionFailedException` once the file has changed. A failed download throws
+  `FileNotFoundException` or `IOException` with its HTTP status only: the download URL is a credential, so no error
+  carries it.
 - **Move and copy** are single server-side calls; they refuse an existing destination with `FileExistsException`.
 - **Delete** moves the file or folder (recursively) to the Box trash, where Box keeps it until it is purged.
 - **Watch** is not supported.
@@ -128,7 +133,8 @@ Anyone holding the URL can download that version of the file until it expires.
 - Box's own limits apply: the account's maximum file size (from 250 MB on free accounts to several GB), names of at most
   255 characters, no `/` or `\`, no trailing spaces, and the API's rate limits (the SDK retries 429 and 5xx answers).
 - Box answers some calls with "not ready yet" (a download right after an upload, the commit of a large upload); the
-  provider waits as Box asks and tries again, up to 60 times.
+  provider waits as Box asks and tries again: up to two minutes for a download, and two minutes plus two more for every
+  whole GiB for an upload. Then it throws `IOException`.
 - Every operation on a path walks the path from the root folder, so latency grows with depth.
 - The `PublicKeyId` is not sent in the JWT header by the Box SDK; Box accepts that while the app has one public key.
 

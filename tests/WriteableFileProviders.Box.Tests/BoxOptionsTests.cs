@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text.Json.Nodes;
 using Box.Sdk.Gen;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -124,6 +125,40 @@ public sealed class BoxOptionsTests
         var e = await Assert.ThrowsExactlyAsync<BoxApiException>(() => provider.GetFileInfoAsync("a.txt"));
         Assert.AreEqual(400, e.ResponseInfo.StatusCode);
         Assert.AreEqual(0, box.TokensIssued);
+        AssertCarriesNoCredential(e);
+    }
+
+    [TestMethod]
+    public async Task RefusedTokenRefresh_CarriesNoCredential()
+    {
+        var box = new FakeBox();
+        using var provider = _credentials.Provider(box);
+        await provider.GetFileInfoAsync("a.txt");
+
+        box.ExpireTokens();
+        box.Intercept = request => request.RequestUri!.AbsolutePath == "/oauth2/token"
+            ? new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = new StringContent("""{"error":"invalid_grant"}""") }
+            : null;
+
+        AssertCarriesNoCredential(await Assert.ThrowsExactlyAsync<BoxApiException>(() => provider.GetFileInfoAsync("a.txt")));
+    }
+
+    [TestMethod]
+    public async Task RedactedAuthentication_PassesEveryCallThrough()
+    {
+        var box = new FakeBox();
+        var session = TestCredentials.Session(box);
+        var config = new JwtConfig(_credentials.ClientId, _credentials.ClientSecret, _credentials.PublicKeyId, _credentials.EncryptedPrivateKeyPem, _credentials.Passphrase)
+        {
+            EnterpriseId = _credentials.EnterpriseId,
+        };
+        var auth = new RedactedAuthentication(new BoxJwtAuth(config));
+
+        Assert.AreEqual("token-1", (await auth.RetrieveTokenAsync(session)).AccessTokenField);
+        Assert.AreEqual("token-2", (await auth.RefreshTokenAsync(session)).AccessTokenField);
+        // The fake has no revoke endpoint and takes no downscoping: both are refused, and redacted.
+        AssertCarriesNoCredential(await Assert.ThrowsExactlyAsync<BoxApiException>(() => auth.RevokeTokenAsync(session)));
+        AssertCarriesNoCredential(await Assert.ThrowsExactlyAsync<BoxApiException>(() => auth.DownscopeTokenAsync(["item_preview"], networkSession: session)));
     }
 
     [TestMethod]
@@ -187,6 +222,15 @@ public sealed class BoxOptionsTests
             Assert.AreEqual((string?)json[key]?.ToString(), (string?)written[key], key);
         using var again = WriteableFileProviderSerializer.FromJson(written);
         CollectionAssert.AreEqual(options.RootDirectorySegments, ((WriteableBoxFileProvider)again).Options.RootDirectorySegments);
+    }
+
+    // The SDK keeps the token request in its error: the client secret and the signed assertion.
+    private static void AssertCarriesNoCredential(BoxApiException e)
+    {
+        Assert.IsNull(e.RequestInfo.Body);
+        var printed = e.ToString();
+        foreach (var secret in new[] { _credentials.ClientSecret, "wrong-secret", "assertion", "client_secret" })
+            Assert.IsFalse(printed.Contains(secret, StringComparison.Ordinal), secret);
     }
 
     private static async Task<string> ReadAsync(IWriteableFileProvider provider, string path)

@@ -30,13 +30,25 @@ namespace WriteableFileProviders.Box;
 /// <see cref="IWriteableFileInfo.ContentType"/> is null. A deleted file or folder goes to the Box trash.
 /// </para>
 /// <para>
+/// <b>ETags.</b> A file's <see cref="IWriteableFileInfo.ETag"/> is the id of its current Box file version, which no other
+/// version of any file shares: a file that is deleted and created again under the same name has another ETag. (Box's own
+/// <c>etag</c> counts the versions of one item, so it repeats across items.)
+/// </para>
+/// <para>
 /// <b>Conditions.</b> <see cref="UpdateFileOptions.IfNotExists"/> is atomic: Box refuses to create a name that is taken.
 /// <see cref="UpdateFileOptions.IfMatch"/> is checked against the file's ETag just before the write, which is not atomic:
 /// a write that lands between the check and the upload is replaced. The same holds for the version an append rewrites.
 /// </para>
 /// <para>
 /// <b>Reads.</b> Reads stream the download; ranged and seekable reads fetch byte ranges of the file version they were
-/// pinned to, and throw <see cref="PreconditionFailedException"/> once the file has changed.
+/// pinned to, and throw <see cref="PreconditionFailedException"/> once the file has changed. A failed download throws
+/// <see cref="FileNotFoundException"/> or <see cref="IOException"/> with its HTTP status only, never the download URL,
+/// which is a credential.
+/// </para>
+/// <para>
+/// <b>Waits.</b> Box can answer that a file just uploaded is not ready to download yet, or that a large upload is still
+/// being processed. The provider waits as Box asks and tries again: up to two minutes for a download, and two minutes
+/// plus two more for every whole GiB for an upload; then it throws <see cref="IOException"/>.
 /// </para>
 /// <para>
 /// <b>Signed URLs.</b> Read only: Box's own pre-authenticated download URL, which lives about 15 minutes whatever is asked.
@@ -46,13 +58,12 @@ namespace WriteableFileProviders.Box;
 /// type.
 /// </para>
 /// </remarks>
-public partial class WriteableBoxFileProvider : WriteableFileProvider<BoxFileProviderOptions>
+public sealed partial class WriteableBoxFileProvider : WriteableFileProvider<BoxFileProviderOptions>
 {
     /// <summary>The lifetime Box gives its download URLs, "15 minutes in most cases".</summary>
     internal static readonly TimeSpan DownloadUrlLifetime = TimeSpan.FromMinutes(15);
 
     private const int PageSize = 1000;
-    private const int MaxPolls = 60;
     private const int MaxBlockedAttempts = 3;
     private static readonly TimeSpan _maxRetryAfter = TimeSpan.FromSeconds(30);
     private static readonly string[] _itemFields = ["type", "id", "name", "etag", "size", "modified_at", "content_modified_at", "file_version"];
@@ -62,7 +73,9 @@ public partial class WriteableBoxFileProvider : WriteableFileProvider<BoxFilePro
 
     /// <summary>
     /// Creates a provider that signs in with the app's JWT credentials in <paramref name="options"/>, on its first call.
-    /// It does no network I/O here; it reads the private key, so a key or passphrase that is wrong fails now.
+    /// It does no network I/O here; it reads the private key, so a key or passphrase that is wrong fails now. A sign-in
+    /// that Box refuses throws the SDK's <see cref="BoxApiException"/> without the request it sent, which held the client
+    /// secret.
     /// </summary>
     /// <param name="options">The credentials and the root folder.</param>
     /// <exception cref="ArgumentNullException"><paramref name="options"/> is null.</exception>
@@ -75,7 +88,8 @@ public partial class WriteableBoxFileProvider : WriteableFileProvider<BoxFilePro
     /// <summary>
     /// Creates a provider over a ready Box client, such as one built with another authentication, a proxy, custom retries
     /// or as-user headers. Only <see cref="BoxFileProviderOptions.RootFolderId"/> and the root folder are read from
-    /// <paramref name="options"/>. The provider never disposes the client: the caller owns it.
+    /// <paramref name="options"/>. The provider never disposes the client: the caller owns it, and the errors of its
+    /// authentication are the client's own.
     /// </summary>
     /// <param name="options">The root folder.</param>
     /// <param name="client">The Box client, such as a <see cref="BoxClient"/>.</param>
@@ -101,6 +115,11 @@ public partial class WriteableBoxFileProvider : WriteableFileProvider<BoxFilePro
 
     /// <summary>How long to wait before asking again when Box is still processing an upload or a download.</summary>
     internal TimeSpan PollDelay { get; set; } = TimeSpan.FromSeconds(1);
+
+    /// <summary>
+    /// How long to wait for Box to make a download ready; an upload waits this long plus as long again for every whole GiB.
+    /// </summary>
+    internal TimeSpan NotReadyTimeout { get; set; } = TimeSpan.FromMinutes(2);
 
     /// <summary>
     /// Whether writes send <see cref="UpdateFileOptions.IfMatch"/> to Box as an <c>If-Match</c> header, which makes the
@@ -225,7 +244,14 @@ public partial class WriteableBoxFileProvider : WriteableFileProvider<BoxFilePro
         catch (BoxApiException e) when (IsNameInUse(e) && IsCaseOnlyRename(source, destination))
         {
             // Box may count the file's own name as taken: rename through a temporary name.
-            await RenameThroughTemporaryNameAsync(file.Id, source, destination, parentId, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await RenameThroughTemporaryNameAsync(file.Id, source, destination, parentId, cancellationToken).ConfigureAwait(false);
+            }
+            catch (BoxApiException refused) when (IsNameRefused(refused))
+            {
+                throw NameRefused(destination, refused);
+            }
         }
         catch (BoxApiException e) when (IsNameInUse(e))
         {
@@ -323,7 +349,7 @@ public partial class WriteableBoxFileProvider : WriteableFileProvider<BoxFilePro
         {
             throw new ArgumentException("The Box PrivateKey cannot be read: it must be a PEM private key, and Passphrase must be its passphrase.", nameof(options), e);
         }
-        return new BoxClient(new BoxJwtAuth(config), networkSession);
+        return new BoxClient(new RedactedAuthentication(new BoxJwtAuth(config)), networkSession);
     }
 
     private IWriteableFileInfo EntryInfo(ResolvedPath path, Entry entry) =>
@@ -371,6 +397,7 @@ public partial class WriteableBoxFileProvider : WriteableFileProvider<BoxFilePro
     private async IAsyncEnumerable<Entry> ListAsync(string folderId, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         string? marker = null;
+        var markers = new HashSet<string>(StringComparer.Ordinal);
         do
         {
             Items? page;
@@ -394,6 +421,8 @@ public partial class WriteableBoxFileProvider : WriteableFileProvider<BoxFilePro
                     yield return entry;
             }
             marker = page.NextMarker;
+            if (!string.IsNullOrEmpty(marker) && !markers.Add(marker))
+                throw new IOException($"Box sent the same page marker twice while listing folder '{folderId}'.");
         }
         while (!string.IsNullOrEmpty(marker));
     }
@@ -427,7 +456,9 @@ public partial class WriteableBoxFileProvider : WriteableFileProvider<BoxFilePro
                     throw NameRefused(path, e);
                 }
             }
-            if (child is not { IsFolder: true })
+            if (child is null)
+                throw new IOException($"The parent folders of '{path}' cannot be created: Box says the name '{segment}' is taken, by an item that is neither a file nor a folder, or that is gone again.");
+            if (!child.IsFolder)
                 throw new IOException($"The parent folders of '{path}' cannot be created: '{segment}' is a file.");
             folderId = child.Id;
         }
@@ -441,7 +472,8 @@ public partial class WriteableBoxFileProvider : WriteableFileProvider<BoxFilePro
 
     private async Task RenameThroughTemporaryNameAsync(string fileId, ResolvedPath source, ResolvedPath destination, string parentId, CancellationToken cancellationToken)
     {
-        var temporary = $".{source.Name}.wfp-{Guid.NewGuid():N}.tmp";
+        // Short whatever the file's name, so it never exceeds Box's 255 characters.
+        var temporary = $".wfp-{Guid.NewGuid():N}.tmp";
         await RenameAsync(fileId, temporary, parentId, cancellationToken).ConfigureAwait(false);
         try
         {
@@ -500,8 +532,21 @@ public partial class WriteableBoxFileProvider : WriteableFileProvider<BoxFilePro
         new($"The file '{path}' changed: its version is no longer '{ifMatch}'.", innerException);
 
     /// <summary>A file or folder found by walking a path.</summary>
-    private sealed record Entry(string Id, bool IsFolder, string Name, long Length, DateTimeOffset? LastModified, string? ETag, string? VersionId)
+    /// <param name="Id">The item's id.</param>
+    /// <param name="IsFolder">Whether it is a folder.</param>
+    /// <param name="Name">Its name, as Box spells it.</param>
+    /// <param name="Length">A file's size; -1 for a folder.</param>
+    /// <param name="LastModified">When a file last changed, if Box says.</param>
+    /// <param name="BoxETag">Box's own <c>etag</c>: it counts the versions of this item, so another item can have the same.</param>
+    /// <param name="VersionId">The id of a file's current version.</param>
+    private sealed record Entry(string Id, bool IsFolder, string Name, long Length, DateTimeOffset? LastModified, string? BoxETag, string? VersionId)
     {
+        /// <summary>
+        /// The ETag the provider exposes: the id of the file's current version, which no other version of any file shares,
+        /// or, when Box does not say, the item's id with Box's etag. Null for a folder.
+        /// </summary>
+        public string? ETag => IsFolder ? null : VersionId ?? (BoxETag is null ? null : $"{Id}:{BoxETag}");
+
         public static Entry? From(Item item) => item switch
         {
             { FileFull: { } file } => new Entry(file.Id, false, file.Name ?? "", file.Size ?? 0, file.ModifiedAt ?? file.ContentModifiedAt, file.Etag, file.FileVersion?.Id),

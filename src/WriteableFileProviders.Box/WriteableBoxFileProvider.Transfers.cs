@@ -6,8 +6,10 @@ using Task = System.Threading.Tasks.Task;
 
 namespace WriteableFileProviders.Box;
 
-public partial class WriteableBoxFileProvider
+public sealed partial class WriteableBoxFileProvider
 {
+    private const long GiB = 1L << 30;
+
     /// <inheritdoc />
     protected override async Task UpdateFileCoreAsync(ResolvedPath path, Stream contents, UpdateFileOptions options, CancellationToken cancellationToken)
     {
@@ -37,13 +39,13 @@ public partial class WriteableBoxFileProvider
 
     private async Task UploadAsync(ResolvedPath path, string parentId, FileStream content, UpdateFileOptions options, CancellationToken cancellationToken)
     {
-        var ifMatch = SendIfMatch ? options.IfMatch : null;
         for (var attempt = 1; ; attempt++)
         {
             var existing = await FindChildAsync(parentId, path.Name, cancellationToken).ConfigureAwait(false);
             if (existing is { IsFolder: true })
                 throw new IOException($"The path '{path}' is a folder.");
-            if (existing is null && options.IfMatch is not null)
+            // The version found must be the one asked for, whether or not Box checks it again on the wire.
+            if (options.IfMatch is not null && !string.Equals(existing?.ETag, options.IfMatch, StringComparison.Ordinal))
                 throw Changed(path, options.IfMatch);
             if (existing is not null && options.IfNotExists)
                 throw new PreconditionFailedException($"The file '{path}' already exists.");
@@ -52,7 +54,7 @@ public partial class WriteableBoxFileProvider
                 if (existing is null)
                     await UploadNewAsync(parentId, path.Name, content, cancellationToken).ConfigureAwait(false);
                 else
-                    await UploadVersionAsync(path, existing, content, ifMatch, cancellationToken).ConfigureAwait(false);
+                    await UploadVersionAsync(path, existing, content, options.IfMatch, cancellationToken).ConfigureAwait(false);
                 return;
             }
             catch (BoxApiException e) when (attempt == 1 && (existing is null ? IsNameInUse(e) : e.ResponseInfo.StatusCode == 404))
@@ -78,27 +80,29 @@ public partial class WriteableBoxFileProvider
             cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
+    // ifMatch is the caller's ETag, which the file found already has: on the wire goes Box's own etag of that same item.
     private async Task UploadVersionAsync(ResolvedPath path, Entry file, FileStream content, string? ifMatch, CancellationToken cancellationToken)
     {
         content.Position = 0;
+        var boxIfMatch = SendIfMatch && ifMatch is not null ? file.BoxETag : null;
         try
         {
             if (content.Length >= ChunkedUploadThreshold)
             {
                 var session = await _client.ChunkedUploads.CreateFileUploadSessionForExistingFileAsync(file.Id,
                     new CreateFileUploadSessionForExistingFileRequestBody(content.Length), cancellationToken: cancellationToken).ConfigureAwait(false);
-                await UploadChunkedAsync(session, content, ifMatch, cancellationToken).ConfigureAwait(false);
+                await UploadChunkedAsync(session, content, boxIfMatch, cancellationToken).ConfigureAwait(false);
                 return;
             }
             // The file keeps its name, also when the path differs from it in case.
             await _client.Uploads.UploadFileVersionAsync(file.Id,
                 new UploadFileVersionRequestBody(new UploadFileVersionRequestBodyAttributesField(file.Name), content),
-                headers: new UploadFileVersionHeaders { IfMatch = Quote(ifMatch) },
+                headers: new UploadFileVersionHeaders { IfMatch = Quote(boxIfMatch) },
                 cancellationToken: cancellationToken).ConfigureAwait(false);
         }
-        catch (BoxApiException e) when (e.ResponseInfo.StatusCode == 412 && ifMatch is not null)
+        catch (BoxApiException e) when (e.ResponseInfo.StatusCode == 412 && boxIfMatch is not null)
         {
-            throw Changed(path, ifMatch, e);
+            throw Changed(path, ifMatch!, e);
         }
     }
 
@@ -134,13 +138,15 @@ public partial class WriteableBoxFileProvider
             }
             var headers = new CreateFileUploadSessionCommitHeaders("sha=" + Convert.ToBase64String(whole.GetHashAndReset())) { IfMatch = Quote(ifMatch) };
             var body = new CreateFileUploadSessionCommitRequestBody(parts);
-            for (var poll = 1; ; poll++)
+            var limit = NotReadyTimeout * (1 + (length / GiB));
+            var started = TimeProvider.GetTimestamp();
+            while (true)
             {
                 // Null is Box's 202: the parts are still being processed.
                 if (await _client.ChunkedUploads.CreateFileUploadSessionCommitAsync(sessionId, body, headers, cancellationToken).ConfigureAwait(false) is not null)
                     return;
-                if (poll >= MaxPolls)
-                    throw new IOException($"Box was still processing upload session '{sessionId}' after {MaxPolls} attempts to commit it.");
+                if (TimeProvider.GetElapsedTime(started) + PollDelay > limit)
+                    throw new IOException($"Box was still processing upload session '{sessionId}' after {limit}.");
                 await Task.Delay(PollDelay, TimeProvider, cancellationToken).ConfigureAwait(false);
             }
         }
@@ -178,12 +184,24 @@ public partial class WriteableBoxFileProvider
         var url = await GetDownloadUrlAsync(path, file, cancellationToken).ConfigureAwait(false);
         var count = Math.Min(length ?? long.MaxValue, file.Length - offset);
         var ranged = offset > 0 || count < file.Length;
-        var response = await Session.NetworkClient.FetchAsync(new FetchOptions(url, "GET", responseFormat: ResponseFormat.Binary)
+        FetchResponse response;
+        try
         {
-            Headers = ranged ? new Dictionary<string, string> { ["range"] = $"bytes={offset}-{offset + count - 1}" } : null,
-            NetworkSession = Session,
-            CancellationToken = cancellationToken,
-        }).ConfigureAwait(false);
+            response = await Session.NetworkClient.FetchAsync(new FetchOptions(url, "GET", responseFormat: ResponseFormat.Binary)
+            {
+                Headers = ranged ? new Dictionary<string, string> { ["range"] = $"bytes={offset}-{offset + count - 1}" } : null,
+                NetworkSession = Session,
+                CancellationToken = cancellationToken,
+            }).ConfigureAwait(false);
+        }
+        catch (BoxSdkException e)
+        {
+            // The SDK's error names the URL, which is a credential: keep the status only.
+            var status = e is BoxApiException api ? api.ResponseInfo.StatusCode : 0;
+            throw status == 404
+                ? new FileNotFoundException($"Box's download of '{path}' answered HTTP 404.", path.ToString())
+                : new IOException(status == 0 ? $"Box's download of '{path}' failed before an answer." : $"Box's download of '{path}' answered HTTP {status}.");
+        }
         var body = response.Content ?? throw new IOException($"Box sent no content for '{path}'.");
         if (!ranged)
             return body;
@@ -193,7 +211,8 @@ public partial class WriteableBoxFileProvider
 
     private async Task<string> GetDownloadUrlAsync(ResolvedPath path, Entry file, CancellationToken cancellationToken)
     {
-        for (var poll = 1; ; poll++)
+        var started = TimeProvider.GetTimestamp();
+        while (true)
         {
             var response = await Session.NetworkClient.FetchAsync(new FetchOptions(
                 $"{Session.BaseUrls.BaseUrl}/2.0/files/{Uri.EscapeDataString(file.Id)}/content", "GET", responseFormat: ResponseFormat.NoContent)
@@ -207,15 +226,19 @@ public partial class WriteableBoxFileProvider
             if (Header(response, "Location") is { } location)
                 return location;
             // 202: Box is not ready to serve a file that was just uploaded.
-            if (response.Status != 202 || poll >= MaxPolls)
+            if (response.Status != 202)
                 throw new IOException($"Box gave no download URL for '{path}' (HTTP {response.Status}).");
-            await Task.Delay(RetryAfter(response), TimeProvider, cancellationToken).ConfigureAwait(false);
+            var delay = RetryAfter(response);
+            if (TimeProvider.GetElapsedTime(started) + delay > NotReadyTimeout)
+                throw new IOException($"Box did not make '{path}' ready to download within {NotReadyTimeout}.");
+            await Task.Delay(delay, TimeProvider, cancellationToken).ConfigureAwait(false);
         }
     }
 
+    // As long as Box asks, at least the poll delay, at most 30 seconds.
     private TimeSpan RetryAfter(FetchResponse response) =>
         Header(response, "Retry-After") is { } value && double.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var seconds) && seconds >= 0
-            ? TimeSpan.FromSeconds(Math.Min(seconds, _maxRetryAfter.TotalSeconds))
+            ? TimeSpan.FromSeconds(Math.Clamp(seconds, PollDelay.TotalSeconds, _maxRetryAfter.TotalSeconds))
             : PollDelay;
 
     private static string? Header(FetchResponse response, string name) =>

@@ -98,6 +98,7 @@ public sealed class BoxWriteTests
         var box = new FakeBox();
         box.AddFile(FakeBox.RootId, "big.bin", "old");
         using var provider = BoxFixture.Tune(_credentials.Provider(box));
+        provider.NotReadyTimeout = TimeSpan.Zero;
         box.CommitsNotReady = int.MaxValue;
 
         await Assert.ThrowsExactlyAsync<IOException>(() => provider.UpdateFileAsync("big.bin", new MemoryStream(TestStreams.Bytes(300_000))));
@@ -150,12 +151,13 @@ public sealed class BoxWriteTests
         var etag = (await provider.GetFileInfoAsync("f.txt")).ETag!;
         var id = box.IdOf("f.txt")!;
 
+        // The caller's ETag is the version; on the wire goes Box's own etag of that same item, quoted.
         await provider.UpdateFileAsync("f.txt", TestStreams.Text("two"), new UpdateFileOptions { IfMatch = etag });
-        Assert.AreEqual($"\"{etag}\"", box.Requests.Single(r => r.Path == $"/api/2.0/files/{id}/content").Header("If-Match"));
+        Assert.AreEqual("\"0\"", box.Requests.Single(r => r.Path == $"/api/2.0/files/{id}/content").Header("If-Match"));
 
         etag = (await provider.GetFileInfoAsync("f.txt")).ETag!;
         await provider.UpdateFileAsync("f.txt", new MemoryStream(TestStreams.Bytes(300_000)), new UpdateFileOptions { IfMatch = etag });
-        Assert.AreEqual($"\"{etag}\"", box.Requests.Single(r => r.Path.EndsWith("/commit", StringComparison.Ordinal)).Header("If-Match"));
+        Assert.AreEqual("\"1\"", box.Requests.Single(r => r.Path.EndsWith("/commit", StringComparison.Ordinal)).Header("If-Match"));
         Assert.AreEqual(300_000, (await provider.GetFileInfoAsync("f.txt")).Length);
     }
 
@@ -167,13 +169,18 @@ public sealed class BoxWriteTests
         using var provider = BoxFixture.Tune(_credentials.Provider(box));
         provider.SendIfMatch = true;
         var etag = (await provider.GetFileInfoAsync("f.txt")).ETag!;
-        box.Overwrite(id, "theirs");
+        // A new version lands after the provider found the file, before its upload or its commit reaches Box.
+        box.Intercept = OverwriteBefore(box, id, $"/api/2.0/files/{id}/content");
 
         var direct = await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() =>
             provider.UpdateFileAsync("f.txt", TestStreams.Text("mine"), new UpdateFileOptions { IfMatch = etag }));
-        Assert.IsInstanceOfType<BoxApiException>(direct.InnerException);
-        await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() =>
+        Assert.IsInstanceOfType<BoxApiException>(direct.InnerException, "Box refused it: the check was atomic");
+
+        etag = (await provider.GetFileInfoAsync("f.txt")).ETag!;
+        box.Intercept = OverwriteBefore(box, id, "/commit");
+        var chunked = await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() =>
             provider.UpdateFileAsync("f.txt", new MemoryStream(TestStreams.Bytes(300_000)), new UpdateFileOptions { IfMatch = etag }));
+        Assert.IsInstanceOfType<BoxApiException>(chunked.InnerException);
         Assert.AreEqual("theirs", box.ContentOf("f.txt"));
         Assert.AreEqual(0, box.OpenSessions);
     }
@@ -193,6 +200,28 @@ public sealed class BoxWriteTests
         Assert.AreEqual("two", box.ContentOf("f.txt"));
         Assert.IsFalse(box.Requests.Any(r => r.Header("If-Match") is not null), "No If-Match is sent until a live run confirms Box takes the quoted form");
         Assert.AreEqual(2, box.VersionCount(id));
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task IfMatch_AcrossADeleteAndRecreate_IsPreconditionFailed(bool sendIfMatch)
+    {
+        var box = new FakeBox();
+        box.AddFile(FakeBox.RootId, "f.txt", "one");
+        using var provider = _credentials.Provider(box);
+        provider.SendIfMatch = sendIfMatch;
+        var etag = (await provider.GetFileInfoAsync("f.txt")).ETag;
+
+        // Box's own etag of the new item is 0 again, as the old one's was: it would match.
+        box.Delete(box.IdOf("f.txt")!);
+        box.AddFile(FakeBox.RootId, "f.txt", "someone else's");
+
+        await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() =>
+            provider.UpdateFileAsync("f.txt", TestStreams.Text("mine"), new UpdateFileOptions { IfMatch = etag }));
+        await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() =>
+            provider.ReadRangeAsync("f.txt", 0, 1, new ReadOptions { IfMatch = etag }));
+        Assert.AreEqual("someone else's", box.ContentOf("f.txt"));
     }
 
     [TestMethod]
@@ -329,6 +358,20 @@ public sealed class BoxWriteTests
     }
 
     [TestMethod]
+    public async Task FolderNameTakenByNeitherAFileNorAFolder_SaysSo()
+    {
+        var box = new FakeBox();
+        box.Intercept = request => request.Method == HttpMethod.Post && request.RequestUri!.AbsolutePath == "/2.0/folders"
+            ? new HttpResponseMessage(HttpStatusCode.Conflict) { Content = new StringContent("""{"type":"error","status":409,"code":"item_name_in_use"}""") }
+            : null;
+        using var provider = _credentials.Provider(box);
+
+        var e = await Assert.ThrowsExactlyAsync<IOException>(() => provider.UpdateFileAsync("dir/b.txt", TestStreams.Text("y")));
+
+        StringAssert.Contains(e.Message, "neither a file nor a folder");
+    }
+
+    [TestMethod]
     public async Task Write_ToAFolder_IsRefused()
     {
         var box = new FakeBox();
@@ -375,6 +418,21 @@ public sealed class BoxWriteTests
             {
                 raced = true;
                 box.AddFile(FakeBox.RootId, name, text);
+            }
+            return null;
+        };
+    }
+
+    // Before the first request to the path, someone else uploads a new version of the file.
+    private static Func<HttpRequestMessage, HttpResponseMessage?> OverwriteBefore(FakeBox box, string id, string pathEnd)
+    {
+        var raced = false;
+        return request =>
+        {
+            if (!raced && request.RequestUri!.AbsolutePath.EndsWith(pathEnd, StringComparison.Ordinal))
+            {
+                raced = true;
+                box.Overwrite(id, "theirs");
             }
             return null;
         };

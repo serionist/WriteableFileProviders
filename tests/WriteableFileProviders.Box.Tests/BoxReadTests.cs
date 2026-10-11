@@ -51,11 +51,65 @@ public sealed class BoxReadTests
 
         Assert.IsTrue(info.Exists);
         Assert.AreEqual(5, info.Length);
-        Assert.AreEqual(box.ETagOf(box.IdOf("Docs/f4.txt")!), info.ETag);
+        Assert.AreEqual(box.VersionOf(box.IdOf("Docs/f4.txt")!), info.ETag, "The ETag is the file version's id");
         Assert.IsNull(info.ContentType, "Box keeps no content type");
         Assert.IsTrue((await provider.GetFileInfoAsync("docs")).IsDirectory);
         Assert.IsFalse((await provider.GetFileInfoAsync("docs/f4.txt/below")).Exists, "A file is not a folder");
         Assert.IsFalse((await provider.GetFileInfoAsync("docs/missing/below")).Exists);
+    }
+
+    [TestMethod]
+    public async Task ETag_IsTheFileVersion_OrTheItemWithBoxsEtag()
+    {
+        var box = new FakeBox();
+        var id = box.AddFile(FakeBox.RootId, "a.txt", "x");
+        using var provider = _credentials.Provider(box);
+        Assert.AreEqual(box.VersionOf(id), (await provider.GetFileInfoAsync("a.txt")).ETag);
+
+        // Without file_version (Box always sends it with the fields asked), the item's id keeps the ETag unique.
+        box.Intercept = request => request.RequestUri!.AbsolutePath.EndsWith("/items", StringComparison.Ordinal)
+            ? new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent($$"""{"limit":1000,"entries":[{"type":"file","id":"{{id}}","etag":"3","name":"a.txt","size":1}]}""", Encoding.UTF8, "application/json"),
+            }
+            : null;
+        Assert.AreEqual($"{id}:3", (await provider.GetFileInfoAsync("a.txt")).ETag);
+    }
+
+    [TestMethod]
+    public async Task PinnedRead_AcrossADeleteAndRecreate_ThrowsIOException()
+    {
+        var box = new FakeBox();
+        box.AddFile(FakeBox.RootId, "f.txt", "0123456789");
+        using var provider = _credentials.Provider(box);
+        await using var stream = await provider.OpenReadSeekableAsync("f.txt", new SeekableReadOptions { BufferSize = 4 });
+        var buffer = new byte[4];
+        await stream.ReadExactlyAsync(buffer);
+
+        // The same name and size, and Box's own etag starts again at 0: only the version tells them apart.
+        box.Delete(box.IdOf("f.txt")!);
+        var again = box.AddFile(FakeBox.RootId, "f.txt", "ABCDEFGHIJ");
+        Assert.AreEqual("0", box.ETagOf(again));
+
+        stream.Position = 6;
+        await Assert.ThrowsAsync<IOException>(async () => await stream.ReadExactlyAsync(buffer));
+    }
+
+    [TestMethod]
+    public async Task RepeatedPageMarker_IsAnError()
+    {
+        var box = new FakeBox();
+        box.Intercept = request => request.RequestUri!.AbsolutePath.EndsWith("/items", StringComparison.Ordinal)
+            ? new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"limit":1000,"next_marker":"again","entries":[]}""", Encoding.UTF8, "application/json"),
+            }
+            : null;
+        using var provider = _credentials.Provider(box);
+
+        var e = await Assert.ThrowsExactlyAsync<IOException>(() => provider.GetFileInfoAsync("a.txt"));
+        StringAssert.Contains(e.Message, "marker");
+        Assert.AreEqual(2, box.Requests.Count(r => r.Path.EndsWith("/items", StringComparison.Ordinal)));
     }
 
     [TestMethod]
@@ -203,8 +257,58 @@ public sealed class BoxReadTests
         var box = new FakeBox { DownloadsNotReady = int.MaxValue };
         box.AddFile(FakeBox.RootId, "a.txt", "fresh");
         using var provider = _credentials.Provider(box);
+        provider.NotReadyTimeout = TimeSpan.Zero;
 
         await Assert.ThrowsExactlyAsync<IOException>(() => provider.ReadFileAsync("a.txt"));
+    }
+
+    [TestMethod]
+    public async Task Download_NotReady_IsWaitedForUpToTheTimeout()
+    {
+        var box = new FakeBox { DownloadsNotReady = int.MaxValue };
+        box.AddFile(FakeBox.RootId, "a.txt", "fresh");
+        using var provider = _credentials.Provider(box);
+        provider.PollDelay = TimeSpan.FromMilliseconds(20);
+        provider.NotReadyTimeout = TimeSpan.FromMilliseconds(200);
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var e = await Assert.ThrowsExactlyAsync<IOException>(() => provider.ReadFileAsync("a.txt"));
+
+        StringAssert.Contains(e.Message, "ready");
+        Assert.IsTrue(watch.Elapsed < TimeSpan.FromSeconds(10), $"Waited {watch.Elapsed}");
+        Assert.IsTrue(box.Requests.Count(r => r.Path.EndsWith("/content", StringComparison.Ordinal)) is >= 2 and <= 11);
+    }
+
+    [TestMethod]
+    [DataRow(HttpStatusCode.NotFound)]
+    [DataRow(HttpStatusCode.InternalServerError)]
+    public async Task Download_Failure_CarriesTheStatusOnly_NeverTheUrl(HttpStatusCode status)
+    {
+        var box = new FakeBox();
+        box.AddFile(FakeBox.RootId, "a.txt", "x");
+        box.Intercept = request => request.RequestUri!.Host == "dl.box.test" ? new HttpResponseMessage(status) { Content = new ByteArrayContent([]) } : null;
+        using var provider = _credentials.Provider(box);
+
+        var e = await Assert.ThrowsAsync<IOException>(() => provider.ReadRangeAsync("a.txt", 0, 1));
+
+        Assert.AreEqual(status == HttpStatusCode.NotFound, e is FileNotFoundException);
+        StringAssert.Contains(e.Message, ((int)status).ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Assert.IsNull(e.InnerException, "The SDK's error names the URL");
+        Assert.IsFalse(e.ToString().Contains("dl.box.test", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public async Task Download_NetworkFailure_CarriesNoUrl()
+    {
+        var box = new FakeBox();
+        box.AddFile(FakeBox.RootId, "a.txt", "x");
+        box.Intercept = request => request.RequestUri!.Host == "dl.box.test" ? throw new HttpRequestException("Connection reset (dl.box.test/d/secret)") : null;
+        using var provider = _credentials.Provider(box);
+
+        var e = await Assert.ThrowsExactlyAsync<IOException>(() => provider.ReadFileAsync("a.txt"));
+
+        Assert.IsNull(e.InnerException);
+        Assert.IsFalse(e.ToString().Contains("dl.box.test", StringComparison.Ordinal));
     }
 
     [TestMethod]

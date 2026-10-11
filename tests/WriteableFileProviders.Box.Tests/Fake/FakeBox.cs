@@ -140,6 +140,13 @@ internal sealed class FakeBox : HttpMessageHandler
             return _items[id].ETag.ToString(CultureInfo.InvariantCulture);
     }
 
+    /// <summary>The id of the file's current version: the provider's ETag.</summary>
+    public string VersionOf(string id)
+    {
+        lock (_gate)
+            return _items[id].Current.Id;
+    }
+
     public int VersionCount(string id)
     {
         lock (_gate)

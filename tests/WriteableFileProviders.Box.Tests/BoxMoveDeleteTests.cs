@@ -157,8 +157,41 @@ public sealed class BoxMoveDeleteTests
         var e = await Assert.ThrowsExactlyAsync<IOException>(() => provider.MoveAsync("a.txt", "A.txt"));
 
         StringAssert.Contains(e.Message, box.NameOf(id));
-        StringAssert.StartsWith(box.NameOf(id), ".a.txt.wfp-");
+        StringAssert.StartsWith(box.NameOf(id), ".wfp-");
         Assert.IsInstanceOfType<AggregateException>(e.InnerException);
+    }
+
+    [TestMethod]
+    public async Task Move_CaseOnly_OfALongName_FitsTheTemporaryName()
+    {
+        var box = new FakeBox { RefuseCaseOnlyRename = true };
+        var name = new string('a', 250) + ".txt";
+        var id = box.AddFile(FakeBox.RootId, name, "a");
+        using var provider = _credentials.Provider(box);
+
+        await provider.MoveAsync(name, name.ToUpperInvariant());
+
+        Assert.AreEqual(name.ToUpperInvariant(), box.NameOf(id));
+    }
+
+    [TestMethod]
+    public async Task Move_CaseOnly_NameRefusedOnTheWay_IsArgumentException()
+    {
+        var box = new FakeBox { RefuseCaseOnlyRename = true };
+        var id = box.AddFile(FakeBox.RootId, "a.txt", "a");
+        var puts = 0;
+        box.Intercept = request => request.Method == HttpMethod.Put && ++puts == 3
+            ? new HttpResponseMessage(HttpStatusCode.BadRequest)
+            {
+                Content = new StringContent("""{"type":"error","status":400,"code":"item_name_too_long"}""", Encoding.UTF8, "application/json"),
+            }
+            : null;
+        using var provider = _credentials.Provider(box);
+
+        var e = await Assert.ThrowsExactlyAsync<ArgumentException>(() => provider.MoveAsync("a.txt", "A.txt"));
+
+        Assert.AreEqual("path", e.ParamName);
+        Assert.AreEqual("a.txt", box.NameOf(id), "The name is put back");
     }
 
     [TestMethod]

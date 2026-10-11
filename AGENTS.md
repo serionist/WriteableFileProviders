@@ -160,9 +160,9 @@ optionally `WFP_BOX_ROOT_FOLDER_ID`, or a `testsettings.json` next to that proje
 `dotnet test --project tests/WriteableFileProviders.Box.Tests --filter "TestCategory=Live"`; Box keeps what they delete
 in its trash.
 
-A change to a provider runs that provider's emulator suite, or its live suite where there is no emulator
-(SharePoint), and its PR says which ran, or that it did not run and why. A change to Box runs its offline
-suite, and its PR says whether the live suite ran (D21).
+A change to a provider runs that provider's emulator suite, or its live suite where there is no emulator (Box,
+SharePoint), and its PR says which ran, or that it did not run and why. Box's offline suite runs on top, on every
+change: a fake is no emulator, so it does not stand in for the live suite (D21).
 
 ## How a change lands
 

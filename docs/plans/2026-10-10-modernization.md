@@ -520,7 +520,7 @@ Each step is an issue under #3, a branch `<issue>-<slug>`, and a PR that builds 
 | S7 AmazonS3 and MinIO | #11 | | `S3Core`, the S3 and MinIO rows, with S3Mock. | F1 F2 F4 F10 F11 F17–F21 F24 F28 F38 F41 F45 F51 F53 F65 F73 F74 | todo |
 | S8 GoogleCloudStorage | #12 | | The GCS row, with fake-gcs-server. | F4 F11 F13 F17–F21 F28 F38 F41 F44 F53 F56 F63 F74 F75 | built on `12-gcs`, in review |
 | S9 SharePoint | #13 | | The SharePoint row, with the Graph fake; its live run is outstanding for the maintainers (D21). | F4 F6 F7 F8 F11 F13 F17–F21 F26 F39 F43 F49 F53 F62 F66 F70 F74 F77 | in review (branch `13-sharepoint`; live suite not run) |
-| S10 Box | #14 | | The Box row, with the Box fake; its live run is outstanding for the maintainers (D21). | F4 F6 F11 F13 F17–F21 F25 F32 F53 F63 F67 F74 F77 | built on `14-box`, in review; live suite not run (D21) |
+| S10 Box | #14 | #25 | The Box row, with the Box fake; its live run is outstanding for the maintainers (D21). | F4 F6 F11 F13 F17–F21 F25 F32 F53 F63 F67 F74 F77, Box's part of F56 | built on `14-box`, review round 1 applied; live suite not run (D21) |
 | S11 AspNetCore gateway | #15 | | The new package, the URL service, endpoints, the gateway tests and defaults (D22, P13, P27); its README, migration entry and AGENTS.md entry; whether the token purpose string and URL shape are a one-way door (they are: tokens issued by one version must redeem on the next minor; recorded under One-way doors in AGENTS.md). | F11 | in review (branch `15-aspnetcore-gateway`) |
 | S12 Docs, CI, launch prep | #16 | | The root README, the migration guide's final pass, CONTRIBUTING, SECURITY, AGENTS.md and REVIEW.md, codeql, dependabot, `live.yml`, the release workflow, every floor at 90% or more, a check that no project sets `WfpLegacy`, the removal of the `[Obsolete]` 2026 helpers in Common (`GetRelativeSegments`, `IsRootPath`, `NormalizePem`, which Box and GCS take over), the PublicAPI files, and a final deep `review-code` of the whole repo. | F12 F76 | part 1 in review (#31, branch `16-repo-infra`: codeql, dependabot, `live.yml`, the release workflow, CONTRIBUTING, SECURITY, the issue forms); the rest todo |
 
@@ -1269,14 +1269,33 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     marker paging, spooling, `If-Match`, folder info and version pinning each fail tests. The live suites
     (`BoxLiveTests`, `BoxLiveAtomicTests`, `BoxLiveChecks`) were not run (D21); "For the maintainers" lists what they
     confirm. Capability flags: real folders, case-insensitive, read URLs with a fixed 15-minute lifetime, no content
-    type; `DetectsConcurrentAppends` is false in `BoxConformanceTests` because the check is not atomic until the live
-    run (amended D15), and true in `BoxAtomicConformanceTests`.
+    type. (`DetectsConcurrentAppends` was false in `BoxConformanceTests` at first; review round 1 turned it on.)
   - **Old tests:** `BoxFileProvider`, `BoxOfflineTests`, `BoxOptionsTests`, the Box settings and the Box project
     reference leave `tests/WriteableFileProviders.Tests`.
   - **Coverage:** Box 99.63% lines, 89.38% branches (Windows); floor 98/88.
   - **Verified:** the solution builds; every non-Live test passes with `WFP_REQUIRE_DOCKER=1` (587, 31 skipped: the S3
     suites without `AWS_ENDPOINT_URL_S3`, and the concurrent-append rule in `BoxConformanceTests`); the coverage gate
     passes; the Box package packs with its README.
+  - **Review round 1** (PR #25), every finding fixed:
+    - F1: a file's `ETag` is now the id of its current Box file version (or `{itemId}:{etag}` where Box sends none),
+      since Box's own `etag` starts again at `0` for a file deleted and created again; reads, writes and appends compare
+      it, and the wire `If-Match` carries Box's etag of the item found. Delete-and-recreate tests pin both.
+    - F2: AGENTS.md keeps Box among the providers whose live suite stands for the emulator suite; its offline suite
+      runs on top (D21).
+    - F3: a write compares the ETag of the file it found with `IfMatch` at once, whether or not the header is sent.
+    - F4: a failed download throws `FileNotFoundException` or `IOException` with its HTTP status only (the SDK's
+      error names the pre-authenticated URL); the provider's sign-in is wrapped (`RedactedAuthentication`), so a refused
+      token request surfaces as `BoxApiException` without the request body (client secret, assertion). A ready client's
+      authentication is the caller's.
+    - F5: the download wait is bounded by time (two minutes), the commit wait by time and size (two minutes plus two
+      per whole GiB), both documented; a listing that repeats a page marker throws `IOException`.
+    - F6: `BoxLiveChecks` commits an upload session with a stale quoted ETag (expects 412) and pages the root listing.
+    - F7: AGENTS.md's "Where things are" names the per-provider test projects. F8: the folder-creation error says when
+      the name is taken by something that is neither a file nor a folder. F9: a case-only rename's temporary name is
+      short whatever the file's name, and a name Box refuses on that path is an `ArgumentException`.
+    - F10: the concurrent-append rule runs in `BoxConformanceTests` and `BoxLiveTests` (it passes: the race it stages
+      lands before the check); D15 still says the check is not atomic.
+    - D25: `WriteableBoxFileProvider` is sealed (in the migration guide). D26: Box adds no options property.
 
 ### For the maintainers
 
@@ -1302,9 +1321,9 @@ What this session cannot do, kept current as the work goes on:
 - [ ] Box (S10): run `BoxLiveChecks`, `BoxLiveTests` and `BoxLiveAtomicTests` (AGENTS.md, Tests) against a Box app you
   own, then empty its trash. What they confirm, first one first:
   1. Box matches the quoted `If-Match` the SDK sends (`BoxLiveChecks.QuotedIfMatch_MatchesTheETag`, and
-     `BoxLiveAtomicTests` for the upload-session commit). If it does, turn `SendIfMatch` on by default in
-     `WriteableBoxFileProvider`, call `IfMatch` atomic in its docs, the README and D15, and drop
-     `DetectsConcurrentAppends => false` from `BoxConformanceTests`. If not, Box stays "checked, not atomic", or the
+     `BoxLiveChecks.QuotedIfMatch_OnACommit_IsChecked` and `BoxLiveAtomicTests` for the upload-session commit). If it
+     does, turn `SendIfMatch` on by default in `WriteableBoxFileProvider`, and call `IfMatch` atomic in its docs, the
+     README, the migration guide and D15. If not, Box stays "checked, not atomic", or the
      provider needs its own network client that sends the ETag unquoted (option C of the S10 research notes,
      `.local/research/box-v10.md`, on the machine of the session that wrote them).
   2. JWT sign-in works without `kid` in the header, also for an app with two public keys.

@@ -185,8 +185,15 @@ internal sealed class FakeNetworkClient(HttpMessageHandler handler) : INetworkCl
             {
             }
         }
+        // Like the SDK: the request's body goes into the error, a token request's client secret included.
         var requestInfo = new RequestInfo(request.Method.Method, request.RequestUri?.ToString(), options.Parameters,
-            request.Headers.Where(h => h.Value.Any()).ToDictionary(h => h.Key, h => h.Value.First()), options.ContentType);
+            request.Headers.Where(h => h.Value.Any()).ToDictionary(h => h.Key, h => h.Value.First()), options.ContentType)
+        {
+            Body = options.Data is null ? null
+                : options.ContentType == "application/x-www-form-urlencoded"
+                    ? string.Join('&', JsonSerializer.Deserialize<Dictionary<string, string>>(JsonUtils.SdToJson(options.Data))!.Select(p => $"{p.Key}={Uri.EscapeDataString(p.Value)}"))
+                    : JsonUtils.SdToJson(options.Data),
+        };
         var responseInfo = new ResponseInfo(status, headers, JsonUtils.JsonToSerializedData(string.IsNullOrWhiteSpace(raw) ? "{}" : raw), raw, code, contextInfo, requestId, helpUrl);
         return new BoxApiException(raw, DateTimeOffset.UtcNow, requestInfo, responseInfo);
     }

@@ -1,12 +1,19 @@
 using System.Net;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
 using Box.Sdk.Gen;
 using Box.Sdk.Gen.Managers;
 using FileFull = Box.Sdk.Gen.Schemas.FileFull;
+using Files = Box.Sdk.Gen.Schemas.Files;
+using Item = Box.Sdk.Gen.Schemas.Item;
+using UploadPart = Box.Sdk.Gen.Schemas.UploadPart;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using WriteableFileProviders.Testing;
 using Task = System.Threading.Tasks.Task;
+
+// Box's digests are SHA-1: the protocol asks for them, as integrity checks.
+#pragma warning disable CA5350
 
 namespace WriteableFileProviders.Box.Tests;
 
@@ -26,8 +33,6 @@ public sealed class BoxLiveTests : ProviderConformanceTests
     protected override bool SupportsSignedUrls(SignedUrlAccess access) => access == SignedUrlAccess.Read;
 
     protected override TimeSpan? FixedSignedUrlLifetime => WriteableBoxFileProvider.DownloadUrlLifetime;
-
-    protected override bool DetectsConcurrentAppends => false;
 
     protected override IWriteableFileProvider CreateProvider(string? root) => new WriteableBoxFileProvider(BoxLive.Options(root));
 }
@@ -113,6 +118,53 @@ public sealed class BoxLiveChecks
     }
 
     [TestMethod]
+    public async Task QuotedIfMatch_OnACommit_IsChecked()
+    {
+        var file = await UploadAsync("commit.bin", "one");
+        var stale = $"\"{file.Etag}\"";
+        await Provider.UpdateFileAsync($"{_folder}/commit.bin", Text("two"));
+        var current = $"\"{(await FindFileAsync("commit.bin")).Etag}\"";
+
+        // An upload session takes 20 MB at least.
+        var content = TestStreams.Bytes((20L * 1024 * 1024) + 1);
+        var session = await Client.ChunkedUploads.CreateFileUploadSessionForExistingFileAsync(file.Id,
+            new CreateFileUploadSessionForExistingFileRequestBody(content.Length));
+        try
+        {
+            var partSize = (int)session.PartSize!.Value;
+            var parts = new List<UploadPart>();
+            for (var offset = 0; offset < content.Length; offset += partSize)
+            {
+                var count = Math.Min(partSize, content.Length - offset);
+                var digest = "sha=" + Convert.ToBase64String(SHA1.HashData(content.AsSpan(offset, count)));
+                var uploaded = await Client.ChunkedUploads.UploadFilePartAsync(session.Id!, new MemoryStream(content, offset, count, writable: false),
+                    new UploadFilePartHeaders(digest, $"bytes {offset}-{offset + count - 1}/{content.Length}"));
+                parts.Add(uploaded.Part!);
+            }
+            var body = new CreateFileUploadSessionCommitRequestBody(parts);
+            var whole = "sha=" + Convert.ToBase64String(SHA1.HashData(content));
+
+            var refused = await Assert.ThrowsExactlyAsync<BoxApiException>(() =>
+                Client.ChunkedUploads.CreateFileUploadSessionCommitAsync(session.Id!, body, new CreateFileUploadSessionCommitHeaders(whole) { IfMatch = stale }));
+            Assert.AreEqual(412, refused.ResponseInfo.StatusCode, "A stale quoted ETag is refused at the commit");
+
+            Files? committed = null;
+            for (var attempt = 0; attempt < 60 && committed is null; attempt++)
+            {
+                committed = await Client.ChunkedUploads.CreateFileUploadSessionCommitAsync(session.Id!, body, new CreateFileUploadSessionCommitHeaders(whole) { IfMatch = current });
+                if (committed is null)
+                    await Task.Delay(TimeSpan.FromSeconds(1));
+            }
+            Assert.IsNotNull(committed, "The current quoted ETag commits");
+        }
+        catch
+        {
+            await Client.ChunkedUploads.DeleteFileUploadSessionByIdAsync(session.Id!);
+            throw;
+        }
+    }
+
+    [TestMethod]
     public async Task DownloadUrl_HonoursRange_AndServesItsVersion()
     {
         var file = await UploadAsync("range.txt", "0123456789");
@@ -147,18 +199,11 @@ public sealed class BoxLiveChecks
     {
         for (var i = 0; i < 3; i++)
             await UploadAsync($"f{i}.txt", "x");
-        var folder = (await Client.Folders.GetFolderItemsAsync(BoxLive.RootFolderId,
-            new GetFolderItemsQueryParams { Usemarker = true, Limit = 1000 })).Entries!.Single(e => e.FolderMini?.Name == _folder).FolderMini!;
+        var folderId = (await FindAsync(BoxLive.RootFolderId, _folder)).FolderMini!.Id;
 
-        string? marker = null;
         var names = new List<string>();
-        do
-        {
-            var page = await Client.Folders.GetFolderItemsAsync(folder.Id, new GetFolderItemsQueryParams { Usemarker = true, Marker = marker, Limit = 2 });
-            names.AddRange(page.Entries!.Select(e => e.FileFull!.Name!));
-            marker = page.NextMarker;
-        }
-        while (!string.IsNullOrEmpty(marker));
+        await foreach (var item in ListAsync(folderId, pageSize: 2))
+            names.Add(item.FileFull!.Name!);
 
         CollectionAssert.AreEquivalent(new[] { "f0.txt", "f1.txt", "f2.txt" }, names);
     }
@@ -166,11 +211,38 @@ public sealed class BoxLiveChecks
     private async Task<FileFull> UploadAsync(string name, string text)
     {
         await Provider.UpdateFileAsync($"{_folder}/{name}", Text(text));
-        var listing = await Client.Folders.GetFolderItemsAsync(BoxLive.RootFolderId, new GetFolderItemsQueryParams { Usemarker = true, Limit = 1000 });
-        var folderId = listing.Entries!.Single(e => e.FolderMini?.Name == _folder).FolderMini!.Id;
-        var items = await Client.Folders.GetFolderItemsAsync(folderId,
-            new GetFolderItemsQueryParams { Usemarker = true, Limit = 1000, Fields = ["type", "id", "name", "etag", "file_version"] });
-        return items.Entries!.Single(e => e.FileFull?.Name == name).FileFull!;
+        return await FindFileAsync(name);
+    }
+
+    private async Task<FileFull> FindFileAsync(string name)
+    {
+        var folderId = (await FindAsync(BoxLive.RootFolderId, _folder)).FolderMini!.Id;
+        return (await FindAsync(folderId, name)).FileFull!;
+    }
+
+    // The root folder may hold more than a page: walk it with markers.
+    private async Task<Item> FindAsync(string folderId, string name)
+    {
+        await foreach (var item in ListAsync(folderId, pageSize: 1000))
+        {
+            if ((item.FileFull?.Name ?? item.FolderMini?.Name) == name)
+                return item;
+        }
+        throw new AssertFailedException($"'{name}' is not in folder {folderId}.");
+    }
+
+    private async IAsyncEnumerable<Item> ListAsync(string folderId, int pageSize)
+    {
+        string? marker = null;
+        do
+        {
+            var page = await Client.Folders.GetFolderItemsAsync(folderId,
+                new GetFolderItemsQueryParams { Usemarker = true, Marker = marker, Limit = pageSize, Fields = ["type", "id", "name", "etag", "file_version"] });
+            foreach (var item in page.Entries!)
+                yield return item;
+            marker = page.NextMarker;
+        }
+        while (!string.IsNullOrEmpty(marker));
     }
 
     private async Task<string> ReadAsync(string name)

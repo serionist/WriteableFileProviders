@@ -13,11 +13,11 @@
       },
       "Microsoft.Graph": {
         "type": "Direct",
-        "requested": "[5.85.0, )",
-        "resolved": "5.85.0",
-        "contentHash": "4YS75FoTaZGLB3Lsd+uC1JGsur/WZrNpI/ixswC4KI4tGQEhq9efRX9/0uS9g41XWDjvMgCf0I4D9f/I1PzDuw==",
+        "requested": "[5.105.0, )",
+        "resolved": "5.105.0",
+        "contentHash": "DZxSj5D5BBXqEP1fxBmvodsN6g2RmkyyELTKAOynQ01tRc9FFRrqiE4bJqC76p7D/OlPaMdtl2IbzJhlP61iZA==",
         "dependencies": {
-          "Microsoft.Graph.Core": "3.2.4"
+          "Microsoft.Graph.Core": "3.2.5"
         }
       },
       "Microsoft.Graph.Core": {

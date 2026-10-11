@@ -12,15 +12,18 @@
 
   <!-- Every package releases at one version, and a package of one major does not load against Common of another: its
        types are not there. So a packed dependency on one of our packages is bounded above by the next major and its
-       prereleases, [V, NextMajor.0.0-0) (-0 is the lowest prerelease), and mixing majors gives a restore warning
-       (NU1608) or error (NU1107) instead of a failure at run time. NuGet packs a project reference as >= V and has no
-       setting for an upper bound (NuGet/Home#5556), so this rewrites the version it read from each referenced project
-       before the nuspec is written. eng/package-check.cs checks the result. -->
+       prereleases, [V, NextMajor.0.0-alpha), and mixing majors gives a restore warning (NU1608) or error (NU1107)
+       instead of a failure at run time. -alpha sorts below every prerelease we make (MinVer's alpha.0.<height>, and
+       rc.N); a lower label such as -0 would do too, but nuget.org refuses a version whose single prerelease label
+       starts with a digit. NuGet packs a project reference as >= V and has no setting for an upper bound
+       (NuGet/Home#5556), so this rewrites the version it read from each referenced project before the nuspec is
+       written. eng/package-check.cs checks the result, and what nuget.org accepts. -->
 
-  <!-- NU5104 ("a stable release should not have a prerelease dependency") reads the -0 above as a prerelease
-       dependency, and with warnings as errors it fails the pack of every stable release. The -0 is only the exclusive
-       upper bound that keeps the next major's prereleases out; the lowest version a package depends on is always the
-       release's own, stable for a stable release. CI packs a stable version on every PR to keep this proven. -->
+  <!-- NU5104 ("a stable release should not have a prerelease dependency") reads the -alpha above as a prerelease
+       dependency, and with warnings as errors it fails the pack of every stable release. The -alpha is only the
+       exclusive upper bound that keeps the next major's prereleases out; the lowest version a package depends on is
+       always the release's own, stable for a stable release. CI packs a stable version on every PR to keep this
+       proven. -->
   <PropertyGroup>
     <NoWarn>$(NoWarn);NU5104</NoWarn>
   </PropertyGroup>
@@ -31,7 +34,7 @@
     </PropertyGroup>
     <ItemGroup>
       <_ProjectReferencesWithVersions Update="@(_ProjectReferencesWithVersions)"
-                                      ProjectVersion="[%(ProjectVersion), $(_WfpNextMajor).0.0-0)" />
+                                      ProjectVersion="[%(ProjectVersion), $(_WfpNextMajor).0.0-alpha)" />
     </ItemGroup>
   </Target>
 

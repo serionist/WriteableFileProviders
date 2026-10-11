@@ -5,8 +5,8 @@
 Every release tags `v<version>` on `main`, and MinVer gives every package that version. Use the same version of all of
 them: a provider of one major doesn't load against the Common of another.
 
-- From 2027 on, each provider depends on Common of its own major only: `[2027.0.0, 2028.0.0-0)` for 2027.0.0, which also
-  keeps out the next major's prereleases. Mixing majors makes NuGet warn (NU1608) or fail the restore (NU1107).
+- From 2027 on, each provider depends on Common of its own major only: `[2027.0.0, 2028.0.0-alpha)` for 2027.0.0, which
+  also keeps out the next major's prereleases. Mixing majors makes NuGet warn (NU1608) or fail the restore (NU1107).
 - The 2026.10.10.x providers carry no upper bound, so nothing warns when they meet Common 2027. Update every package
   together.
 

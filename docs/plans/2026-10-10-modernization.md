@@ -537,7 +537,8 @@ public class PreconditionFailedException : IOException      public class FileExi
   Microsoft.Extensions.Configuration. Each gets a section in the migration guide.
 - **Mixing lines (P21):** every WriteableFileProviders package must be on the same major; a `2026.10.10.x` provider does
   not load against Common 2027. The migration guide and every README say so, and since S12 part 2 the packed dependency
-  on Common carries an upper bound, `[V, NextMajor.0.0-0)` such as `[2027.0.0, 2028.0.0-0)`, so mixing majors gives a
+  on Common carries an upper bound, `[V, NextMajor.0.0-alpha)` such as `[2027.0.0, 2028.0.0-alpha)` (`-0` until the
+  first release attempt, which nuget.org refused; progress log, 2026-10-11), so mixing majors gives a
   restore warning (NU1608) rather than a type-load failure at run time.
 - **Packages:**
   - The new `WriteableFileProviders.AspNetCore`.
@@ -2463,6 +2464,8 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
 
 - **2026-10-11, native AOT (D33), before the release:** the maintainer asked that the packages build for AOT and say so. A native AOT publish of an app per package found our own warnings in the gateway (token JSON, endpoint mapping) and the serializer, all fixed or annotated, and SDK warnings in SharePoint (Graph's `ItemWithPath`, now replaced), GoogleCloudStorage and Box (their JSON, left out). The packages that pass say "Native AOT compatible" in their description, tags and README; the root README has a Native AOT column, section and badge; the guide's providers matrix and dependency injection page show the AOT path. The binder leaves S3's `StorageClassForNewFiles` at its default, which the guide says. The README also moved the providers to the top, with short names, and says how to write a provider of your own (asked for on 2026-10-11).
 
+- **2026-10-11, the first release attempt refused (v2027.0.0-rc.1):** the build, the tests, the package check and CI passed, and the `nuget` deployment was approved, but nuget.org refused the first package pushed: "invalid Version: '2028.0.0-0'". Its ManifestValidator takes a version that is not SemVer 2 (no dotted prerelease label, no metadata) only if NuGet 2.x clients can read it, and their prerelease label starts with a letter. Nothing was published (the push stops at its first failure; nuget.org lists no 2027 version of any package). The bound between our packages is now `[V, NextMajor.0.0-alpha)`, which still sorts below every prerelease we make, and `eng/package-check.cs` applies nuget.org's rule to every package version and dependency bound, so CI catches it before a push. The next attempt is v2027.0.0-rc.2: the rc.1 tag stays, on the commit that failed.
+
 ### For the maintainers
 
 What this session cannot do, in the order to do it: first what closes a security exposure, then the review of what
@@ -2482,7 +2485,8 @@ merged, the repository's settings, the live runs, and the release. Kept current 
   Common 2026.10.10.5 and AmazonS3 2026.10.10.2 went out before #17 merged.
 - [ ] Publish a GitHub security advisory for F1, F2 and F47, naming the fixed versions: `WriteableFileProviders.Common`
   2026.10.10.6 and `WriteableFileProviders.AmazonS3` 2026.10.10.3.
-- [ ] Decide whether to ship 2026.10.10.7 of every provider with Common pinned `[2026.10.10.6, 2027.0.0-0)`, so a 2026
+- [ ] Decide whether to ship 2026.10.10.7 of every provider with Common pinned `[2026.10.10.6, 2027.0.0-alpha)` (not
+  `-0`, which nuget.org refuses), so a 2026
   provider cannot restore against Common 2027: today's 2026.10.10.x providers carry no upper bound, so an application
   that mixes in a 2027 package gets no restore warning, only a type load failure at run time (the root README's
   Versioning section says to update every package together).

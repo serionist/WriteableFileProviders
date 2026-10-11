@@ -46,13 +46,16 @@ section)`):
 }
 ```
 
-To bring your own client (custom credentials, retries, HTTP handling), pass a `StorageClient`; the provider never
-disposes it:
+To bring your own client (custom credentials, retries, HTTP handling, a customer-supplied encryption key), pass a
+`StorageClient`; the provider never disposes it:
 
 ```csharp
 var client = await new StorageClientBuilder { /* ... */ }.BuildAsync();
 var files = new WriteableGoogleCloudStorageFileProvider(client, new GoogleCloudStorageFileProviderOptions { BucketName = "my-bucket" });
 ```
+
+The provider class is `sealed`: to change what it does, wrap it, or derive your own provider from
+`WriteableFileProvider<TOptions>`.
 
 ## Configuration keys
 
@@ -64,8 +67,12 @@ var files = new WriteableGoogleCloudStorageFileProvider(client, new GoogleCloudS
 | `PrivateKey` | The service account's PEM private key (`private_key`). A secret. Escaped newlines (`\n`) are accepted. |
 | `CredentialsJson` | The whole service account key file as one string, used when `ClientEmail` and `PrivateKey` are not both set. A secret. |
 | `ProjectId` | The project. Needed by `CreateBucketIfMissing` when the key does not name it. |
-| `Endpoint` | Since 2027.0.0. The root URL of another Cloud Storage endpoint, such as `http://localhost:4443` for [fake-gcs-server](https://github.com/fsouza/fake-gcs-server) or a Private Service Connect endpoint; empty for Google's. |
-| `CreateBucketIfMissing` | Since 2027.0.0. `true` creates the bucket on the first call when it does not exist; `false` (the default) makes every member throw `InvalidOperationException` naming the bucket. |
+| `Endpoint` | Since 2027.0.0. The root URL of another Cloud Storage endpoint, such as `http://localhost:4443` for [fake-gcs-server](https://github.com/fsouza/fake-gcs-server) or a Private Service Connect endpoint; empty for Google's. Plain `http` only toward a loopback host, unless `AllowInsecureHttp` is set. |
+| `AllowInsecureHttp` | Since 2027.0.0. `true` allows an `http` `Endpoint` toward a host that is not loopback, such as an emulator elsewhere on a private network; the credentials' tokens then travel in clear text. |
+| `CreateBucketIfMissing` | Since 2027.0.0. `true` creates the bucket on the first call when it does not exist, with Cloud Storage's defaults: the `US` multi-region, the Standard storage class and the project's default access settings (create it yourself for anything else). `false` (the default) makes every member that reaches the bucket throw `InvalidOperationException` naming it. |
+
+The keys new in 2027.0.0 are written by `ToJson` only when they are set, so a configuration that uses none of them keeps
+its 2026 shape.
 
 With a `StorageClient` given to the constructor, only `BucketName`, the root, `CreateBucketIfMissing` and `ProjectId`
 are used: the credentials and the endpoint are the client's.
@@ -74,8 +81,9 @@ are used: the credentials and the endpoint are the client's.
 
 The first credential that is set wins: `ClientEmail` with `PrivateKey`, then `CredentialsJson`, then Application
 Default Credentials. The provider's constructor does no network I/O: it reads a key, but the client is built, and
-Application Default Credentials are looked up, on the first call. A key that cannot be read, a missing bucket name or an
-`Endpoint` that is not a root URL throws `ArgumentException` from the constructor.
+Application Default Credentials are looked up, on the first call. A key that cannot be read, a missing bucket name, an
+`Endpoint` that is not a root URL, or a plain-`http` `Endpoint` toward another machine without `AllowInsecureHttp`
+throws `ArgumentException` from the constructor.
 
 The credentials go to the `Endpoint` as they go to Google, so use `https` except for a local emulator. Against
 fake-gcs-server, any service account key works: the client signs its own tokens and never asks Google for one.
@@ -88,17 +96,21 @@ fake-gcs-server, any service account key works: the client signs its own tokens 
 - **Versions:** a file's `ETag` is its generation. `UpdateFileOptions.IfMatch` and `IfNotExists` are generation
   preconditions Cloud Storage checks atomically.
 - **Writes** are resumable uploads: the object appears only when every byte arrived, so a write that fails leaves the
-  old content. The caller's stream is read from its position and left open. With no content type given, the object is
-  stored as `application/octet-stream`.
+  old content. The caller's stream is read from its position and left open. With no content type given, a write stores
+  `application/octet-stream`; an append and a local stream's commit keep the type the file has.
 - **Appends** rewrite the object (Cloud Storage has no append), conditional on the generation read, so an append never
   loses a concurrent write: it throws `PreconditionFailedException` instead.
-- **Reads** stream the object as it downloads. `ReadRangeAsync` and `OpenReadSeekableAsync` download only the bytes
-  asked for, pinned to the generation they started from. The download is not checked against the object's hash; TLS
-  protects it in transit.
-- **Move and copy** copy on the server, only if the destination does not exist (`FileExistsException` otherwise). A move
-  then deletes exactly the generation it copied; if the source was written in between, the newer content stays, the
-  copy is removed, and the move throws `PreconditionFailedException`.
-- **Missing bucket:** every member throws `InvalidOperationException` naming it, unless `CreateBucketIfMissing` is set.
+- **Reads** stream the object as it downloads, with the client's customer-supplied encryption key if it has one.
+  `ReadRangeAsync` and `OpenReadSeekableAsync` download only the bytes asked for, pinned to the generation they started
+  from. The download is not checked against the object's hash; TLS protects it in transit.
+- **Move and copy** copy on the server, only if the destination does not exist (`FileExistsException` otherwise). The
+  copy is never retried: a retry after a lost answer could take its own copy for a taken destination, so a failure the
+  SDK would have retried reaches you instead. A move then deletes exactly the generation it copied; if the source was
+  written in between, the newer content stays, the copy is removed, and the move throws `PreconditionFailedException`.
+- **Missing bucket:** every member that reaches the bucket throws `InvalidOperationException` naming it, unless
+  `CreateBucketIfMissing` is set. Create and write signed URLs are signed without asking the bucket, so with a missing
+  bucket they are issued, and fail only when used. A credential that may read objects but not list them cannot tell a
+  missing bucket from a missing file, and gets `FileNotFoundException`.
 
 ## Signed URLs
 

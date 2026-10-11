@@ -329,7 +329,7 @@ public class PreconditionFailedException : IOException      public class FileExi
 | AzureBlob | Azure.Storage.Blobs 12.30, Azure.Identity 1.21 | Block blobs (D5); `OpenReadAsync` gives a native seekable stream (F64); `AzureFileStream` goes (F15, F70); ranges; service SAS with no start time (F40); user delegation SAS with `UseDefaultAzureCredential`; read and write SAS; ETag conditions; append commits with `IfMatch` (D19); legacy append blobs (P30): a block blob cannot replace an append blob in place, so the sequence is (1) stage the new content to a temp block blob, (2) delete the destination with `IfMatch` on the ETag read, (3) copy the temp blob onto the destination and poll until done, (4) delete the temp blob only after the copy succeeds; on any failure the temp blob stays and the exception names it. The file is absent between (2) and (3), which the XML docs and the migration guide say. Azurite tests cover overwrite and append over a legacy blob, and a failed copy that leaves the content in the temp blob; a public constructor that takes a `BlobContainerClient` (D17). |
 | AmazonS3 | AWSSDK.S3 4.x | `ServiceUrl`, `ForcePathStyle` and the default credential chain (additive options); multipart above a threshold (F65); ranges with `EtagToMatch`; presigned GET and PUT; `IfNoneMatch` and `IfMatch`; the public absolute-path members go (F1, F2); never disposes the caller's stream (F41). Shared internal `S3Core`, which also sets the checksum behaviour (`WHEN_REQUIRED`) for a custom `ServiceUrl`, so the tests run the production configuration; presigned URLs honour D18 for expiring credentials; a public constructor that takes an `IAmazonS3` (D17). `ReadFileVersionAsync` (added in S0) stays, on `ProviderPath`. |
 | Minio | AWSSDK.S3 4.x via `S3Core` | D6 and D7; `S3Core` builds the client so every stored MinIO configuration keeps working (P23): path-style forced, the scheme from `UseSSL`, and the region discovered once per bucket (`GetBucketLocation`, cached) unless the new `Region` option names it, with a unit test of the client configuration; download URLs now work (F45); Extensions 9 and System.Reactive leave consumers' graphs (F73). |
-| GoogleCloudStorage | Google.Cloud.Storage.V1 5.x | `Endpoint` option for fake-gcs-server (F75), and the tests build their client through the public constructor (D23); ranges with generation pinning; V4 signed GET and PUT; move by conditional copy then delete (D16); `IfGenerationMatch`; append through `AppendByRewriteAsync` (F4); credentials created lazily (F13); a public constructor that takes a `StorageClient` (D17). As built in S8: reads, ranged or whole, stream through a raw media GET on the client's own HTTP client (Google's byte-range sample), pinned with `generation` and `ifGenerationMatch`, a 416 read as empty; copies and moves send `ifGenerationMatch=0`; a move deletes with the copied `generation` and `ifGenerationMatch` and, when the source was written meanwhile, undoes the copy and throws `PreconditionFailedException`; a missing bucket is told from a missing object by a one-object list; `CreateBucketIfMissing` needs `ProjectId` or a key that names its project. |
+| GoogleCloudStorage | Google.Cloud.Storage.V1 5.x | `Endpoint` option for fake-gcs-server (F75), and the tests build their client through the public constructor (D23); ranges with generation pinning; V4 signed GET and PUT; move by conditional copy then delete (D16); `IfGenerationMatch`; append through `AppendByRewriteAsync` (F4); credentials created lazily (F13); a public constructor that takes a `StorageClient` (D17). As built in S8: reads, ranged or whole, stream through a raw media GET on the client's own HTTP client (Google's byte-range sample), pinned with `generation` and `ifGenerationMatch`, a 416 read as empty; copies and moves send `ifGenerationMatch=0`; a move deletes with the copied `generation` and `ifGenerationMatch` and, when the source was written meanwhile, undoes the copy and throws `PreconditionFailedException`; a missing bucket is told from a missing object by a one-object list; `CreateBucketIfMissing` needs `ProjectId` or a key that names its project. After review round 1 of #27: the class is `sealed` (D25); `Endpoint`, `AllowInsecureHttp` and `CreateBucketIfMissing` are written to JSON only when set (D26); a plain-`http` `Endpoint` toward a host that is not loopback needs `AllowInsecureHttp` (D7, as MinIO); copies are not retried; downloads send the client's customer-supplied encryption key. |
 | SharePoint | Microsoft.Graph 6, Graph.Core 4 | Lazy initialization (F13); `WorkFolderPath` folded into the root (F7); `LargeFileUploadTask`, or a loop with `ReadAtLeastAsync`, with one bounded retry (F8, F39); only `itemNotFound` means not-found (F66); one folder creator (F62); ranges on the download URL, falling back to skipping when the range is ignored; pre-authenticated read URL per D18; certificate and managed-identity sign-in (D17); a public constructor that takes a `GraphServiceClient` (D17). |
 | Box | Box.V2.Core 10 (the generated SDK) | Lazy authentication (F13, F32); marker paging (F67); every call resolves the path fresh, as today (no path-to-id cache, D23); range reads pinned to the file version (P15); never rewinds the caller's stream (F6); pre-authenticated read URL per D18; a public constructor that takes a Box client (D17). |
 
@@ -471,7 +471,7 @@ public class PreconditionFailedException : IOException      public class FileExi
     - `CreateContainerIfMissing` (Azure) and `CreateBucketIfMissing` (S3, MinIO, GCS);
     - `ServiceUrl`, `ForcePathStyle` (S3);
     - `UseDefaultAzureCredential` (Azure);
-    - `Endpoint` (GCS).
+    - `Endpoint` and `AllowInsecureHttp` (GCS).
   - Behavior changes:
     - Azure and MinIO no longer auto-create containers and buckets unless the option is set.
     - MinIO throws without `UseSSL` on a non-loopback host (D7).
@@ -945,11 +945,35 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     with `GcsLiveConformanceTests`; both need `WFP_LIVE=1` and `WFP_GCS_*` (or a `testsettings.json` next to the test
     assembly) and never ran here. The old `GoogleCloudStorageFileProvider` TestBase suite and `GcsOptionsTests` left
     `WriteableFileProviders.Tests` (their tests moved), with GCS's settings keys and project reference.
-  - **Shared files:** `ConfigurationShapeTests.WrittenShapeMatchesGoldenExceptStringConvertibles` takes a table of the
-    options each provider adds (GCS: `Endpoint`, `CreateBucketIfMissing`), which must be written at their defaults; the
-    goldens still read identically. Other provider steps add their line.
   - **Coverage:** GCS 99.6% lines, 95.8% branches locally (Windows); floor raised to 98/94.
   - **Not done here:** no PublicAPI files, as S4 added none (S12).
+  - **Review round 1 (PR #27, standard): 8 minors and 4 nits, all fixed:**
+    - F1: `GcsProviderTests.Requests_CarryTheGenerationPreconditions` checks, through the HTTP seam's request log, that
+      each condition the emulator ignores is sent: `ifGenerationMatch` on uploads (the version, or 0), `generation` and
+      `ifGenerationMatch` on a pinned read, `ifGenerationMatch=0` on a copy, and on a move `sourceGeneration`,
+      `ifSourceGenerationMatch` and the delete's `generation` and `ifGenerationMatch`.
+    - F2: both fixtures' `LargeFileSize` is 22 MiB, so the failed large write sends a whole 10 MiB chunk before it fails;
+      `Write_AFailureAfterAWholeChunkKeepsTheOldContent` checks that a chunk went out.
+    - F3: the raw download applies the client's customer-supplied encryption key (`EncryptionKey.ModifyRequest`).
+    - F4: a 403 on the one-object list means "cannot tell", so a missing file under a credential that may get but not
+      list objects stays `FileNotFoundException`.
+    - F5: the conditional rewrite runs with `RetryOptions.Never`: a retry after a lost answer would find its own copy
+      and report `FileExistsException`. Tested by answering the first rewrite 503 after the copy lands.
+    - F6 (owner: yes): `AllowInsecureHttp`, new, written only when set; a plain-`http` `Endpoint` toward a host that is
+      not loopback throws `ArgumentException` without it.
+    - F7 (owner: keep the type), **a Common change:** `AppendByRewriteAsync` and the default local-stream commit keep the
+      file's content type when the caller gives none (`UpdateFileOptions.ContentType` docs say so). Pinned by
+      `BaseClassTests.AppendAndLocalStream_KeepTheFilesContentType` and the new conformance test
+      `FileInfo_AppendAndLocalStreamKeepTheContentType` (where `KeepsContentType`); it settles S7's note that a local
+      stream commit stored `application/octet-stream`. A provider with a native append keeps the type itself.
+    - F8: `CreateBucketIfMissing` documents Cloud Storage's defaults (the `US` multi-region, Standard class).
+    - F9: a version must be a positive generation, so `IfMatch = "0"` never means "create only".
+    - F10: AGENTS.md gives the live filter as `TestCategory=Live&FullyQualifiedName~<Provider>`.
+    - F11: the floor is the brief's rule, the whole-point measured figure minus 1: after this round GCS measures 99.6% of
+      lines and 95.3% of branches on Windows, so the floor stays 98/94.
+    - F12: the README says a create or write signed URL is issued for a missing bucket and fails when used.
+    - D25 and D26 (main session): the provider is `sealed`, and the 2027 options carry
+      `[JsonIgnore(Condition = WhenWritingDefault)]`, so `ConfigurationShapeTests` is back to its exact golden check.
 
 ### For the maintainers
 
@@ -969,7 +993,9 @@ What this session cannot do, kept current as the work goes on:
   - on a bucket with object versioning on, a pinned read and a move's delete, which send both `generation` and
     `ifGenerationMatch`, still refuse a stale generation (the combination is unverified on real Cloud Storage);
   - signing without a key, through `signBlob` (Workload Identity or Cloud Run), and `CreateBucketIfMissing` with
-    permission to create buckets.
+    permission to create buckets;
+  - a client with a customer-supplied encryption key reads its objects through the provider (the emulator ignores the
+    key).
 - [ ] Publish the S0 patch from the `release/2026.10` branch (it starts at S0's merge commit; `main` has moved to the
   2027 layout). Step 0 (P33): on that branch, run `AmazonS3ProviderTests`, at least
   `AbsolutePathMembers_ResolveUnderTheRootOnly`, against an S3 endpoint whose virtual-host bucket names resolve (your

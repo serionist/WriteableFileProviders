@@ -13,8 +13,8 @@ public sealed record UpdateFileOptions
     public UpdateFileMode Mode { get; init; } = UpdateFileMode.Overwrite;
 
     /// <summary>
-    /// A hint: the content type to store with the file where the store keeps one, ignored where it does not. Null keeps the
-    /// store's default.
+    /// A hint: the content type to store with the file where the store keeps one, ignored where it does not. Null stores
+    /// the store's default on an overwrite; an append, and the commit of a local stream, keep the type the file has.
     /// </summary>
     public string? ContentType { get; init; }
 

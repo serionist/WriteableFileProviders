@@ -110,10 +110,11 @@ overwrite, append, move, delete, listing, local stream, download URL and 100 MB 
     client's HTTP seam). `GcsOptionsTests` there runs offline.
 - **Live suites**, `[TestCategory("Live")]`, which the filter above leaves out: the shared suite against a real
   account, with the credentials from `testsettings.json`. They fail without them. Run one only against an account you
-  own (`--filter "FullyQualifiedName~<Provider>FileProvider"`), and check it is clean afterwards. Google Cloud Storage's
-  (`GcsLiveConformanceTests`, and `GcsLiveAtomicityTests` for what the emulator does not enforce) run only with
-  `WFP_LIVE=1` and a bucket and service account key in `WFP_GCS_*` variables or a `testsettings.json` next to its test
-  assembly (see `GcsLive`); otherwise they are inconclusive.
+  own (`--filter "TestCategory=Live&FullyQualifiedName~<Provider>"`, with the package's name such as `AzureBlob` or
+  `GoogleCloudStorage`), and check it is clean afterwards. Google Cloud Storage's (`GcsLiveConformanceTests`, and
+  `GcsLiveAtomicityTests` for what the emulator does not enforce) run only with `WFP_LIVE=1` and a bucket and service
+  account key in `WFP_GCS_*` variables or a `testsettings.json` next to its test assembly (see `GcsLive`); otherwise
+  they are inconclusive.
 - **Configuration shape**: `ConfigurationShapeTests`, in WriteableFileProviders.Common.Tests, pins the one-way door with
   the files in `Serialization/Golden/`:
   `Writeable*.json` were written by the 2026.10.10.x serializer and are never regenerated; `Lenient.*.json` and

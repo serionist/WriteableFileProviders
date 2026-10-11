@@ -26,6 +26,13 @@ internal sealed class FaultInjection : HttpClientFactory
             Encoding.UTF8, "application/json"),
     };
 
+    /// <summary>What the request log shows for the start of an upload.</summary>
+    public const string UploadStartPattern = "POST /upload/";
+
+    /// <summary>Whether the request lists objects.</summary>
+    public static bool IsList(HttpRequestMessage request) =>
+        request.Method == HttpMethod.Get && request.RequestUri!.AbsolutePath.EndsWith("/o", StringComparison.Ordinal);
+
     /// <summary>Whether the request is a media download.</summary>
     public static bool IsDownload(HttpRequestMessage request) =>
         request.Method == HttpMethod.Get && request.RequestUri!.Query.Contains("alt=media", StringComparison.Ordinal);

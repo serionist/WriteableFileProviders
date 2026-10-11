@@ -106,6 +106,9 @@ The base class now enforces these on every provider:
     silently serves the stored name and type instead.
 - **Pinned reads and appends:** a pinned seekable read (the default) or an append by rewrite of a file the store keeps
   no `ETag` for throws `NotSupportedException`; `SeekableReadOptions.AllowModifications` reads it unpinned.
+- **Content type kept:** an append by rewrite, and the commit of a local stream, keep the file's content type when the
+  caller gives none (2026 stored the store's default, such as `application/octet-stream`, after an append or an edit).
+  An overwrite without one still stores the default.
 - **Unsupported operations:** they throw `NotSupportedException`, never `PlatformNotSupportedException`.
 - **Invalid path segments:** an `ArgumentException` for one names the parameter `path`.
 
@@ -160,8 +163,9 @@ are validated by the server (`RejectAndThrow`) by default.
 |---|---|---|
 | The constructor looked up Application Default Credentials synchronously, so it did network I/O and threw where there were none | The constructor reads the key only; the client is built, and Application Default Credentials looked up, on the first call | Nothing to do; a configuration without credentials fails on its first call instead of at construction. |
 | A key it could not read threw `FormatException`; a missing bucket name threw `ArgumentException` for `BucketName` | Both throw `ArgumentException` for `options`, as does an `Endpoint` that is not a root URL | Catch `ArgumentException`. |
-| Only the options constructor | Also `new WriteableGoogleCloudStorageFileProvider(StorageClient, options)`, which never disposes the client | For your own credentials, retries or HTTP handling. |
-| No way to reach another endpoint | `Endpoint`: a root URL, such as fake-gcs-server's `http://localhost:4443` or a Private Service Connect endpoint | Additive. |
+| Only the options constructor | Also `new WriteableGoogleCloudStorageFileProvider(StorageClient, options)`, which never disposes the client | For your own credentials, retries, HTTP handling or encryption key. |
+| `WriteableGoogleCloudStorageFileProvider` could be derived from | It is `sealed` (D25) | Derive a custom provider from `WriteableFileProvider<TOptions>`, or wrap this one. |
+| No way to reach another endpoint | `Endpoint`: a root URL, such as fake-gcs-server's `http://localhost:4443` or a Private Service Connect endpoint. Plain `http` toward a host that is not loopback throws `ArgumentException` unless `AllowInsecureHttp` is set (D7) | Additive. |
 | A missing bucket: listings threw `GoogleApiException`, `GetFileInfo` said "not found", writes threw `GoogleApiException` | Every member throws `InvalidOperationException` naming the bucket; `CreateBucketIfMissing` (default false) creates it on the first call instead | Create the bucket, or set the option (with `ProjectId` when the key does not name the project). |
 | A missing file threw `GoogleApiException` 404 | `FileNotFoundException`, with the `GoogleApiException` as `InnerException` | Catch `FileNotFoundException`. |
 | `GetFileInfo` on a folder said it did not exist | A folder that holds objects exists and is a directory, with `Length` -1 | Check `IsDirectory`. |
@@ -174,5 +178,8 @@ are validated by the server (`RejectAndThrow`) by default.
 | A validity over seven days threw the SDK's `ArgumentOutOfRangeException`; a credential that could not sign threw `PlatformNotSupportedException`; a URL was signed for a missing file | Over seven days, or under one second, throws `NotSupportedException` (so the gateway can take over), and the validity is rounded down to whole seconds; a credential that cannot sign throws `NotSupportedException`; a read URL for a missing file throws `FileNotFoundException` | Catch `NotSupportedException`. |
 
 New: `ETag` is the object's generation, and `IfMatch` and `IfNotExists` are atomic; `ContentType` is stored
-(`application/octet-stream` when none is given, as in 2026) and reported. Listings leave out objects whose names no path
-can address, such as `a//b`.
+(`application/octet-stream` when a write gives none, as in 2026; an append or a local stream keeps the file's) and
+reported. Listings leave out objects whose names no path can address, such as `a//b`. A copy or move is not retried by
+the SDK, so a transient failure reaches you instead of being mistaken for a taken destination. The new options,
+`Endpoint`, `AllowInsecureHttp` and `CreateBucketIfMissing`, are written to JSON only when set (D26), so a configuration
+that uses none of them keeps its 2026 shape.

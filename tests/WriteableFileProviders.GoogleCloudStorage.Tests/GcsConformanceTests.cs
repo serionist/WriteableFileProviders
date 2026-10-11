@@ -21,8 +21,9 @@ public sealed class GcsConformanceTests : ProviderConformanceTests
 
     protected override bool KeepsContentType => true;
 
-    // Above the 10 MiB chunk of a resumable upload, so the large-file test sends several chunks.
-    protected override long LargeFileSize => 12L * 1024 * 1024;
+    // The resumable upload sends 10 MiB chunks: at 22 MiB the large write sends three, and the failed one, which stops
+    // after half the size, has sent a whole chunk before it fails.
+    protected override long LargeFileSize => 22L * 1024 * 1024;
 
     protected override bool SupportsSignedUrls(SignedUrlAccess access) => true;
 
@@ -46,7 +47,7 @@ public sealed class GcsClientConformanceTests : ProviderConformanceTests
 
     protected override bool KeepsContentType => true;
 
-    protected override long LargeFileSize => 11L * 1024 * 1024;
+    protected override long LargeFileSize => 22L * 1024 * 1024;
 
     [ClassCleanup]
     public static void DisposeClient()

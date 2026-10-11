@@ -159,19 +159,44 @@ public sealed class GcsOptionsTests
     [TestMethod]
     public async Task Provider_DisposedDuringACallBuildsNoClient()
     {
-        // A call that resolved its path before the provider was disposed reaches the provider afterwards: it must not
-        // build a client (here, look up Application Default Credentials) that nothing would dispose.
-        var probe = new Probe(new GoogleCloudStorageFileProviderOptions { BucketName = "b" });
-        var path = probe.ResolvePath("f.txt");
-        probe.Dispose();
-        await Assert.ThrowsExactlyAsync<ObjectDisposedException>(() => probe.InfoAsync(path));
+        // An enumeration resolves its path when it is asked for and reaches the provider only when it is walked: after a
+        // dispose, it must not build a client (here, look up Application Default Credentials) that nothing would dispose.
+        var provider = new WriteableGoogleCloudStorageFileProvider(new GoogleCloudStorageFileProviderOptions { BucketName = "b" });
+        var entries = provider.EnumerateAsync("dir");
+        provider.Dispose();
+        await Assert.ThrowsExactlyAsync<ObjectDisposedException>(async () =>
+        {
+            await foreach (var _ in entries)
+            {
+            }
+        });
     }
 
-    private sealed class Probe(GoogleCloudStorageFileProviderOptions options) : WriteableGoogleCloudStorageFileProvider(options)
-    {
-        public ResolvedPath ResolvePath(string path) => Resolve(path);
+    [TestMethod]
+    public void Provider_IsSealed() =>
+        // D25: a custom provider derives from WriteableFileProvider<TOptions>, not from a provider.
+        Assert.IsTrue(typeof(WriteableGoogleCloudStorageFileProvider).IsSealed);
 
-        public Task<IWriteableFileInfo> InfoAsync(ResolvedPath path) => GetFileInfoCoreAsync(path, CancellationToken.None);
+    [TestMethod]
+    public void NewOptions_AreWrittenOnlyWhenSet()
+    {
+        // D26: a configuration that uses none of the 2027 options keeps its 2026 shape.
+        string[] added = ["Endpoint", "AllowInsecureHttp", "CreateBucketIfMissing"];
+        using (var plain = new WriteableGoogleCloudStorageFileProvider(Options(Pem)))
+        {
+            var json = plain.ToJson();
+            Assert.IsFalse(added.Any(json.ContainsKey), json.ToJsonString());
+        }
+        var options = Options(Pem);
+        options.Endpoint = "http://gcs.internal:4443";
+        options.AllowInsecureHttp = true;
+        options.CreateBucketIfMissing = true;
+        using var set = new WriteableGoogleCloudStorageFileProvider(options);
+        var written = set.ToJson();
+        Assert.IsTrue(added.All(written.ContainsKey), written.ToJsonString());
+        using var read = (WriteableGoogleCloudStorageFileProvider)WriteableFileProviderSerializer.FromJson(written);
+        Assert.AreEqual("http://gcs.internal:4443", read.Options.Endpoint);
+        Assert.IsTrue(read.Options.AllowInsecureHttp && read.Options.CreateBucketIfMissing);
     }
 
     // ----- Endpoint -----
@@ -188,6 +213,26 @@ public sealed class GcsOptionsTests
     [DataRow("HTTPS://Storage.Example:8443/", "https://storage.example:8443/storage/v1/")]
     public void Endpoint_BecomesTheClientBaseUri(string? endpoint, string? expected) =>
         Assert.AreEqual(expected, WriteableGoogleCloudStorageFileProvider.BaseUriFor(new GoogleCloudStorageFileProviderOptions { Endpoint = endpoint }));
+
+    [TestMethod]
+    [DataRow("http://gcs.internal:4443")]
+    [DataRow("http://10.0.0.5:4443/storage/v1/")]
+    [DataRow("http://storage.googleapis.com")]
+    public void Endpoint_PlainHttpOnlyTowardLoopbackUnlessAllowed(string endpoint)
+    {
+        // D7, as MinIO: the credentials' tokens travel with every request.
+        var options = new GoogleCloudStorageFileProviderOptions { BucketName = "b", Endpoint = endpoint };
+        var e = Assert.ThrowsExactly<ArgumentException>(() => new WriteableGoogleCloudStorageFileProvider(options));
+        StringAssert.Contains(e.Message, "AllowInsecureHttp");
+        options.AllowInsecureHttp = true;
+        using var allowed = new WriteableGoogleCloudStorageFileProvider(options);
+        StringAssert.EndsWith(WriteableGoogleCloudStorageFileProvider.BaseUriFor(options), "/storage/v1/");
+        foreach (var loopback in new[] { "http://localhost:4443", "http://127.0.0.1:4443", "http://[::1]:4443" })
+        {
+            using var local = new WriteableGoogleCloudStorageFileProvider(new GoogleCloudStorageFileProviderOptions { BucketName = "b", Endpoint = loopback });
+            Assert.IsNotNull(local);
+        }
+    }
 
     [TestMethod]
     [DataRow("localhost:4443")]

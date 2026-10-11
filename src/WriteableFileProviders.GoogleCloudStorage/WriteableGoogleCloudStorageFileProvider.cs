@@ -30,8 +30,9 @@ namespace WriteableFileProviders.GoogleCloudStorage;
 /// the generation they started from. The download is not checked against the object's hash.
 /// </description></item>
 /// <item><description>
-/// <b>Move and copy</b> copy on the server, only if the destination does not exist; a move then deletes exactly the
-/// generation it copied, and puts things back if the source was written meanwhile.
+/// <b>Move and copy</b> copy on the server, only if the destination does not exist, without retrying (a retry could
+/// mistake the copy it made for a taken destination); a move then deletes exactly the generation it copied, and puts
+/// things back if the source was written meanwhile.
 /// </description></item>
 /// <item><description>
 /// <b>Signed URLs</b> are V4 signed URLs, for read, create and write, valid from one second to seven days.
@@ -42,7 +43,7 @@ namespace WriteableFileProviders.GoogleCloudStorage;
 /// </description></item>
 /// </list>
 /// </remarks>
-public class WriteableGoogleCloudStorageFileProvider : WriteableFileProvider<GoogleCloudStorageFileProviderOptions>
+public sealed class WriteableGoogleCloudStorageFileProvider : WriteableFileProvider<GoogleCloudStorageFileProviderOptions>
 {
     private const string DefaultContentType = "application/octet-stream";
     private const string IfGenerationMatchHeader = "x-goog-if-generation-match";
@@ -64,8 +65,9 @@ public class WriteableGoogleCloudStorageFileProvider : WriteableFileProvider<Goo
     /// </summary>
     /// <param name="options">The options.</param>
     /// <exception cref="ArgumentException">
-    /// The bucket is missing, <see cref="GoogleCloudStorageFileProviderOptions.Endpoint"/> is not a root URL, or the
-    /// service account key cannot be read.
+    /// The bucket is missing; <see cref="GoogleCloudStorageFileProviderOptions.Endpoint"/> is not a root URL, or is plain
+    /// <c>http</c> toward a host that is not loopback without
+    /// <see cref="GoogleCloudStorageFileProviderOptions.AllowInsecureHttp"/>; or the service account key cannot be read.
     /// </exception>
     public WriteableGoogleCloudStorageFileProvider(GoogleCloudStorageFileProviderOptions options) : base(options)
     {
@@ -405,7 +407,10 @@ public class WriteableGoogleCloudStorageFileProvider : WriteableFileProvider<Goo
     /// <c>storage/v1/</c>; null for Google's.
     /// </summary>
     /// <param name="options">The options.</param>
-    /// <exception cref="ArgumentException">The endpoint is not an http or https root URL.</exception>
+    /// <exception cref="ArgumentException">
+    /// The endpoint is not an http or https root URL, or is plain http toward a host that is not loopback without
+    /// <see cref="GoogleCloudStorageFileProviderOptions.AllowInsecureHttp"/>.
+    /// </exception>
     internal static string? BaseUriFor(GoogleCloudStorageFileProviderOptions options)
     {
         var endpoint = options.Endpoint;
@@ -415,6 +420,11 @@ public class WriteableGoogleCloudStorageFileProvider : WriteableFileProvider<Goo
         if (!Uri.TryCreate(endpoint.Trim(), UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https")
             || uri.UserInfo.Length > 0 || uri.Query.Length > 0 || uri.Fragment.Length > 0)
             throw new ArgumentException("Endpoint must be an http or https URL without user information or a query, such as http://localhost:4443.", nameof(options));
+        // The credentials' tokens travel with every request: in clear text only toward this machine, unless allowed (D7).
+        if (uri.Scheme == "http" && !uri.IsLoopback && !options.AllowInsecureHttp)
+            throw new ArgumentException(
+                $"Endpoint uses plain http toward a host that is not loopback, which would send the credentials in clear text: use https, or set {nameof(GoogleCloudStorageFileProviderOptions.AllowInsecureHttp)}.",
+                nameof(options));
         // Uploads go to /upload/storage/v1 on the same host whatever the base path, so only the root is meaningful.
         var path = uri.AbsolutePath.TrimEnd('/');
         if (path.Length > 0 && !path.Equals("/storage/v1", StringComparison.OrdinalIgnoreCase))
@@ -479,8 +489,9 @@ public class WriteableGoogleCloudStorageFileProvider : WriteableFileProvider<Goo
         }
     }
 
-    // The error that says the bucket does not exist, or null when it does. It lists one object, which needs only
-    // storage.objects.list, unlike a bucket lookup.
+    // The error that says the bucket does not exist, or null when it does or when that cannot be told. It lists one
+    // object, which needs only storage.objects.list, unlike a bucket lookup; a credential that may read objects but not
+    // list them (403) cannot tell, and a missing file then stays a missing file.
     private async Task<GoogleApiException?> BucketMissingAsync(StorageClient client, CancellationToken cancellationToken)
     {
         try
@@ -491,6 +502,10 @@ public class WriteableGoogleCloudStorageFileProvider : WriteableFileProvider<Goo
         catch (GoogleApiException e) when (e.HttpStatusCode == HttpStatusCode.NotFound)
         {
             return e;
+        }
+        catch (GoogleApiException e) when (e.HttpStatusCode == HttpStatusCode.Forbidden)
+        {
+            return null;
         }
     }
 
@@ -539,6 +554,8 @@ public class WriteableGoogleCloudStorageFileProvider : WriteableFileProvider<Goo
         var pin = generation is { } g ? string.Create(CultureInfo.InvariantCulture, $"&generation={g}&ifGenerationMatch={g}") : "";
         var uri = new Uri($"{service.BaseUri}b/{Uri.EscapeDataString(_bucket)}/o/{Uri.EscapeDataString(Key(path))}?alt=media{pin}");
         using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+        // A client with a customer-supplied encryption key sends it with every object read, as the SDK's own download does.
+        state.Client.EncryptionKey?.ModifyRequest(request);
         var ranged = offset > 0 || length is not null;
         if (ranged)
             request.Headers.Range = new RangeHeaderValue(offset, length is { } count && count <= long.MaxValue - offset ? offset + count - 1 : null);
@@ -573,7 +590,15 @@ public class WriteableGoogleCloudStorageFileProvider : WriteableFileProvider<Goo
 
     private async Task<StorageObject> CopyAsync(State state, ResolvedPath source, ResolvedPath destination, long? sourceGeneration, CancellationToken cancellationToken)
     {
-        var options = new CopyObjectOptions { IfGenerationMatch = 0, SourceGeneration = sourceGeneration, IfSourceGenerationMatch = sourceGeneration };
+        // Never retried: a retry after a lost answer would find the copy this call made and report the destination as
+        // taken. A failure the SDK would have retried reaches the caller instead.
+        var options = new CopyObjectOptions
+        {
+            IfGenerationMatch = 0,
+            SourceGeneration = sourceGeneration,
+            IfSourceGenerationMatch = sourceGeneration,
+            RetryOptions = RetryOptions.Never,
+        };
         try
         {
             return await state.Client.CopyObjectAsync(_bucket, Key(source), _bucket, Key(destination), options, cancellationToken).ConfigureAwait(false);
@@ -670,8 +695,9 @@ public class WriteableGoogleCloudStorageFileProvider : WriteableFileProvider<Goo
         }
     }
 
+    // A generation is positive: 0 would turn "this version" into "no version yet".
     private static long? ParseGeneration(string etag) =>
-        long.TryParse(etag, NumberStyles.None, CultureInfo.InvariantCulture, out var generation) ? generation : null;
+        long.TryParse(etag, NumberStyles.None, CultureInfo.InvariantCulture, out var generation) && generation > 0 ? generation : null;
 
     private static DateTimeOffset? ExpiryOf(Uri url)
     {

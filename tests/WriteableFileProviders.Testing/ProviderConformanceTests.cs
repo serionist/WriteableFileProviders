@@ -270,6 +270,25 @@ public abstract class ProviderConformanceTests
     }
 
     [TestMethod]
+    public async Task FileInfo_AppendAndLocalStreamKeepTheContentType()
+    {
+        if (!KeepsContentType)
+            return;
+        await Write("page.html", "<p/>", new UpdateFileOptions { ContentType = "text/html" });
+        await Write("page.html", "<br/>", UpdateFileOptions.Append);
+        Assert.AreEqual("text/html", (await Provider.GetFileInfoAsync("page.html")).ContentType, "An append keeps the file's type");
+        await using (var local = await Provider.CreateLocalFileStreamAsync("page.html", readOnly: false))
+        {
+            local.Position = local.Length;
+            await local.WriteAsync(Encoding.UTF8.GetBytes("<hr/>"));
+        }
+        Assert.AreEqual("text/html", (await Provider.GetFileInfoAsync("page.html")).ContentType, "A local stream keeps the file's type");
+        Assert.AreEqual("<p/><br/><hr/>", await Read("page.html"));
+        await Write("page.html", "x", UpdateFileOptions.Append with { ContentType = "text/plain" });
+        Assert.AreEqual("text/plain", (await Provider.GetFileInfoAsync("page.html")).ContentType, "The caller's type wins");
+    }
+
+    [TestMethod]
     public async Task FileInfo_SyncFormsOfIFileProvider()
     {
         await Write("dir/f.txt", "x");

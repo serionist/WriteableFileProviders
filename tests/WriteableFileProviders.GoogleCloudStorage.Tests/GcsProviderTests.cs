@@ -121,6 +121,7 @@ public sealed class GcsProviderTests
             BucketName = name,
             CredentialsJson = FakeGcs.CredentialsJson(),
             Endpoint = FakeGcs.ConnectionString,
+            AllowInsecureHttp = FakeGcs.IsRemote,
             CreateBucketIfMissing = true,
         });
         await provider.UpdateFileAsync("f.txt", TestStreams.Text("x"));
@@ -199,7 +200,7 @@ public sealed class GcsProviderTests
         {
             Environment.SetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS", keyFile);
             var name = FakeGcs.MissingBucketName();
-            var provider = Provider(new GoogleCloudStorageFileProviderOptions { BucketName = name, Endpoint = FakeGcs.Endpoint, CreateBucketIfMissing = true });
+            var provider = Provider(new GoogleCloudStorageFileProviderOptions { BucketName = name, Endpoint = FakeGcs.Endpoint, AllowInsecureHttp = FakeGcs.IsRemote, CreateBucketIfMissing = true });
             await provider.UpdateFileAsync("f.txt", TestStreams.Text("adc"));
             Assert.AreEqual("adc", await ReadAll(await provider.ReadFileAsync("f.txt")));
             var url = await provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1) });
@@ -253,6 +254,124 @@ public sealed class GcsProviderTests
         await provider.UpdateFileAsync("f.txt", TestStreams.Text("x"));
         await provider.DisposeAsync();
         await Assert.ThrowsExactlyAsync<ObjectDisposedException>(() => provider.ReadFileAsync("f.txt"));
+    }
+
+    // ----- What the requests carry -----
+
+    [TestMethod]
+    public async Task Requests_CarryTheGenerationPreconditions()
+    {
+        // The emulator ignores most of these conditions, so the tests that pass on it would pass without them: the
+        // requests themselves show they are sent (F1 of #27's review).
+        var http = new FaultInjection();
+        var provider = Provider(http);
+        await provider.UpdateFileAsync("a.txt", TestStreams.Text("a"));
+        var generation = (await provider.GetFileInfoAsync("a.txt")).ETag!;
+
+        http.Requests.Clear();
+        await provider.UpdateFileAsync("a.txt", TestStreams.Text("b"), new UpdateFileOptions { IfMatch = generation });
+        StringAssert.Contains(Single(http, FaultInjection.UploadStartPattern), $"ifGenerationMatch={generation}");
+        http.Requests.Clear();
+        await provider.UpdateFileAsync("new.txt", TestStreams.Text("n"), new UpdateFileOptions { IfNotExists = true });
+        StringAssert.Contains(Single(http, FaultInjection.UploadStartPattern), "ifGenerationMatch=0");
+
+        generation = (await provider.GetFileInfoAsync("a.txt")).ETag!;
+        http.Requests.Clear();
+        await ReadAll(await provider.ReadRangeAsync("a.txt", 0, 1, new ReadOptions { IfMatch = generation }));
+        var read = Single(http, "alt=media");
+        StringAssert.Contains(read, $"generation={generation}");
+        StringAssert.Contains(read, $"ifGenerationMatch={generation}");
+
+        http.Requests.Clear();
+        await provider.CopyAsync("a.txt", "copy.txt");
+        var copy = Single(http, "/rewriteTo/");
+        StringAssert.Contains(copy, "ifGenerationMatch=0");
+        Assert.IsFalse(copy.Contains("sourceGeneration", StringComparison.Ordinal), copy);
+
+        http.Requests.Clear();
+        await provider.MoveAsync("a.txt", "moved.txt");
+        var moveCopy = Single(http, "/rewriteTo/");
+        StringAssert.Contains(moveCopy, "ifGenerationMatch=0");
+        StringAssert.Contains(moveCopy, $"sourceGeneration={generation}");
+        StringAssert.Contains(moveCopy, $"ifSourceGenerationMatch={generation}");
+        var delete = Single(http, "DELETE ");
+        StringAssert.Contains(delete, $"generation={generation}");
+        StringAssert.Contains(delete, $"ifGenerationMatch={generation}");
+    }
+
+    private static string Single(FaultInjection http, string pattern)
+    {
+        var matches = http.Requests.Where(r => r.Contains(pattern, StringComparison.Ordinal)).ToList();
+        Assert.AreEqual(1, matches.Count, $"'{pattern}' in: {string.Join(", ", http.Requests)}");
+        return matches[0];
+    }
+
+    [TestMethod]
+    public async Task Read_SendsTheClientsEncryptionKey()
+    {
+        // A client with a customer-supplied encryption key (CSEK) must send it with the provider's own downloads too.
+        var key = EncryptionKey.Generate();
+        var hashes = new List<string?>();
+        var http = new FaultInjection
+        {
+            OnRequest = request =>
+            {
+                if (FaultInjection.IsDownload(request))
+                    hashes.Add(request.Headers.TryGetValues("x-goog-encryption-key-sha256", out var values) ? values.Single() : null);
+                return Task.FromResult<HttpResponseMessage?>(null);
+            },
+        };
+        var client = Own(new StorageClientBuilder { BaseUri = FakeGcs.ConnectionString, GoogleCredential = FakeGcs.Credential(), EncryptionKey = key, HttpClientFactory = http }.Build());
+        var provider = Provider(client, new GoogleCloudStorageFileProviderOptions { BucketName = Bucket, RootDirectoryPath = _root });
+        await provider.UpdateFileAsync("f.txt", TestStreams.Text("0123456789"));
+        Assert.AreEqual("0123456789", await ReadAll(await provider.ReadFileAsync("f.txt")));
+        Assert.AreEqual("345", await ReadAll(await provider.ReadRangeAsync("f.txt", 3, 3)));
+        CollectionAssert.AreEqual(new[] { key.Base64Hash, key.Base64Hash }, hashes);
+    }
+
+    [TestMethod]
+    public async Task Read_AMissingFileUnderACredentialThatCannotListIsNotFound()
+    {
+        // A credential that may read objects but not list them cannot tell a missing bucket: the file is missing.
+        var http = new FaultInjection { OnRequest = request => Task.FromResult(FaultInjection.IsList(request) ? FaultInjection.Error(HttpStatusCode.Forbidden) : null) };
+        var provider = Provider(http);
+        var e = await Assert.ThrowsExactlyAsync<FileNotFoundException>(() => provider.ReadFileAsync("missing.txt"));
+        Assert.IsInstanceOfType<GoogleApiException>(e.InnerException);
+        await Assert.ThrowsExactlyAsync<FileNotFoundException>(() => provider.ReadRangeAsync("missing.txt", 0, 0));
+    }
+
+    [TestMethod]
+    public async Task Copy_IsNotRetriedSoItsOwnCopyIsNeverTakenForTheDestination()
+    {
+        // The copy lands, but its answer is lost (503). A retry would find that copy and answer 412, which would read as
+        // "the destination exists": the provider does not retry, and reports the failure it saw.
+        var http = new FaultInjection();
+        var provider = Provider(http);
+        await provider.UpdateFileAsync("a.txt", TestStreams.Text("a"));
+        var copies = 0;
+        http.OnRequest = async request =>
+        {
+            if (!FaultInjection.IsCopy(request))
+                return null;
+            if (++copies > 1)
+                return FaultInjection.Error(HttpStatusCode.PreconditionFailed);
+            await Side.CopyObjectAsync(Bucket, Key("a.txt"), Bucket, Key("b.txt"));
+            return FaultInjection.Error(HttpStatusCode.ServiceUnavailable);
+        };
+        var e = await Assert.ThrowsExactlyAsync<GoogleApiException>(() => provider.CopyAsync("a.txt", "b.txt"));
+        Assert.AreEqual(HttpStatusCode.ServiceUnavailable, e.HttpStatusCode);
+        Assert.AreEqual(1, copies, "The conditional copy is sent once");
+    }
+
+    [TestMethod]
+    public async Task Write_IfMatchZeroIsNotAVersion()
+    {
+        // Generation 0 means "no object": IfMatch "0" must not turn into "create only".
+        var provider = Provider();
+        await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => provider.UpdateFileAsync("f.txt", TestStreams.Text("x"), new UpdateFileOptions { IfMatch = "0" }));
+        Assert.IsFalse((await provider.GetFileInfoAsync("f.txt")).Exists);
+        await provider.UpdateFileAsync("f.txt", TestStreams.Text("x"));
+        await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => provider.ReadRangeAsync("f.txt", 0, 1, new ReadOptions { IfMatch = "0" }));
     }
 
     // ----- Listing -----
@@ -409,6 +528,20 @@ public sealed class GcsProviderTests
         Assert.AreEqual("text/html", (await Side.GetObjectAsync(Bucket, Key("page.html"))).ContentType);
         await provider.UpdateFileAsync("page.html", TestStreams.Text("<p/>"));
         Assert.AreEqual("application/octet-stream", (await Side.GetObjectAsync(Bucket, Key("page.html"))).ContentType);
+    }
+
+    [TestMethod]
+    public async Task Write_AFailureAfterAWholeChunkKeepsTheOldContent()
+    {
+        // The resumable upload sends 10 MiB chunks; the object is replaced only when the last one arrives.
+        var http = new FaultInjection();
+        var provider = Provider(http);
+        await provider.UpdateFileAsync("f.bin", TestStreams.Text("original"));
+        http.Requests.Clear();
+        const int Chunk = 10 * 1024 * 1024;
+        await Assert.ThrowsAsync<IOException>(() => provider.UpdateFileAsync("f.bin", new FailingStream(TestStreams.Bytes(Chunk + (Chunk / 2)))));
+        Assert.IsTrue(http.Requests.Any(r => r.StartsWith("PUT /upload/", StringComparison.Ordinal)), "A whole chunk was sent: " + string.Join(", ", http.Requests));
+        Assert.AreEqual("original", await ReadAll(await provider.ReadFileAsync("f.bin")));
     }
 
     [TestMethod]

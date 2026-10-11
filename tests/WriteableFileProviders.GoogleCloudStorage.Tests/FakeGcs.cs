@@ -33,6 +33,12 @@ internal static class FakeGcs
     /// <summary>The emulator's root URL, such as http://127.0.0.1:49153.</summary>
     public static string Endpoint => new Uri(ConnectionString).GetLeftPart(UriPartial.Authority);
 
+    /// <summary>
+    /// Whether the emulator is reached on another host than this machine (a remote Docker host): its plain http then
+    /// needs <see cref="GoogleCloudStorageFileProviderOptions.AllowInsecureHttp"/>.
+    /// </summary>
+    public static bool IsRemote => !new Uri(ConnectionString).IsLoopback;
+
     /// <summary>The client base URI the module gives: the root followed by /storage/v1/.</summary>
     public static string ConnectionString => Container.GetConnectionString();
 
@@ -107,6 +113,7 @@ internal static class FakeGcs
         PrivateKey = PrivateKey,
         ProjectId = ProjectId,
         Endpoint = Endpoint,
+        AllowInsecureHttp = IsRemote,
         RootDirectoryPath = root,
     };
 

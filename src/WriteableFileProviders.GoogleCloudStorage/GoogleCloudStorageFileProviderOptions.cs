@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace WriteableFileProviders.GoogleCloudStorage;
 
 /// <summary>
@@ -84,15 +86,31 @@ public sealed class GoogleCloudStorageFileProviderOptions : FileProviderOptions
     /// <summary>
     /// The root URL of the Cloud Storage endpoint, such as <c>http://localhost:4443</c> for the fake-gcs-server emulator
     /// or a Private Service Connect endpoint; null for Google's public endpoint. A URL that ends in <c>/storage/v1/</c>
-    /// is taken as it is; any other path is refused. The credentials are sent to it as to Google, so use <c>https</c>
-    /// except for a local emulator. Added in 2027.0.0.
+    /// is taken as it is; any other path is refused. The credentials are sent to it as to Google, so plain <c>http</c> is
+    /// allowed only toward a loopback host (<c>localhost</c>, <c>127.0.0.1</c>, <c>::1</c>), or with
+    /// <see cref="AllowInsecureHttp"/>. New in 2027.0.0.
     /// </summary>
+    /// <remarks>Written to JSON only when set (D26), so a configuration that does not use it keeps the 2026 shape.</remarks>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public string? Endpoint { get; set; }
 
     /// <summary>
-    /// Whether the provider creates the bucket on its first call when it does not exist; false (the default) makes every
-    /// member throw <see cref="InvalidOperationException"/> instead. Creating needs <see cref="ProjectId"/> or a service
-    /// account key that names its project, and permission to create buckets. Added in 2027.0.0.
+    /// Allows an <see cref="Endpoint"/> with plain <c>http</c> toward a host that is not loopback, such as an emulator on
+    /// another machine of a private network: the credentials' tokens then travel in clear text. Off by default, so such
+    /// an endpoint throws <see cref="ArgumentException"/> when the provider is built. New in 2027.0.0.
     /// </summary>
+    /// <remarks>Written to JSON only when set (D26), so a configuration that does not use it keeps the 2026 shape.</remarks>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool AllowInsecureHttp { get; set; }
+
+    /// <summary>
+    /// Whether the provider creates the bucket on its first call when it does not exist; false (the default) makes every
+    /// member that reaches the bucket throw <see cref="InvalidOperationException"/> instead. Creating needs
+    /// <see cref="ProjectId"/> or a service account key that names its project, and permission to create buckets. The
+    /// bucket gets Cloud Storage's defaults: the <c>US</c> multi-region, the Standard storage class, and the project's
+    /// default access settings; create it yourself for anything else. New in 2027.0.0.
+    /// </summary>
+    /// <remarks>Written to JSON only when set (D26), so a configuration that does not use it keeps the 2026 shape.</remarks>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool CreateBucketIfMissing { get; set; }
 }

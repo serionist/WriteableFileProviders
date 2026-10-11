@@ -50,6 +50,29 @@ public sealed class BaseClassTests
     }
 
     [TestMethod]
+    public async Task AppendAndLocalStream_KeepTheFilesContentType()
+    {
+        using var provider = Stub();
+        provider.ContentType = "text/html";
+        await provider.AppendByRewrite("file.txt", TestStreams.Text("more"));
+        Assert.AreEqual("text/html", provider.LastUpdate!.ContentType, "An append keeps the file's type");
+        await provider.AppendByRewrite("file.txt", TestStreams.Text("more"), UpdateFileOptions.Append with { ContentType = "text/plain" });
+        Assert.AreEqual("text/plain", provider.LastUpdate!.ContentType, "The caller's type wins");
+        await using (var local = await provider.CreateLocalFileStreamAsync("file.txt", readOnly: false))
+            local.WriteByte(1);
+        Assert.AreEqual("text/html", provider.LastUpdate!.ContentType, "A local stream keeps the file's type");
+
+        // A file the store keeps no type for, and a new file, commit with none: the store's default.
+        provider.ContentType = null;
+        await using (var local = await provider.CreateLocalFileStreamAsync("file.txt", readOnly: false))
+            local.WriteByte(1);
+        Assert.IsNull(provider.LastUpdate!.ContentType);
+        await using (var local = await provider.CreateLocalFileStreamAsync("new.txt", readOnly: false))
+            local.WriteByte(1);
+        Assert.IsNull(provider.LastUpdate!.ContentType);
+    }
+
+    [TestMethod]
     public async Task FilesWithoutAnETag_RefusePinnedReadsAndAppendsByRewrite()
     {
         using var provider = Stub();

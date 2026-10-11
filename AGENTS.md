@@ -22,7 +22,7 @@ links, `docs/guide/`.
 | `docs/guide/` | The user guide, one topic a page, each linked from the README: `providers.md` (the comparison matrix), `paths-and-listings.md`, `reading-and-writing.md`, `signed-urls.md` (native URLs and the gateway), `dependency-injection.md`, `errors.md`, `writing-a-provider.md`, `versioning.md` (the versioning policy). |
 | `docs/migration-2027.md` | What 2027.0.0 breaks and how to move over; each change of the release adds its part. |
 | `docs/releasing.md` | How to release: date the changelog, tag, approve. |
-| `docs/assets/` | The logo (`logo.svg`, `logo-dark.svg`), the mark (`icon.svg`) and the social preview, with the PNGs `eng/render-assets.sh` renders from them: `icon.png` is every package's icon. |
+| `docs/assets/` | The logo (`logo.svg`, `logo-dark.svg`), the mark (`icon.svg`) and the social preview, with the PNGs `eng/render-assets.sh` renders from them: `icon.png` is every package's icon. `badges/` holds the README's static badges, served from the repo so they never wait on an outside service. |
 | `REVIEW.md` | The questions every review answers. |
 | `docs/plans/` | The plan of each non-trivial change, and the template (`docs/plans/README.md`). |
 | `docs/reviews/` | Reports of whole-repo or whole-folder reviews. A change's own review goes in its PR. |

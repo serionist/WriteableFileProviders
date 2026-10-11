@@ -5,7 +5,7 @@ Every breaking change from `2026.10.10.x`, and what to do about it. What's new i
 ## Start here
 
 - [ ] **Target `net10.0`.** .NET 8 and 9 apps stay on `2026.10.10.x`, which gets security fixes only
-  ([SECURITY.md](../SECURITY.md)).
+  ([SECURITY.md](../SECURITY.md)). It is unlisted on nuget.org: reference it by version.
 - [ ] **Update every WriteableFileProviders package to 2027.0.0 at once.** NuGet warns (NU1608) on a mix of majors.
 - [ ] **Move to the async API**, with a `CancellationToken`. See [Common: the API](#common-the-api).
 - [ ] **Pass one path** (`"a/b.txt"`), and `ProviderPath.Root` for the root.

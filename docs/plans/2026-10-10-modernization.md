@@ -518,7 +518,7 @@ Each step is an issue under #3, a branch `<issue>-<slug>`, and a PR that builds 
 | S9 SharePoint | #13 | | The SharePoint row, with the Graph fake; its live run is outstanding for the maintainers (D21). | F4 F6 F7 F8 F11 F13 F17–F21 F26 F39 F43 F49 F53 F62 F66 F70 F74 F77 | todo |
 | S10 Box | #14 | | The Box row, with the Box fake; its live run is outstanding for the maintainers (D21). | F4 F6 F11 F13 F17–F21 F25 F32 F53 F63 F67 F74 F77 | todo |
 | S11 AspNetCore gateway | #15 | | The new package, the URL service, endpoints, the gateway tests and defaults (D22, P13, P27); its README, migration entry and AGENTS.md entry; whether the token purpose string and URL shape are a one-way door (they are: tokens issued by one version must redeem on the next minor; recorded under One-way doors in AGENTS.md). | F11 | in review (branch `15-aspnetcore-gateway`) |
-| S12 Docs, CI, launch prep | #16 | | The root README, the migration guide's final pass, CONTRIBUTING, SECURITY, AGENTS.md and REVIEW.md, codeql, dependabot, `live.yml`, the release workflow, every floor at 90% or more, a check that no project sets `WfpLegacy`, the removal of the `[Obsolete]` 2026 helpers in Common (`GetRelativeSegments`, `IsRootPath`, `NormalizePem`, which Box and GCS take over), the PublicAPI files, and a final deep `review-code` of the whole repo. | F12 F76 | todo |
+| S12 Docs, CI, launch prep | #16 | | The root README, the migration guide's final pass, CONTRIBUTING, SECURITY, AGENTS.md and REVIEW.md, codeql, dependabot, `live.yml`, the release workflow, every floor at 90% or more, a check that no project sets `WfpLegacy`, the removal of the `[Obsolete]` 2026 helpers in Common (`GetRelativeSegments`, `IsRootPath`, `NormalizePem`, which Box and GCS take over), the PublicAPI files, and a final deep `review-code` of the whole repo. | F12 F76 | part 1 in review (#31, branch `16-repo-infra`: codeql, dependabot, `live.yml`, the release workflow, CONTRIBUTING, SECURITY, the issue forms); the rest todo |
 
 The provider steps S5–S10 are independent once S4 is merged. They may run in parallel agents, each in its own worktree,
 touching only their provider's folders, but they merge one at a time (P41): each rebases onto main before its PR and
@@ -984,6 +984,46 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     - N4: no plan ids in the public XML docs.
     - Rebased onto S11 (bce935c): the plan's trackers carry both steps' notes.
 
+- **2026-10-11, S12 part 1 (#16):** the repository infrastructure, on branch `16-repo-infra`.
+  - **Workflows**, every action pinned by SHA:
+    - `codeql.yml`: C# in build mode none (no source generators, one package source, one target framework, so
+      GitHub's caveats for it do not apply), with `security-extended`; on PRs, `main` and weekly. It also scans the
+      workflows (language `actions`), beyond the plan.
+    - `live.yml`: by hand (a box per provider) or nightly on `main`, never on a PR. A first job in the `live-cloud`
+      environment picks the providers whose secrets are set (it sees only true or false) and whose live suite has its
+      own test project; the nightly run skips the others with a warning, a manual run fails on them. Each provider's
+      job gets only its own secrets, as the `WFP_*` variables, with `WFP_LIVE=1`, and runs
+      `dotnet test --project tests/WriteableFileProviders.<Provider>.Tests --filter "TestCategory=Live"`. No test
+      results are uploaded: a failed signed URL test can print a URL.
+    - `release.yml`, on a `v*` tag: the tag must be on `main`; locked restore, build and pack with
+      `ContinuousIntegrationBuild`, the non-Live tests with `WFP_REQUIRE_DOCKER=1`; `eng/package-check.cs` (new)
+      checks a `.nupkg` and `.snupkg` per project under `src/`, each at the tag's version, and every dependency on one
+      of our packages at that version as its lowest. Then, behind the `nuget` environment, `NuGet/login` and
+      `dotnet nuget push` with the symbols; then the GitHub release with the packages, a prerelease for a `-` tag.
+      Beyond the plan: the package check and the GitHub release. No coverage gate here: CI enforced it on `main`.
+  - **`dependabot.yml`:** NuGet weekly, grouped as azure, aws, google, box, msgraph, test, microsoft-extensions and
+    build; the provider SDK groups take minor and patch only, so an SDK major comes on its own PR (D17). Majors of
+    Microsoft.Extensions and ASP.NET Core packages, and of the SDK in `global.json`, are ignored: they move with the
+    target framework. A 7-day cooldown on every ecosystem. Dependabot can miss the lock file of a project that gets a
+    package only through a `ProjectReference` (dependabot/dependabot-core#13950), which fails CI's locked restore with
+    NU1004; the file says how to fix such a PR.
+  - **Docs:** CONTRIBUTING (the short path through AGENTS.md; outside PRs run only in CI), SECURITY (private
+    vulnerability reporting; 2027.x supported, 2026.10.10.x for security fixes until a date the maintainers set), bug
+    and feature forms with blank issues off and security pointed to SECURITY.md, a line on CI in the PR template, and
+    AGENTS.md's rows and a Release bullet.
+  - **Live variables:** the live classes on `main` read only `testsettings.json`, so `live.yml` maps the names the
+    provider steps S5–S10 read on their branches (#9–#14). To align as they merge: Box reads a file path
+    (`WFP_BOX_CONFIG_FILE`), so the workflow writes the `WFP_BOX_CONFIG_JSON` secret to a temp file and deletes it;
+    `WFP_AZURE_USE_DEFAULT_CREDENTIAL` and `WFP_SHAREPOINT_USE_DEFAULT_CREDENTIAL` are not mapped, since the workflow
+    has no Azure sign-in; Physical's live suite (`WFP_PHYSICAL_ROOT`) is a folder on a maintainer's machine and is not
+    in the workflow.
+  - **Verified:** actionlint 1.7.12 with shellcheck finds nothing in the four workflows; every YAML file parses; the
+    provider selection ran in bash against simulated inputs; the package check passes on a local pack at its version and
+    fails on another version, a missing symbol package, a missing package and an exclusive lowest version. Not
+    verified until GitHub runs them: CodeQL, Dependabot's reading of its file, the environments, trusted publishing
+    and a release.
+  - **Next, S12 part 2:** the rest of the S12 row, and REVIEW.md's "until CI exists".
+
 ### For the maintainers
 
 What this session cannot do, kept current as the work goes on:
@@ -1019,9 +1059,25 @@ What this session cannot do, kept current as the work goes on:
   3. Check that the nuspec depends on Common `2026.10.10.5`, then push.
   4. Publish a GitHub security advisory for F1, F2 and F47, naming the fixed versions.
 - [ ] Agree the licence with László Nemes and Starschema (D8), then add `LICENSE` and `PackageLicenseExpression`.
-- [ ] Configure nuget.org trusted publishing and the `nuget` environment for `release.yml`, and reserve the
-  `WriteableFileProviders.` id prefix.
-- [ ] Make CI a required check in the `main` ruleset.
+- [ ] Configure the release (`release.yml`, whose header says the same):
+  - on nuget.org, as the account that owns the packages, a trusted publishing policy: owner `serionist`,
+    repository `WriteableFileProviders`, workflow `release.yml`, environment `nuget`; and reserve the
+    `WriteableFileProviders.` id prefix;
+  - the `nuget` environment: required reviewers, the maintainers; deployment tags `v*`; the secret `NUGET_USER`,
+    the nuget.org profile name of the policy's owner;
+  - a tag ruleset on `v*`, so only the maintainers create, move or delete release tags.
+- [ ] Create the `live-cloud` environment for `live.yml`: deployment branches `main` only, no required reviewers
+  (the nightly run would wait), and one secret per `WFP_*` variable the workflow maps, for accounts you own and
+  keep for it. A provider without its secrets is skipped at night.
+- [ ] Make CI a required check in the `main` ruleset: "Build, test, coverage, pack (Linux)" and "Build and test
+  (Windows)", and CodeQL's "Analyze (csharp)" if you want code scanning to gate merges too.
+- [ ] Turn on private vulnerability reporting (Settings > Code security), which SECURITY.md and the issue forms
+  point to. It was off on 2026-10-11.
+- [ ] Turn on Dependabot alerts and Dependabot security updates; `dependabot.yml` only schedules version updates.
+  Both were off on 2026-10-11.
+- [ ] Keep secret scanning and its push protection on (on as of 2026-10-11), and CodeQL's default setup off:
+  `codeql.yml` is the advanced setup, and the two conflict.
+- [ ] Set the date in SECURITY.md until which 2026.10.10.x gets security fixes.
 - [ ] Run the live suites against your accounts before tagging `v2027.0.0`.
 - [ ] Unlist the 2018–2024 package versions on nuget.org, keeping `2026.10.10.x` listed for .NET 8 consumers.
 

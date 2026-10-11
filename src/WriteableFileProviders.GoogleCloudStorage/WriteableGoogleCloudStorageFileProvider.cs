@@ -6,6 +6,7 @@ using System.Security.Cryptography;
 using System.Web;
 using Google;
 using Google.Apis.Auth.OAuth2;
+using Google.Apis.Auth.OAuth2.Responses;
 using Google.Apis.Requests;
 using Google.Apis.Storage.v1;
 using Google.Apis.Storage.v1.Data;
@@ -40,7 +41,8 @@ namespace WriteableFileProviders.GoogleCloudStorage;
 /// <b>Signed URLs</b> are V4 signed URLs, for read, create and write, valid from one second to seven days. A credential
 /// that cannot sign, or an identity whose signing through IAM's <c>signBlob</c> is refused (403), answers another error
 /// than 401 or cannot be reached, throws <see cref="NotSupportedException"/>, so WriteableFileProviders.AspNetCore
-/// issues a gateway URL instead; a refused credential and a timeout fail as on every other member.
+/// issues a gateway URL instead; a refused credential and a timeout fail as on every other member
+/// (<see cref="UnauthorizedAccessException"/>, <see cref="IOException"/>).
 /// </description></item>
 /// <item><description>
 /// <b>Credentials</b> are resolved on the first call, never in a constructor; see

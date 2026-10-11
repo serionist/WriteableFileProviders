@@ -408,25 +408,27 @@ public sealed class GcsOptionsTests
     {
         // A credential refused (a token request answered invalid_grant, or signBlob answering 401) is not a signer the
         // identity lacks: it is not NotSupportedException, which would have the URL service issue a gateway URL that
-        // fails later, but fails as every other member does.
+        // fails later, but UnauthorizedAccessException with the store's error inside, as on every other member.
         Func<HttpRequestMessage, Task<HttpResponseMessage?>> token = atTheTokenEndpoint
             ? _ => Task.FromResult<HttpResponseMessage?>(new HttpResponseMessage(HttpStatusCode.BadRequest)
             {
                 Content = new StringContent("""{"error":"invalid_grant","error_description":"injected"}""", Encoding.UTF8, "application/json"),
             })
             : Token;
-        var (provider, _) = OverComputeEngine(token, _ => Task.FromResult<HttpResponseMessage?>(FaultInjection.Error(HttpStatusCode.Unauthorized, "injected")));
+        var (provider, http) = OverComputeEngine(token, _ => Task.FromResult<HttpResponseMessage?>(FaultInjection.Error(HttpStatusCode.Unauthorized, "injected")));
         using (provider)
         {
-            var e = await Assert.ThrowsAsync<Exception>(() =>
+            var e = await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(() =>
                 provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Permission = SignedUrlAccess.Write }));
-            Assert.IsNotInstanceOfType<NotSupportedException>(e, e.ToString());
-            // The store's error, as it is, or inside the exception the contract maps it to.
-            var cause = e is TokenResponseException or GoogleApiException ? e : e.InnerException;
             if (atTheTokenEndpoint)
-                Assert.IsInstanceOfType<TokenResponseException>(cause, e.ToString());
+            {
+                Assert.IsInstanceOfType<TokenResponseException>(e.InnerException, e.ToString());
+            }
             else
-                Assert.AreEqual(HttpStatusCode.Unauthorized, Assert.IsInstanceOfType<GoogleApiException>(cause, e.ToString()).HttpStatusCode);
+            {
+                Assert.AreEqual(HttpStatusCode.Unauthorized, Assert.IsInstanceOfType<GoogleApiException>(e.InnerException, e.ToString()).HttpStatusCode);
+                Assert.IsTrue(http.Requests.Any(r => r.Contains(":signBlob", StringComparison.Ordinal)), string.Join('\n', http.Requests));
+            }
         }
     }
 

@@ -137,7 +137,8 @@ that holds `iam.serviceAccounts.signBlob` on its service account (Workload Ident
 credential that cannot sign (a user, an access token), or when IAM's `signBlob` refuses the signing (403, an identity
 without the permission), answers another error than 401, or cannot be reached, it throws `NotSupportedException` with
 the cause inside, and the WriteableFileProviders.AspNetCore gateway can take over. A refused credential (401, a token
-error) and a timeout are not this: they fail as on every other member.
+error) and a timeout are not this: they fail as on every other member, with `UnauthorizedAccessException` and
+`IOException`.
 
 | Permission | URL | The request must send |
 |---|---|---|

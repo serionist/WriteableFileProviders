@@ -2096,16 +2096,17 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     SharePoint 99.77/91.27). Physical and the base are unchanged this round, so the Linux container run was not repeated.
 
 - **2026-10-11, S12 final fixes, providers (#16):** branch `16-final-providers` (worktree `D:\workspaces\wfp-wt\16e`),
-  built beside `16-final-common`, from the final review (`.local/review/final/report.md`, F1–F20) and D29–D32. Each
-  fix has a test that fails without it where a test can show one (checked by reverting the fix), unless noted.
+  built beside `16-final-common` (#42) and rebased onto it, from the final review
+  ([`docs/reviews/2026-10-11-2027-final.md`](../reviews/2026-10-11-2027-final.md), F1–F20) and D29–D32. Each fix has a
+  test that fails without it where a test can show one (checked by reverting the fix), unless noted.
   - **F2, and item 7 of "For the final review" (Physical on Windows), closed:** on Windows `IsSegmentAllowed` refuses,
     with `ArgumentException`, a segment that ends in `.` or a space, holds `"<>|?*`, or is a reserved device name
     (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`, and `COM`/`LPT` with the superscripts the Windows
     docs also reserve; any case; the part before the first dot, trailing spaces trimmed, so `con.txt` and `aux .log`
     too); `IsAddressable` drops such names from listings. An internal switch, `RefusesWindowsNames` (on by default on
     Windows), runs the rule on every system in the tests; Linux and macOS keep such names. Its
-    `UnauthorizedAccessException` from any member is documented (the type is D29's; the common half passes it through
-    `IsAccessDenied`). Tests: next to `a.txt` and `dir`, `UpdateFileAsync("a.txt.")`, an append to `a.txt `,
+    `UnauthorizedAccessException` from any member is documented (the type is D29's; the base class passes it through
+    as it is). Tests: next to `a.txt` and `dir`, `UpdateFileAsync("a.txt.")`, an append to `a.txt `,
     `DeleteAsync("dir ")` and `("dir.")`, `GetFileInfoAsync("x?")`, `CON.txt` and the other device and character cases,
     with `a.txt` and `dir` unchanged; such names made through `\\?\` on Windows (any path on Linux) are left out of
     listings; look-alikes (`CONSOLE.txt`, `COM10`, `report.con`) land as given; on Linux and macOS, with the switch
@@ -2191,8 +2192,8 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
       requester-pays and a created bucket's location only for S3's own host names. Offline tests set and restore both
       variables. The README's line that such a provider "counts as AWS" and the class remarks are corrected.
     - F3: the GCS signing catch no longer takes `TokenResponseException` or a `GoogleApiException` with 401, so a
-      refused credential fails as on every other member (`UnauthorizedAccessException` once the common half's mapping
-      lands) instead of having the URL service issue a gateway URL that fails later; signBlob's 403, other error
+      refused credential fails as on every other member (`UnauthorizedAccessException`, by the common half's mapping)
+      instead of having the URL service issue a gateway URL that fails later; signBlob's 403, other error
       answers and `HttpRequestException` stay `NotSupportedException`, and a timeout is left to the base. Tests: a token
       endpoint answering `invalid_grant`, and signBlob answering 401.
     - F4: the D30 conformance tests now pin the delete order: the first delete removes the file and leaves the folder,
@@ -2206,19 +2207,30 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
       `..` are names, but the plain form drops a trailing dot or space and applies `.` and `..`, so such a root would
       name another folder (`\\?\C:\data\..\..\Windows` becomes `C:\Windows`). `PlainRootOf` now has no plain form for
       a path holding such a name, and the constructor refuses it. Tests: each shape, and a real `rootdot.` folder.
-    - N2: the 259-character cap refused long roots that work in plain form; it is gone, and a long `\\?\` root builds and
-      still refuses short names (Windows test).
+    - N2: the 259-character cap refused long roots that work in plain form; it is gone, and a long `\\?\` root builds
+      and still refuses short names (Windows test).
     - N3: the configured endpoint is read when the provider is built, so a client the provider builds for AWS now sets
       the SDK's `IgnoreConfiguredEndpointUrls`: an endpoint configured later, before the first call, cannot redirect it
       unchecked. Tests: the client configuration, and an environment variable set after construction.
     - N4: the README says the SDK-configured endpoint also gets checksums only where S3 requires them.
-  - **Verified** (after round 2): the solution builds strict; every non-Live test on Windows with
-    `WFP_REQUIRE_DOCKER=1`: 2298, none failed, 12 skipped (the three concurrent-append cases and nine Unix-only Physical
-    tests); Physical (222: 214 passed; skipped the concurrent append, the Windows-only ACL test and six Windows-only
-    name and root tests) and Common (234 passed) in a `dotnet/sdk:10.0` container as a non-root user; the coverage gate
-    (Windows: AmazonS3 98.14/93.22, AzureBlob 99.22/91.12, Box 99.69/93.17, GCS 99.64/95.24, MinIO 98.23/91.57,
-    Physical 99.56/94.12, SharePoint 99.76/91.52), by whose rule the AmazonS3 branch floor rises from 91 to 92. No live
-    suite ran (no accounts here; D21).
+  - **Rebased onto #42** (`02790dd`), both sides kept: the progress log's two entries, the conformance suite's and
+    the in-memory provider's new members, and the provider test files' `CreateProviderThatFails` overrides and error
+    tests beside this branch's. The GCS signing test now asserts `UnauthorizedAccessException` for a token endpoint
+    answering `invalid_grant` and for signBlob answering 401, the cause inside, and the GCS docs and the migration
+    guide name the two types. Where this branch meets D29's base mapping nothing is wrapped twice or remapped: the
+    GCS signing's `NotSupportedException`, Physical's `ArgumentException` for a name, a short name or a root, and the
+    D30 refusals' `IOException` are the contract's types and pass through, as no provider's `IsNotFound` or
+    `IsAccessDenied` looks inside an exception; S3's plain-http check throws in the constructor, outside the mapping;
+    and a signBlob 403 becomes `NotSupportedException` inside `GetSignedUrlCoreAsync`, before the base would read it
+    as `UnauthorizedAccessException`, which is item 3's decision.
+  - **Verified** (after the rebase onto #42): the solution builds strict; every non-Live test on Windows with
+    `WFP_REQUIRE_DOCKER=1`: 2583, none failed, 15 skipped (the three concurrent-append cases, nine Unix-only Physical
+    tests, and the three error-contract cases Physical's fixture cannot stage); Physical (231: 220 passed; skipped the
+    concurrent append, the three error-contract cases, the Windows-only ACL test and six Windows-only name and root
+    tests) and Common (310 passed) in a `dotnet/sdk:10.0` container as a non-root user; the coverage gate (Windows:
+    AmazonS3 98.19/93.84, AspNetCore 100/99.01, AzureBlob 99.33/91.93, Box 99.71/93.12, Common 96.87/93.14, GCS
+    99.49/94.29, MinIO 98.18/91.85, Physical 99.34/94.12, SharePoint 99.77/91.30). The AmazonS3 branch floor rose from
+    91 to 92 in round 2, by this branch's own figures. No live suite ran (no accounts here; D21).
 
 ### For the maintainers
 

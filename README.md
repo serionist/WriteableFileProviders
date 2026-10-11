@@ -61,7 +61,7 @@ The same calls, on another provider. Here Azure Blob Storage, signed in with Mic
 using WriteableFileProviders;
 using WriteableFileProviders.AzureBlob;
 
-await using var files = new WriteableAzureBlobFileProvider(new AzureFileProviderOptions
+await using var files = new WriteableAzureBlobFileProvider(new AzureBlobFileProviderOptions
 {
     AccountName = "contoso",
     ContainerName = "files",
@@ -91,14 +91,18 @@ configuration:
 }
 ```
 
-Register it as a keyed singleton, under a name of your choice:
+Register it as a singleton `IWriteableFileProvider`, which the container builds on first use and disposes:
 
 ```csharp
-builder.Services.AddWriteableFileProvider("files", builder.Configuration.GetSection("Files"));
+builder.Services.AddWriteableFileProvider(builder.Configuration.GetSection("Files"));
 
-app.MapGet("/reports/{year}", async (int year, [FromKeyedServices("files")] IWriteableFileProvider files) =>
+app.MapGet("/reports/{year}", async (int year, IWriteableFileProvider files) =>
     Results.Stream(await files.ReadFileAsync($"reports/{year}.csv"), "text/csv"));
 ```
+
+For several providers, tell them apart your own way: keyed services
+(`AddKeyedSingleton<IWriteableFileProvider>("archive", ...)` and `[FromKeyedServices("archive")]`), `GetServices`, or
+interfaces of your own.
 
 Or build it yourself, and keep it as JSON:
 
@@ -121,8 +125,8 @@ Configurations stored by the 2026 versions read unchanged.
 ProviderPath path = "reports/2026.csv";
 
 // Every operation is an async member that takes a CancellationToken. GetFileInfo, GetDirectoryContents and Watch
-// are also sync members of IFileProvider; ReadFile, UpdateFile, Delete, Move, CreateLocalFileStream and
-// GetDownloadUrl have sync forms as extension methods; copy, ranges, listings and signed URLs have none.
+// are also sync members of IFileProvider. The 2026 sync forms (ReadFile, UpdateFile...) still compile, with a
+// warning, until 2028.0.0.
 IWriteableFileInfo info = await files.GetFileInfoAsync(path, ct);      // Exists, IsDirectory, Length, ETag, ContentType
 await foreach (var entry in files.EnumerateAsync("reports", recursive: true, ct)) { }
 
@@ -149,7 +153,7 @@ await using (var local = await files.CreateLocalFileStreamAsync(path, readOnly: 
 SignedUrl url = await files.GetSignedUrlAsync(path, new SignedUrlOptions
 {
     Validity = TimeSpan.FromMinutes(15),
-    Permission = SignedUrlAccess.Read,
+    Access = SignedUrlAccess.Read,
     DownloadFileName = "Report 2026.csv",
 }, ct);
 ```
@@ -249,14 +253,14 @@ provider for its native URL and, where the provider throws `NotSupportedExceptio
 app instead, which serves `GET`, `HEAD` (with ranges) and `PUT` on ASP.NET Core Data Protection tokens:
 
 ```csharp
-builder.Services.AddWriteableFileProviderGateway(options =>
-    options.PublicBaseUri = new Uri("https://files.example.com/"));
+builder.Services.AddWriteableFileProviderGateway(new Uri("https://files.example.com/"));
 // ...
 app.MapWriteableFileProviderGateway();
 
 // In an endpoint that has checked the caller may read the file:
-SignedUrl url = await urls.GetSignedUrlAsync("files", "reports/2026.pdf",
+SignedUrl url = await urls.GetSignedUrlAsync("reports/2026.pdf",
     new SignedUrlOptions { Validity = TimeSpan.FromMinutes(15) });
+// For a provider registered under a key: GetSignedUrlAsync(path, options, "archive").
 ```
 
 Its [README](src/WriteableFileProviders.AspNetCore/README.md) covers the options, the one-time upload tokens, serving

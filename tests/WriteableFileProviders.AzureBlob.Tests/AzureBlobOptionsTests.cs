@@ -9,7 +9,7 @@ namespace WriteableFileProviders.AzureBlob.Tests;
 [TestClass]
 public sealed class AzureBlobOptionsTests
 {
-    private static AzureFileProviderOptions Valid() => new()
+    private static AzureBlobFileProviderOptions Valid() => new()
     {
         AccountName = "account",
         AccountKey = Azurite.AccountKey,
@@ -83,7 +83,7 @@ public sealed class AzureBlobOptionsTests
     [TestMethod]
     public void RequiredOptions_AreNamed()
     {
-        static string Refusal(Action<AzureFileProviderOptions> change)
+        static string Refusal(Action<AzureBlobFileProviderOptions> change)
         {
             var options = Valid();
             change(options);
@@ -95,7 +95,7 @@ public sealed class AzureBlobOptionsTests
         StringAssert.Contains(Refusal(o => o.AccountName = ""), "AccountName");
         StringAssert.Contains(Refusal(o => o.AccountKey = "not base64!"), "AccountKey");
         StringAssert.Contains(Refusal(o => o.UseDefaultAzureCredential = true), "not both");
-        Assert.ThrowsExactly<ArgumentNullException>(() => new WriteableAzureBlobFileProvider((AzureFileProviderOptions)null!));
+        Assert.ThrowsExactly<ArgumentNullException>(() => new WriteableAzureBlobFileProvider((AzureBlobFileProviderOptions)null!));
     }
 
     [TestMethod]
@@ -110,7 +110,7 @@ public sealed class AzureBlobOptionsTests
     [TestMethod]
     public void DefaultAzureCredential_NeedsHttpsAndAnEndpoint()
     {
-        var options = new AzureFileProviderOptions { ContainerName = "files", UseDefaultAzureCredential = true };
+        var options = new AzureBlobFileProviderOptions { ContainerName = "files", UseDefaultAzureCredential = true };
         StringAssert.Contains(Assert.ThrowsExactly<ArgumentException>(() => new WriteableAzureBlobFileProvider(options)).Message, "AccountName or Url");
 
         options.AccountName = "account";
@@ -133,7 +133,7 @@ public sealed class AzureBlobOptionsTests
     {
         var credential = new FakeCredential();
         var handler = new StubHandler(_ => StubHandler.BlobProperties());
-        var options = new AzureFileProviderOptions { AccountName = "account", ContainerName = "files", UseDefaultAzureCredential = true };
+        var options = new AzureBlobFileProviderOptions { AccountName = "account", ContainerName = "files", UseDefaultAzureCredential = true };
         using var provider = new WriteableAzureBlobFileProvider(options, Offline(handler), credential);
 
         await provider.GetFileInfoAsync("a.txt");
@@ -148,16 +148,36 @@ public sealed class AzureBlobOptionsTests
     public void ClientConstructor_TakesTheClientAsItIs()
     {
         var client = new BlobContainerClient(new Uri("http://127.0.0.1:1/account/files"), new StorageSharedKeyCredential("account", Azurite.AccountKey));
-        using var provider = new WriteableAzureBlobFileProvider(null, client);
+        using var provider = new WriteableAzureBlobFileProvider(new(), client);
         Assert.AreSame(client, provider.Container);
         Assert.AreEqual(0, provider.Options.RootDirectorySegments.Length);
 
-        using var rooted = new WriteableAzureBlobFileProvider(new AzureFileProviderOptions { ContainerName = "files", RootDirectoryPath = "a/b" }, client);
+        using var rooted = new WriteableAzureBlobFileProvider(new AzureBlobFileProviderOptions { ContainerName = "files", RootDirectoryPath = "a/b" }, client);
         CollectionAssert.AreEqual(new[] { "a", "b" }, rooted.Options.RootDirectorySegments);
 
-        var e = Assert.ThrowsExactly<ArgumentException>(() => new WriteableAzureBlobFileProvider(new AzureFileProviderOptions { ContainerName = "other" }, client));
+        var e = Assert.ThrowsExactly<ArgumentException>(() => new WriteableAzureBlobFileProvider(new AzureBlobFileProviderOptions { ContainerName = "other" }, client));
         StringAssert.Contains(e.Message, "other");
-        Assert.ThrowsExactly<ArgumentNullException>(() => new WriteableAzureBlobFileProvider(null, (BlobContainerClient)null!));
+        Assert.ThrowsExactly<ArgumentNullException>(() => new WriteableAzureBlobFileProvider(new(), (BlobContainerClient)null!));
+        var noOptions = Assert.ThrowsExactly<ArgumentNullException>(() => new WriteableAzureBlobFileProvider(null!, client));
+        Assert.AreEqual("options", noOptions.ParamName);
+    }
+
+    [TestMethod]
+    public void TheObsolete2026OptionsName_BuildsTheSameProvider_AndWritesTheSameConfiguration()
+    {
+#pragma warning disable CS0618 // the 2026 name is what this test pins
+        var old = new AzureFileProviderOptions { AccountName = "account", AccountKey = Azurite.AccountKey, ContainerName = "files", RootDirectoryPath = "a" };
+#pragma warning restore CS0618
+        var current = new AzureBlobFileProviderOptions { AccountName = "account", AccountKey = Azurite.AccountKey, ContainerName = "files", RootDirectoryPath = "a" };
+
+        using var fromOld = new WriteableAzureBlobFileProvider(old);
+        using var fromCurrent = new WriteableAzureBlobFileProvider(current);
+        var json = WriteableFileProviderSerializer.ToJsonString(fromOld);
+
+        Assert.AreEqual(WriteableFileProviderSerializer.ToJsonString(fromCurrent), json);
+        using var readBack = (WriteableAzureBlobFileProvider)WriteableFileProviderSerializer.FromJson(json);
+        Assert.AreEqual(typeof(AzureBlobFileProviderOptions), readBack.Options.GetType());
+        Assert.AreEqual(json, WriteableFileProviderSerializer.ToJsonString(readBack));
     }
 
     [TestMethod]
@@ -165,7 +185,7 @@ public sealed class AzureBlobOptionsTests
     {
         var handler = new StubHandler(_ => AzureHandler.Error(HttpStatusCode.NotFound, "BlobNotFound"));
         var client = new BlobContainerClient(new Uri("http://127.0.0.1:1/account/files"), new StorageSharedKeyCredential("account", Azurite.AccountKey), Offline(handler));
-        var provider = new WriteableAzureBlobFileProvider(null, client);
+        var provider = new WriteableAzureBlobFileProvider(new(), client);
         await provider.DisposeAsync();
         await Assert.ThrowsExactlyAsync<ObjectDisposedException>(() => provider.GetFileInfoAsync("a.txt"));
         Assert.IsFalse((await client.GetBlobClient("a.txt").ExistsAsync()).Value, "The client still works after the provider is disposed");

@@ -32,7 +32,7 @@ var url = await files.GetSignedUrlAsync("reports/2026.csv", new SignedUrlOptions
 ```
 
 From configuration, with `WriteableFileProviderSerializer.FromConfiguration(section)` or
-`services.AddWriteableFileProvider("files", section)`:
+`services.AddWriteableFileProvider(section)`:
 
 ```json
 {

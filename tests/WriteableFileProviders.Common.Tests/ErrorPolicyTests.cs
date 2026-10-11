@@ -37,6 +37,59 @@ public sealed class ErrorPolicyTests
         yield return ("ReadVersionAsync", "Reading 'f.txt'", true, (p, t) => p.ReadVersionAsync("f.txt", t));
     }
 
+#pragma warning disable CS0618 // the [Obsolete] 2026 forms are what this test pins
+    // The 2026 forms of WriteableFileProviderCompatibilityExtensions that reach the store: synchronous ones run on the
+    // thread pool, so each is awaited as a task.
+    private static IEnumerable<(string Name, Func<FaultyProvider, Task> Call)> ObsoleteForms()
+    {
+        static Microsoft.Extensions.FileProviders.IFileInfo Entry(FaultyProvider p) =>
+            new WriteableFileInfo(p, "f.txt", exists: true, isDirectory: false, 1, DateTimeOffset.UtcNow);
+        var day = TimeSpan.FromDays(1);
+        yield return ("GetFileInfo(path)", p => Task.Run(() => p.GetFileInfo(new ProviderPath("f.txt"))));
+        yield return ("GetDirectoryContents(path)", p => Task.Run(() => p.GetDirectoryContents(new ProviderPath("dir"))));
+        yield return ("ReadFile(path)", p => Task.Run(() => p.ReadFile("f.txt")));
+        yield return ("UpdateFile(path)", p => Task.Run(() => p.UpdateFile("f.txt", TestStreams.Text("x"))));
+        yield return ("UpdateFile(path, mode)", p => Task.Run(() => p.UpdateFile("f.txt", TestStreams.Text("x"), UpdateFileMode.Append)));
+        yield return ("UpdateFileAsync(path, mode)", p => p.UpdateFileAsync("f.txt", TestStreams.Text("x"), UpdateFileMode.Append));
+        yield return ("Delete(path)", p => Task.Run(() => p.Delete("f.txt")));
+        yield return ("Move(path)", p => Task.Run(() => p.Move("f.txt", "g.txt")));
+        yield return ("CreateLocalFileStream(path)", p => Task.Run(() => p.CreateLocalFileStream("f.txt", readOnly: true)));
+        yield return ("GetDownloadUrlAsync(path)", p => p.GetDownloadUrlAsync("f.txt", day));
+        yield return ("GetDownloadUrl(path)", p => Task.Run(() => p.GetDownloadUrl("f.txt", day)));
+        yield return ("ReadFileAsync(entry)", p => p.ReadFileAsync(Entry(p)));
+        yield return ("ReadFile(entry)", p => Task.Run(() => p.ReadFile(Entry(p))));
+        yield return ("UpdateFileAsync(entry)", p => p.UpdateFileAsync(Entry(p), TestStreams.Text("x")));
+        yield return ("UpdateFile(entry)", p => Task.Run(() => p.UpdateFile(Entry(p), TestStreams.Text("x"))));
+        yield return ("DeleteAsync(entry)", p => p.DeleteAsync(Entry(p)));
+        yield return ("Delete(entry)", p => Task.Run(() => p.Delete(Entry(p))));
+        yield return ("MoveAsync(entry)", p => p.MoveAsync(Entry(p), "g.txt"));
+        yield return ("Move(entry)", p => Task.Run(() => p.Move(Entry(p), "g.txt")));
+        yield return ("CreateLocalFileStreamAsync(entry)", p => p.CreateLocalFileStreamAsync(Entry(p), readOnly: true));
+        yield return ("CreateLocalFileStream(entry)", p => Task.Run(() => p.CreateLocalFileStream(Entry(p), readOnly: true)));
+        yield return ("GetDownloadUrlAsync(entry)", p => p.GetDownloadUrlAsync(Entry(p), day));
+        yield return ("GetDownloadUrl(entry)", p => Task.Run(() => p.GetDownloadUrl(Entry(p), day)));
+    }
+#pragma warning restore CS0618
+
+    [TestMethod]
+    public async Task TheObsolete2026Forms_LetOutTheContractsExceptions_AsTheAsyncMembersDo()
+    {
+        foreach (var (name, call) in ObsoleteForms())
+        {
+            var failure = new StoreFailureException("the SDK's own exception");
+            using (var provider = new FaultyProvider { Fail = _ => failure })
+                Assert.AreSame(failure, (await Assert.ThrowsExactlyAsync<IOException>(() => call(provider), name)).InnerException, name);
+
+            var missing = new KeyNotFoundException("The store has no such key.");
+            using (var provider = new FaultyProvider { Fail = _ => missing })
+                Assert.AreSame(missing, (await Assert.ThrowsExactlyAsync<FileNotFoundException>(() => call(provider), name)).InnerException, name);
+
+            var refused = new SecurityException("403 Forbidden");
+            using (var provider = new FaultyProvider { Fail = _ => refused })
+                Assert.AreSame(refused, (await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(() => call(provider), name)).InnerException, name);
+        }
+    }
+
     [TestMethod]
     public async Task EveryMember_TurnsAnExceptionOutsideTheContractIntoIOException_WithItInside()
     {
@@ -356,7 +409,7 @@ public sealed class ErrorPolicyTests
         /// <summary>Whether the provider's predicates throw.</summary>
         public bool PredicatesFail { get; set; }
 
-        protected override bool SupportsSignedUrl(SignedUrlAccess permission) => true;
+        protected override bool SupportsSignedUrl(SignedUrlAccess access) => true;
 
         protected override bool IsNotFound(Exception exception) =>
             PredicatesFail ? throw new InvalidOperationException("The predicate failed.") : exception is KeyNotFoundException;

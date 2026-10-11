@@ -122,6 +122,12 @@
       "writeablefileproviders.common": {
         "type": "Project"
       },
+      "writeablefileproviders.physical": {
+        "type": "Project",
+        "dependencies": {
+          "WriteableFileProviders.Common": "[1.0.0, )"
+        }
+      },
       "writeablefileproviders.testing": {
         "type": "Project",
         "dependencies": {

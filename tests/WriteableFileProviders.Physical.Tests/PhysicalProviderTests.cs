@@ -323,7 +323,7 @@ public sealed class PhysicalProviderTests
         {
             Assert.Inconclusive($"Creating a symbolic link on Windows needs Developer Mode or elevation: {e.Message}");
         }
-        await _provider.UpdateFileAsync("link.txt", TestStreams.Text("new"), mode);
+        await _provider.UpdateFileAsync("link.txt", TestStreams.Text("new"), new UpdateFileOptions { Mode = mode });
         Assert.AreEqual("new", await Read("link.txt"));
         Assert.IsNull(new FileInfo(Disk("link.txt")).LinkTarget, "The link is replaced by a file");
         Assert.IsFalse(File.Exists(Disk("nowhere.txt")), "Its target is left as it was");
@@ -1312,19 +1312,19 @@ public sealed class PhysicalProviderTests
     public async Task List_EntriesCanBeUsedAsPaths()
     {
         await Write("list/sub/f.txt", "x");
-        var file = (await _provider.GetDirectoryContentsAsync("list/sub")).Single();
-        await _provider.MoveAsync(file, "moved/g.txt");
+        var file = (IWriteableFileInfo)(await _provider.GetDirectoryContentsAsync("list/sub")).Single();
+        await _provider.MoveAsync(file.Path, "moved/g.txt");
         Assert.AreEqual("x", await Read("moved/g.txt"));
-        var sub = (await _provider.GetDirectoryContentsAsync("list")).Single();
-        Assert.IsTrue(await _provider.DeleteAsync(sub));
+        var sub = (IWriteableFileInfo)(await _provider.GetDirectoryContentsAsync("list")).Single();
+        Assert.IsTrue(await _provider.DeleteAsync(sub.Path));
         Assert.IsFalse(Directory.Exists(Disk("list", "sub")));
         Assert.IsTrue(Directory.Exists(Disk("list")));
     }
 
     [TestMethod]
-    public void Paths_ARefusedSegmentIsNamedWithoutItsParents()
+    public async Task Paths_ARefusedSegmentIsNamedWithoutItsParents()
     {
-        var e = Assert.ThrowsExactly<ArgumentException>(() => _provider.GetFileInfo(new[] { "secret-parent", ".." }));
+        var e = await Assert.ThrowsExactlyAsync<ArgumentException>(() => _provider.GetFileInfoAsync(new[] { "secret-parent", ".." }));
         StringAssert.Contains(e.Message, "'..'");
         Assert.DoesNotContain("secret-parent", e.Message);
         Assert.DoesNotContain(_root, e.Message);

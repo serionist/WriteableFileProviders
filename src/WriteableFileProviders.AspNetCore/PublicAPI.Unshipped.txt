@@ -1,15 +1,16 @@
 #nullable enable
-static WriteableFileProviders.AspNetCore.WriteableFileProviderGatewayEndpointRouteBuilderExtensions.MapWriteableFileProviderGateway(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder! endpoints) -> Microsoft.AspNetCore.Builder.IEndpointConventionBuilder!
-static WriteableFileProviders.AspNetCore.WriteableFileProviderGatewayOptions.MaxValidityLimit.get -> System.TimeSpan
-static WriteableFileProviders.AspNetCore.WriteableFileProviderGatewayServiceCollectionExtensions.AddWriteableFileProviderGateway(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<WriteableFileProviders.AspNetCore.WriteableFileProviderGatewayOptions!>! configure) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static Microsoft.AspNetCore.Builder.WriteableFileProviderGatewayEndpointRouteBuilderExtensions.MapWriteableFileProviderGateway(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder! endpoints) -> Microsoft.AspNetCore.Builder.IEndpointConventionBuilder!
+static Microsoft.Extensions.DependencyInjection.WriteableFileProviderGatewayServiceCollectionExtensions.AddWriteableFileProviderGateway(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<WriteableFileProviders.AspNetCore.WriteableFileProviderGatewayOptions!>! configure) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static Microsoft.Extensions.DependencyInjection.WriteableFileProviderGatewayServiceCollectionExtensions.AddWriteableFileProviderGateway(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Uri! publicBaseUri) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
 WriteableFileProviders.AspNetCore.DistributedCacheGatewayReplayStore
 WriteableFileProviders.AspNetCore.DistributedCacheGatewayReplayStore.DistributedCacheGatewayReplayStore(Microsoft.Extensions.Caching.Distributed.IDistributedCache! cache, System.TimeProvider! timeProvider) -> void
 WriteableFileProviders.AspNetCore.DistributedCacheGatewayReplayStore.TryConsumeAsync(string! tokenId, System.DateTimeOffset expiresOn, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!
 WriteableFileProviders.AspNetCore.IGatewayReplayStore
 WriteableFileProviders.AspNetCore.IGatewayReplayStore.TryConsumeAsync(string! tokenId, System.DateTimeOffset expiresOn, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!
 WriteableFileProviders.AspNetCore.IWriteableFileUrlService
-WriteableFileProviders.AspNetCore.IWriteableFileUrlService.GetSignedUrlAsync(string! providerName, WriteableFileProviders.ProviderPath path, WriteableFileProviders.SignedUrlOptions! options, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<WriteableFileProviders.SignedUrl!>!
-WriteableFileProviders.AspNetCore.WriteableFileProviderGatewayEndpointRouteBuilderExtensions
+WriteableFileProviders.AspNetCore.IWriteableFileUrlService.GetSignedUrlAsync(WriteableFileProviders.ProviderPath path, WriteableFileProviders.SignedUrlOptions! options, string! providerKey, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<WriteableFileProviders.SignedUrl!>!
+WriteableFileProviders.AspNetCore.IWriteableFileUrlService.GetSignedUrlAsync(WriteableFileProviders.ProviderPath path, WriteableFileProviders.SignedUrlOptions! options, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<WriteableFileProviders.SignedUrl!>!
+Microsoft.AspNetCore.Builder.WriteableFileProviderGatewayEndpointRouteBuilderExtensions
 WriteableFileProviders.AspNetCore.WriteableFileProviderGatewayOptions
 WriteableFileProviders.AspNetCore.WriteableFileProviderGatewayOptions.AllowInsecureHttp.get -> bool
 WriteableFileProviders.AspNetCore.WriteableFileProviderGatewayOptions.AllowInsecureHttp.set -> void
@@ -28,4 +29,4 @@ WriteableFileProviders.AspNetCore.WriteableFileProviderGatewayOptions.PreferGate
 WriteableFileProviders.AspNetCore.WriteableFileProviderGatewayOptions.PublicBaseUri.get -> System.Uri?
 WriteableFileProviders.AspNetCore.WriteableFileProviderGatewayOptions.PublicBaseUri.set -> void
 WriteableFileProviders.AspNetCore.WriteableFileProviderGatewayOptions.WriteableFileProviderGatewayOptions() -> void
-WriteableFileProviders.AspNetCore.WriteableFileProviderGatewayServiceCollectionExtensions
+Microsoft.Extensions.DependencyInjection.WriteableFileProviderGatewayServiceCollectionExtensions

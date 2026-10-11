@@ -27,16 +27,16 @@ public sealed partial class WriteableAzureBlobFileProvider
     private volatile bool _containerExists;
 
     /// <summary>Read, create and write URLs are signed natively, as a service SAS or a user delegation SAS.</summary>
-    /// <param name="permission">The permission.</param>
-    protected override bool SupportsSignedUrl(SignedUrlAccess permission) => true;
+    /// <param name="access">The access.</param>
+    protected override bool SupportsSignedUrl(SignedUrlAccess access) => true;
 
     /// <summary>
     /// A read URL carries the download file name and the content type (<c>rscd</c> and <c>rsct</c>). An upload URL takes
     /// neither: a SAS cannot make the uploader send a content type, so such a request throws
     /// <see cref="NotSupportedException"/> and the gateway, which can, takes over.
     /// </summary>
-    /// <param name="permission">The permission.</param>
-    protected override bool SupportsSignedUrlContentHeaders(SignedUrlAccess permission) => permission == SignedUrlAccess.Read;
+    /// <param name="access">The access.</param>
+    protected override bool SupportsSignedUrlContentHeaders(SignedUrlAccess access) => access == SignedUrlAccess.Read;
 
     /// <summary>
     /// Signs a SAS for the blob: a service SAS when the client has the shared key, else a user delegation SAS, which never
@@ -62,7 +62,7 @@ public sealed partial class WriteableAzureBlobFileProvider
         var blob = Blob(path);
         var now = TimeProvider.GetUtcNow();
         var expiresOn = now + options.Validity;
-        var builder = SasBuilder(blob, Permissions(options.Permission), now, expiresOn);
+        var builder = SasBuilder(blob, Permissions(options.Access), now, expiresOn);
         builder.ContentDisposition = options.DownloadFileName is { } fileName ? AttachmentDisposition(fileName) : null;
         builder.ContentType = options.ContentType;
         Uri url;
@@ -84,14 +84,14 @@ public sealed partial class WriteableAzureBlobFileProvider
             url = new BlobUriBuilder(blob.Uri) { Sas = builder.ToSasQueryParameters(key, _container.AccountName) }.ToUri();
         }
         // An upload URL into a missing container would only fail when used (P18).
-        if (options.Permission != SignedUrlAccess.Read)
+        if (options.Access != SignedUrlAccess.Read)
             await EnsureContainerAsync(cancellationToken).ConfigureAwait(false);
         return new SignedUrl
         {
             Url = url,
-            Method = options.Permission == SignedUrlAccess.Read ? "GET" : "PUT",
+            Method = options.Access == SignedUrlAccess.Read ? "GET" : "PUT",
             ExpiresOn = expiresOn,
-            Headers = options.Permission == SignedUrlAccess.Read ? _noHeaders : _uploadHeaders,
+            Headers = options.Access == SignedUrlAccess.Read ? _noHeaders : _uploadHeaders,
             Kind = SignedUrlKind.Presigned,
         };
     }

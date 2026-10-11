@@ -29,6 +29,21 @@ public sealed class RegistrationTests
     }
 
     [TestMethod]
+    public void Add_WithAPublicBaseUri_RegistersTheServices_WithTheDefaultOptions()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddWriteableFileProviderGateway(new Uri("https://localhost:5001"));
+        using var provider = services.BuildServiceProvider();
+
+        Assert.IsInstanceOfType<WriteableFileUrlService>(provider.GetRequiredService<IWriteableFileUrlService>());
+        var options = provider.GetRequiredService<IOptions<WriteableFileProviderGatewayOptions>>().Value;
+        Assert.AreEqual(new Uri("https://localhost:5001"), options.PublicBaseUri);
+        Assert.AreEqual(new WriteableFileProviderGatewayOptions().BasePath, options.BasePath);
+        Assert.AreEqual(new WriteableFileProviderGatewayOptions().MaxUploadBytes, options.MaxUploadBytes);
+    }
+
+    [TestMethod]
     public void Add_Twice_RegistersEachServiceOnce_AndAppliesBothConfigurations()
     {
         var services = new ServiceCollection();
@@ -75,7 +90,9 @@ public sealed class RegistrationTests
     public void Add_NullArguments_Throw()
     {
         Assert.ThrowsExactly<ArgumentNullException>(() => WriteableFileProviderGatewayServiceCollectionExtensions.AddWriteableFileProviderGateway(null!, _ => { }));
-        Assert.ThrowsExactly<ArgumentNullException>(() => new ServiceCollection().AddWriteableFileProviderGateway(null!));
+        Assert.ThrowsExactly<ArgumentNullException>(() => new ServiceCollection().AddWriteableFileProviderGateway((Action<WriteableFileProviderGatewayOptions>)null!));
+        Assert.ThrowsExactly<ArgumentNullException>(() => new ServiceCollection().AddWriteableFileProviderGateway((Uri)null!));
+        Assert.ThrowsExactly<ArgumentNullException>(() => WriteableFileProviderGatewayServiceCollectionExtensions.AddWriteableFileProviderGateway(null!, GatewayHost.PublicBaseUri));
     }
 
     [TestMethod]
@@ -114,15 +131,15 @@ public sealed class RegistrationTests
         try
         {
             await using var host = await GatewayHost.StartAsync(configureBuilder: builder =>
-                builder.Services.AddWriteableFileProvider("fixed", _ => new InMemoryFileProvider(new InMemoryFileProviderOptions
+                builder.Services.AddKeyedSingleton<IWriteableFileProvider>("fixed", (_, _) => new InMemoryFileProvider(new InMemoryFileProviderOptions
                 {
                     StoreName = store,
                     FixedSignedUrlLifetime = TimeSpan.FromHours(1),
                 })));
             await host.WriteAsync("doc.txt", "fixed lifetime", provider: "fixed");
 
-            var shorter = await host.Urls.GetSignedUrlAsync("fixed", "doc.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5) });
-            var longer = await host.Urls.GetSignedUrlAsync("fixed", "doc.txt", new SignedUrlOptions { Validity = TimeSpan.FromHours(2), AllowShorterValidity = true });
+            var shorter = await host.Urls.GetSignedUrlAsync("doc.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5) }, "fixed");
+            var longer = await host.Urls.GetSignedUrlAsync("doc.txt", new SignedUrlOptions { Validity = TimeSpan.FromHours(2), AllowShorterValidity = true }, "fixed");
 
             Assert.AreEqual(SignedUrlKind.Gateway, shorter.Kind);
             Assert.AreEqual(SignedUrlKind.Presigned, longer.Kind);

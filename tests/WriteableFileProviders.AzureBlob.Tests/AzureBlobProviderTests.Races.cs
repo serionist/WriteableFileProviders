@@ -169,7 +169,7 @@ public sealed partial class AzureBlobProviderTests
     {
         await _raw.GetBlobClient(Name("put.txt")).UploadAsync(BinaryData.FromString("v1;"));
         var sas = _raw.GenerateSasUri(BlobContainerSasPermissions.All, DateTimeOffset.UtcNow.AddHours(1));
-        using var provider = new WriteableAzureBlobFileProvider(new AzureFileProviderOptions { RootDirectoryPath = _root }, new BlobContainerClient(sas, Azurite.ClientOptions(_handler)));
+        using var provider = new WriteableAzureBlobFileProvider(new AzureBlobFileProviderOptions { RootDirectoryPath = _root }, new BlobContainerClient(sas, Azurite.ClientOptions(_handler)));
         Before(r => r.Method == HttpMethod.Get && AzureHandler.Comp(r) is null && AzureHandler.BlobName(r) == Name("put.txt"),
             () => _raw.GetBlobClient(Name("put.txt")).Upload(BinaryData.FromString("v2;"), overwrite: true));
         await Append(provider, "put.txt", "mine;");
@@ -281,7 +281,7 @@ public sealed partial class AzureBlobProviderTests
     {
         using var provider = Provider();
         Assert.AreSame(TimeProvider.System, provider.Clock);
-        await Assert.ThrowsExactlyAsync<ArgumentOutOfRangeException>(() => provider.GetSignedUrlAsync("a.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Permission = (SignedUrlAccess)99 }));
+        await Assert.ThrowsExactlyAsync<ArgumentOutOfRangeException>(() => provider.GetSignedUrlAsync("a.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Access = (SignedUrlAccess)99 }));
     }
 
     /// <summary>A stream that says it can seek but cannot tell its length.</summary>

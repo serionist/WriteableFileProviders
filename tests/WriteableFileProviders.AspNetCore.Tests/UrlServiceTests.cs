@@ -25,7 +25,7 @@ public sealed class UrlServiceTests
     [TestMethod]
     public async Task ProviderWithNativeUrls_GetsItsOwnUrl()
     {
-        var url = await _host.Urls.GetSignedUrlAsync("native", "doc.txt", Options(TimeSpan.FromMinutes(5)));
+        var url = await _host.Urls.GetSignedUrlAsync("doc.txt", Options(TimeSpan.FromMinutes(5)), "native");
 
         Assert.AreEqual(SignedUrlKind.Presigned, url.Kind);
         Assert.AreEqual("memory", url.Url.Scheme);
@@ -35,7 +35,7 @@ public sealed class UrlServiceTests
     public async Task ProviderWithoutNativeUrls_GetsAGatewayUrl()
     {
         var before = DateTimeOffset.UtcNow;
-        var url = await _host.Urls.GetSignedUrlAsync("files", "doc.txt", Options(TimeSpan.FromMinutes(5)));
+        var url = await _host.Urls.GetSignedUrlAsync("doc.txt", Options(TimeSpan.FromMinutes(5)), "files");
 
         Assert.AreEqual(SignedUrlKind.Gateway, url.Kind);
         Assert.AreEqual("GET", url.Method);
@@ -47,12 +47,74 @@ public sealed class UrlServiceTests
     }
 
     [TestMethod]
+    public async Task DefaultProvider_GetsAGatewayUrl_ThatTheGatewayServesFromIt()
+    {
+        await _host.WriteAsync("doc.txt", "default content", provider: null);
+
+        var url = await _host.Urls.GetSignedUrlAsync("doc.txt", Options(TimeSpan.FromMinutes(5)));
+
+        Assert.AreEqual(SignedUrlKind.Gateway, url.Kind);
+        Assert.AreEqual("", GatewayHost.TokenOf(url.Url).Split('.')[1]);
+        Assert.AreEqual(1, ((DelegatingFileProvider)_host.Provider(null)).SignedUrlCalls);
+        using var response = await _host.Client.GetAsync(url.Url);
+        Assert.AreEqual("default content", await response.Content.ReadAsStringAsync());
+    }
+
+    [TestMethod]
+    public async Task DefaultProvider_UploadUrl_WritesToIt()
+    {
+        var url = await _host.Urls.GetSignedUrlAsync("up/new.txt", Options(TimeSpan.FromMinutes(5), SignedUrlAccess.Create));
+
+        using var response = await _host.PutAsync(url.Url, "uploaded");
+
+        Assert.AreEqual(HttpStatusCode.Created, response.StatusCode);
+        Assert.AreEqual("uploaded", await _host.ReadAsync("up/new.txt", provider: null));
+        Assert.IsFalse((await _host.Provider().GetFileInfoAsync("up/new.txt")).Exists);
+    }
+
+    [TestMethod]
+    public async Task DefaultProviderWithNativeUrls_GetsItsOwnUrl_AndTheLastRegisteredIsTheDefault()
+    {
+        await using var host = await GatewayHost.StartAsync(configureBuilder: builder =>
+            builder.Services.AddWriteableFileProvider(services => services.GetRequiredKeyedService<IWriteableFileProvider>("native")));
+        await host.WriteAsync("doc.txt", "native content", provider: "native");
+
+        var url = await host.Urls.GetSignedUrlAsync("doc.txt", Options(TimeSpan.FromMinutes(5)));
+
+        Assert.AreEqual(SignedUrlKind.Presigned, url.Kind);
+        Assert.AreEqual("memory", url.Url.Scheme);
+    }
+
+    [TestMethod]
+    public async Task NoDefaultProvider_Throws_AndKeyedOnesStillWork()
+    {
+        await using var host = await GatewayHost.StartAsync(withDefault: false);
+        await host.WriteAsync("doc.txt", "keyed");
+
+        var missing = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
+            host.Urls.GetSignedUrlAsync("doc.txt", Options(TimeSpan.FromMinutes(5))));
+        StringAssert.Contains(missing.Message, "AddWriteableFileProvider");
+        var keyed = await host.Urls.GetSignedUrlAsync("doc.txt", Options(TimeSpan.FromMinutes(5)), "files");
+        using var response = await host.Client.GetAsync(keyed.Url);
+        Assert.AreEqual("keyed", await response.Content.ReadAsStringAsync());
+    }
+
+    [TestMethod]
+    public async Task DefaultProvider_InvalidArguments_Throw()
+    {
+        await Assert.ThrowsExactlyAsync<ArgumentNullException>(() => _host.Urls.GetSignedUrlAsync("doc.txt", null!));
+        await Assert.ThrowsExactlyAsync<ArgumentOutOfRangeException>(() => _host.Urls.GetSignedUrlAsync("doc.txt", Options(TimeSpan.Zero)));
+        await Assert.ThrowsExactlyAsync<FileNotFoundException>(() => _host.Urls.GetSignedUrlAsync("missing.txt", Options(TimeSpan.FromMinutes(1))));
+        await Assert.ThrowsAsync<ArgumentException>(() => _host.Urls.GetSignedUrlAsync("a/../b.txt", Options(TimeSpan.FromMinutes(1))));
+    }
+
+    [TestMethod]
     public async Task PreferGateway_IssuesAGatewayUrl_EvenForANativeProvider()
     {
         await using var host = await GatewayHost.StartAsync(options => options.PreferGateway = true);
         await host.WriteAsync("doc.txt", "native content", provider: "native");
 
-        var url = await host.Urls.GetSignedUrlAsync("native", "doc.txt", Options(TimeSpan.FromMinutes(5)));
+        var url = await host.Urls.GetSignedUrlAsync("doc.txt", Options(TimeSpan.FromMinutes(5)), "native");
 
         Assert.AreEqual(SignedUrlKind.Gateway, url.Kind);
         using var response = await host.Client.GetAsync(url.Url);
@@ -62,7 +124,7 @@ public sealed class UrlServiceTests
     [TestMethod]
     public async Task NativeProvider_LongerThanItCanSign_FallsBackToTheGateway()
     {
-        var url = await _host.Urls.GetSignedUrlAsync("native", "doc.txt", Options(TimeSpan.FromDays(8)) with { AllowShorterValidity = true });
+        var url = await _host.Urls.GetSignedUrlAsync("doc.txt", Options(TimeSpan.FromDays(8)) with { AllowShorterValidity = true }, "native");
 
         Assert.AreEqual(SignedUrlKind.Gateway, url.Kind);
         AssertAbout(DateTimeOffset.UtcNow.AddDays(7), url.ExpiresOn);
@@ -71,8 +133,8 @@ public sealed class UrlServiceTests
     [TestMethod]
     public async Task UploadUrl_IsAPut_NamingTheContentTypeToSend()
     {
-        var typed = await _host.Urls.GetSignedUrlAsync("files", "up.json", Options(TimeSpan.FromMinutes(5), SignedUrlAccess.Create) with { ContentType = "application/json" });
-        var untyped = await _host.Urls.GetSignedUrlAsync("files", "up.bin", Options(TimeSpan.FromMinutes(5), SignedUrlAccess.Write));
+        var typed = await _host.Urls.GetSignedUrlAsync("up.json", Options(TimeSpan.FromMinutes(5), SignedUrlAccess.Create) with { ContentType = "application/json" }, "files");
+        var untyped = await _host.Urls.GetSignedUrlAsync("up.bin", Options(TimeSpan.FromMinutes(5), SignedUrlAccess.Write), "files");
 
         Assert.AreEqual("PUT", typed.Method);
         Assert.AreEqual("application/json", typed.Headers["Content-Type"]);
@@ -83,7 +145,7 @@ public sealed class UrlServiceTests
     [TestMethod]
     public async Task UploadUrl_ForAMissingFile_IsIssued()
     {
-        var url = await _host.Urls.GetSignedUrlAsync("files", "new/deep/file.txt", Options(TimeSpan.FromMinutes(5), SignedUrlAccess.Create));
+        var url = await _host.Urls.GetSignedUrlAsync("new/deep/file.txt", Options(TimeSpan.FromMinutes(5), SignedUrlAccess.Create), "files");
 
         using var response = await _host.PutAsync(url.Url, "made");
         Assert.AreEqual(HttpStatusCode.Created, response.StatusCode);
@@ -94,11 +156,11 @@ public sealed class UrlServiceTests
     public async Task ValidityOverTheGatewaysMaximum_IsNotSupported_UnlessShorterIsAllowed()
     {
         await Assert.ThrowsExactlyAsync<NotSupportedException>(() =>
-            _host.Urls.GetSignedUrlAsync("files", "doc.txt", Options(TimeSpan.FromDays(7) + TimeSpan.FromSeconds(1))));
+            _host.Urls.GetSignedUrlAsync("doc.txt", Options(TimeSpan.FromDays(7) + TimeSpan.FromSeconds(1)), "files"));
         await Assert.ThrowsExactlyAsync<NotSupportedException>(() =>
-            _host.Urls.GetSignedUrlAsync("files", "doc.txt", Options(TimeSpan.FromHours(2), SignedUrlAccess.Write)));
+            _host.Urls.GetSignedUrlAsync("doc.txt", Options(TimeSpan.FromHours(2), SignedUrlAccess.Write), "files"));
 
-        var capped = await _host.Urls.GetSignedUrlAsync("files", "doc.txt", Options(TimeSpan.FromHours(2), SignedUrlAccess.Write) with { AllowShorterValidity = true });
+        var capped = await _host.Urls.GetSignedUrlAsync("doc.txt", Options(TimeSpan.FromHours(2), SignedUrlAccess.Write) with { AllowShorterValidity = true }, "files");
         AssertAbout(DateTimeOffset.UtcNow.AddHours(1), capped.ExpiresOn);
     }
 
@@ -113,24 +175,24 @@ public sealed class UrlServiceTests
         await host.WriteAsync("doc.txt", "x");
 
         await Assert.ThrowsExactlyAsync<NotSupportedException>(() =>
-            host.Urls.GetSignedUrlAsync("files", "doc.txt", Options(TimeSpan.FromMinutes(11))));
-        var upload = await host.Urls.GetSignedUrlAsync("files", "doc.txt", Options(TimeSpan.FromDays(2), SignedUrlAccess.Write));
+            host.Urls.GetSignedUrlAsync("doc.txt", Options(TimeSpan.FromMinutes(11)), "files"));
+        var upload = await host.Urls.GetSignedUrlAsync("doc.txt", Options(TimeSpan.FromDays(2), SignedUrlAccess.Write), "files");
         Assert.AreEqual(SignedUrlKind.Gateway, upload.Kind);
     }
 
     [TestMethod]
     public async Task InvalidArguments_Throw()
     {
-        await Assert.ThrowsAsync<ArgumentException>(() => _host.Urls.GetSignedUrlAsync(null!, "doc.txt", Options(TimeSpan.FromMinutes(1))));
-        await Assert.ThrowsAsync<ArgumentException>(() => _host.Urls.GetSignedUrlAsync("", "doc.txt", Options(TimeSpan.FromMinutes(1))));
-        await Assert.ThrowsExactlyAsync<ArgumentNullException>(() => _host.Urls.GetSignedUrlAsync("files", "doc.txt", null!));
-        await Assert.ThrowsExactlyAsync<ArgumentOutOfRangeException>(() => _host.Urls.GetSignedUrlAsync("files", "doc.txt", Options(TimeSpan.Zero)));
-        await Assert.ThrowsExactlyAsync<ArgumentOutOfRangeException>(() => _host.Urls.GetSignedUrlAsync("files", "doc.txt", Options(TimeSpan.FromMinutes(-1))));
-        await Assert.ThrowsExactlyAsync<ArgumentOutOfRangeException>(() => _host.Urls.GetSignedUrlAsync("files", "doc.txt", Options(TimeSpan.FromMinutes(1), (SignedUrlAccess)42)));
-        var unknown = await Assert.ThrowsExactlyAsync<ArgumentException>(() => _host.Urls.GetSignedUrlAsync("nobody", "doc.txt", Options(TimeSpan.FromMinutes(1))));
-        Assert.AreEqual("providerName", unknown.ParamName);
+        await Assert.ThrowsAsync<ArgumentException>(() => _host.Urls.GetSignedUrlAsync("doc.txt", Options(TimeSpan.FromMinutes(1)), null!));
+        await Assert.ThrowsAsync<ArgumentException>(() => _host.Urls.GetSignedUrlAsync("doc.txt", Options(TimeSpan.FromMinutes(1)), ""));
+        await Assert.ThrowsExactlyAsync<ArgumentNullException>(() => _host.Urls.GetSignedUrlAsync("doc.txt", null!, "files"));
+        await Assert.ThrowsExactlyAsync<ArgumentOutOfRangeException>(() => _host.Urls.GetSignedUrlAsync("doc.txt", Options(TimeSpan.Zero), "files"));
+        await Assert.ThrowsExactlyAsync<ArgumentOutOfRangeException>(() => _host.Urls.GetSignedUrlAsync("doc.txt", Options(TimeSpan.FromMinutes(-1)), "files"));
+        await Assert.ThrowsExactlyAsync<ArgumentOutOfRangeException>(() => _host.Urls.GetSignedUrlAsync("doc.txt", Options(TimeSpan.FromMinutes(1), (SignedUrlAccess)42), "files"));
+        var unknown = await Assert.ThrowsExactlyAsync<ArgumentException>(() => _host.Urls.GetSignedUrlAsync("doc.txt", Options(TimeSpan.FromMinutes(1)), "nobody"));
+        Assert.AreEqual("providerKey", unknown.ParamName);
         var badType = await Assert.ThrowsExactlyAsync<ArgumentException>(() =>
-            _host.Urls.GetSignedUrlAsync("files", "doc.txt", Options(TimeSpan.FromMinutes(1)) with { ContentType = "not a type" }));
+            _host.Urls.GetSignedUrlAsync("doc.txt", Options(TimeSpan.FromMinutes(1)) with { ContentType = "not a type" }, "files"));
         Assert.AreEqual("options", badType.ParamName);
     }
 
@@ -139,19 +201,19 @@ public sealed class UrlServiceTests
     {
         await _host.WriteAsync("folder/inside.txt", "x");
 
-        await Assert.ThrowsExactlyAsync<FileNotFoundException>(() => _host.Urls.GetSignedUrlAsync("files", "missing.txt", Options(TimeSpan.FromMinutes(1))));
-        await Assert.ThrowsExactlyAsync<FileNotFoundException>(() => _host.Urls.GetSignedUrlAsync("files", "folder", Options(TimeSpan.FromMinutes(1))));
+        await Assert.ThrowsExactlyAsync<FileNotFoundException>(() => _host.Urls.GetSignedUrlAsync("missing.txt", Options(TimeSpan.FromMinutes(1)), "files"));
+        await Assert.ThrowsExactlyAsync<FileNotFoundException>(() => _host.Urls.GetSignedUrlAsync("folder", Options(TimeSpan.FromMinutes(1)), "files"));
         // A native provider says so itself, and the gateway does not take over.
-        await Assert.ThrowsExactlyAsync<FileNotFoundException>(() => _host.Urls.GetSignedUrlAsync("native", "missing.txt", Options(TimeSpan.FromMinutes(1))));
+        await Assert.ThrowsExactlyAsync<FileNotFoundException>(() => _host.Urls.GetSignedUrlAsync("missing.txt", Options(TimeSpan.FromMinutes(1)), "native"));
     }
 
     [TestMethod]
     public async Task PathTheProviderRefuses_Throws()
     {
-        await Assert.ThrowsAsync<ArgumentException>(() => _host.Urls.GetSignedUrlAsync("files", "a/../b.txt", Options(TimeSpan.FromMinutes(1))));
-        await Assert.ThrowsAsync<ArgumentException>(() => _host.Urls.GetSignedUrlAsync("files", "%2e%2e/b.txt", Options(TimeSpan.FromMinutes(1), SignedUrlAccess.Write)));
-        await Assert.ThrowsExactlyAsync<ArgumentException>(() => _host.Urls.GetSignedUrlAsync("files", ProviderPath.Root, Options(TimeSpan.FromMinutes(1))));
-        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => _host.Urls.GetSignedUrlAsync("files", ProviderPath.Root, Options(TimeSpan.FromMinutes(1), SignedUrlAccess.Create)));
+        await Assert.ThrowsAsync<ArgumentException>(() => _host.Urls.GetSignedUrlAsync("a/../b.txt", Options(TimeSpan.FromMinutes(1)), "files"));
+        await Assert.ThrowsAsync<ArgumentException>(() => _host.Urls.GetSignedUrlAsync("%2e%2e/b.txt", Options(TimeSpan.FromMinutes(1), SignedUrlAccess.Write), "files"));
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => _host.Urls.GetSignedUrlAsync(ProviderPath.Root, Options(TimeSpan.FromMinutes(1)), "files"));
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => _host.Urls.GetSignedUrlAsync(ProviderPath.Root, Options(TimeSpan.FromMinutes(1), SignedUrlAccess.Create), "files"));
     }
 
     [TestMethod]
@@ -229,7 +291,7 @@ public sealed class UrlServiceTests
             builder.Services.AddSingleton<TimeProvider>(new ManualTimeProvider(fixedNow)));
         await host.WriteAsync("doc.txt", "x");
 
-        var url = await host.Urls.GetSignedUrlAsync("files", "doc.txt", Options(TimeSpan.FromMinutes(5)));
+        var url = await host.Urls.GetSignedUrlAsync("doc.txt", Options(TimeSpan.FromMinutes(5)), "files");
 
         Assert.AreEqual(fixedNow.AddMinutes(5), url.ExpiresOn);
     }
@@ -239,5 +301,5 @@ public sealed class UrlServiceTests
         Assert.IsTrue(actual <= expected && actual >= expected.AddMinutes(-1), $"{actual:O} is not just before {expected:O}");
 
     private static SignedUrlOptions Options(TimeSpan validity, SignedUrlAccess access = SignedUrlAccess.Read) =>
-        new() { Validity = validity, Permission = access };
+        new() { Validity = validity, Access = access };
 }

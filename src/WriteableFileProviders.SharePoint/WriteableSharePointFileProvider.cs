@@ -156,7 +156,7 @@ public sealed partial class WriteableSharePointFileProvider : WriteableFileProvi
     protected override bool IsCaseInsensitive => true;
 
     /// <inheritdoc />
-    protected override bool SupportsSignedUrl(SignedUrlAccess permission) => permission == SignedUrlAccess.Read;
+    protected override bool SupportsSignedUrl(SignedUrlAccess access) => access == SignedUrlAccess.Read;
 
     /// <inheritdoc />
     /// <remarks>Refuses <c>:</c>, Graph's path syntax.</remarks>

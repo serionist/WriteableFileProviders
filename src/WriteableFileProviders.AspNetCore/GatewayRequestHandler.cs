@@ -119,8 +119,11 @@ internal sealed class GatewayRequestHandler(GatewayTokenCodec codec, IGatewayRep
         return create ? Results.StatusCode(StatusCodes.Status201Created) : Results.Ok();
     }
 
+    // The provider the token was issued for: the app's default IWriteableFileProvider, or the one under the token's key.
     private static IWriteableFileProvider? ProviderFor(HttpContext context, GatewayToken token) =>
-        context.RequestServices.GetKeyedService<IWriteableFileProvider>(token.ProviderName);
+        token.ProviderName is null
+            ? context.RequestServices.GetService<IWriteableFileProvider>()
+            : context.RequestServices.GetKeyedService<IWriteableFileProvider>(token.ProviderName);
 
     internal static void SetSecurityHeaders(HttpResponse response)
     {

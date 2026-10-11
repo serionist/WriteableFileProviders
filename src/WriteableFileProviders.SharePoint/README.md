@@ -35,7 +35,7 @@ load against `WriteableFileProviders.Common` 2027.
 ```csharp
 using WriteableFileProviders;
 
-services.AddWriteableFileProvider("files", configuration.GetSection("Files"));
+services.AddWriteableFileProvider(configuration.GetSection("Files"));
 // or: await using var files = WriteableFileProviderSerializer.FromConfiguration(configuration.GetSection("Files"));
 ```
 

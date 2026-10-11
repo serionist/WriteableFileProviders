@@ -20,13 +20,13 @@ public sealed class SignedUrlTests
     private static WriteableAzureBlobFileProvider SharedKeyProvider(StubHandler handler, string scheme = "https", bool createContainer = false)
     {
         var client = new BlobContainerClient(new Uri($"{scheme}://account.blob.core.windows.net/files"), new StorageSharedKeyCredential("account", Azurite.AccountKey), AzureBlobOptionsTests.Offline(handler));
-        return new WriteableAzureBlobFileProvider(new AzureFileProviderOptions { CreateContainerIfMissing = createContainer }, client) { Clock = new FixedClock(_now) };
+        return new WriteableAzureBlobFileProvider(new AzureBlobFileProviderOptions { CreateContainerIfMissing = createContainer }, client) { Clock = new FixedClock(_now) };
     }
 
     private static WriteableAzureBlobFileProvider TokenProvider(StubHandler handler, FixedClock? clock = null)
     {
         var client = new BlobContainerClient(new Uri("https://account.blob.core.windows.net/files"), new FakeCredential(), AzureBlobOptionsTests.Offline(handler));
-        return new WriteableAzureBlobFileProvider(null, client) { Clock = clock ?? new FixedClock(_now) };
+        return new WriteableAzureBlobFileProvider(new(), client) { Clock = clock ?? new FixedClock(_now) };
     }
 
     // The blob service: a file exists, the container exists, and keys are issued for what was asked, if it ends within 7
@@ -81,7 +81,7 @@ public sealed class SignedUrlTests
     public async Task UploadSas_IsAPutOfABlockBlob(SignedUrlAccess access, string permission)
     {
         using var provider = SharedKeyProvider(Service());
-        var url = await provider.GetSignedUrlAsync("new.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Permission = access });
+        var url = await provider.GetSignedUrlAsync("new.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Access = access });
         Assert.AreEqual(permission, Query(url)["sp"]);
         Assert.AreEqual("PUT", url.Method);
         Assert.AreEqual("BlockBlob", url.Headers["x-ms-blob-type"]);
@@ -101,8 +101,8 @@ public sealed class SignedUrlTests
     public async Task UploadSas_RefusesContentHeaders()
     {
         using var provider = SharedKeyProvider(Service());
-        await Assert.ThrowsExactlyAsync<NotSupportedException>(() => provider.GetSignedUrlAsync("a.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Permission = SignedUrlAccess.Write, ContentType = "text/plain" }));
-        await Assert.ThrowsExactlyAsync<NotSupportedException>(() => provider.GetSignedUrlAsync("a.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Permission = SignedUrlAccess.Create, DownloadFileName = "a.txt" }));
+        await Assert.ThrowsExactlyAsync<NotSupportedException>(() => provider.GetSignedUrlAsync("a.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Access = SignedUrlAccess.Write, ContentType = "text/plain" }));
+        await Assert.ThrowsExactlyAsync<NotSupportedException>(() => provider.GetSignedUrlAsync("a.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Access = SignedUrlAccess.Create, DownloadFileName = "a.txt" }));
     }
 
     [TestMethod]
@@ -119,8 +119,8 @@ public sealed class SignedUrlTests
     {
         var handler = Service();
         using var provider = SharedKeyProvider(handler);
-        await provider.GetSignedUrlAsync("a.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Permission = SignedUrlAccess.Write });
-        await provider.GetSignedUrlAsync("b.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Permission = SignedUrlAccess.Create });
+        await provider.GetSignedUrlAsync("a.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Access = SignedUrlAccess.Write });
+        await provider.GetSignedUrlAsync("b.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Access = SignedUrlAccess.Create });
         Assert.AreEqual(1, handler.Requests.Count(r => r.RequestUri!.Query.Contains("restype=container", StringComparison.Ordinal)));
     }
 
@@ -129,12 +129,12 @@ public sealed class SignedUrlTests
     {
         static HttpResponseMessage Missing(HttpRequestMessage request) =>
             request.Method == HttpMethod.Put ? new HttpResponseMessage(HttpStatusCode.Created) : AzureHandler.Error(HttpStatusCode.NotFound, "ContainerNotFound");
-        var options = new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Permission = SignedUrlAccess.Write };
+        var options = new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Access = SignedUrlAccess.Write };
 
         using var refusing = SharedKeyProvider(new StubHandler(Missing));
         var e = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => refusing.GetSignedUrlAsync("a.txt", options));
         StringAssert.Contains(e.Message, "files");
-        StringAssert.Contains(e.Message, nameof(AzureFileProviderOptions.CreateContainerIfMissing));
+        StringAssert.Contains(e.Message, nameof(AzureBlobFileProviderOptions.CreateContainerIfMissing));
 
         var handler = new StubHandler(Missing);
         using var creating = SharedKeyProvider(handler, createContainer: true);
@@ -170,7 +170,7 @@ public sealed class SignedUrlTests
         using var provider = TokenProvider(handler, clock);
         await provider.GetSignedUrlAsync("a.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5) });
         Assert.AreEqual(_now.AddHours(1), StubHandler.RequestedKeyTimes(handler.Body(handler.Requests.Single(StubHandler.IsDelegationKeyRequest))).Expiry, "A key serves the next hour");
-        await provider.GetSignedUrlAsync("b.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(30), Permission = SignedUrlAccess.Write });
+        await provider.GetSignedUrlAsync("b.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(30), Access = SignedUrlAccess.Write });
         Assert.AreEqual(1, handler.Requests.Count(StubHandler.IsDelegationKeyRequest));
 
         // Azure's keys end within 7 days: the provider asks for 7 days less 5 minutes, and a 7-day URL would outlive it (D18).
@@ -236,7 +236,7 @@ public sealed class SignedUrlTests
             ? AzureHandler.Error(HttpStatusCode.Forbidden, "AuthenticationFailed")
             : StubHandler.BlobProperties());
         var client = new BlobContainerClient(new Uri("https://account.blob.core.windows.net/files?sv=2026-10-06&sp=rwdl&sig=x"), AzureBlobOptionsTests.Offline(handler));
-        using var provider = new WriteableAzureBlobFileProvider(null, client);
+        using var provider = new WriteableAzureBlobFileProvider(new(), client);
         await Assert.ThrowsExactlyAsync<NotSupportedException>(() => provider.GetSignedUrlAsync("a.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5) }));
     }
 

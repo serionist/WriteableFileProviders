@@ -1,19 +1,40 @@
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.HttpLogging;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+using WriteableFileProviders;
+using WriteableFileProviders.AspNetCore;
 
-namespace WriteableFileProviders.AspNetCore;
+// The .NET convention: registrations live in Microsoft.Extensions.DependencyInjection, so they need no using of their own.
+#pragma warning disable IDE0130 // the namespace is the convention's, not this folder's
+namespace Microsoft.Extensions.DependencyInjection;
+#pragma warning restore IDE0130
 
 /// <summary>Registers the signed-URL gateway and the URL service.</summary>
 public static class WriteableFileProviderGatewayServiceCollectionExtensions
 {
     /// <summary>
+    /// Registers the gateway's services with its default options, served at <paramref name="publicBaseUri"/>: see
+    /// <see cref="AddWriteableFileProviderGateway(IServiceCollection, Action{WriteableFileProviderGatewayOptions})"/>.
+    /// </summary>
+    /// <param name="services">The service collection.</param>
+    /// <param name="publicBaseUri">
+    /// The absolute URL the gateway is reachable at from outside
+    /// (<see cref="WriteableFileProviderGatewayOptions.PublicBaseUri"/>): <c>https</c>, or <c>http</c> on a loopback host.
+    /// </param>
+    public static IServiceCollection AddWriteableFileProviderGateway(this IServiceCollection services, Uri publicBaseUri)
+    {
+        ArgumentNullException.ThrowIfNull(publicBaseUri);
+        return services.AddWriteableFileProviderGateway(options => options.PublicBaseUri = publicBaseUri);
+    }
+
+    /// <summary>
     /// Registers the gateway's services: <see cref="IWriteableFileUrlService"/>, the options (validated when the app
     /// starts), ASP.NET Core Data Protection for the tokens, and the default <see cref="IGatewayReplayStore"/> (in memory,
     /// one instance). Then map the endpoints with
     /// <see cref="WriteableFileProviderGatewayEndpointRouteBuilderExtensions.MapWriteableFileProviderGateway"/>, and
-    /// register the providers with <c>AddWriteableFileProvider(name, ...)</c>.
+    /// register the provider as <see cref="IWriteableFileProvider"/> (<c>AddWriteableFileProvider</c>), or providers under
+    /// keys (<c>AddKeyedSingleton&lt;IWriteableFileProvider&gt;</c>).
     /// </summary>
     /// <remarks>
     /// Tokens are protected with the app's Data Protection keys. An app on several instances shares its key ring

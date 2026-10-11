@@ -73,7 +73,7 @@ public sealed partial class AzureBlobProviderTests
         _handler.Intercept = r => r.Method == HttpMethod.Put && r.RequestUri!.Query.Contains("restype=container", StringComparison.Ordinal)
             ? AzureHandler.Error(HttpStatusCode.Forbidden, "AuthorizationPermissionMismatch")
             : null;
-        using var provider = new WriteableAzureBlobFileProvider(new AzureFileProviderOptions { CreateContainerIfMissing = true }, Azurite.Container(name, _handler));
+        using var provider = new WriteableAzureBlobFileProvider(new AzureBlobFileProviderOptions { CreateContainerIfMissing = true }, Azurite.Container(name, _handler));
         var e = await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(() => Write(provider, "a.txt", "x"));
         Assert.AreEqual(403, Assert.IsInstanceOfType<RequestFailedException>(e.InnerException).Status);
         Assert.IsFalse((await Azurite.Container(name).ExistsAsync()).Value);

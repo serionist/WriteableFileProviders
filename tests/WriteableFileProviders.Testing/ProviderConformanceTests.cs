@@ -176,8 +176,8 @@ public abstract class ProviderConformanceTests
     /// <param name="access">The access.</param>
     protected SignedUrlOptions SignedUrlOptionsFor(SignedUrlAccess access) =>
         FixedSignedUrlLifetime is { } lifetime
-            ? new SignedUrlOptions { Validity = lifetime, Permission = access, AllowShorterValidity = true }
-            : new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Permission = access };
+            ? new SignedUrlOptions { Validity = lifetime, Access = access, AllowShorterValidity = true }
+            : new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Access = access };
 
     private static async Task<byte[]> Hash(Stream stream)
     {
@@ -233,7 +233,7 @@ public abstract class ProviderConformanceTests
         await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => Provider.MoveAsync("f.txt", "/"));
         await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => Provider.CopyAsync("f.txt", ProviderPath.Root));
         await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => Provider.CreateLocalFileStreamAsync("", readOnly: false));
-        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => Provider.GetSignedUrlAsync("", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Permission = SignedUrlAccess.Write }));
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => Provider.GetSignedUrlAsync("", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Access = SignedUrlAccess.Write }));
         Assert.AreEqual("x", await Read("f.txt"));
     }
 

@@ -273,7 +273,7 @@ public interface IWriteableFileProvider : IFileProvider, IDisposable, IAsyncDisp
 public sealed record UpdateFileOptions { UpdateFileMode Mode; string? ContentType; string? IfMatch; bool IfNotExists; }
 public sealed record ReadOptions { string? IfMatch; }
 public sealed record SeekableReadOptions { int BufferSize = 1 MiB; bool AllowModifications; }
-public sealed record SignedUrlOptions { required TimeSpan Validity; SignedUrlAccess Permission = Read;
+public sealed record SignedUrlOptions { required TimeSpan Validity; SignedUrlAccess Access = Read;
     string? DownloadFileName; string? ContentType; bool AllowShorterValidity; }
 public sealed class SignedUrl { required Uri Url; required string Method; DateTimeOffset? ExpiresOn;
     IReadOnlyDictionary<string,string> Headers; SignedUrlKind Kind; }      // a class with init members, so it can grow
@@ -282,7 +282,9 @@ public enum SignedUrlKind { Presigned, PreAuthenticated, Gateway }          // "
 public class PreconditionFailedException : IOException      public class FileExistsException : IOException
 ```
 
-- **`WriteableFileProviderExtensions`** holds:
+- **`WriteableFileProviderExtensions`** held, until S12 part 2 (simplify), when the maintainer moved all of it into the
+  `[Obsolete]` compatibility class (`WriteableFileProviderCompatibilityExtensions`), to go in 2028.0.0, and the class
+  became an internal helper:
   - the sync forms (`ReadFile`, `UpdateFile`, `Delete`, `Move`, `Copy`, `CreateLocalFileStream`,
     `GetDownloadUrl`);
   - the `IFileInfo` overloads;
@@ -312,7 +314,7 @@ public class PreconditionFailedException : IOException      public class FileExi
     - root checks.
   - Disposal goes through `DisposeAsyncCore` (F52).
   - `TimeProvider` is injectable for expiry maths.
-- **`RangeReadStream`:** a read-only seekable stream over a range callback, with read-ahead buffering and version
+- **`RangeReadStream`** (internal since S12 part 2, simplify; only Common builds it): a read-only seekable stream over a range callback, with read-ahead buffering and version
   pinning.
 - **`LocalFileStream`:**
   - `override ValueTask DisposeAsync` (F37), with a `Dispose(bool)` fallback.
@@ -336,9 +338,13 @@ public class PreconditionFailedException : IOException      public class FileExi
     first.
   - A golden corpus generated from the old Newtonsoft code pins all of this (F30, F48).
 - **DI:**
-  - `services.AddWriteableFileProvider(name, IConfiguration)` and `AddWriteableFileProvider(name, factory)` register
-    keyed singletons.
-  - It lives in Common, on `Microsoft.Extensions.DependencyInjection.Abstractions`.
+  - `services.AddWriteableFileProvider(IConfiguration)` and `AddWriteableFileProvider(factory)` register a plain
+    singleton `IWriteableFileProvider` (`AddSingleton`, so several are all in `GetServices`); an app with several
+    providers tells them apart itself, such as with keyed services. Changed in S12 part 2 (simplify, the maintainer's
+    request of 2026-10-11): S4 registered keyed singletons by name.
+  - It lives in Common, on `Microsoft.Extensions.DependencyInjection.Abstractions`, in the namespace
+    `Microsoft.Extensions.DependencyInjection` since S12 part 2 (simplify), as the gateway's registration does; the
+    gateway's mapping is in `Microsoft.AspNetCore.Builder`.
 - **Package references:** `Microsoft.Extensions.Configuration` and Newtonsoft go (F72, D9).
 
 ### Providers
@@ -368,12 +374,15 @@ public class PreconditionFailedException : IOException      public class FileExi
 - **Box and SharePoint:** read only, through their fixed-lifetime pre-authenticated URLs, under D18.
 - **Physical:** none natively.
 - **`WriteableFileProviders.AspNetCore`:**
-  - `AddWriteableFileProviderGateway(options)` and `MapWriteableFileProviderGateway()` serve GET, HEAD and PUT on
-    `{BasePath}/{token}/{fileName?}`.
-  - `IWriteableFileUrlService.GetSignedUrlAsync(providerName, path, options)` tries the provider's native URL first,
-    unless `PreferGateway` is set, and falls back to a gateway URL when the native call throws `NotSupportedException`.
+  - `AddWriteableFileProviderGateway(options)` (or `(publicBaseUri)`, added in S12 part 2) and
+    `MapWriteableFileProviderGateway()` serve GET, HEAD and PUT on `{BasePath}/{token}/{fileName?}`.
+  - `IWriteableFileUrlService.GetSignedUrlAsync(path, options)`, for the app's `IWriteableFileProvider`, and
+    `GetSignedUrlAsync(path, options, providerKey)`, for a keyed one (both since S12 part 2; S11 took a provider name
+    first), try the provider's native URL first, unless `PreferGateway` is set, and fall back to a gateway URL when the
+    native call throws `NotSupportedException`.
   - **Tokens:** ASP.NET Core Data Protection time-limited payloads, with purpose
-    `WriteableFileProviders.Gateway.v1/<provider>/<permission>`.
+    `WriteableFileProviders.Gateway.v1/<provider>/<permission>` (built as a chain in S11; since S12 part 2, a token for
+    the app's default provider has an empty provider segment and leaves the provider out of the chain).
     - The payload holds the path, permission, content type, file name and a `jti`.
     - A bad token returns 404.
     - The path comes only from the token and is validated again.
@@ -470,7 +479,8 @@ public class PreconditionFailedException : IOException      public class FileExi
 - **Target:** net10.0 only (was net8.0). Consumers on .NET 8 or 9 stay on `2026.10.10.x`.
 - **Common API:**
   - `IWriteableFileProvider` is rebuilt on `ProviderPath` and `CancellationToken`.
-  - The `string[]`/`params` overloads go; sync forms and `IFileInfo` overloads move to extension methods.
+  - The `string[]`/`params` overloads go; sync forms and `IFileInfo` overloads move to extension methods, `[Obsolete]`
+    until 2028.0.0 (S12 part 2, simplify), as are `UpdateFile[Async](..., UpdateFileMode)` and `GetDownloadUrl[Async]`.
   - `WatchAsync` and `OnLocalFileStreamDisposingAsync` leave the interface.
   - `ToJson()` returns `JsonObject` and leaves the interface.
   - `FileInfo` becomes `WriteableFileInfo`.
@@ -722,7 +732,7 @@ Status: `todo`, `done` (with the PR), `wontfix` (with the reason). F-numbers are
 | P2.6 ETags and conditional writes | S4, S5–S10 | done: S4 (API, non-atomic default); S5 (Physical: synthesized ETag, atomic `IfNotExists`, `IfMatch` checked before the rename); S6 (Azure, atomic); S7 (atomic on AWS; on MinIO and other S3-compatible servers checked first and sent to the server); S8 (GCS: the generation, atomic); S9 (SharePoint: checked, and sent to the service; D15 as amended); S10 (Box: `IfNotExists` atomic, `IfMatch` checked until the live run, D15) |
 | P2.7 Content type on write and read | S4, S5–S10 | done: S4 (API, hint); S5 (Physical keeps none; the hint is ignored, D24); S6 (Azure); S7 (S3, MinIO); S8 (GCS); S9 (SharePoint reports the service's type and ignores the hint); S10 (Box keeps none: ignored, null) |
 | P2.8 Async listing, recursive | S4, S5–S10 | done: S4 (API, default walk); S5 (Physical: its own walk, which lists linked folders without entering them); S6 (Azure: one flat listing); S7 (a recursive walk is one paged listing); S8 (GCS: paged prefix listing, the base's walk); S9 (SharePoint: paged children, the base's walk); S10 (Box: marker paging, recursive by folder id) |
-| P2.9 Dependency injection | S4, S11 | done: S4 (registration); S11 (`AddWriteableFileProviderGateway`, `MapWriteableFileProviderGateway`, keyed providers resolved by name) |
+| P2.9 Dependency injection | S4, S11, S12 | done: S4 (registration); S11 (`AddWriteableFileProviderGateway`, `MapWriteableFileProviderGateway`, keyed providers resolved by name); S12 part 2 (one provider by interface, `AddWriteableFileProviderGateway(publicBaseUri)`, the URL service for the default provider or a key) |
 | P2.10 More credential options | S6, S7, S8 | done: S6 (`UseDefaultAzureCredential`, a `BlobContainerClient` constructor); S7 (`UseDefaultCredentials`, a caller's `IAmazonS3`); S8 (GCS: a given `StorageClient`, the `Endpoint`, lazy Application Default Credentials); S9 (SharePoint: certificate and `DefaultAzureCredential` sign-in, a `GraphServiceClient` constructor); S10 (Box: an `IBoxClient` constructor) |
 | P2.11 Server-side copy, GCS native move | S4, S5–S10 | done: S4 (API, default); S5 (Physical: a native rename; copy streams into the destination's temp file); S6 (Azure Copy Blob); S7 (CopyObject, in parts above 5 GiB); S8 (GCS copies by rewrite; native move stays under Later, D16); S9 (SharePoint: `/copy` and its monitor, move by `PATCH`); S10 (Box: copy and move on the server) |
 | P2.12 Physical Watch | S5 | done (S5): `PhysicalFilesWatcher` |
@@ -2231,6 +2241,105 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     AmazonS3 98.19/93.84, AspNetCore 100/99.01, AzureBlob 99.33/91.93, Box 99.71/93.12, Common 96.87/93.14, GCS
     99.49/94.29, MinIO 98.18/91.85, Physical 99.34/94.12, SharePoint 99.77/91.30). The AmazonS3 branch floor rose from
     91 to 92 in round 2, by this branch's own figures. No live suite ran (no accounts here; D21).
+
+- **2026-10-11, S12 part 2, simplify (#16):** branch `16-simplify` (worktree `D:\workspaces\wfp-wt\16f`), built beside
+  `16-launch` from the maintainer's requests of 2026-10-11 (a simple API; one provider by interface, several the app's
+  choice; download URLs for the local disk in a few lines).
+  - **DI without keys (Common):** `AddWriteableFileProvider(IConfiguration)` and `AddWriteableFileProvider(factory)`
+    register a plain singleton `IWriteableFileProvider` with `AddSingleton`, not `TryAdd`, so every registration is in
+    `GetServices` and the last one is injected; the container builds it on first use and disposes it. The keyed `name`
+    overloads are gone. Tests: one provider (same instance, disposed with the container), from configuration, two
+    registered (`GetServices` sees both, the last is injected), null arguments.
+  - **The URL service and the gateway, for the default provider or a key:** `IWriteableFileUrlService` has
+    `GetSignedUrlAsync(path, options, ct)`, for the container's `IWriteableFileProvider`, and
+    `GetSignedUrlAsync(path, options, providerKey, ct)`, for one the app registered with
+    `AddKeyedSingleton<IWriteableFileProvider>(key, ...)`. One name for both, the key after the options so it cannot be
+    taken for a path, and the token last as on every async member. No call binds to both: only the keyed form takes a
+    string after the options, and a `null` key goes to it and throws. The analyzer's RS0026 (two overloads with optional
+    parameters) is suppressed for the pair, with its reason, as Common does for its 2027 overloads. Rejected: an optional
+    key (`string? providerKey = null` before the token makes `GetSignedUrlAsync(path, options, ct)` fail to compile, a
+    trap in every minimal API), a second method name (two names for one operation), and a keyed URL service per key
+    (`AnyKey` registrations: more machinery than the overload). No default provider registered:
+    `InvalidOperationException`; an unknown key: `ArgumentException` naming `providerKey`. The gateway resolves the
+    same way: no key `GetService<IWriteableFileProvider>()`, a key `GetKeyedService<IWriteableFileProvider>(key)`.
+  - **The token (a one-way door, opened by the maintainer's request for this release):** the format is kept,
+    `{access}.{provider}.{payload}`; an empty provider segment means the default provider, and its purpose chain leaves
+    the provider out (`WriteableFileProviders.Gateway.v1`, the access). Not an empty purpose: Data Protection allows it
+    but advises against it. Not a fixed name such as `default`: a key of that name would share the chain. A chain one
+    purpose shorter matches no keyed chain, since Data Protection authenticates the number of purposes, so neither kind
+    of token redeems as the other (tested both ways, and with a key that spells the access). A key is never empty, so
+    the empty segment names no keyed provider. Tokens issued with a provider name since S11 redeem as keyed ones,
+    unchanged: `GatewayTokenGoldenTests`' existing tokens and literal tests pass untouched (only additions to the file),
+    and three default-provider goldens, issued once with the same test key and never regenerated, plus literal-built
+    tokens and the literal format, pin the new form. AGENTS.md's door text says it.
+  - **One-call gateway setup:** `AddWriteableFileProviderGateway(Uri publicBaseUri)`, next to the options form.
+    `TutorialTests` runs the root README's tutorial line for line over the Physical provider (TestServer, a temp
+    folder): the link endpoint returns a gateway URL, which downloads the file. The same snippet, with its three
+    `using`s, also compiles as a standalone web app.
+  - **The simplicity pass over the nine packages' PublicAPI files** listed 17 candidates, each with its trade-off. The
+    maintainer agreed a set on 2026-10-11, posted on #3
+    ([the agreement](https://github.com/serionist/WriteableFileProviders/issues/3#issuecomment-6108843232)), which is
+    the maintainers' agreement for the API changes below; all of it is new 2027 surface or a 2026 shape kept compiling.
+    Implemented:
+    - **The 2026 conveniences become `[Obsolete]`, to go in 2028.0.0** (candidates 1 to 4): the sync wrappers
+      (`ReadFile`, `UpdateFile`, `Delete`, `Move`, `CreateLocalFileStream`, and `GetFileInfo`/`GetDirectoryContents`
+      on a `ProviderPath`), the 12 `IFileInfo` overloads, `UpdateFile[Async](path, contents, UpdateFileMode)` and
+      `GetDownloadUrl[Async]` move into `WriteableFileProviderCompatibilityExtensions`. Each keeps working, and its
+      message names the async `ProviderPath` member to call and says it goes in 2028.0.0; the 21 existing shims say so
+      too. `WriteableFileProviderExtensions` had no member left, so it is now an internal class of the shared helpers.
+      The main API is the async members taking a `ProviderPath`; `IFileProvider`'s own `GetFileInfo(string)`,
+      `GetDirectoryContents(string)` and `Watch(string)` stay. Tests call the async forms; `ExtensionTests` keeps a
+      compatibility test of every obsolete member, with the warning suppressed, and a reflection test that every
+      extension method on `IWriteableFileProvider` (44) is in the compatibility class, `[Obsolete]`, and names its
+      replacement and 2028.0.0. The obsolete forms call the public async members, so the error contract (D29) holds on
+      them: `ErrorPolicyTests` checks that each one that reaches the store lets out `IOException`,
+      `FileNotFoundException` and `UnauthorizedAccessException` with the store's exception inside, as the async members
+      do, the synchronous ones unwrapped.
+    - **Namespaces** (candidate 10): `AddWriteableFileProvider` and `AddWriteableFileProviderGateway` are in
+      `Microsoft.Extensions.DependencyInjection`, `MapWriteableFileProviderGateway` in `Microsoft.AspNetCore.Builder`,
+      as ASP.NET Core's own are. IDE0130 (namespace matches the folder) is disabled for those three declarations only,
+      with the reason beside it.
+    - **`SignedUrlOptions.Permission` is `Access`** (candidate 9), with `SupportsSignedUrl(access)` and
+      `SupportsSignedUrlContentHeaders(access)`; nothing stored or signed carries the name, so no door moves.
+    - **Azure** (candidates 14 and 15): `AzureFileProviderOptions` is `AzureBlobFileProviderOptions`; the old name is
+      an `[Obsolete]`, empty subclass (not sealed, as the 2026 class was not), so `new WriteableAzureBlobFileProvider(new AzureFileProviderOptions
+      { ... })` compiles and builds the same provider, and a test pins that it writes the same JSON and reads back as
+      the new type. The configuration shape names the provider class and the properties, not the options class, so the
+      goldens pass unchanged. The client constructor takes non-null options, as the other five do.
+    - **Internal** (candidates 7 and 12): `RangeReadStream` (only Common builds it: the default seekable read) and the
+      gateway's `MaxValidityLimit` (the docs say 7 days). AGENTS.md's door list drops `RangeReadStream`.
+
+    Considered and kept, with the reason:
+    - 5, `WriteableFileProvider<T>.ToJson()`: the direct replacement of 2026's `provider.ToJson()` on a concrete type.
+    - 6, `FromJson(JsonObject)`: the direct replacement of 2026's `FromJson(JObject)`.
+    - 8, `DirectoryContents` public: it was public in 2026, and making it internal would break code that built one.
+    - 11, the records' generated members on the option types: `with` is how callers vary an option.
+    - 13, the gateway's 7-day read default (D22): it matches the native URLs' 7-day maximum on purpose.
+    - 16, `ReadFileVersionAsync(versionId, path)`: both parameters take a string, so swapping them would compile old
+      calls with the arguments reversed.
+    - 17, the 2026 positional options constructors: 2026 code compiles unchanged.
+  - **Docs:** XML docs of every changed member; the migration guide (DI, the obsolete forms, `GetDownloadUrl`, the
+    `IFileInfo` overloads, the Azure options rename and client constructor, the AspNetCore namespaces); AGENTS.md's
+    gateway door, Names and Common API lines, and its tests line; and the READMEs' samples, edited only so they compile
+    against this API (the launch half rewrites the READMEs). All 24 C# samples of the READMEs compile, in a scratch
+    project where an obsolete call is an error.
+
+- **2026-10-11, S12 part 2, simplify, review round 1 (PR #44, read at `7cadd5c`):** no blocker or major. The review
+  confirmed the gateway token design (no collision between default and keyed chains, the purpose count authenticated,
+  empty and whitespace keys refused, v1 tokens still redeeming, the gateway failing closed without a default provider),
+  that the obsolete sync forms do not deadlock under a `SynchronizationContext`, and that Azure's binder, JSON and
+  goldens are unchanged. Fixed:
+  - **F1:** the PR's title (the main session).
+  - **F2 (decided: string):** 2026's `GetDownloadUrl[Async]` returned `string`/`Task<string>`, so the obsolete forms
+    return them again, the URL's `AbsoluteUri` (escaped, never `Uri.ToString()`), and `string url =
+    p.GetDownloadUrl(...)` compiles as the agreement says. The compatibility tests take a string and pin the escaping.
+  - **F3:** the obsolete `AzureFileProviderOptions` is not sealed, as 2026's class was not; the migration row says that
+    `provider.Options` is now an `AzureBlobFileProviderOptions`, so code that types it with the old name changes it.
+  - **F4 (decided: document):** the URL service resolves the provider from the root container and the gateway from the
+    request's services, so a scoped or transient provider that names another store per scope would let a URL be
+    redeemed against another store. The `IWriteableFileUrlService` remarks, the AspNetCore README and the migration
+    guide say every provider the gateway serves, default or keyed, must be a singleton or resolve to the same store in
+    every scope.
 
 ### For the maintainers
 

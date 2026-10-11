@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- The gateway and the URL service, end to end on TestServer, over the in-memory reference provider. -->
+  <!-- The gateway and the URL service, end to end on TestServer, over the in-memory reference provider; and the root
+       README's tutorial, over the Physical provider. -->
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
@@ -13,6 +14,7 @@
   <ItemGroup>
     <ProjectReference Include="..\WriteableFileProviders.Testing\WriteableFileProviders.Testing.csproj" />
     <ProjectReference Include="..\..\src\WriteableFileProviders.AspNetCore\WriteableFileProviders.AspNetCore.csproj" />
+    <ProjectReference Include="..\..\src\WriteableFileProviders.Physical\WriteableFileProviders.Physical.csproj" />
   </ItemGroup>
 
 </Project>

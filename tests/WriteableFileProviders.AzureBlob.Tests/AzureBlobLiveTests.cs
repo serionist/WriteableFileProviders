@@ -51,7 +51,7 @@ public sealed class AzureBlobLiveTests : ProviderConformanceTests
     /// <summary>The live account's settings.</summary>
     private sealed record LiveSettings(string? AccountName, string? AccountKey, string Container, string? Url, string? Root, bool UseDefaultCredential)
     {
-        public AzureFileProviderOptions Options(string? path) => new()
+        public AzureBlobFileProviderOptions Options(string? path) => new()
         {
             AccountName = AccountName,
             AccountKey = UseDefaultCredential ? null : AccountKey,

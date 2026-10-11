@@ -46,7 +46,7 @@ public sealed class AzureConfigurationShapeTests
     [TestMethod]
     public void NewOptions_RoundTripThroughJson()
     {
-        var options = new AzureFileProviderOptions
+        var options = new AzureBlobFileProviderOptions
         {
             AccountName = "account",
             ContainerName = "container",

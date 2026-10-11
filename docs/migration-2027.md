@@ -21,9 +21,10 @@ Every section has the same shape: what changed, then a table of each change with
    string array converts to, so most calls compile unchanged; calls with several string arguments compile through
    `[Obsolete]` shims that name the new call (see [Common: the API](#common-the-api)). Every path is relative to the
    provider's root, as before.
-4. **The API is async, with cancellation.** Each operation is one async member that takes a `CancellationToken`; the
-   synchronous forms are extension methods in `WriteableFileProviderExtensions` (add `using WriteableFileProviders;`).
-   Providers are disposable: `await using` the ones you create.
+4. **The API is async, with cancellation.** Each operation is one async member that takes a `CancellationToken` and a
+   `ProviderPath`. The 2026 synchronous forms, the overloads that take an `IFileInfo` or an `UpdateFileMode`, and
+   `GetDownloadUrl` still compile, with a warning that names the async member to call, and go in 2028.0.0. Providers
+   are disposable: `await using` the ones you create.
 5. **The serializer is System.Text.Json.** Newtonsoft.Json leaves every package. `ToJson` returns a `JsonObject`, and
    `FromJson` takes text, a `JsonElement` or a `JsonObject`. Every configuration stored by 2026 reads the same, except
    a root with a dot segment (`tenants/../other`), which no longer builds; JSON that 2027 writes is not promised to read
@@ -66,21 +67,22 @@ one version. The [README](../README.md#versioning) has the whole policy.
 
 ## Common: the API
 
-What changed: one member per operation on `ProviderPath`, every async member with a `CancellationToken`, the sync forms
-and conveniences as extension methods, and System.Text.Json instead of Newtonsoft.Json.
+What changed: one async member per operation on `ProviderPath`, each with a `CancellationToken`; the 2026 sync forms
+and conveniences kept as `[Obsolete]` extension methods until 2028.0.0; and System.Text.Json instead of
+Newtonsoft.Json.
 
 | 2026 | 2027 | What to do |
 |---|---|---|
 | `string subpath` and `params string[] pathSegments` overloads | One `ProviderPath` parameter, with implicit conversions from `string` (`"a/b"`) and `string[]` | Most calls compile unchanged. Calls with several string arguments, such as `ReadFileAsync("a", "b.txt")`, compile through an `[Obsolete]` shim: pass `"a/b.txt"` or `new[] { "a", "b.txt" }`. A call with no path, which meant the root, such as `GetDirectoryContentsAsync()` or `GetFileInfoAsync()`, no longer compiles: pass `ProviderPath.Root` or `""`. |
 | No `CancellationToken` | Every async member takes one, last | Pass yours where you have one. |
-| `UpdateFileAsync(Stream, UpdateFileMode, params string[])`, `UpdateFileAsync(string, UpdateFileMode, Stream)` | `UpdateFileAsync(path, contents, UpdateFileOptions?)` and the extension `UpdateFileAsync(path, contents, UpdateFileMode)` | The old orders compile through `[Obsolete]` shims; move the path first. |
+| `UpdateFileAsync(Stream, UpdateFileMode, params string[])`, `UpdateFileAsync(string, UpdateFileMode, Stream)` | `UpdateFileAsync(path, contents, UpdateFileOptions?)`, with `UpdateFileOptions.Append` or `UpdateFileOptions.Overwrite` for the mode | The old orders, and `UpdateFileAsync(path, contents, UpdateFileMode)`, compile through `[Obsolete]` shims; move the path first and pass `UpdateFileOptions.Append`. |
 | `CreateLocalFileStreamAsync(bool readOnly, ...)` | `CreateLocalFileStreamAsync(path, bool readOnly)` | The path comes first; the old order compiles through a shim. |
-| Sync members on the interface (`ReadFile`, `UpdateFile`, `Delete`, `Move`, `CreateLocalFileStream`, `GetDownloadUrl`) | Extension methods in `WriteableFileProviderExtensions` | Add `using WriteableFileProviders;` if you call them on the interface. `GetFileInfo(string)`, `GetDirectoryContents(string)` and `Watch(string)` stay on the interface (`IFileProvider`). |
-| `GetDownloadUrl(...)` returns `string` | `GetSignedUrlAsync(path, SignedUrlOptions)` returns a `SignedUrl`; the extension `GetDownloadUrlAsync(path, validity)` returns a `Uri` | `string url = ...` becomes `var url = ...` or `.ToString()`. |
+| Sync members on the interface (`ReadFile`, `UpdateFile`, `Delete`, `Move`, `CreateLocalFileStream`) | `[Obsolete]` extension methods, which go in 2028.0.0 | Call the async member: `await ReadFileAsync(path)` for `ReadFile(path)`, and so on. They compile, with a warning, if you add `using WriteableFileProviders;`. `GetFileInfo(string)`, `GetDirectoryContents(string)` and `Watch(string)` stay on the interface (`IFileProvider`). |
+| `GetDownloadUrl(...)` returns `string` | `GetSignedUrlAsync(path, SignedUrlOptions)` returns a `SignedUrl`, whose `Url` is the URL. `GetDownloadUrl` and `GetDownloadUrlAsync(path, validity)` still return the URL as a `string` (its `AbsoluteUri`), so `string url = files.GetDownloadUrl(...)` compiles, with a warning; they are `[Obsolete]` and go in 2028.0.0 | `(await files.GetSignedUrlAsync(path, new SignedUrlOptions { Validity = validity })).Url`, or the ASP.NET Core package's `IWriteableFileUrlService`, which falls back to a gateway URL where a provider cannot sign one. |
 | `WatchAsync(string)` | `Watch(string)` | The async form compiles through a shim. |
 | `FileInfo` (it clashed with `System.IO.FileInfo`) | `WriteableFileInfo`, and the interface `IWriteableFileInfo` with `Path`, `ETag`, `ContentType` | Replace `(FileInfo)x` with `(WriteableFileInfo)x`; `PathSegments` becomes `Path.Segments`. |
 | `GetFileInfoAsync` returns `IFileInfo` | It returns `IWriteableFileInfo` | Nothing; it is an `IFileInfo`. |
-| Overloads that take an `IFileInfo` accepted any entry, falling back to its `PhysicalPath` | They take only entries a writeable provider returned (`IWriteableFileInfo`), and throw `ArgumentException` for any other | For an entry from elsewhere, pass its path instead. |
+| Overloads that take an `IFileInfo` accepted any entry, falling back to its `PhysicalPath` | They are `[Obsolete]` and go in 2028.0.0; until then they take only entries a writeable provider returned (`IWriteableFileInfo`), and throw `ArgumentException` for any other | Pass the entry's path: `MoveAsync(entry.Path, destination)`, with `entry` from `EnumerateAsync` (an `IWriteableFileInfo`), or cast an `IFileInfo` from `GetDirectoryContentsAsync` to `IWriteableFileInfo`. |
 | `DirectoryContents`: a `public class` built from `(bool, IFileInfo[])`, null entries allowed | A `public sealed class` built from `(bool, IEnumerable<IFileInfo>)`; a null sequence throws `ArgumentNullException` | Stop deriving from it; pass an empty sequence instead of null. |
 | `IWriteableFileProvider.ToJson()` returns Newtonsoft's `JObject` | `WriteableFileProvider<T>.ToJson()` and `WriteableFileProviderSerializer.ToJson(provider)` return `System.Text.Json.Nodes.JsonObject`; `ToJsonString` returns text. `ToJson` is no longer on the interface | Call `WriteableFileProviderSerializer.ToJson(provider)` on an `IWriteableFileProvider`. |
 | `WriteableFileProviderSerializer.FromJson(JObject, ...)` | `FromJson(string | JsonElement | JsonObject, ...)` | Pass the JSON text. |
@@ -90,13 +92,17 @@ and conveniences as extension methods, and System.Text.Json instead of Newtonsof
 | Providers were not disposable | `IWriteableFileProvider` is `IDisposable` and `IAsyncDisposable` | Dispose providers you create (the DI container disposes the ones it creates). |
 | Common brought in Microsoft.Extensions.Configuration, Configuration.Binder and Newtonsoft.Json | It depends on the `.Abstractions` packages of Configuration, DependencyInjection and FileProviders only | If your code used `ConfigurationBuilder`, `Bind` or `Get<T>` through this dependency, reference those packages yourself. |
 
-The `[Obsolete]` shims (`WriteableFileProviderCompatibilityExtensions`) keep the old call shapes compiling for 2027.x
-and go in the next major; each names the call that replaces it.
+The `[Obsolete]` shims (`WriteableFileProviderCompatibilityExtensions`) keep the old call shapes and conveniences
+compiling for 2027.x and go in 2028.0.0; each names the async call that replaces it.
 
 New: `ReadRangeAsync` (byte ranges), `OpenReadSeekableAsync` (a seekable stream that reads ranges on demand),
 `EnumerateAsync` (one level or recursive, as `IAsyncEnumerable`), `CopyAsync`, `UpdateFileOptions` (content type,
-`IfMatch`, `IfNotExists`), `GetSignedUrlAsync` (read, create and write URLs), `RangeReadStream`, and DI registration
-(`services.AddWriteableFileProvider(name, configuration)`, keyed by name).
+`IfMatch`, `IfNotExists`), `GetSignedUrlAsync` (read, create and write URLs, with `SignedUrlOptions`), and DI
+registration (`services.AddWriteableFileProvider(configuration)` or `AddWriteableFileProvider(factory)`, in the
+`Microsoft.Extensions.DependencyInjection` namespace, so it needs no `using`), which registers a singleton
+`IWriteableFileProvider` that the container builds and disposes. Each call adds one, so `GetServices` sees them all; an
+app with several providers tells them apart its own way, such as keyed services
+(`AddKeyedSingleton<IWriteableFileProvider>(key, ...)`).
 
 ## Common: writing your own provider
 
@@ -261,11 +267,12 @@ Physical signs no URLs: the ASP.NET Core package's gateway serves them.
 What changed: Azure.Storage.Blobs moves from 12.23 to 12.30, files are block blobs, and the provider gains Microsoft
 Entra ID sign-in, conditions, ranges and upload URLs. The package also references Azure.Identity 1.21.0, whose types now
 live in Azure.Core; the reference keeps an older Azure.Identity of yours from defining them twice.
-`WriteableAzureBlobFileProvider` is sealed. The configuration shape is unchanged; the two new options are written to
-JSON only when `true`.
+`WriteableAzureBlobFileProvider` is sealed, and its options class takes the package's name. The configuration shape is
+unchanged; the two new options are written to JSON only when `true`.
 
 | 2026 | 2027 | What to do |
 |---|---|---|
+| `AzureFileProviderOptions` | `AzureBlobFileProviderOptions`, the same properties. The old name is an `[Obsolete]` class derived from it, so `new WriteableAzureBlobFileProvider(new AzureFileProviderOptions { ... })` compiles, with a warning, and builds the same provider; it goes in 2028.0.0. Stored configurations name the provider class, not the options class, so they read unchanged. `provider.Options` is now an `AzureBlobFileProviderOptions` | Rename the type in your code, including where you type `provider.Options` as `AzureFileProviderOptions` or name `WriteableFileProvider<AzureFileProviderOptions>`. |
 | Files are append blobs; an overwrite empties the blob, then appends, so a failed write truncates the file | Files are block blobs, staged and committed in one request: a failed write keeps the old content, and readers never see half of it | Nothing. |
 | A missing container is created by the first write or move; reads report it as missing files and empty listings | A missing container makes every member throw `InvalidOperationException`, naming the container | Create the container, or set `CreateContainerIfMissing: true` to keep the old creation on the first write. Reads never create it. |
 | Reading a missing file throws `RequestFailedException` (404) | `FileNotFoundException`, with the SDK's error as `InnerException` | Catch `FileNotFoundException`. |
@@ -276,10 +283,10 @@ JSON only when `true`.
 | Read URLs only, signed with the account key | Read, create and write URLs; with Microsoft Entra ID, user delegation SAS | See the README's "Signed URLs". |
 | Deleting a blob with snapshots fails (`RequestFailedException`) | It still fails, now with `IOException`, and so does a move of such a blob; snapshots are never deleted, except by the append blob conversion below | Delete the snapshots first. |
 | Listings showed every blob | Blobs whose names no path can address (an empty, `.` or `..` segment, a control character, a backslash) and the provider's own temporary folder, `.wfp-tmp` at the provider root, are left out. Every other name, one of yours that starts with `.wfp-` included, is listed | Rename such blobs with another tool if you need them. |
-| `WriteableAzureBlobFileProvider` can be derived from | It is sealed | Wrap it instead, or derive from `WriteableFileProvider<AzureFileProviderOptions>`. |
+| `WriteableAzureBlobFileProvider` can be derived from | It is sealed | Wrap it instead, or derive from `WriteableFileProvider<AzureBlobFileProviderOptions>`. |
 | A root with a dot segment, such as `tenants/../other`, reached blobs outside the root, and `../secrets` another container | Building the provider throws `ArgumentException` naming `RootDirectoryPath` (see [Stored configuration](#stored-configuration)) | Name the folder itself. |
 | Two overwrites of one file at once: both commit, one after the other | The one that commits second finds its blocks dropped by the first: one block's worth is staged again, so the last writer still wins; a longer one throws `IOException` and stores nothing | Write it again, or serialize the writers. |
-| Options: shared key only | `UseDefaultAzureCredential` (Microsoft Entra ID) and a constructor that takes a `BlobContainerClient`, `new WriteableAzureBlobFileProvider(options, container)` (options may be null), which the provider never disposes. `AccountKey` must be base64, and setting it together with `UseDefaultAzureCredential` throws | Fix a key that is not base64; it never worked. |
+| Options: shared key only | `UseDefaultAzureCredential` (Microsoft Entra ID) and a constructor that takes a `BlobContainerClient`, `new WriteableAzureBlobFileProvider(options, container)` (pass `new()` for options at the container's root), which the provider never disposes. `AccountKey` must be base64, and setting it together with `UseDefaultAzureCredential` throws | Fix a key that is not base64; it never worked. |
 
 **Append blobs already stored.** They stay readable. The first write or append to one converts it to a block blob: the
 new content goes to a temporary blob under `.wfp-tmp/` in the provider root, the append blob is deleted if it has not
@@ -478,14 +485,21 @@ What changed: 2027.0.0 adds `WriteableFileProviders.AspNetCore`, for ASP.NET Cor
 onto it, so there is nothing to migrate; it is the way to keep handing out download links where a provider's own URLs
 changed:
 
-- **`IWriteableFileUrlService.GetSignedUrlAsync(providerName, path, options)`** asks the keyed provider for its native
-  URL and, when the provider throws `NotSupportedException`, issues a URL of the app's own gateway instead. A provider
-  throws it when it cannot sign the URL asked for: Physical signs none, and Box and SharePoint sign only download URLs
-  whose lifetime their service sets. So the service gives a 2026 caller of `GetDownloadUrl` a URL that does what was
-  asked on every provider.
-- **The gateway** (`AddWriteableFileProviderGateway`, `MapWriteableFileProviderGateway`) serves `GET`, `HEAD` (with
-  HTTP ranges) and `PUT` on `{BasePath}/{token}/{fileName?}`. The token is an ASP.NET Core Data Protection payload, so
-  an app on several instances shares its key ring, and one-time upload URLs need a shared `IGatewayReplayStore`.
+- **`IWriteableFileUrlService.GetSignedUrlAsync(path, options)`** asks the app's `IWriteableFileProvider` for its
+  native URL and, when the provider throws `NotSupportedException`, issues a URL of the app's own gateway instead;
+  `GetSignedUrlAsync(path, options, providerKey)` does the same for a provider registered under a key
+  (`AddKeyedSingleton<IWriteableFileProvider>(providerKey, ...)`). Every provider it serves, default or keyed, must be
+  a singleton, or resolve to the same store in every scope: the service resolves it from the root container and the
+  gateway from the request's services, so a scoped provider per tenant would let a URL be redeemed against another
+  tenant's store. A provider throws `NotSupportedException` when it cannot sign the URL asked for: Physical signs
+  none, and Box and SharePoint sign only download URLs whose lifetime their service sets. So the service gives a 2026
+  caller of `GetDownloadUrl` a URL that does what was asked on every provider, the local disk included.
+- **The gateway** (`AddWriteableFileProviderGateway(publicBaseUri)`, or
+  `AddWriteableFileProviderGateway(options => ...)` for the other options, then `MapWriteableFileProviderGateway()`)
+  serves `GET`, `HEAD` (with HTTP ranges) and `PUT` on `{BasePath}/{token}/{fileName?}`. The registration lives in
+  `Microsoft.Extensions.DependencyInjection` and the mapping in `Microsoft.AspNetCore.Builder`, as ASP.NET Core's own
+  do, so neither needs a `using`. The token is an ASP.NET Core Data Protection payload, so an app on several instances
+  shares its key ring, and one-time upload URLs need a shared `IGatewayReplayStore`.
 - **Defaults fail closed:** `PublicBaseUri` is required and gateway URLs never use the request's `Host`; gateway
   download URLs live at most 7 days and gateway upload URLs 1 hour by default; gateway upload URLs work once; uploads
   are capped at 100 MiB; a download is served as the content type its read URL names, else

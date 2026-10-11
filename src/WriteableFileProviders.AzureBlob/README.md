@@ -20,7 +20,7 @@ must be on the same major version: a `2026.10.10.x` package does not load agains
 using WriteableFileProviders;
 using WriteableFileProviders.AzureBlob;
 
-await using var files = new WriteableAzureBlobFileProvider(new AzureFileProviderOptions
+await using var files = new WriteableAzureBlobFileProvider(new AzureBlobFileProviderOptions
 {
     AccountName = "contoso",
     AccountKey = configuration["Storage:Key"],
@@ -29,7 +29,7 @@ await using var files = new WriteableAzureBlobFileProvider(new AzureFileProvider
 });
 
 await files.UpdateFileAsync("reports/2026.csv", stream, new UpdateFileOptions { ContentType = "text/csv" });
-await files.UpdateFileAsync("logs/today.log", line, UpdateFileMode.Append);
+await files.UpdateFileAsync("logs/today.log", line, UpdateFileOptions.Append);
 await using var slice = await files.ReadRangeAsync("reports/2026.csv", 0, 4096);
 var url = await files.GetSignedUrlAsync("reports/2026.csv", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(15) });
 ```
@@ -41,7 +41,7 @@ From configuration, with `WriteableFileProviderSerializer.FromConfiguration(sect
 ```
 
 ```csharp
-services.AddWriteableFileProvider("files", configuration.GetSection("Files"));
+services.AddWriteableFileProvider(configuration.GetSection("Files"));
 ```
 
 With a client you build yourself (a managed identity, custom retries or transport, Aspire), which the provider never
@@ -49,7 +49,7 @@ disposes:
 
 ```csharp
 var container = new BlobContainerClient(new Uri("https://contoso.blob.core.windows.net/files"), new ManagedIdentityCredential(ManagedIdentityId.SystemAssigned));
-await using var files = new WriteableAzureBlobFileProvider(new AzureFileProviderOptions { RootDirectoryPath = "tenants/acme" }, container);
+await using var files = new WriteableAzureBlobFileProvider(new AzureBlobFileProviderOptions { RootDirectoryPath = "tenants/acme" }, container);
 ```
 
 The options come first, as on every provider's client constructor. With a client, only the root and

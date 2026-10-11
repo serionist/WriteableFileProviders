@@ -111,7 +111,8 @@ Each package has a test project of its own, `tests/WriteableFileProviders.<Packa
   and out-of-root payloads), one-time tokens under concurrent `PUT`s, ranges and headers, the size cap and content type
   of uploads, the URL service's choice between native and gateway URLs, the options, and the app pipeline (HTTP logging,
   output caching, a fallback authorization policy). `GatewayTokenGoldenTests` pins the gateway's one-way door with
-  tokens issued by a test-only key: they are never regenerated.
+  tokens issued by a test-only key, for a keyed provider and for the default one: they are never regenerated.
+  `TutorialTests` runs the root README's tutorial (download URLs for local files) over the Physical provider.
 - **Physical:** the suite on the local disk, under a temp folder of its own that the class deletes when it ends;
   `PhysicalProviderTests` and `PhysicalOptionsTests` cover the temp files, the races, links, the rules that differ by OS
   and the stored root forms. CI runs it on Linux and Windows.
@@ -206,23 +207,27 @@ door, a dropped target framework or a dependency change that breaks consumers' b
 feature or a new target framework in a minor; a fix in a patch.
 
 - **Names:** the `WriteableFileProviders.*` package ids and namespaces, published on nuget.org. The spelling
-  "Writeable" stays.
+  "Writeable" stays. The DI and endpoint extensions live in `Microsoft.Extensions.DependencyInjection` and
+  `Microsoft.AspNetCore.Builder`, as ASP.NET Core's own do.
 - **The Common API:** `IWriteableFileProvider` and `IWriteableFileInfo`; `WriteableFileProvider<TOptions>` with its
   protected `...CoreAsync` members and helpers, which third-party providers build on; `ProviderPath`, `ResolvedPath`,
   `WriteableFileInfo`, `DirectoryContents`, `FileProviderOptions`; `UpdateFileMode`, `UpdateFileOptions`,
   `ReadOptions`, `SeekableReadOptions`; `SignedUrl`, `SignedUrlOptions`, `SignedUrlAccess`, `SignedUrlKind`;
-  `LocalFileStream`, `RangeReadStream`; `PreconditionFailedException`, `FileExistsException`; and the extension and
-  DI classes. Every provider and every consumer builds on them; removing a member or changing what it means breaks
-  them. docs/migration-2027.md records each break of 2027.0.0.
+  `LocalFileStream`; `PreconditionFailedException`, `FileExistsException`; the DI extensions; and
+  `WriteableFileProviderCompatibilityExtensions`, the `[Obsolete]` 2026 forms that go in 2028.0.0. Every provider and
+  every consumer builds on them; removing a member or changing what it means breaks them. docs/migration-2027.md records
+  each break of 2027.0.0.
 - **The configuration shape:** `WriteableFileProviderSerializer` builds a provider from its `Type` and the property
   names of its options class, from configuration or JSON (System.Text.Json since 2027.0.0). Consumers keep that in
   configuration files and databases, so renaming a provider class, an options property or the `Type` key breaks what
   they stored. Every later reader reads what an earlier version wrote (the goldens pin it), except a root with a dot
   segment, refused since 2027.0.0 because it reached outside the root (final review F1, agreed on
   [#3](https://github.com/serionist/WriteableFileProviders/issues/3#issuecomment-6108746458)); the reverse is not promised.
-- **The gateway's URLs:** the token format and its Data Protection purpose chain (`WriteableFileProviders.Gateway.v1`,
-  the provider name, the access) and the URL shape `{BasePath}/{token}/{fileName?}`. A URL issued by one version
-  redeems on the next; a new format gets a new purpose version and the old one keeps redeeming.
+- **The gateway's URLs:** the token format `{access}.{provider key}.{payload}`, its Data Protection purpose chain
+  (`WriteableFileProviders.Gateway.v1`, the provider key, the access) and the URL shape `{BasePath}/{token}/{fileName?}`.
+  A token for the app's default provider leaves the key out: an empty key segment, and no key in the purpose chain. A
+  URL issued by one version redeems on the next; a new format gets a new purpose version and the old one keeps
+  redeeming.
 - **One meaning across providers:** a member does the same thing on every provider. A provider that cannot do something
   says so with an exception, the same way the others do, never by doing something else.
 

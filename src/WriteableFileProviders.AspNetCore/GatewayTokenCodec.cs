@@ -33,21 +33,28 @@ internal sealed record GatewayTokenPayload
 }
 
 /// <summary>A token the gateway could read: the provider it names, its payload, and when it expires.</summary>
-/// <param name="ProviderName">The keyed provider's name.</param>
+/// <param name="ProviderName">
+/// The key the provider is registered under (<c>AddKeyedSingleton&lt;IWriteableFileProvider&gt;(key, ...)</c>), or null for
+/// the app's default <see cref="IWriteableFileProvider"/>.
+/// </param>
 /// <param name="Payload">The payload.</param>
 /// <param name="ExpiresOn">When the token expires.</param>
-internal sealed record GatewayToken(string ProviderName, GatewayTokenPayload Payload, DateTimeOffset ExpiresOn);
+internal sealed record GatewayToken(string? ProviderName, GatewayTokenPayload Payload, DateTimeOffset ExpiresOn);
 
 /// <summary>
 /// Writes and reads gateway tokens. A token is <c>{access}.{provider}.{payload}</c>: a letter for the access (r, c, w),
-/// the provider's name in base64url, and the payload, protected by a time-limited Data Protection protector whose purpose
-/// chain is <see cref="Purpose"/>, the provider's name and the access. The first two parts are in the clear only to pick
-/// that protector: changing either one changes the purpose, so the payload no longer unprotects.
+/// the provider's key in base64url, empty for the app's default provider, and the payload, protected by a time-limited
+/// Data Protection protector whose purpose chain is <see cref="Purpose"/>, the provider's key (left out for the default
+/// provider) and the access. The first two parts are in the clear only to pick that protector: changing either one
+/// changes the purpose, so the payload no longer unprotects.
 /// </summary>
 /// <remarks>
 /// The format, the payload's JSON and the purpose chain are a one-way door: tokens issued by one version redeem on the
 /// next. So the access is spelled with literals here (<c>Read</c>, <c>Create</c>, <c>Write</c>), never through the enum's
-/// member names, and a golden test pins all of it.
+/// member names, and a golden test pins all of it. A key is never empty, so the empty segment of a default-provider token
+/// names no keyed provider; and the default provider's purpose chain, one purpose shorter, matches no keyed one (Data
+/// Protection keeps the number of purposes in what it authenticates). The chain leaves the key out rather than holding an
+/// empty purpose, which Data Protection allows but advises against.
 /// </remarks>
 /// <param name="dataProtectionProvider">The app's Data Protection.</param>
 internal sealed class GatewayTokenCodec(IDataProtectionProvider dataProtectionProvider)
@@ -58,16 +65,18 @@ internal sealed class GatewayTokenCodec(IDataProtectionProvider dataProtectionPr
     private static readonly UTF8Encoding _strictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
     /// <summary>Protects a payload for a provider until <paramref name="expiresOn"/>.</summary>
-    /// <param name="providerName">The keyed provider's name.</param>
+    /// <param name="providerName">The provider's key, never empty; null for the app's default provider.</param>
     /// <param name="payload">The payload.</param>
     /// <param name="expiresOn">When the token stops working.</param>
-    public string Protect(string providerName, GatewayTokenPayload payload, DateTimeOffset expiresOn)
+    public string Protect(string? providerName, GatewayTokenPayload payload, DateTimeOffset expiresOn)
     {
+        if (providerName is { Length: 0 })
+            throw new ArgumentException("A provider key is never empty.", nameof(providerName));
         var code = AccessCode(payload.Access);
         var json = JsonSerializer.SerializeToUtf8Bytes(payload);
         var protectedPayload = Protector(providerName, payload.Access).Protect(json, expiresOn);
-        return string.Join('.', code, WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(providerName)),
-            WebEncoders.Base64UrlEncode(protectedPayload));
+        var key = providerName is null ? "" : WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(providerName));
+        return string.Join('.', code, key, WebEncoders.Base64UrlEncode(protectedPayload));
     }
 
     /// <summary>Reads a token: null when it is malformed, tampered with, expired, or protected for another purpose.</summary>
@@ -77,18 +86,19 @@ internal sealed class GatewayTokenCodec(IDataProtectionProvider dataProtectionPr
         var parts = token?.Split('.');
         if (parts is not { Length: 3 } || !TryParseAccess(parts[0], out var access))
             return null;
-        string providerName;
+        // An empty provider segment is the app's default provider; any other names a key, which is never empty.
+        string? providerName;
         byte[] protectedPayload;
         try
         {
-            providerName = _strictUtf8.GetString(WebEncoders.Base64UrlDecode(parts[1]));
+            providerName = parts[1].Length == 0 ? null : _strictUtf8.GetString(WebEncoders.Base64UrlDecode(parts[1]));
             protectedPayload = WebEncoders.Base64UrlDecode(parts[2]);
         }
         catch (Exception e) when (e is FormatException or ArgumentException)
         {
             return null;
         }
-        if (providerName.Length == 0 || protectedPayload.Length == 0)
+        if (providerName is { Length: 0 } || protectedPayload.Length == 0)
             return null;
 
         byte[] json;
@@ -142,8 +152,10 @@ internal sealed class GatewayTokenCodec(IDataProtectionProvider dataProtectionPr
         return known;
     }
 
-    private ITimeLimitedDataProtector Protector(string providerName, SignedUrlAccess access) =>
-        dataProtectionProvider.CreateProtector(Purpose, providerName, AccessName(access)).ToTimeLimitedDataProtector();
+    private ITimeLimitedDataProtector Protector(string? providerName, SignedUrlAccess access) =>
+        (providerName is null
+            ? dataProtectionProvider.CreateProtector(Purpose, AccessName(access))
+            : dataProtectionProvider.CreateProtector(Purpose, providerName, AccessName(access))).ToTimeLimitedDataProtector();
 
     private static string AccessCode(SignedUrlAccess access) => access switch
     {

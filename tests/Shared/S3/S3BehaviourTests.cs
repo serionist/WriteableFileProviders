@@ -589,7 +589,7 @@ public abstract class S3BehaviourTests
             Assert.AreEqual("report é.csv", response.Content.Headers.ContentDisposition?.FileNameStar);
         }
 
-        var write = await provider.GetSignedUrlAsync("w.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Permission = SignedUrlAccess.Write, ContentType = "text/plain" });
+        var write = await provider.GetSignedUrlAsync("w.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Access = SignedUrlAccess.Write, ContentType = "text/plain" });
         Assert.AreEqual("PUT", write.Method);
         Assert.AreEqual("text/plain", write.Headers["Content-Type"]);
         Assert.AreEqual(HttpStatusCode.OK, await PutAsync(write, "written"));
@@ -600,10 +600,10 @@ public abstract class S3BehaviourTests
         // Toward a named endpoint the server may ignore the If-None-Match that guards a create URL, so there is none:
         // the gateway issues it instead.
         await Assert.ThrowsExactlyAsync<NotSupportedException>(() =>
-            provider.GetSignedUrlAsync("c.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Permission = SignedUrlAccess.Create }));
+            provider.GetSignedUrlAsync("c.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Access = SignedUrlAccess.Create }));
 
         await Assert.ThrowsExactlyAsync<NotSupportedException>(() => provider.GetSignedUrlAsync("w.txt",
-            new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Permission = SignedUrlAccess.Write, DownloadFileName = "x.txt" }));
+            new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Access = SignedUrlAccess.Write, DownloadFileName = "x.txt" }));
         await Assert.ThrowsExactlyAsync<NotSupportedException>(() => provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromDays(7) + TimeSpan.FromSeconds(1) }));
         // SigV4, as far as the SDK's skew-corrected clock allows (the limit itself is pinned offline).
         var days = await provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromDays(6) });
@@ -644,7 +644,7 @@ public abstract class S3BehaviourTests
         using var provider = CreateProvider(Root);
         var path = (ResolvedPath)typeof(ResolvedPath).GetConstructors(BindingFlags.NonPublic | BindingFlags.Instance).Single()
             .Invoke([new[] { Root }, new[] { "c.txt" }]);
-        var create = await CoreOf(provider).PresignAsync(path, new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Permission = SignedUrlAccess.Create },
+        var create = await CoreOf(provider).PresignAsync(path, new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Access = SignedUrlAccess.Create },
             DateTimeOffset.UtcNow, CancellationToken.None);
         Assert.AreEqual("*", create.Headers["If-None-Match"]);
         StringAssert.Contains(HttpUtility.ParseQueryString(create.Url.Query)["X-Amz-SignedHeaders"], "if-none-match");

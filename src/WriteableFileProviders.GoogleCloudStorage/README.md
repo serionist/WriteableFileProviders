@@ -33,7 +33,7 @@ var url = await files.GetSignedUrlAsync("reports/2026.csv", new SignedUrlOptions
 ```
 
 From configuration, with `WriteableFileProviderSerializer.FromConfiguration(section)` or
-`services.AddWriteableFileProvider("files", section)`:
+`services.AddWriteableFileProvider(section)`:
 
 ```json
 {
@@ -140,7 +140,7 @@ the cause inside, and the WriteableFileProviders.AspNetCore gateway can take ove
 error) and a timeout are not this: they fail as on every other member, with `UnauthorizedAccessException` and
 `IOException`.
 
-| Permission | URL | The request must send |
+| Access | URL | The request must send |
 |---|---|---|
 | `Read` | GET; `DownloadFileName` and `ContentType` become `response-content-disposition` and `response-content-type` | nothing |
 | `Create` | PUT, only if the file does not exist | `x-goog-if-generation-match: 0`, and `Content-Type` when one was given |

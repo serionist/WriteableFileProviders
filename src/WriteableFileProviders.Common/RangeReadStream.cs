@@ -9,7 +9,7 @@ namespace WriteableFileProviders;
 /// read throws <see cref="PreconditionFailedException"/> (an <see cref="IOException"/>). A fetch that returns fewer bytes
 /// than the length promised throws <see cref="IOException"/> too.
 /// </remarks>
-public sealed class RangeReadStream : Stream
+internal sealed class RangeReadStream : Stream
 {
     private readonly Func<long, long, CancellationToken, Task<Stream>> _readRange;
     private readonly int _bufferSize;

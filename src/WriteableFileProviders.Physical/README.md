@@ -24,7 +24,7 @@ using WriteableFileProviders.Physical;
 await using IWriteableFileProvider files = new WriteablePhysicalFileProvider("/srv/files");
 
 await files.UpdateFileAsync("reports/2026.csv", stream);                         // atomic, parent folders created
-await files.UpdateFileAsync("log.txt", more, UpdateFileMode.Append);              // atomic append
+await files.UpdateFileAsync("log.txt", more, UpdateFileOptions.Append);           // atomic append
 await using var slice = await files.ReadRangeAsync("big.bin", 1_000_000, 4096);   // only those bytes are read
 var info = await files.GetFileInfoAsync("reports/2026.csv");                      // info.PhysicalPath is the disk path
 await files.UpdateFileAsync("reports/2026.csv", newer, new UpdateFileOptions { IfMatch = info.ETag });
@@ -38,7 +38,7 @@ From configuration, with `WriteableFileProviderSerializer.FromConfiguration(sect
 ```
 
 ```csharp
-services.AddWriteableFileProvider("files", configuration.GetSection("Files"));
+services.AddWriteableFileProvider(configuration.GetSection("Files"));
 ```
 
 The provider class is sealed: to change what it does, wrap it, or derive your own provider from

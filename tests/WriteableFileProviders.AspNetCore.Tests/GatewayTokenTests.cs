@@ -127,6 +127,44 @@ public sealed class GatewayTokenTests
     }
 
     [TestMethod]
+    public async Task DefaultProviderToken_AndKeyedToken_DoNotRedeemAsEachOther()
+    {
+        await _host.WriteAsync("doc.txt", "default's", provider: null);
+        var defaultRead = GatewayHost.TokenOf(await _host.UrlAsync("doc.txt", provider: null));
+        var defaultWrite = GatewayHost.TokenOf(await _host.UrlAsync("doc.txt", SignedUrlAccess.Write, provider: null));
+        var keyedRead = GatewayHost.TokenOf(await _host.UrlAsync("doc.txt"));
+        var keyedWrite = GatewayHost.TokenOf(await _host.UrlAsync("doc.txt", SignedUrlAccess.Write));
+
+        await AssertNotFoundAsync(Reprovider(defaultRead, "files"));
+        await AssertNotFoundAsync(Reprovider(defaultWrite, "files"), put: true);
+        // A key that spells the access: the default's chain is one purpose shorter, never the same chain.
+        await AssertNotFoundAsync(Reprovider(defaultRead, "Read"));
+        await AssertNotFoundAsync(Unkeyed(keyedRead));
+        await AssertNotFoundAsync(Unkeyed(keyedWrite), put: true);
+        Assert.AreEqual("default's", await _host.ReadAsync("doc.txt", provider: null));
+        Assert.AreEqual("original", await _host.ReadAsync("doc.txt"));
+    }
+
+    [TestMethod]
+    public async Task DefaultProviderToken_WhenNoDefaultIsRegistered_Answers404()
+    {
+        await using var host = await GatewayHost.StartAsync(withDefault: false);
+        var codec = host.Services.GetRequiredService<GatewayTokenCodec>();
+        var read = codec.Protect(null, Payload(SignedUrlAccess.Read, "doc.txt"), DateTimeOffset.UtcNow.AddMinutes(1));
+        var write = codec.Protect(null, Payload(SignedUrlAccess.Write, "doc.txt"), DateTimeOffset.UtcNow.AddMinutes(1));
+
+        using var get = await host.Client.GetAsync(GatewayHost.GatewayUrl(read));
+        using var put = await host.PutAsync(GatewayHost.GatewayUrl(write), "x");
+
+        Assert.AreEqual(HttpStatusCode.NotFound, get.StatusCode);
+        Assert.AreEqual(HttpStatusCode.NotFound, put.StatusCode);
+    }
+
+    [TestMethod]
+    public void Protect_AnEmptyKey_Throws() =>
+        Assert.ThrowsExactly<ArgumentException>(() => Codec.Protect("", Payload(SignedUrlAccess.Read, "doc.txt"), DateTimeOffset.UtcNow.AddMinutes(1)));
+
+    [TestMethod]
     public async Task TokenForAProviderThatIsNotRegistered_Answers404()
     {
         var read = Codec.Protect("ghost", Payload(SignedUrlAccess.Read, "doc.txt"), DateTimeOffset.UtcNow.AddMinutes(1));
@@ -149,6 +187,9 @@ public sealed class GatewayTokenTests
     [DataRow("r.ZmlsZXM.!!!!")]
     [DataRow("r.ZmlsZXM.abcdef")]
     [DataRow("r._w.abcdef")]
+    [DataRow("r.  .AAAA")]          // a key segment that decodes to an empty key
+    [DataRow("r..AAAA")]            // the default provider's form, with a payload that does not unprotect
+    [DataRow("r..")]                // the default provider's form, with no payload
     public async Task MalformedToken_Answers404(string token)
     {
         await AssertNotFoundAsync(token);
@@ -248,6 +289,12 @@ public sealed class GatewayTokenTests
 
     private static string Token(string access, string provider, byte[] protectedPayload) =>
         $"{access}.{WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(provider))}.{WebEncoders.Base64UrlEncode(protectedPayload)}";
+
+    private static string Unkeyed(string token)
+    {
+        var parts = token.Split('.');
+        return $"{parts[0]}..{parts[2]}";
+    }
 
     private static string Reprovider(string token, string provider)
     {

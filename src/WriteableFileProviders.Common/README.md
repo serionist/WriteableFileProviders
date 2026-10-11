@@ -23,7 +23,7 @@ using WriteableFileProviders;
 IWriteableFileProvider files = WriteableFileProviderSerializer.FromConfiguration(configuration.GetSection("Files"));
 
 await files.UpdateFileAsync("reports/2026.csv", stream);                      // atomic overwrite, parents created
-await files.UpdateFileAsync("log.txt", more, UpdateFileMode.Append);           // atomic append
+await files.UpdateFileAsync("log.txt", more, UpdateFileOptions.Append);       // atomic append
 await using var slice = await files.ReadRangeAsync("big.bin", 1_000_000, 4096); // bytes 1,000,000 to 1,004,095
 await using var seekable = await files.OpenReadSeekableAsync("big.bin");      // seeks, fetches ranges as read
 await foreach (var entry in files.EnumerateAsync("reports", recursive: true)) { }
@@ -33,10 +33,10 @@ var url = await files.GetSignedUrlAsync("archive/2026.csv", new SignedUrlOptions
 
 Every path is a `ProviderPath` relative to the provider's root, which a string or a string array converts to; nothing
 outside the root can be reached by a path (on Physical, symbolic links and junctions inside the root are followed
-wherever they point: see its README). Every async member takes a `CancellationToken`. Synchronous forms of the common
-operations are extension methods (`ReadFile`, `UpdateFile`, `Delete`, `Move`, `CreateLocalFileStream`,
-`GetDownloadUrl`), beside the three members `IFileProvider` itself has (`GetFileInfo`, `GetDirectoryContents`,
-`Watch`).
+wherever they point: see its README). Every async member takes a `CancellationToken`. The only synchronous members
+are the three `IFileProvider` itself has (`GetFileInfo`, `GetDirectoryContents`, `Watch`). The 2026 synchronous forms
+(`ReadFile`, `UpdateFile`, `Delete`, `Move`, `CreateLocalFileStream`), the `IFileInfo` overloads and `GetDownloadUrl`
+still compile, with a warning that names the async member to call, and go in 2028.0.0.
 
 ## Configuration
 
@@ -45,11 +45,11 @@ operations are extension methods (`ReadFile`, `UpdateFile`, `Delete`, `Move`, `C
 ```
 
 `Type` is the provider's class name, matched without regard to case; the other keys are its options' property names.
-With dependency injection, as a keyed singleton the container creates on first use and disposes:
+With dependency injection, as a singleton `IWriteableFileProvider` the container creates on first use and disposes:
 
 ```csharp
-services.AddWriteableFileProvider("files", configuration.GetSection("Files"));
-// then: [FromKeyedServices("files")] IWriteableFileProvider files
+services.AddWriteableFileProvider(configuration.GetSection("Files"));
+// then inject IWriteableFileProvider; for several, use keyed services, GetServices or interfaces of your own
 ```
 
 `WriteableFileProviderSerializer` also builds a provider from JSON (`FromJson`) and writes one back (`ToJson`,

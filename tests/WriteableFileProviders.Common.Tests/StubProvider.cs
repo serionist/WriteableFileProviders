@@ -81,7 +81,7 @@ public sealed class StubProvider(StubOptions options) : WriteableFileProvider<St
 
     protected override bool SupportsAtomicPreconditions => AtomicPreconditions;
 
-    protected override bool SupportsSignedUrl(SignedUrlAccess permission) => SignedUrls;
+    protected override bool SupportsSignedUrl(SignedUrlAccess access) => SignedUrls;
 
     protected override bool IsSegmentAllowed(string part) => RefusedCharacter is not { } refused || !part.Contains(refused, StringComparison.Ordinal);
 

@@ -526,8 +526,8 @@ public abstract class S3OfflineTests
             using (provider)
             {
                 await Assert.ThrowsExactlyAsync<NotSupportedException>(() =>
-                    provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromDays(7), Permission = SignedUrlAccess.Write }));
-                var url = await provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromDays(6), Permission = SignedUrlAccess.Write });
+                    provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromDays(7), Access = SignedUrlAccess.Write }));
+                var url = await provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromDays(6), Access = SignedUrlAccess.Write });
                 StringAssert.Contains(url.Url.Query, "X-Amz-Signature=");
             }
         }

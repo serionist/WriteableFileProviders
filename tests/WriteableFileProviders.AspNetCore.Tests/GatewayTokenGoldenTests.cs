@@ -115,6 +115,102 @@ public sealed class GatewayTokenGoldenTests
         Assert.AreEqual("""{"p":["golden","doc.txt"],"a":"Write","t":"text/plain","f":"Golden.txt","j":"id"}""", Encoding.UTF8.GetString(json));
     }
 
+    // Issued with the key above by GatewayTokenCodec on 2026-10-11, for the app's default provider (an empty provider
+    // segment, and no provider in the purpose chain), path golden/doc.txt, type text/plain, file name Golden.txt, ids
+    // 00...04, 00...05 and 00...06, expiring 2100-01-01. Never regenerate them.
+    private const string GoldenDefaultRead = "r..CfDJ8Gzzvn-K399Jg-vapkb95kq5yeOmCCs8RFdhdd3WmVh8xiYPTgaeHrLyjYK88gHVVMdiI5jMR5YSm6z5VUsJMrXckaMwCFlOUny_RFPTKFbNHDaM9a9TT2Y24KesXGIlOdVsKSvHZMpgeMXwSHNW88r1kdOPDKrot3-0IEMIlvlBk6cHgpuGsNw49_vPWE5AtCkRsbDZSa5TD7DzFnK4_9FPlomLptO2WilJIpsD1ac3kavF7YEe8NpZGAoKly9NHTYzFZt08CMiPrqBgw3llRM";
+    private const string GoldenDefaultCreate = "c..CfDJ8Gzzvn-K399Jg-vapkb95kpoouE0lP_oXvq0fbbcIKGF9Eqk3N1vPpyCeKGy2i2AgDtG4cmZEFMJHWc56ZCT_fWt6Kk8w17glVIo9Nfy8sDHXF7VVGL8ggchi8n9nWE_pKj6WJer_IWQN1zytdji4Dc6d07YN0VXIUcu46W94odChjSptQGuik4rm7-o1_rAgiGIQYcM_-ihUoNJFYe3OkxIWsUlEUKhyWJYTDeyJGq6XKqlP1fH5By_OwCKljPT9YXyDK0dX7MMQSJ2A6f4OI4";
+    private const string GoldenDefaultWrite = "w..CfDJ8Gzzvn-K399Jg-vapkb95kq_bB4lABCujVpkltL1HuXys-mFfrH9dCaNtl0cDUBPkXzdY0C0FwKQqP-LNw_y6wQUp5Vuwig_cPYFpM90Od8pgJqrV9t7X5VeufadwXodZ9P9t3jdfb-JoGJu5BfVWF3YeN8fYfBgQsBSi44f9LZ92P0WhMiHaoxh2NT3lLthdwxpj6ht305fx4cylrHJVMg-QvLsErjc2ZkDoH1Iv3EdWmm5elDuquicx7DWf2HMnjQA50EHLNKUYWHjoJmsTBk";
+
+    [TestMethod]
+    public void GoldenDefaultProviderTokens_ReadBackWhatTheyWereIssuedWith()
+    {
+        var codec = new GatewayTokenCodec(GoldenDataProtection());
+
+        foreach (var (token, access, id) in new[] { (GoldenDefaultRead, SignedUrlAccess.Read, "4"), (GoldenDefaultCreate, SignedUrlAccess.Create, "5"), (GoldenDefaultWrite, SignedUrlAccess.Write, "6") })
+        {
+            var read = codec.Read(token);
+            Assert.IsNotNull(read, token[..1]);
+            Assert.IsNull(read.ProviderName);
+            CollectionAssert.AreEqual(new[] { "golden", "doc.txt" }, read.Payload.Path);
+            Assert.AreEqual(access, read.Payload.Access);
+            Assert.AreEqual("text/plain", read.Payload.ContentType);
+            Assert.AreEqual("Golden.txt", read.Payload.FileName);
+            Assert.AreEqual(new string('0', 31) + id, read.Payload.Id);
+            Assert.AreEqual(new DateTimeOffset(2100, 1, 1, 0, 0, 0, TimeSpan.Zero), read.ExpiresOn);
+        }
+    }
+
+    [TestMethod]
+    public async Task GoldenDefaultProviderTokens_AreServedByTheGateway_FromTheDefaultProvider()
+    {
+        await using var host = await GatewayHost.StartAsync(configureBuilder: builder =>
+            builder.Services.AddSingleton(GoldenDataProtection()));
+        await host.WriteAsync("golden/doc.txt", "golden content", provider: null);
+        await host.WriteAsync("golden/doc.txt", "the keyed provider's");
+
+        using (var get = await host.Client.GetAsync(GatewayHost.GatewayUrl(GoldenDefaultRead)))
+        {
+            Assert.AreEqual(HttpStatusCode.OK, get.StatusCode);
+            Assert.AreEqual("golden content", await get.Content.ReadAsStringAsync());
+            Assert.AreEqual("text/plain", get.Content.Headers.ContentType?.MediaType);
+            Assert.AreEqual("Golden.txt", get.Content.Headers.ContentDisposition?.FileNameStar);
+        }
+        using (var write = await host.PutAsync(GatewayHost.GatewayUrl(GoldenDefaultWrite), "rewritten", "text/plain"))
+            Assert.AreEqual(HttpStatusCode.OK, write.StatusCode);
+        Assert.AreEqual("rewritten", await host.ReadAsync("golden/doc.txt", provider: null));
+        await host.Provider(null).DeleteAsync("golden/doc.txt");
+        using (var create = await host.PutAsync(GatewayHost.GatewayUrl(GoldenDefaultCreate), "created", "text/plain"))
+            Assert.AreEqual(HttpStatusCode.Created, create.StatusCode);
+        Assert.AreEqual("created", await host.ReadAsync("golden/doc.txt", provider: null));
+        Assert.AreEqual("the keyed provider's", await host.ReadAsync("golden/doc.txt"));
+    }
+
+    [TestMethod]
+    [DataRow("r", "Read", "GET")]
+    [DataRow("c", "Create", "PUT")]
+    [DataRow("w", "Write", "PUT")]
+    public async Task DefaultProviderTokensBuiltFromLiterals_Redeem(string code, string access, string method)
+    {
+        await using var host = await GatewayHost.StartAsync();
+        if (method == "GET")
+            await host.WriteAsync("golden/doc.txt", "golden content", provider: null);
+        var protector = host.Services.GetRequiredService<IDataProtectionProvider>()
+            .CreateProtector("WriteableFileProviders.Gateway.v1", access).ToTimeLimitedDataProtector();
+        var json = $$"""{"p":["golden","doc.txt"],"a":"{{access}}","t":"text/plain","f":"Golden.txt","j":"{{Guid.NewGuid():N}}"}""";
+        var payload = protector.Protect(Encoding.UTF8.GetBytes(json), DateTimeOffset.UtcNow.AddMinutes(5));
+        var token = $"{code}..{WebEncoders.Base64UrlEncode(payload)}";
+
+        using var response = method == "GET"
+            ? await host.Client.GetAsync(GatewayHost.GatewayUrl(token))
+            : await host.PutAsync(GatewayHost.GatewayUrl(token), "uploaded", "text/plain");
+
+        Assert.IsTrue(response.IsSuccessStatusCode, $"{response.StatusCode}");
+        Assert.AreEqual(method == "GET" ? "golden content" : "uploaded", await host.ReadAsync("golden/doc.txt", provider: null));
+    }
+
+    [TestMethod]
+    public void TheCodec_WritesTheLiteralFormat_ForTheDefaultProvider()
+    {
+        var dataProtection = new EphemeralDataProtectionProvider();
+        var token = new GatewayTokenCodec(dataProtection).Protect(null, new GatewayTokenPayload
+        {
+            Path = ["golden", "doc.txt"],
+            Access = SignedUrlAccess.Write,
+            ContentType = "text/plain",
+            FileName = "Golden.txt",
+            Id = "id",
+        }, DateTimeOffset.UtcNow.AddMinutes(5));
+
+        var parts = token.Split('.');
+        Assert.AreEqual(3, parts.Length);
+        Assert.AreEqual("w", parts[0]);
+        Assert.AreEqual("", parts[1]);
+        var json = dataProtection.CreateProtector("WriteableFileProviders.Gateway.v1", "Write").ToTimeLimitedDataProtector()
+            .Unprotect(WebEncoders.Base64UrlDecode(parts[2]), out _);
+        Assert.AreEqual("""{"p":["golden","doc.txt"],"a":"Write","t":"text/plain","f":"Golden.txt","j":"id"}""", Encoding.UTF8.GetString(json));
+    }
+
     private static IDataProtectionProvider GoldenDataProtection()
     {
         var services = new ServiceCollection();

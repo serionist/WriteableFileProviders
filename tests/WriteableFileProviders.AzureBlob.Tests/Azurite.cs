@@ -39,7 +39,7 @@ internal static class Azurite
     public static string NewContainerName() => "wfp-" + Guid.NewGuid().ToString("N");
 
     /// <summary>Options for a provider on Azurite, through the configuration path consumers use.</summary>
-    public static AzureFileProviderOptions Options(string containerName, string? root = null) => new()
+    public static AzureBlobFileProviderOptions Options(string containerName, string? root = null) => new()
     {
         AccountName = AccountName,
         AccountKey = AccountKey,

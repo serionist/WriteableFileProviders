@@ -83,6 +83,20 @@ public abstract class ProviderConformanceTests
     protected virtual IWriteableFileProvider? CreateProviderWithMissingContainer() => null;
 
     /// <summary>
+    /// Whether the provider checks its root with the path rules when it is built, so a root with a dot segment throws
+    /// <see cref="ArgumentException"/>. False only where the root is a folder of the local disk (Physical).
+    /// </summary>
+    protected virtual bool ChecksItsRoot => true;
+
+    /// <summary>
+    /// A provider at the test's root whose store throws <paramref name="failure"/> from every call, as a store or its SDK
+    /// might (a network failure, an answer it cannot read, a timeout), or null where the fixture cannot make it fail. Its
+    /// exception may reach the provider wrapped by the SDK.
+    /// </summary>
+    /// <param name="failure">What the store throws.</param>
+    protected virtual IWriteableFileProvider? CreateProviderThatFails(Exception failure) => null;
+
+    /// <summary>
     /// Stores a file straight in the store, past the provider and its path rules, as another client of the store could:
     /// how a test stages a name the provider refuses. The default stores nothing.
     /// </summary>
@@ -244,6 +258,21 @@ public abstract class ProviderConformanceTests
         {
             await BaseProvider.DeleteAsync(sibling);
         }
+    }
+
+    [TestMethod]
+    [DataRow("..")]
+    [DataRow(".")]
+    [DataRow("x/..")]
+    [DataRow("x/../..")]
+    [DataRow("%2e%2e")]
+    [DataRow("%252e%252e/x")]
+    public void Path_ARootWithADotSegmentIsRefused(string root)
+    {
+        if (!ChecksItsRoot)
+            return;
+        var e = Assert.ThrowsExactly<ArgumentException>(() => CreateProvider(root).Dispose());
+        StringAssert.Contains(e.Message, "RootDirectoryPath");
     }
 
     // ----- File info -----
@@ -942,7 +971,7 @@ public abstract class ProviderConformanceTests
         await Assert.ThrowsAsync<FileNotFoundException>(() => Provider.GetSignedUrlAsync("missing.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1) }));
     }
 
-    // ----- Unsupported, cancellation, missing container -----
+    // ----- Unsupported, cancellation, errors, missing container -----
 
     [TestMethod]
     public void Watch_IsNativeOrNotSupported()
@@ -965,6 +994,89 @@ public abstract class ProviderConformanceTests
     }
 
     [TestMethod]
+    public async Task Errors_OutsideTheContractAreIOException()
+    {
+        var failure = new StoreFailureException("The store failed.");
+        var provider = CreateProviderThatFails(failure);
+        if (provider is null)
+            return;
+        await using (provider)
+        {
+            foreach (var (name, call) in CallsReachingTheStore(provider))
+            {
+                var e = await Assert.ThrowsExactlyAsync<IOException>(call, name);
+                Assert.IsTrue(Causes(e).Contains(failure), $"{name}: the store's exception is inside");
+                StringAssert.Contains(e.Message, name.Contains("listing", StringComparison.Ordinal) ? "root" : "f.txt", name);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task Errors_ATimeoutIsIOException_NotACancellation()
+    {
+        var timeout = new TaskCanceledException("The store's client gave up waiting.", new TimeoutException());
+        var provider = CreateProviderThatFails(timeout);
+        if (provider is null)
+            return;
+        await using (provider)
+        {
+            foreach (var (name, call) in CallsReachingTheStore(provider))
+            {
+                var e = await Assert.ThrowsExactlyAsync<IOException>(call, name);
+                Assert.IsTrue(Causes(e).Contains(timeout), $"{name}: the timeout is inside");
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task Errors_OfTheContractPassThrough()
+    {
+        var refused = new UnauthorizedAccessException("The store refused the credential.");
+        var provider = CreateProviderThatFails(refused);
+        if (provider is null)
+            return;
+        await using (provider)
+        {
+            foreach (var (name, call) in CallsReachingTheStore(provider))
+                Assert.AreSame(refused, await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(call, name), name);
+        }
+    }
+
+    // Every member that asks the store, each named for the messages.
+    private IEnumerable<(string Name, Func<Task> Call)> CallsReachingTheStore(IWriteableFileProvider provider)
+    {
+        yield return ("info", () => provider.GetFileInfoAsync("f.txt"));
+        yield return ("listing", () => provider.GetDirectoryContentsAsync(""));
+        yield return ("listing, one level", async () => await provider.EnumerateAsync("").FirstOrDefaultAsync());
+        yield return ("listing, recursive", async () => await provider.EnumerateAsync("", recursive: true).FirstOrDefaultAsync());
+        yield return ("read", () => provider.ReadFileAsync("f.txt"));
+        yield return ("range", () => provider.ReadRangeAsync("f.txt", 1, 2));
+        yield return ("seekable", () => provider.OpenReadSeekableAsync("f.txt"));
+        yield return ("overwrite", () => provider.UpdateFileAsync("f.txt", TestStreams.Text("x")));
+        yield return ("append", () => provider.UpdateFileAsync("f.txt", TestStreams.Text("x"), UpdateFileOptions.Append));
+        yield return ("delete", () => provider.DeleteAsync("f.txt"));
+        yield return ("move", () => provider.MoveAsync("f.txt", "g.txt"));
+        yield return ("copy", () => provider.CopyAsync("f.txt", "g.txt"));
+        yield return ("local copy, read-only", () => provider.CreateLocalFileStreamAsync("f.txt", readOnly: true));
+        yield return ("local copy", () => provider.CreateLocalFileStreamAsync("f.txt", readOnly: false));
+        if (SupportsSignedUrls(SignedUrlAccess.Read))
+            yield return ("read URL", () => provider.GetSignedUrlAsync("f.txt", SignedUrlOptionsFor(SignedUrlAccess.Read)));
+    }
+
+    private static IEnumerable<Exception> Causes(Exception exception)
+    {
+        for (Exception? e = exception; e is not null; e = e.InnerException)
+        {
+            yield return e;
+            if (e is AggregateException aggregate)
+            {
+                foreach (var inner in aggregate.Flatten().InnerExceptions.SelectMany(Causes))
+                    yield return inner;
+            }
+        }
+    }
+
+    [TestMethod]
     public async Task MissingContainer_ThrowsInvalidOperationEverywhere()
     {
         var provider = CreateProviderWithMissingContainer();
@@ -978,5 +1090,27 @@ public abstract class ProviderConformanceTests
             await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.UpdateFileAsync("f.txt", TestStreams.Text("x")));
             await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.DeleteAsync("f.txt"));
         }
+    }
+}
+
+/// <summary>A failure of a store that is none of the contract's types, as an SDK's own exception is.</summary>
+public sealed class StoreFailureException : Exception
+{
+    /// <summary>Creates the exception.</summary>
+    public StoreFailureException()
+    {
+    }
+
+    /// <summary>Creates the exception.</summary>
+    /// <param name="message">The message.</param>
+    public StoreFailureException(string message) : base(message)
+    {
+    }
+
+    /// <summary>Creates the exception.</summary>
+    /// <param name="message">The message.</param>
+    /// <param name="innerException">The cause.</param>
+    public StoreFailureException(string message, Exception innerException) : base(message, innerException)
+    {
     }
 }

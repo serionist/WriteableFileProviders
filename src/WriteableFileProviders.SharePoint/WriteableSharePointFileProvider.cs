@@ -166,6 +166,15 @@ public sealed partial class WriteableSharePointFileProvider : WriteableFileProvi
     protected override bool IsNotFound(Exception exception) => exception is not null && GraphErrors.IsNotFound(exception);
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Graph's 401 and 403, and Microsoft Entra ID refusing the credential, or finding none (Azure.Identity's
+    /// <see cref="AuthenticationFailedException"/>, which the SDK raises inside each request, as it asks for the token).
+    /// The provider maps the errors it reads itself; these are what reaches the base class untyped.
+    /// </remarks>
+    protected override bool IsAccessDenied(Exception exception) =>
+        exception is AuthenticationFailedException || (exception is not null && GraphErrors.Status(exception) is 401 or 403);
+
+    /// <inheritdoc />
     protected override async Task<IWriteableFileInfo> GetFileInfoCoreAsync(ResolvedPath path, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(path);
@@ -377,7 +386,9 @@ public sealed partial class WriteableSharePointFileProvider : WriteableFileProvi
         {
             throw GraphErrors.Wrap(e, $"Finding the site '{Options.SiteUrl}'");
         }
-        var siteId = site?.Id ?? throw new InvalidOperationException($"Microsoft Graph returned no id for the site '{Options.SiteUrl}'.");
+        // An answer without an id is the service's failure, not a site the options name wrongly: it is not cached, and the
+        // next call asks again.
+        var siteId = site?.Id ?? throw new IOException($"Finding the site '{Options.SiteUrl}' failed: Microsoft Graph returned no id for it.");
 
         var wanted = Options.DocumentLibraryName;
         var drives = _graph.Sites[siteId].Drives;

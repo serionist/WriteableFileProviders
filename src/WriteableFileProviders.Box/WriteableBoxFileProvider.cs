@@ -357,6 +357,19 @@ public sealed partial class WriteableBoxFileProvider : WriteableFileProvider<Box
     /// <inheritdoc />
     protected override bool IsNotFound(Exception exception) => exception is BoxApiException { ResponseInfo.StatusCode: 404 };
 
+    /// <inheritdoc />
+    /// <remarks>
+    /// Box's 401 and 403, and its token endpoint refusing the app's credentials (a 400 to <c>/oauth2/token</c>, such as
+    /// <c>invalid_client</c> or <c>invalid_grant</c>, which is how OAuth says 401).
+    /// </remarks>
+    protected override bool IsAccessDenied(Exception exception) =>
+        exception is BoxApiException { ResponseInfo.StatusCode: 401 or 403 }
+        || (exception is BoxApiException { ResponseInfo.StatusCode: 400 } refused && IsTokenRequest(refused));
+
+    private static bool IsTokenRequest(BoxApiException exception) =>
+        Uri.TryCreate(exception.RequestInfo?.Url, UriKind.Absolute, out var url)
+        && url.AbsolutePath.EndsWith("/oauth2/token", StringComparison.Ordinal);
+
     /// <summary>Turns the escaped line breaks of a key pasted into JSON or an environment variable into real ones.</summary>
     internal static string NormalizePrivateKey(string pem) =>
         !pem.Contains('\\', StringComparison.Ordinal)

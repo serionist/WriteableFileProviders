@@ -25,6 +25,9 @@ public sealed class PhysicalLiveTests : ProviderConformanceTests
 
     protected override bool HasPhysicalPaths => true;
 
+    // The root is a folder of the disk, which the system resolves (dot segments included); paths under it stay inside it.
+    protected override bool ChecksItsRoot => false;
+
     // The version check before the rename is not atomic (D15, D19).
     protected override bool DetectsConcurrentAppends => false;
 

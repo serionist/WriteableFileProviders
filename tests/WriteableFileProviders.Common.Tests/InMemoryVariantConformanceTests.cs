@@ -37,6 +37,13 @@ public sealed class InMemoryVariantConformanceTests : ProviderConformanceTests
             FixedSignedUrlLifetime = TimeSpan.FromMinutes(15),
         });
 
+    protected override IWriteableFileProvider? CreateProviderThatFails(Exception failure)
+    {
+        var provider = (InMemoryFileProvider)CreateProvider(RootName);
+        provider.Failure = failure;
+        return provider;
+    }
+
     protected override Task<bool> StoreRawFileAsync(IReadOnlyList<string> names, string text)
     {
         using var store = (InMemoryFileProvider)CreateProvider(null);

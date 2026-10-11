@@ -69,7 +69,7 @@ public sealed class MinioEmulatorTests
         using var named = new WriteableMinioFileProvider(Options("eu-central-1"));
         Assert.AreEqual("found", await ReadAllAsync(named, "f.txt"));
         using var wrong = new WriteableMinioFileProvider(Options("us-east-1"));
-        var e = await Assert.ThrowsExactlyAsync<AmazonS3Exception>(() => wrong.ReadFileAsync("f.txt"));
+        var e = Assert.IsInstanceOfType<AmazonS3Exception>((await Assert.ThrowsExactlyAsync<IOException>(() => wrong.ReadFileAsync("f.txt"))).InnerException);
         Assert.AreEqual("AuthorizationHeaderMalformed", e.ErrorCode);
         Assert.IsTrue(await discovered.DeleteAsync("f.txt"));
     }

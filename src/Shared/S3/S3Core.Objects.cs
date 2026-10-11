@@ -223,9 +223,12 @@ internal sealed partial class S3Core
             }
             catch (DeleteObjectsException e) when (e.Response?.DeleteErrors is { Count: > 0 } errors)
             {
-                // The SDK throws when the batch reports errors; some objects may be gone, the others are named.
-                throw new IOException(
-                    $"Failed to delete {errors.Count} object(s) under '{path}'. First: '{errors[0].Key}' {errors[0].Code} {errors[0].Message}", e);
+                // The SDK throws when the batch reports errors; some objects may be gone, the others are named. Refused
+                // keys are refused as a file delete is.
+                var message = $"Failed to delete {errors.Count} object(s) under '{path}'. First: '{errors[0].Key}' {errors[0].Code} {errors[0].Message}";
+                throw errors.TrueForAll(error => error.Code == "AccessDenied")
+                    ? new UnauthorizedAccessException(message, e)
+                    : new IOException(message, e);
             }
             deleted = true;
         }

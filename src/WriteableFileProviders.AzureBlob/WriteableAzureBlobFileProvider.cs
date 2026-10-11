@@ -284,10 +284,20 @@ public sealed partial class WriteableAzureBlobFileProvider : WriteableFileProvid
     protected override async Task DeleteFileCoreAsync(ResolvedPath path, CancellationToken cancellationToken) =>
         await GuardAsync(() => DeleteBlobAsync(Blob(path), cancellationToken)).ConfigureAwait(false);
 
-    /// <summary>A store's "blob not found": read members turn it into a <see cref="FileNotFoundException"/>.</summary>
+    /// <summary>A store's "blob not found": the public members turn it into a <see cref="FileNotFoundException"/>.</summary>
     /// <param name="exception">The store's exception.</param>
     protected override bool IsNotFound(Exception exception) =>
         exception is RequestFailedException { Status: 404 } e && !Is(e, BlobErrorCode.ContainerNotFound);
+
+    /// <summary>
+    /// Azure's 401 and 403, and Microsoft Entra ID refusing the credential, or finding none, when the provider signs in
+    /// with <see cref="AzureFileProviderOptions.UseDefaultAzureCredential"/> (Azure.Identity's
+    /// <see cref="AuthenticationFailedException"/>, thrown inside each request): the public members turn them into an
+    /// <see cref="UnauthorizedAccessException"/>.
+    /// </summary>
+    /// <param name="exception">The store's exception.</param>
+    protected override bool IsAccessDenied(Exception exception) =>
+        exception is RequestFailedException { Status: 401 or 403 } or AuthenticationFailedException;
 
     private static BlobContainerClient CreateContainerClient(AzureFileProviderOptions options, BlobClientOptions? clientOptions, TokenCredential? credential)
     {

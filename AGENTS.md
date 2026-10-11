@@ -89,7 +89,10 @@ contract" in the modernization plan. A provider's test project derives a `[TestC
 provider and what the store can do (real folders, case, signed URLs, the large-file size, the emulator bugs it must step
 around), and so runs every rule. Where the fixture can reach the store past the provider, it also stores files under
 names the provider refuses (`StoreRawFileAsync`), so the suite checks that listings leave them out and everything listed
-reads back (D27). `InMemoryFileProvider`, the reference provider, passes it in `WriteableFileProviders.Common.Tests`.
+reads back (D27). Every fixture builds a provider at a root with a dot segment and expects `ArgumentException`, except
+where the root is a folder of the disk (`ChecksItsRoot`, false for Physical); a fixture that can make its store throw
+whatever it is given (`CreateProviderThatFails`; the in-memory one does) runs the error contract's cases (D29).
+`InMemoryFileProvider`, the reference provider, passes it in `WriteableFileProviders.Common.Tests`.
 
 Each package has a test project of its own, `tests/WriteableFileProviders.<Package>.Tests`:
 

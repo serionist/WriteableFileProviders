@@ -134,7 +134,7 @@ public sealed class BoxWriteTests
             : null;
         using var provider = BoxFixture.Tune(_credentials.Provider(box));
 
-        var e = await Assert.ThrowsExactlyAsync<BoxApiException>(() => provider.UpdateFileAsync("big.bin", new MemoryStream(TestStreams.Bytes(300_000))));
+        var e = BoxErrors.Inner(await Assert.ThrowsExactlyAsync<IOException>(() => provider.UpdateFileAsync("big.bin", new MemoryStream(TestStreams.Bytes(300_000)))));
 
         Assert.AreEqual(503, e.ResponseInfo.StatusCode);
         Assert.AreEqual("old", box.ContentOf("big.bin"));
@@ -151,7 +151,7 @@ public sealed class BoxWriteTests
             : null;
         using var provider = BoxFixture.Tune(_credentials.Provider(box));
 
-        var e = await Assert.ThrowsExactlyAsync<BoxApiException>(() => provider.UpdateFileAsync("big.bin", new MemoryStream(TestStreams.Bytes(300_000))));
+        var e = BoxErrors.Inner(await Assert.ThrowsExactlyAsync<IOException>(() => provider.UpdateFileAsync("big.bin", new MemoryStream(TestStreams.Bytes(300_000)))));
 
         Assert.AreEqual("PUT", e.RequestInfo.Method);
         Assert.AreEqual(1, box.Requests.Count(r => r.Method == "DELETE"));
@@ -297,7 +297,7 @@ public sealed class BoxWriteTests
             : null;
         using var provider = _credentials.Provider(box);
 
-        var e = await Assert.ThrowsExactlyAsync<BoxApiException>(() => provider.UpdateFileAsync("f.txt", TestStreams.Text("mine")));
+        var e = BoxErrors.Inner(await Assert.ThrowsExactlyAsync<IOException>(() => provider.UpdateFileAsync("f.txt", TestStreams.Text("mine"))));
         Assert.AreEqual(409, e.ResponseInfo.StatusCode);
         Assert.AreEqual(2, box.Requests.Count(r => r.Path == "/api/2.0/files/content"));
     }

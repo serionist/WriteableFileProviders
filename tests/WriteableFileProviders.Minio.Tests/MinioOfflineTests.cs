@@ -88,7 +88,7 @@ public sealed class MinioOfflineTests
         using (provider)
         {
             // A server error says nothing about the region: the connection fails, and the next call asks again.
-            await Assert.ThrowsExactlyAsync<AmazonS3Exception>(() => provider.GetFileInfoAsync("a.txt"));
+            Assert.IsInstanceOfType<AmazonS3Exception>((await Assert.ThrowsExactlyAsync<IOException>(() => provider.GetFileInfoAsync("a.txt"))).InnerException);
             failing = false;
             Assert.IsTrue((await provider.GetFileInfoAsync("a.txt")).Exists);
         }

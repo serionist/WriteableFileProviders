@@ -168,13 +168,28 @@ public sealed class SharePointOptionsTests
     [DataRow("Team%20Files", null, "WorkFolderPath")]
     [DataRow("Main/a%41", null, "WorkFolderPath")]
     [DataRow(null, "tenants/acme%2Dco", "RootDirectoryPath")]
-    [DataRow("Main", "%2E%2E", "RootDirectoryPath")]
+    [DataRow("Main", "tenants/a%41", "RootDirectoryPath")]
     public void WorkFolderAndRoot_WithAPercentEscape_AreRefused(string? workFolder, string? root, string option)
     {
         // 2026 sent the escape on and the service decoded it; 2027 would name another folder, so it asks for the name.
         var error = Assert.ThrowsExactly<ArgumentException>(() => new WriteableSharePointFileProvider(TestGraph.Options(root, workFolder)));
         StringAssert.Contains(error.Message, option);
         StringAssert.Contains(error.Message, "decode it");
+        using var client = TestGraph.Client(new GraphFake());
+        Assert.ThrowsExactly<ArgumentException>(() => new WriteableSharePointFileProvider(TestGraph.Options(root, workFolder), client));
+    }
+
+    [TestMethod]
+    [DataRow("Main", "%2E%2E", "RootDirectoryPath")]
+    [DataRow("Main", "a/../b", "RootDirectoryPath")]
+    [DataRow(null, "..", "RootDirectoryPath")]
+    [DataRow("Main/..", null, "WorkFolderPath")]
+    [DataRow("../Other", "a", "WorkFolderPath")]
+    public void WorkFolderAndRoot_WithADotSegment_AreRefused(string? workFolder, string? root, string option)
+    {
+        // The root is checked by the base class, as every provider's is; the work folder by the provider, which adds it.
+        var error = Assert.ThrowsExactly<ArgumentException>(() => new WriteableSharePointFileProvider(TestGraph.Options(root, workFolder)));
+        StringAssert.Contains(error.Message, option);
         using var client = TestGraph.Client(new GraphFake());
         Assert.ThrowsExactly<ArgumentException>(() => new WriteableSharePointFileProvider(TestGraph.Options(root, workFolder), client));
     }

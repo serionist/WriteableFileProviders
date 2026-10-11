@@ -94,8 +94,8 @@ The provider signs in as a Box app's service account, with server authentication
 
 Sign-in happens on the first call that needs Box: building the provider does no network I/O (it reads the private key,
 so a wrong key or passphrase fails there, with an `ArgumentException`). Box's access tokens last an hour; when Box
-answers 401, the SDK fetches a new one and retries. A sign-in Box refuses throws the SDK's `BoxApiException`, without
-the token request it sent.
+answers 401, the SDK fetches a new one and retries. A sign-in Box refuses throws `UnauthorizedAccessException`, with
+the SDK's `BoxApiException` inside, without the token request it sent.
 
 ## How it behaves
 
@@ -123,14 +123,16 @@ the token request it sent.
   the version it opened, unless `AllowModifications` is set, and throws `PreconditionFailedException` once the file has
   changed. The download itself, from Box's pre-authenticated URL, throws `FileNotFoundException` or `IOException` with
   its HTTP status only: that URL is a credential, so no error carries it.
-- **Errors:** the SDK's `BoxApiException` keeps the request it sent: the access token in its `Authorization` header,
-  any extra header the client was built with (such as a `BoxApi` shared-link password), the query string, and the body
-  (a token request's holds the client secret). When the provider built its client, or was given exactly a `BoxClient`,
-  every `BoxApiException` it throws or wraps keeps Box's status, code and message, and of the request only its method,
-  its URL without the query, and the headers and parameters that diagnose it (`As-User`, `If-Match`, `Range`, the
-  digests, the content type; the listing and version parameters). A provider given any other `IBoxClient`, a class
-  derived from `BoxClient` included, uses that client as it is: its errors are the client's own and may carry its
-  credentials.
+- **Errors** are the contract's types: Box's 401 and 403, and a sign-in Box refuses (a 400 from its token endpoint),
+  throw `UnauthorizedAccessException`; any other failure of Box or the network, `IOException`; with the SDK's
+  `BoxApiException` (its status in `ResponseInfo.StatusCode`) or network exception as the `InnerException`. That
+  `BoxApiException` keeps the request it sent: the access token in its `Authorization` header, any extra header the
+  client was built with (such as a `BoxApi` shared-link password), the query string, and the body (a token request's
+  holds the client secret). When the provider built its client, or was given exactly a `BoxClient`, every
+  `BoxApiException` it wraps keeps Box's status, code and message, and of the request only its method, its URL without
+  the query, and the headers and parameters that diagnose it (`As-User`, `If-Match`, `Range`, the digests, the content
+  type; the listing and version parameters). A provider given any other `IBoxClient`, a class derived from `BoxClient`
+  included, uses that client as it is: its errors are the client's own and may carry its credentials.
 - **Move and copy** run on the server, on files only; they create the destination's folders and refuse an existing
   destination with `FileExistsException`. A move is one call, or, when Box refuses a case-only rename, three through a
   temporary name (`.wfp-rename-<guid>.tmp`), the old name put back if the last one fails.

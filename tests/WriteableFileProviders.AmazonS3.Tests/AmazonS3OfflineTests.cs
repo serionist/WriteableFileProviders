@@ -291,7 +291,7 @@ public sealed class AmazonS3OfflineTests
             : null);
         using (provider)
         {
-            await Assert.ThrowsAsync<Exception>(() => provider.GetFileInfoAsync("f.txt"));
+            await Assert.ThrowsExactlyAsync<IOException>(() => provider.GetFileInfoAsync("f.txt"));
             var failedChecks = BucketChecks(factory);
             Assert.IsTrue(failedChecks > 0);
             failing = false;
@@ -316,6 +316,17 @@ public sealed class AmazonS3OfflineTests
             var e = await Assert.ThrowsExactlyAsync<FileNotFoundException>(() => provider.ReadFileVersionAsync("v1", "dir/f.txt"));
             Assert.IsNotNull(e.InnerException);
             Assert.IsTrue(factory.Requests.Any(r => r.Contains("/bucket/root/dir/f.txt?versionId=v1", StringComparison.Ordinal)), string.Join("\n", factory.Requests));
+        }
+    }
+
+    [TestMethod]
+    public async Task ReadFileVersion_FollowsTheErrorContract()
+    {
+        var (provider, _) = Offline(Endpoint(), answer: r => r.Method == HttpMethod.Get ? Error(HttpStatusCode.Forbidden, "AccessDenied") : null);
+        using (provider)
+        {
+            var e = await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(() => provider.ReadFileVersionAsync("v1", "dir/f.txt"));
+            Assert.IsInstanceOfType<Amazon.S3.AmazonS3Exception>(e.InnerException);
         }
     }
 

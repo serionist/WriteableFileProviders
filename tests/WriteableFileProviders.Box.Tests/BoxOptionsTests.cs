@@ -122,10 +122,13 @@ public sealed class BoxOptionsTests
         options.ClientSecret = "wrong-secret";
         using var provider = new WriteableBoxFileProvider(options, TestCredentials.Session(box));
 
-        var e = await Assert.ThrowsExactlyAsync<BoxApiException>(() => provider.GetFileInfoAsync("a.txt"));
+        // The token endpoint's 400 (invalid_client) is Box refusing the credential.
+        var refused = await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(() => provider.GetFileInfoAsync("a.txt"));
+        var e = BoxErrors.Inner(refused);
         Assert.AreEqual(400, e.ResponseInfo.StatusCode);
         Assert.AreEqual(0, box.TokensIssued);
         AssertCarriesNoCredential(e);
+        CredentialAssert.CarriesNone(refused);
     }
 
     [TestMethod]
@@ -140,7 +143,9 @@ public sealed class BoxOptionsTests
             ? new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = new StringContent("""{"error":"invalid_grant"}""") }
             : null;
 
-        AssertCarriesNoCredential(await Assert.ThrowsExactlyAsync<BoxApiException>(() => provider.GetFileInfoAsync("a.txt")));
+        var refused = await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(() => provider.GetFileInfoAsync("a.txt"));
+        AssertCarriesNoCredential(BoxErrors.Inner(refused));
+        CredentialAssert.CarriesNone(refused);
     }
 
     [TestMethod]

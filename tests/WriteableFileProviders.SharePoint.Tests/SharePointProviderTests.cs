@@ -646,12 +646,24 @@ public sealed class SharePointProviderTests
         Assert.IsInstanceOfType<HttpRequestException>((await Assert.ThrowsExactlyAsync<IOException>(() => provider.GetFileInfoAsync("f.txt"))).InnerException);
 
         // No answer within the HTTP client's timeout is a failure, not a cancellation. HttpClient reports its timeout as a
-        // TaskCanceledException holding a TimeoutException; one without it is a cancellation and passes through.
+        // TaskCanceledException holding a TimeoutException. Any cancellation the caller's token did not ask for is one too;
+        // only the caller's own passes through as a cancellation.
         fake.Intercept = r => ItemGet(r) ? throw new TaskCanceledException("No answer in time (injected).", new TimeoutException()) : null;
         var timedOut = await Assert.ThrowsExactlyAsync<IOException>(() => provider.GetFileInfoAsync("f.txt"));
         Assert.IsInstanceOfType<TimeoutException>(timedOut.InnerException?.InnerException);
         fake.Intercept = r => ItemGet(r) ? throw new TaskCanceledException("Cancelled (injected).") : null;
-        await Assert.ThrowsExactlyAsync<TaskCanceledException>(() => provider.GetFileInfoAsync("f.txt"));
+        Assert.IsInstanceOfType<TaskCanceledException>((await Assert.ThrowsExactlyAsync<IOException>(() => provider.GetFileInfoAsync("f.txt"))).InnerException);
+        using (var cancelling = new CancellationTokenSource())
+        {
+            fake.Intercept = r =>
+            {
+                if (!ItemGet(r))
+                    return null;
+                cancelling.Cancel();
+                throw new TaskCanceledException("Cancelled by the caller (injected).", null, cancelling.Token);
+            };
+            await Assert.ThrowsAsync<OperationCanceledException>(() => provider.GetFileInfoAsync("f.txt", cancelling.Token));
+        }
         fake.Intercept = null;
 
         fake.Intercept = r => ItemGet(r) ? new HttpResponseMessage(HttpStatusCode.NotFound) : null;

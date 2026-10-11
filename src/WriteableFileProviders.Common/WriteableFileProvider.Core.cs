@@ -264,15 +264,10 @@ public abstract partial class WriteableFileProvider<TOptions>
         }
     }
 
-    /// <summary>
-    /// Copies the file to a local temp file and opens it, uploading on commit unless read-only. The default spools through
-    /// <see cref="ReadFileCoreAsync"/> and commits with <see cref="UpdateFileCoreAsync"/>, keeping the content type the
-    /// file had when it was opened.
-    /// </summary>
-    /// <param name="path">The file.</param>
-    /// <param name="readOnly">Whether the stream is read-only.</param>
-    /// <param name="cancellationToken">Cancels the call.</param>
-    protected virtual async Task<LocalFileStream> CreateLocalFileStreamCoreAsync(ResolvedPath path, bool readOnly, CancellationToken cancellationToken)
+    // Copies the file to a local temp file and opens it, uploading on commit unless read-only: spooled through
+    // ReadFileCoreAsync, committed through UpdateFileCoreAsync (its failures mapped as a write's), keeping the content type
+    // the file had when it was opened. Every provider's local stream is made here; it is not an extension point.
+    private async Task<LocalFileStream> CreateLocalCopyAsync(ResolvedPath path, bool readOnly, CancellationToken cancellationToken)
     {
         var temp = StreamUtilities.CreateTempFile();
         try
@@ -293,8 +288,7 @@ public abstract partial class WriteableFileProvider<TOptions>
             }
             // Editing a file does not change what it is: the commit keeps its content type.
             var commit = info.ContentType is { } contentType ? new UpdateFileOptions { ContentType = contentType } : UpdateFileOptions.Overwrite;
-            return new LocalFileStream(temp, this, path.Path, readOnly,
-                readOnly ? null : (content, token) => UpdateWithPreconditionsAsync(path, content, commit, token));
+            return new LocalFileStream(temp, this, path.Path, readOnly, readOnly ? null : (content, token) => CommitLocalCopyAsync(path, content, commit, token));
         }
         catch
         {
@@ -313,10 +307,6 @@ public abstract partial class WriteableFileProvider<TOptions>
     /// <summary>Watches for changes. The default throws <see cref="NotSupportedException"/>.</summary>
     /// <param name="filter">The files to watch.</param>
     protected virtual IChangeToken WatchCore(string filter) => throw new NotSupportedException($"{GetType().Name} cannot watch for changes.");
-
-    /// <summary>Whether an exception of the store means "not found"; read members turn it into a <see cref="FileNotFoundException"/>.</summary>
-    /// <param name="exception">The store's exception.</param>
-    protected virtual bool IsNotFound(Exception exception) => false;
 
     /// <summary>Releases the clients the provider owns. The default does nothing.</summary>
     /// <param name="disposing">True from <see cref="Dispose()"/>.</param>
@@ -403,6 +393,18 @@ public abstract partial class WriteableFileProvider<TOptions>
     {
         ArgumentNullException.ThrowIfNull(path);
         return new FileNotFoundException($"The file '{path}' does not exist.", path.ToString(), innerException);
+    }
+
+    private async Task CommitLocalCopyAsync(ResolvedPath path, Stream content, UpdateFileOptions options, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await UpdateWithPreconditionsAsync(path, content, options, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception e) when (Map(e, Operation.Write, path, null, cancellationToken) is { } mapped)
+        {
+            throw mapped;
+        }
     }
 
     private bool IsCaseOnlyRename(ResolvedPath from, ResolvedPath to) =>

@@ -135,6 +135,10 @@ public sealed class WriteableMinioFileProvider : WriteableFileProvider<MinioFile
     protected override bool IsNotFound(Exception exception) => S3Core.IsNotFound(exception);
 
     /// <inheritdoc />
+    /// <remarks>The store's 401 and 403, and an <c>AccessDenied</c> error.</remarks>
+    protected override bool IsAccessDenied(Exception exception) => S3Core.IsAccessDenied(exception);
+
+    /// <inheritdoc />
     protected override void Dispose(bool disposing)
     {
         if (disposing)

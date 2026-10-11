@@ -65,7 +65,7 @@ public sealed class BoxMoveDeleteTests
         box.Intercept = request => request.Method == HttpMethod.Delete ? Blocked() : null;
         using var provider = _credentials.Provider(box);
 
-        var e = await Assert.ThrowsExactlyAsync<BoxApiException>(() => provider.DeleteAsync("a.txt"));
+        var e = BoxErrors.Inner(await Assert.ThrowsExactlyAsync<IOException>(() => provider.DeleteAsync("a.txt")));
         Assert.AreEqual("operation_blocked_temporary", e.ResponseInfo.Code);
         Assert.AreEqual(3, box.Requests.Count(r => r.Method == "DELETE"));
     }
@@ -206,7 +206,7 @@ public sealed class BoxMoveDeleteTests
         box.Intercept = request => request.Method == HttpMethod.Put && ++puts == 3 ? BadRequest() : null;
         using var provider = _credentials.Provider(box);
 
-        await Assert.ThrowsExactlyAsync<BoxApiException>(() => provider.MoveAsync("a.txt", "A.txt"));
+        BoxErrors.Inner(await Assert.ThrowsExactlyAsync<IOException>(() => provider.MoveAsync("a.txt", "A.txt")));
 
         Assert.AreEqual("a.txt", box.NameOf(id));
     }

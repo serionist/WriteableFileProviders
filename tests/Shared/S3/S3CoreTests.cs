@@ -56,11 +56,32 @@ public sealed class S3CoreTests
     }
 
     [TestMethod]
+    public async Task DefaultCredentials_ThatFindNothing_AreAStoreNotSetUpAsConfigured()
+    {
+        var e = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
+            S3Core.DefaultCredentialsAsync(() => throw new AmazonClientException("Failed to resolve AWS credentials.")));
+        Assert.IsInstanceOfType<AmazonClientException>(e.InnerException);
+        StringAssert.Contains(e.Message, "UseDefaultCredentials");
+        var found = new BasicAWSCredentials("access", "secret");
+        Assert.AreSame(found, await S3Core.DefaultCredentialsAsync(() => Task.FromResult<AWSCredentials>(found)));
+    }
+
+    [TestMethod]
     public void IsNotFound_MeansAMissingKeyOrVersionOnly()
     {
         Assert.IsTrue(S3Core.IsNotFound(new Amazon.S3.AmazonS3Exception("x") { ErrorCode = "NoSuchKey" }));
         Assert.IsTrue(S3Core.IsNotFound(new Amazon.S3.AmazonS3Exception("x") { ErrorCode = "NoSuchVersion" }));
         Assert.IsFalse(S3Core.IsNotFound(new Amazon.S3.AmazonS3Exception("x") { ErrorCode = "NoSuchBucket" }));
         Assert.IsFalse(S3Core.IsNotFound(new IOException("x")));
+    }
+
+    [TestMethod]
+    public void IsAccessDenied_MeansA401OrA403OrAnAccessDeniedCode()
+    {
+        Assert.IsTrue(S3Core.IsAccessDenied(new Amazon.S3.AmazonS3Exception("x") { StatusCode = System.Net.HttpStatusCode.Forbidden, ErrorCode = "SignatureDoesNotMatch" }));
+        Assert.IsTrue(S3Core.IsAccessDenied(new Amazon.S3.AmazonS3Exception("x") { StatusCode = System.Net.HttpStatusCode.Unauthorized }));
+        Assert.IsTrue(S3Core.IsAccessDenied(new Amazon.S3.AmazonS3Exception("x") { ErrorCode = "AccessDenied" }));
+        Assert.IsFalse(S3Core.IsAccessDenied(new Amazon.S3.AmazonS3Exception("x") { StatusCode = System.Net.HttpStatusCode.NotFound, ErrorCode = "NoSuchKey" }));
+        Assert.IsFalse(S3Core.IsAccessDenied(new UnauthorizedAccessException("x")));
     }
 }

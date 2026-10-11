@@ -19,6 +19,18 @@ namespace WriteableFileProviders;
 /// throws <see cref="NotSupportedException"/>. The synchronous forms of the members are
 /// extension methods (<see cref="WriteableFileProviderExtensions"/>), except the three <see cref="IFileProvider"/> needs.
 /// </para>
+/// <para>
+/// Every member throws only these types, on every provider: <see cref="ArgumentException"/> (a path or an option),
+/// <see cref="FileNotFoundException"/>, <see cref="FileExistsException"/>, <see cref="PreconditionFailedException"/>,
+/// <see cref="NotSupportedException"/> (a feature this provider or store cannot give),
+/// <see cref="InvalidOperationException"/> (the store is not set up as configured: a missing container, bucket, library or
+/// root folder, or no credentials to find), <see cref="UnauthorizedAccessException"/> (the store refused the credential or
+/// the permission), <see cref="IOException"/> (any other failure of the store, the service or the network, timeouts
+/// included), <see cref="ObjectDisposedException"/>, and <see cref="OperationCanceledException"/> only for the caller's
+/// token. A store's or an SDK's exception is the <see cref="Exception.InnerException"/>, never the type thrown. The same
+/// holds for the reads of a stream a member returns and for each step of an enumeration, and for a failure of the stream
+/// a caller gives to <see cref="UpdateFileAsync"/> that is not one of these types.
+/// </para>
 /// </remarks>
 public interface IWriteableFileProvider : IFileProvider, IDisposable, IAsyncDisposable
 {

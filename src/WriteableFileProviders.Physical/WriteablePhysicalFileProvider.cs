@@ -146,6 +146,12 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
     protected override bool IsCaseInsensitive => IgnoresCase;
 
     /// <summary>
+    /// False: the root is a folder of the local disk, an operating system path such as <c>C:\data</c> or
+    /// <c>/srv/../files</c>, which the constructor resolves to a full path; every path under it is checked to stay there.
+    /// </summary>
+    protected override bool ValidatesRootDirectory => false;
+
+    /// <summary>
     /// True: <see cref="UpdateFileCoreAsync"/> checks the conditions itself. <see cref="UpdateFileOptions.IfNotExists"/>
     /// is atomic; <see cref="UpdateFileOptions.IfMatch"/> is checked just before the rename, which is not.
     /// </summary>

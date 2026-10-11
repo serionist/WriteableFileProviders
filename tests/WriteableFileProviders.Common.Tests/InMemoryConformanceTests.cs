@@ -24,6 +24,13 @@ public sealed class InMemoryConformanceTests : ProviderConformanceTests
     protected override IWriteableFileProvider CreateProvider(string? root) =>
         new InMemoryFileProvider(new InMemoryFileProviderOptions { StoreName = _store, RootDirectoryPath = root });
 
+    protected override IWriteableFileProvider? CreateProviderThatFails(Exception failure)
+    {
+        var provider = (InMemoryFileProvider)CreateProvider(RootName);
+        provider.Failure = failure;
+        return provider;
+    }
+
     protected override Task<bool> StoreRawFileAsync(IReadOnlyList<string> names, string text)
     {
         using var store = (InMemoryFileProvider)CreateProvider(null);

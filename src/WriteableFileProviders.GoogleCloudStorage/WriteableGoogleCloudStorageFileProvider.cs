@@ -6,6 +6,7 @@ using System.Security.Cryptography;
 using System.Web;
 using Google;
 using Google.Apis.Auth.OAuth2;
+using Google.Apis.Auth.OAuth2.Responses;
 using Google.Apis.Requests;
 using Google.Apis.Storage.v1;
 using Google.Apis.Storage.v1.Data;
@@ -109,6 +110,16 @@ public sealed class WriteableGoogleCloudStorageFileProvider : WriteableFileProvi
     /// <summary>A read URL carries the download name and content type; an upload URL carries the content type.</summary>
     /// <param name="permission">The permission.</param>
     protected override bool SupportsSignedUrlContentHeaders(SignedUrlAccess permission) => true;
+
+    /// <summary>
+    /// Cloud Storage's 401 and 403, and Google's token endpoint refusing the credential (a 400, 401 or 403 answer to the
+    /// token request, such as <c>invalid_grant</c> for a key that was deleted): the public members turn them into an
+    /// <see cref="UnauthorizedAccessException"/>.
+    /// </summary>
+    /// <param name="exception">The store's exception.</param>
+    protected override bool IsAccessDenied(Exception exception) =>
+        exception is GoogleApiException { HttpStatusCode: HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden }
+            or TokenResponseException { StatusCode: HttpStatusCode.BadRequest or HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden };
 
     /// <inheritdoc />
     protected override async Task<IWriteableFileInfo> GetFileInfoCoreAsync(ResolvedPath path, CancellationToken cancellationToken)

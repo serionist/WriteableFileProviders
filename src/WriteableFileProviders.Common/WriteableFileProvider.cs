@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Primitives;
@@ -12,17 +11,40 @@ namespace WriteableFileProviders;
 /// </summary>
 /// <typeparam name="TOptions">The provider's options. Their property names are the configuration shape consumers store.</typeparam>
 /// <remarks>
+/// <para>
 /// A provider needs a public constructor that takes only <typeparamref name="TOptions"/>, so
 /// <see cref="WriteableFileProviderSerializer"/> can build it from configuration, and it does no network I/O there.
+/// </para>
+/// <para>
+/// What a public member throws is the contract's (<see cref="IWriteableFileProvider"/>): an exception of another type
+/// that escapes a <c>...CoreAsync</c> member, or a stream or an enumeration a public member returns, is mapped here, once
+/// for every provider. What <see cref="IsNotFound"/> recognises becomes <see cref="FileNotFoundException"/>, what
+/// <see cref="IsAccessDenied"/> recognises <see cref="UnauthorizedAccessException"/>, a cancellation the caller's token
+/// did not ask for (a timeout) <see cref="IOException"/>, a failure after the caller cancelled
+/// <see cref="OperationCanceledException"/>, and anything else <see cref="IOException"/> naming the operation and the
+/// path; the original exception is always the <see cref="Exception.InnerException"/>. One of the contract's types passes
+/// through unchanged, so a provider maps what it knows better by throwing it.
+/// </para>
 /// </remarks>
-/// <param name="options">The provider's options.</param>
-public abstract partial class WriteableFileProvider<TOptions>(TOptions options) : IWriteableFileProvider
+public abstract partial class WriteableFileProvider<TOptions> : IWriteableFileProvider
     where TOptions : FileProviderOptions, new()
 {
     private int _disposed;
 
+    /// <summary>Creates the provider over its options, and checks the root they name (see <see cref="ValidatesRootDirectory"/>).</summary>
+    /// <param name="options">The provider's options.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="options"/> is null.</exception>
+    /// <exception cref="ArgumentException">
+    /// <see cref="FileProviderOptions.RootDirectoryPath"/> holds a segment a path may not hold, such as <c>..</c>.
+    /// </exception>
+    protected WriteableFileProvider(TOptions options)
+    {
+        Options = options ?? throw new ArgumentNullException(nameof(options));
+        ValidateRoot();
+    }
+
     /// <summary>The provider's options, as they were given.</summary>
-    public TOptions Options { get; } = options ?? throw new ArgumentNullException(nameof(options));
+    public TOptions Options { get; }
 
     FileProviderOptions IWriteableFileProvider.Options => Options;
 
@@ -44,7 +66,17 @@ public abstract partial class WriteableFileProvider<TOptions>(TOptions options) 
     /// <summary>Watches for changes.</summary>
     /// <param name="filter">The files to watch, such as <c>**/*.json</c>.</param>
     /// <exception cref="NotSupportedException">The provider cannot watch for changes.</exception>
-    public IChangeToken Watch(string filter) => WatchCore(filter);
+    public IChangeToken Watch(string filter)
+    {
+        try
+        {
+            return WatchCore(filter);
+        }
+        catch (Exception e) when (Map(e, Operation.Watch, null, null, CancellationToken.None) is { } mapped)
+        {
+            throw mapped;
+        }
+    }
 
     /// <inheritdoc />
     public async Task<IWriteableFileInfo> GetFileInfoAsync(ProviderPath path, CancellationToken cancellationToken = default)
@@ -52,21 +84,35 @@ public abstract partial class WriteableFileProvider<TOptions>(TOptions options) 
         var resolved = Resolve(path);
         if (resolved.IsRoot)
             return WriteableFileInfo.Folder(this, ProviderPath.Root);
-        return await GetFileInfoCoreAsync(resolved, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await GetFileInfoCoreAsync(resolved, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception e) when (Map(e, Operation.Info, resolved, null, cancellationToken) is { } mapped)
+        {
+            throw mapped;
+        }
     }
 
     /// <inheritdoc />
     public async Task<IDirectoryContents> GetDirectoryContentsAsync(ProviderPath path, CancellationToken cancellationToken = default)
     {
         var resolved = Resolve(path);
-        var entries = new List<IFileInfo>();
-        await foreach (var entry in EnumerateCoreAsync(resolved, cancellationToken).WithCancellation(cancellationToken).ConfigureAwait(false))
-            entries.Add(entry);
-        if (entries.Count > 0 || resolved.IsRoot)
-            return new DirectoryContents(true, entries);
-        return await FolderExistsCoreAsync(resolved, cancellationToken).ConfigureAwait(false)
-            ? new DirectoryContents(true, [])
-            : DirectoryContents.NotFound;
+        try
+        {
+            var entries = new List<IFileInfo>();
+            await foreach (var entry in EnumerateCoreAsync(resolved, cancellationToken).WithCancellation(cancellationToken).ConfigureAwait(false))
+                entries.Add(entry);
+            if (entries.Count > 0 || resolved.IsRoot)
+                return new DirectoryContents(true, entries);
+            return await FolderExistsCoreAsync(resolved, cancellationToken).ConfigureAwait(false)
+                ? new DirectoryContents(true, [])
+                : DirectoryContents.NotFound;
+        }
+        catch (Exception e) when (Map(e, Operation.List, resolved, null, cancellationToken) is { } mapped)
+        {
+            throw mapped;
+        }
     }
 
     /// <inheritdoc />
@@ -76,24 +122,17 @@ public abstract partial class WriteableFileProvider<TOptions>(TOptions options) 
         return EnumerateResolvedAsync(resolved, recursive, cancellationToken);
     }
 
-    private async IAsyncEnumerable<IWriteableFileInfo> EnumerateResolvedAsync(ResolvedPath path, bool recursive, [EnumeratorCancellation] CancellationToken cancellationToken)
-    {
-        var source = recursive ? EnumerateRecursiveCoreAsync(path, cancellationToken) : EnumerateCoreAsync(path, cancellationToken);
-        await foreach (var entry in source.WithCancellation(cancellationToken).ConfigureAwait(false))
-            yield return entry;
-    }
-
     /// <inheritdoc />
     public async Task<Stream> ReadFileAsync(ProviderPath path, CancellationToken cancellationToken = default)
     {
         var resolved = ResolveReadable(path);
         try
         {
-            return await ReadFileCoreAsync(resolved, cancellationToken).ConfigureAwait(false);
+            return Contract(await ReadFileCoreAsync(resolved, cancellationToken).ConfigureAwait(false), Operation.Read, resolved);
         }
-        catch (Exception e) when (e is not FileNotFoundException && IsNotFound(e))
+        catch (Exception e) when (Map(e, Operation.Read, resolved, null, cancellationToken) is { } mapped)
         {
-            throw NotFound(resolved, e);
+            throw mapped;
         }
     }
 
@@ -106,11 +145,11 @@ public abstract partial class WriteableFileProvider<TOptions>(TOptions options) 
         var resolved = ResolveReadable(path);
         try
         {
-            return await ReadRangeCoreAsync(resolved, offset, length, options?.IfMatch, cancellationToken).ConfigureAwait(false);
+            return Contract(await ReadRangeCoreAsync(resolved, offset, length, options?.IfMatch, cancellationToken).ConfigureAwait(false), Operation.Read, resolved);
         }
-        catch (Exception e) when (e is not FileNotFoundException && IsNotFound(e))
+        catch (Exception e) when (Map(e, Operation.Read, resolved, null, cancellationToken) is { } mapped)
         {
-            throw NotFound(resolved, e);
+            throw mapped;
         }
     }
 
@@ -123,11 +162,11 @@ public abstract partial class WriteableFileProvider<TOptions>(TOptions options) 
         var resolved = ResolveReadable(path);
         try
         {
-            return await OpenReadSeekableCoreAsync(resolved, options, cancellationToken).ConfigureAwait(false);
+            return Contract(await OpenReadSeekableCoreAsync(resolved, options, cancellationToken).ConfigureAwait(false), Operation.Read, resolved);
         }
-        catch (Exception e) when (e is not FileNotFoundException && IsNotFound(e))
+        catch (Exception e) when (Map(e, Operation.Read, resolved, null, cancellationToken) is { } mapped)
         {
-            throw NotFound(resolved, e);
+            throw mapped;
         }
     }
 
@@ -139,36 +178,74 @@ public abstract partial class WriteableFileProvider<TOptions>(TOptions options) 
         if (options.IfMatch is not null && options.IfNotExists)
             throw new ArgumentException("IfMatch and IfNotExists cannot both be set.", nameof(options));
         var resolved = ResolveModifiable(path);
-        await UpdateWithPreconditionsAsync(resolved, contents, options, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await UpdateWithPreconditionsAsync(resolved, contents, options, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception e) when (Map(e, Operation.Write, resolved, null, cancellationToken) is { } mapped)
+        {
+            throw mapped;
+        }
     }
 
     /// <inheritdoc />
     public async Task<bool> DeleteAsync(ProviderPath path, CancellationToken cancellationToken = default)
     {
         var resolved = ResolveModifiable(path);
-        return await DeleteCoreAsync(resolved, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await DeleteCoreAsync(resolved, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception e) when (Map(e, Operation.Delete, resolved, null, cancellationToken) is { } mapped)
+        {
+            throw mapped;
+        }
     }
 
     /// <inheritdoc />
     public async Task MoveAsync(ProviderPath source, ProviderPath destination, CancellationToken cancellationToken = default)
     {
-        var (from, to, same) = await PrepareTransferAsync(source, destination, move: true, cancellationToken).ConfigureAwait(false);
-        if (!same)
-            await MoveCoreAsync(from, to, cancellationToken).ConfigureAwait(false);
+        var from = ResolveModifiable(source);
+        var to = ResolveModifiable(destination);
+        try
+        {
+            if (!await PrepareTransferAsync(from, to, move: true, cancellationToken).ConfigureAwait(false))
+                await MoveCoreAsync(from, to, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception e) when (Map(e, Operation.Move, from, to, cancellationToken) is { } mapped)
+        {
+            throw mapped;
+        }
     }
 
     /// <inheritdoc />
     public async Task CopyAsync(ProviderPath source, ProviderPath destination, CancellationToken cancellationToken = default)
     {
-        var (from, to, _) = await PrepareTransferAsync(source, destination, move: false, cancellationToken).ConfigureAwait(false);
-        await CopyCoreAsync(from, to, cancellationToken).ConfigureAwait(false);
+        var from = ResolveModifiable(source);
+        var to = ResolveModifiable(destination);
+        try
+        {
+            await PrepareTransferAsync(from, to, move: false, cancellationToken).ConfigureAwait(false);
+            await CopyCoreAsync(from, to, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception e) when (Map(e, Operation.Copy, from, to, cancellationToken) is { } mapped)
+        {
+            throw mapped;
+        }
     }
 
     /// <inheritdoc />
     public async Task<LocalFileStream> CreateLocalFileStreamAsync(ProviderPath path, bool readOnly, CancellationToken cancellationToken = default)
     {
         var resolved = readOnly ? ResolveReadable(path) : ResolveModifiable(path);
-        return await CreateLocalFileStreamCoreAsync(resolved, readOnly, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await CreateLocalCopyAsync(resolved, readOnly, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception e) when (Map(e, Operation.LocalCopy, resolved, null, cancellationToken) is { } mapped)
+        {
+            throw mapped;
+        }
     }
 
     /// <inheritdoc />
@@ -184,13 +261,20 @@ public abstract partial class WriteableFileProvider<TOptions>(TOptions options) 
             throw new NotSupportedException($"{GetType().Name} cannot set the download file name or the content type of a {options.Permission} URL.");
         if (options.Validity > MaxSignedUrlValidity)
             throw new NotSupportedException($"{GetType().Name} signs URLs that live at most {MaxSignedUrlValidity}; {options.Validity} was asked.");
-        if (options.Permission == SignedUrlAccess.Read)
+        try
         {
-            var info = await GetFileInfoCoreAsync(resolved, cancellationToken).ConfigureAwait(false);
-            if (!info.Exists || info.IsDirectory)
-                throw NotFound(resolved);
+            if (options.Permission == SignedUrlAccess.Read)
+            {
+                var info = await GetFileInfoCoreAsync(resolved, cancellationToken).ConfigureAwait(false);
+                if (!info.Exists || info.IsDirectory)
+                    throw NotFound(resolved);
+            }
+            return await GetSignedUrlCoreAsync(resolved, options, cancellationToken).ConfigureAwait(false);
         }
-        return await GetSignedUrlCoreAsync(resolved, options, cancellationToken).ConfigureAwait(false);
+        catch (Exception e) when (Map(e, Operation.Sign, resolved, null, cancellationToken) is { } mapped)
+        {
+            throw mapped;
+        }
     }
 
     /// <summary>Disposes the provider and the clients it owns.</summary>
@@ -209,21 +293,18 @@ public abstract partial class WriteableFileProvider<TOptions>(TOptions options) 
         GC.SuppressFinalize(this);
     }
 
-    private async Task<(ResolvedPath From, ResolvedPath To, bool Same)> PrepareTransferAsync(
-        ProviderPath source, ProviderPath destination, bool move, CancellationToken cancellationToken)
+    // Checks the source and the destination of a move or a copy; true when a move has nothing to do (onto itself).
+    private async Task<bool> PrepareTransferAsync(ResolvedPath from, ResolvedPath to, bool move, CancellationToken cancellationToken)
     {
-        var from = ResolveModifiable(source);
-        var to = ResolveModifiable(destination);
         var info = await GetFileInfoCoreAsync(from, cancellationToken).ConfigureAwait(false);
         if (!info.Exists || info.IsDirectory)
             throw NotFound(from);
-        var same = from.Path == to.Path;
-        if (move && same)
-            return (from, to, true);
+        if (move && from.Path == to.Path)
+            return true;
         // On a store that ignores case, moving a file to a name that differs only in case is a rename: the destination
         // "exists" because it is the source.
         if (!(move && IsCaseOnlyRename(from, to)) && (await GetFileInfoCoreAsync(to, cancellationToken).ConfigureAwait(false)).Exists)
             throw new FileExistsException($"The destination '{to}' already exists.");
-        return (from, to, false);
+        return false;
     }
 }

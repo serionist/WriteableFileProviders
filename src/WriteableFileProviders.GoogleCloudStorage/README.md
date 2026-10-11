@@ -90,8 +90,8 @@ fake-gcs-server, any service account key works: the client signs its own tokens 
 
 **Permissions:** the provider needs `storage.objects.list` besides reading and writing objects (the
 `roles/storage.objectViewer` and `roles/storage.objectAdmin` roles have it), because it lists objects to tell a folder,
-or a missing bucket, from a missing file. A credential without it gets a 403 `GoogleApiException` from every member
-that has to: `GetFileInfoAsync` of a path that is not a file, listings, deletes of a folder or a missing path,
+or a missing bucket, from a missing file. A credential without it gets `UnauthorizedAccessException` (Cloud Storage's
+403, with the `GoogleApiException` inside) from every member that has to: `GetFileInfoAsync` of a path that is not a file, listings, deletes of a folder or a missing path,
 copies and moves, appends to a new file, and seekable reads, local streams and read URLs of a missing file. Only
 `ReadFileAsync` and `ReadRangeAsync` of a missing file still answer `FileNotFoundException`.
 
@@ -121,6 +121,10 @@ copies and moves, appends to a new file, and seekable reads, local streams and r
 - **Missing bucket:** every member that reaches the bucket throws `InvalidOperationException` naming it, unless
   `CreateBucketIfMissing` is set. Create and write signed URLs are signed without asking the bucket, so with a missing
   bucket they are issued, and fail only when used.
+- **Errors** are the contract's types: Cloud Storage's 401 and 403, and Google's token endpoint refusing the credential
+  (`TokenResponseException`), throw `UnauthorizedAccessException`; no Application Default Credentials to find,
+  `InvalidOperationException`; any other failure of Cloud Storage or the network, `IOException`, timeouts included; the
+  SDK's `GoogleApiException`, or what it threw, is the `InnerException`.
 
 ## Signed URLs
 

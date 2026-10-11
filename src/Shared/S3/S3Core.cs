@@ -108,6 +108,14 @@ internal sealed partial class S3Core(IWriteableFileProvider owner, S3CoreSetting
     public static bool IsNotFound(Exception exception) =>
         exception is AmazonS3Exception { ErrorCode: "NoSuchKey" or "NoSuchVersion" };
 
+    /// <summary>
+    /// Whether an exception of the SDK means the store refused the credential or the permission: a 401 or a 403
+    /// (<c>AccessDenied</c>, <c>InvalidAccessKeyId</c>, <c>SignatureDoesNotMatch</c>), or an <c>AccessDenied</c> code.
+    /// </summary>
+    /// <param name="exception">The exception.</param>
+    public static bool IsAccessDenied(Exception exception) =>
+        exception is AmazonS3Exception { StatusCode: HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden } or AmazonS3Exception { ErrorCode: "AccessDenied" };
+
     /// <summary>Disposes the client this core built; a client the caller gave is left alone. Called once, by the provider.</summary>
     public void Dispose()
     {
@@ -157,7 +165,7 @@ internal sealed partial class S3Core(IWriteableFileProvider owner, S3CoreSetting
     {
         if (_givenClient is not null)
             return new Connection(_givenClient, null, false, IsHttp(_givenClient.Config));
-        var credentials = _settings.Credentials ?? await DefaultAWSCredentialsIdentityResolver.GetCredentialsAsync().ConfigureAwait(false);
+        var credentials = _settings.Credentials ?? await DefaultCredentialsAsync(() => DefaultAWSCredentialsIdentityResolver.GetCredentialsAsync()).ConfigureAwait(false);
         var region = _settings.Region;
         if (region is null && _settings.DiscoverRegion)
             region = await DiscoverRegionAsync(credentials).ConfigureAwait(false);
@@ -170,6 +178,26 @@ internal sealed partial class S3Core(IWriteableFileProvider owner, S3CoreSetting
         }
         client.Dispose();
         throw new ObjectDisposedException(_owner.GetType().FullName);
+    }
+
+    /// <summary>
+    /// The credentials of the SDK's default chain (environment, profile, SSO, container or instance role). Finding none is a
+    /// store that is not set up as configured, <see cref="InvalidOperationException"/>, which the next call asks again.
+    /// </summary>
+    /// <param name="resolve">Resolves the chain: the SDK's resolver, or a test's.</param>
+    public static async Task<AWSCredentials> DefaultCredentialsAsync(Func<Task<AWSCredentials>> resolve)
+    {
+        ArgumentNullException.ThrowIfNull(resolve);
+        try
+        {
+            return await resolve().ConfigureAwait(false);
+        }
+        catch (AmazonClientException e)
+        {
+            throw new InvalidOperationException(
+                "UseDefaultCredentials is set, but the AWS SDK's default credential chain found no credentials (environment, profile, SSO, container or instance role).",
+                e);
+        }
     }
 
     // MinIO answers GetBucketLocation signed for us-east-1 even when it runs in another region, which rejects every other
@@ -219,6 +247,13 @@ internal sealed partial class S3Core(IWriteableFileProvider owner, S3CoreSetting
         }
         catch (AmazonS3Exception e) when (e.ErrorCode == "BucketAlreadyOwnedByYou")
         {
+        }
+        catch (AmazonS3Exception e) when (e.ErrorCode == "BucketAlreadyExists")
+        {
+            // Bucket names are global: this one belongs to another account, so the store cannot be set up as configured.
+            throw new InvalidOperationException(
+                $"The bucket '{Bucket}' does not exist for these credentials, and CreateBucketIfMissing cannot create it: another account owns the name. Name another bucket.",
+                e);
         }
     }
 

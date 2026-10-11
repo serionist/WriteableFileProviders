@@ -27,7 +27,7 @@ public sealed class BoxRedactionTests
         using (provider)
         {
             box.Intercept = Fail(r => r.RequestUri!.AbsolutePath.EndsWith("/items", StringComparison.Ordinal), HttpStatusCode.BadRequest, "bad_request");
-            CredentialAssert.CarriesNone(await Assert.ThrowsExactlyAsync<BoxApiException>(() => provider.GetFileInfoAsync("a.txt")));
+            CredentialAssert.CarriesNone(await Assert.ThrowsExactlyAsync<IOException>(() => provider.GetFileInfoAsync("a.txt")));
         }
     }
 
@@ -39,7 +39,7 @@ public sealed class BoxRedactionTests
         using (provider)
         {
             box.Intercept = Fail(r => r.RequestUri!.AbsolutePath == "/api/2.0/files/content", HttpStatusCode.BadRequest, "bad_request");
-            CredentialAssert.CarriesNone(await Assert.ThrowsExactlyAsync<BoxApiException>(() => provider.UpdateFileAsync("a.txt", TestStreams.Text("x"))));
+            CredentialAssert.CarriesNone(await Assert.ThrowsExactlyAsync<IOException>(() => provider.UpdateFileAsync("a.txt", TestStreams.Text("x"))));
         }
     }
 
@@ -52,7 +52,7 @@ public sealed class BoxRedactionTests
         {
             box.AddFile(FakeBox.RootId, "a.txt", "x");
             box.Intercept = Fail(r => r.Method == HttpMethod.Delete, HttpStatusCode.BadRequest, "bad_request");
-            CredentialAssert.CarriesNone(await Assert.ThrowsExactlyAsync<BoxApiException>(() => provider.DeleteAsync("a.txt")));
+            CredentialAssert.CarriesNone(await Assert.ThrowsExactlyAsync<IOException>(() => provider.DeleteAsync("a.txt")));
         }
     }
 
@@ -190,9 +190,9 @@ public sealed class BoxRedactionTests
         Assert.IsTrue(box.Requests.Any(r => r.Header("BoxApi") is { } value && value.Contains("hunter2-secret", StringComparison.Ordinal)), "The header reaches Box");
 
         box.Intercept = Fail(r => r.Method == HttpMethod.Put || r.RequestUri!.AbsolutePath.EndsWith("/items", StringComparison.Ordinal), HttpStatusCode.Conflict, "item_name_in_use");
-        CredentialAssert.CarriesNone(await Assert.ThrowsExactlyAsync<BoxApiException>(() => provider.GetFileInfoAsync("a.txt")), "hunter2-secret", "shared_link");
+        CredentialAssert.CarriesNone(await Assert.ThrowsExactlyAsync<IOException>(() => provider.GetFileInfoAsync("a.txt")), "hunter2-secret", "shared_link");
         box.Intercept = Fail(r => r.Method == HttpMethod.Delete, HttpStatusCode.BadRequest, "bad_request");
-        CredentialAssert.CarriesNone(await Assert.ThrowsExactlyAsync<BoxApiException>(() => provider.DeleteAsync("a.txt")), "hunter2-secret", "shared_link");
+        CredentialAssert.CarriesNone(await Assert.ThrowsExactlyAsync<IOException>(() => provider.DeleteAsync("a.txt")), "hunter2-secret", "shared_link");
     }
 
     [TestMethod]

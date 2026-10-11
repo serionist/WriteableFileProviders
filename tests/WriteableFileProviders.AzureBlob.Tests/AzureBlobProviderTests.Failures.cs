@@ -361,10 +361,11 @@ public sealed partial class AzureBlobProviderTests
         await lease.AcquireAsync(TimeSpan.FromSeconds(60));
         try
         {
-            var overwrite = await Assert.ThrowsExactlyAsync<RequestFailedException>(() => Write(provider, "f.txt", "x"));
-            Assert.AreEqual(412, overwrite.Status);
-            var append = await Assert.ThrowsExactlyAsync<RequestFailedException>(() => Append(provider, "f.txt", "x"));
-            Assert.AreEqual(412, append.Status);
+            // The lease's 412 is not the caller's condition: an IOException, with Azure's error inside.
+            var overwrite = await Assert.ThrowsExactlyAsync<IOException>(() => Write(provider, "f.txt", "x"));
+            Assert.AreEqual(412, Assert.IsInstanceOfType<RequestFailedException>(overwrite.InnerException).Status);
+            var append = await Assert.ThrowsExactlyAsync<IOException>(() => Append(provider, "f.txt", "x"));
+            Assert.AreEqual(412, Assert.IsInstanceOfType<RequestFailedException>(append.InnerException).Status);
             Assert.AreEqual(1, _handler.For(Name("f.txt")).Count(l => l.StartsWith("HEAD", StringComparison.Ordinal)), "The append read the file once: no retries");
             Assert.AreEqual("leased", await ReadRaw("f.txt"));
         }

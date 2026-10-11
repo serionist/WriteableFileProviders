@@ -144,7 +144,11 @@ public abstract partial class WriteableFileProvider<TOptions>
     /// </summary>
     /// <param name="path">The file.</param>
     /// <param name="contents">The content.</param>
-    /// <param name="options">How to write. The conditions reach here only when <see cref="SupportsAtomicPreconditions"/>.</param>
+    /// <param name="options">
+    /// How to write, conditions included. They always reach here: when <see cref="SupportsAtomicPreconditions"/> is true
+    /// the store must check them as it writes; when it is false the base class has already checked them, just before this
+    /// call (not atomic), and the provider may still send them for the store to enforce where it can.
+    /// </param>
     /// <param name="cancellationToken">Cancels the call.</param>
     protected abstract Task UpdateFileCoreAsync(ResolvedPath path, Stream contents, UpdateFileOptions options, CancellationToken cancellationToken);
 

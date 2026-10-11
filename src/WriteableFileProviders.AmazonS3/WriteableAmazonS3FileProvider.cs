@@ -39,14 +39,21 @@ public sealed class WriteableAmazonS3FileProvider : WriteableFileProvider<Amazon
 
     /// <summary>
     /// Creates the provider over a client the caller built and owns (for its own credentials, endpoint or retries): it is
-    /// never disposed by the provider. The options give the bucket, the root, the storage class and
-    /// <see cref="AmazonS3FileProviderOptions.CreateBucketIfMissing"/>; their credentials, region and endpoint are not
-    /// used. The provider cannot see when the client's credentials expire, so its presigned URLs need
-    /// <see cref="SignedUrlOptions.AllowShorterValidity"/>.
+    /// never disposed by the provider. Every request goes through the client, with its own credentials, region and
+    /// endpoint; the options' credentials, <see cref="AmazonS3FileProviderOptions.ForcePathStyle"/> and
+    /// <see cref="AmazonS3FileProviderOptions.UseDefaultCredentials"/> are not used. The options give the bucket, the root,
+    /// the storage class and <see cref="AmazonS3FileProviderOptions.CreateBucketIfMissing"/>, and two more:
+    /// <see cref="AmazonS3FileProviderOptions.ServiceUrl"/>, when set, says the store is an S3-compatible server rather than
+    /// AWS (as a client whose own <c>ServiceURL</c> is set does), so conditions are also checked before a write and no
+    /// requester-pays header is sent; on AWS, <see cref="AmazonS3FileProviderOptions.BucketRegion"/> is the location of a
+    /// bucket the provider creates. The provider cannot see when the client's credentials expire, so its presigned URLs
+    /// need <see cref="SignedUrlOptions.AllowShorterValidity"/>.
     /// </summary>
     /// <param name="options">The options.</param>
     /// <param name="client">The client.</param>
-    /// <exception cref="ArgumentException">The options name no bucket.</exception>
+    /// <exception cref="ArgumentException">
+    /// The options name no bucket, or <see cref="AmazonS3FileProviderOptions.ServiceUrl"/> is not an http or https URL.
+    /// </exception>
     public WriteableAmazonS3FileProvider(AmazonS3FileProviderOptions options, IAmazonS3 client)
         : this(options, client ?? throw new ArgumentNullException(nameof(client)), null)
     {

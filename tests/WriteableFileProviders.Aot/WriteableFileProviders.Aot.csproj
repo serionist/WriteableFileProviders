@@ -12,8 +12,12 @@
     <!-- One warning per problem, not one per assembly, so the log names it. -->
     <TrimmerSingleWarn>false</TrimmerSingleWarn>
     <IlcTreatWarningsAsErrors>true</IlcTreatWarningsAsErrors>
-    <!-- The runtimes it is published for, so the lock file holds their packages. -->
-    <RuntimeIdentifiers>linux-x64;win-x64</RuntimeIdentifiers>
+    <!-- The runtime CI publishes it for, so a restore without one brings its packages. -->
+    <RuntimeIdentifiers>linux-x64</RuntimeIdentifiers>
+    <!-- No lock file: beyond ours, its packages are the SDK's native AOT compiler, at the SDK's own runtime version, so
+         a lock file would fail a locked restore at every SDK patch. Every other version is pinned in
+         Directory.Packages.props. -->
+    <RestorePackagesWithLockFile>false</RestorePackagesWithLockFile>
     <!-- Never packed (tests/Directory.Build.props); the web SDK would warn when dotnet pack meets it in the
          solution. -->
     <WarnOnPackingNonPackableProject>false</WarnOnPackingNonPackableProject>

@@ -79,7 +79,16 @@ internal sealed partial class S3Core(IWriteableFileProvider owner, S3CoreSetting
         ArgumentNullException.ThrowIfNull(settings);
         region ??= settings.Region ?? UsEast1;
         if (settings.ServiceUrl is null)
-            return new AmazonS3Config { RegionEndpoint = RegionEndpoint.GetBySystemName(region), ForcePathStyle = settings.ForcePathStyle };
+        {
+            // AWS: an endpoint configured for the SDK after the provider was built (AWS_ENDPOINT_URL_S3, a profile's
+            // endpoint_url) must not redirect it unchecked; one configured before became the settings' ServiceUrl.
+            return new AmazonS3Config
+            {
+                RegionEndpoint = RegionEndpoint.GetBySystemName(region),
+                ForcePathStyle = settings.ForcePathStyle,
+                IgnoreConfiguredEndpointUrls = true,
+            };
+        }
         return new AmazonS3Config
         {
             // ServiceURL and RegionEndpoint exclude each other: the region only signs.

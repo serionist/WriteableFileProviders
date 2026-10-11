@@ -251,7 +251,7 @@ the provider gains ETags, conditions, ranges and `Watch`. `WriteablePhysicalFile
 | `WriteablePhysicalFileProvider` could be derived from | It is sealed | Wrap it instead: implement `IWriteableFileProvider` and delegate, or derive your own provider from `WriteableFileProvider<TOptions>`. |
 | On Linux and macOS, `Options.RootDirectoryPath`, and so `ToJson`, gave `root:/srv/files` | `/srv/files`. The `root:` form still reads, from JSON and from configuration, and `RootDirectorySegments` keeps its 2026 form | Code that stripped `root:` can stop. |
 | A root of `C:\` read back as `C:` | `C:\` | Nothing. |
-| A root in the extended or device form (`\\?\C:\files`, `\\?\UNC\server\share`) was used as given | On Windows it is taken, and written back, in its plain form (`C:\files`, `\\server\share`), so the name rules hold under it; one with no plain form of at most 259 characters, such as a volume GUID, throws `ArgumentException` | Give such a root as a drive or share path. |
+| A root in the extended or device form (`\\?\C:\files`, `\\?\UNC\server\share`) was used as given | On Windows it is taken, and written back, in its plain form (`C:\files`, `\\server\share`), so the name rules hold under it; one with no plain form throws `ArgumentException`: a volume GUID, a device, or a name the plain form would change (one ending in a dot or a space, `.` or `..`) | Give such a root as a drive or share path. |
 
 New: `IfMatch`, `IfNotExists`, ranged and seekable reads, copies and moves that never replace a file, and `Watch`.
 Physical signs no URLs: the ASP.NET Core package's gateway serves them.

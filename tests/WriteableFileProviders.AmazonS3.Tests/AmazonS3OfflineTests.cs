@@ -184,6 +184,38 @@ public sealed class AmazonS3OfflineTests
     }
 
     [TestMethod]
+    public async Task AnEndpointConfiguredAfterTheProviderIsBuilt_DoesNotRedirectIt()
+    {
+        // The configured endpoint is read when the provider is built; one set later, before the first call, is not
+        // followed: the client the provider builds for AWS ignores the SDK's configured endpoints.
+        var saved = Environment.GetEnvironmentVariable("AWS_ENDPOINT_URL_S3");
+        try
+        {
+            Environment.SetEnvironmentVariable("AWS_ENDPOINT_URL_S3", null);
+            var hosts = new List<string>();
+            var (provider, _) = Offline(Aws(), answer: r =>
+            {
+                lock (hosts)
+                    hosts.Add(r.RequestUri!.Host);
+                return null;
+            });
+            using (provider)
+            {
+                Environment.SetEnvironmentVariable("AWS_ENDPOINT_URL_S3", "http://minio.internal:9000");
+                Assert.IsTrue((await provider.GetFileInfoAsync("f.txt")).Exists);
+                Assert.IsTrue(provider.Core.ChecksAtomically);
+            }
+            Assert.IsTrue(hosts.Count > 0);
+            CollectionAssert.DoesNotContain(hosts, "minio.internal");
+            Assert.IsTrue(hosts.All(h => h.EndsWith(".amazonaws.com", StringComparison.Ordinal)), string.Join(", ", hosts));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("AWS_ENDPOINT_URL_S3", saved);
+        }
+    }
+
+    [TestMethod]
     public async Task Presign_CreateUrlsOnlyWhereTheStoreEnforcesThem()
     {
         // AWS enforces the If-None-Match a create URL signs; an S3-compatible server behind a named endpoint may ignore

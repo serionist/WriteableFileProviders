@@ -134,7 +134,7 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
     /// <param name="rootPath">The folder: an absolute path, or a path relative to the current directory.</param>
     /// <exception cref="ArgumentException">
     /// The path is empty or not valid, or, on Windows, an extended or device path (<c>\\?\</c>, <c>\\.\</c>) that has
-    /// no plain form of at most 259 characters.
+    /// no plain form.
     /// </exception>
     public WriteablePhysicalFileProvider(string rootPath)
         : this(new PhysicalFileProviderOptions { RootDirectoryPath = rootPath })
@@ -152,8 +152,9 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
     /// <param name="options">The options.</param>
     /// <exception cref="ArgumentNullException"><paramref name="options"/> is null.</exception>
     /// <exception cref="ArgumentException">
-    /// The root is empty or not a valid path, or, on Windows, an extended or device path that has no plain form (a
-    /// volume GUID, a device) or whose plain form is longer than 259 characters.
+    /// The root is empty or not a valid path, or, on Windows, an extended or device path that has no plain form: a
+    /// volume GUID, a device, or a name the plain form would change (one ending in a dot or a space, <c>.</c> or
+    /// <c>..</c>).
     /// </exception>
     public WriteablePhysicalFileProvider(PhysicalFileProviderOptions options) : base(options)
     {
@@ -161,7 +162,7 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
             throw new ArgumentException("The root folder, RootDirectoryPath, is not set.", nameof(options));
         var root = !OperatingSystem.IsWindows() ? Options.RootDirectoryPath : PlainRootOf(Options.RootDirectoryPath)
             ?? throw new ArgumentException(
-                "RootDirectoryPath is an extended or device path with no plain form of at most 259 characters (a volume GUID, a device, or a longer path): give the folder as a drive or share path.",
+                "RootDirectoryPath is an extended or device path with no plain form (a volume GUID, a device, or a name the plain form would change: one ending in a dot or a space, '.' or '..'): give the folder as a drive or share path.",
                 nameof(options));
         _root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
         Options.RootDirectoryPath = _root;
@@ -414,23 +415,37 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
 
     // A Windows root in its plain form. An extended path (\\?\C:\files, \\?\UNC\server\share) skips .NET's
     // normalization, and with it the expansion of 8.3 short names that FullPath relies on to refuse them; a device path
-    // (\\.\C:\files) is taken the same way. A form with no plain equivalent (a volume GUID, a device), or one too long
-    // for a plain path (MAX_PATH, 260 characters with its terminator), is null. Any other path is returned as it is.
+    // (\\.\C:\files) is taken the same way. Null for a form with no plain equivalent: a volume GUID or a device, and a
+    // path holding a name the plain form would change, as it drops a trailing dot or space and applies '.' and '..'
+    // that an extended path names as they are (\\?\C:\data. is not C:\data). Any other path is returned as it is.
     internal static string? PlainRootOf(string root)
     {
-        const int MaxPlainLength = 259;
         var text = root.Replace('/', '\\');
         if (!text.StartsWith(@"\\?\", StringComparison.Ordinal) && !text.StartsWith(@"\\.\", StringComparison.Ordinal))
             return root;
         var rest = text[4..];
+        string names;
         string plain;
         if (rest.StartsWith(@"UNC\", StringComparison.OrdinalIgnoreCase))
-            plain = @"\\" + rest[4..];
+        {
+            names = rest[4..];
+            plain = @"\\" + names;
+        }
         else if (rest.Length >= 2 && char.IsAsciiLetter(rest[0]) && rest[1] == ':' && (rest.Length == 2 || rest[2] == '\\'))
+        {
+            names = rest[2..];
             plain = rest.Length == 2 ? rest + @"\" : rest;
+        }
         else
+        {
             return null;
-        return plain.Length <= MaxPlainLength ? plain : null;
+        }
+        foreach (var name in names.Split('\\', StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (name.EndsWith('.') || name.EndsWith(' '))
+                return null;
+        }
+        return plain;
     }
 
     /// <summary>Stops watching.</summary>

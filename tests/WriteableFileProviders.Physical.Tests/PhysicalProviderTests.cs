@@ -1146,26 +1146,63 @@ public sealed class PhysicalProviderTests
     [DataRow(@"\\.\PhysicalDrive0")]
     [DataRow(@"\\.\pipe\name")]
     [DataRow(@"\\?\GLOBALROOT\Device\HarddiskVolume1\files")]
+    // Names the plain form would change: it drops a trailing dot or space and applies '.' and '..', which the extended
+    // form names as they are.
+    [DataRow(@"\\?\C:\data.")]
+    [DataRow(@"\\?\C:\data ")]
+    [DataRow(@"\\?\C:\data.\files")]
+    [DataRow(@"\\?\C:\data\..\..\Windows")]
+    [DataRow(@"\\?\C:\.\files")]
+    [DataRow(@"\\?\UNC\server\share.\files")]
+    [DataRow(@"\\?\UNC\server\share\files ")]
+    [DataRow(@"\\.\C:\data.")]
     public void PlainRootOf_HasNoneForAPathWithNoPlainForm(string root) =>
         Assert.IsNull(WriteablePhysicalFileProvider.PlainRootOf(root));
 
     [TestMethod]
-    public void PlainRootOf_HasNoneForAPathTooLongToBePlain()
+    public void PlainRootOf_TakesALongPathPlain()
     {
-        var longest = @"C:\" + new string('a', 256);
-        Assert.AreEqual(longest, WriteablePhysicalFileProvider.PlainRootOf(@"\\?\" + longest));
-        Assert.IsNull(WriteablePhysicalFileProvider.PlainRootOf(@"\\?\" + longest + "b"));
+        var path = @"C:\" + new string('a', 200) + @"\" + new string('b', 200);
+        Assert.AreEqual(path, WriteablePhysicalFileProvider.PlainRootOf(@"\\?\" + path));
+        Assert.AreEqual(@"C:\a.b\c", WriteablePhysicalFileProvider.PlainRootOf(@"\\?\C:\a.b\c"), "A dot inside a name changes nothing");
     }
 
     [TestMethod]
     [OSCondition(OperatingSystems.Windows)]
     public void Root_WithNoPlainFormIsRefused()
     {
-        foreach (var root in new[] { @"\\?\Volume{12345678-1234-1234-1234-123456789abc}\files", @"\\?\C:\" + new string('a', 300) })
+        // "rootdot." is a folder of its own under \\?\, which the plain form would take for "rootdot".
+        Directory.CreateDirectory(Disk("rootdot"));
+        Directory.CreateDirectory(@"\\?\" + Disk("rootdot."));
+        try
         {
-            var e = Assert.ThrowsExactly<ArgumentException>(() => new WriteablePhysicalFileProvider(root), root);
-            Assert.AreEqual("options", e.ParamName);
+            foreach (var root in new[] { @"\\?\Volume{12345678-1234-1234-1234-123456789abc}\files", @"\\?\" + Disk("rootdot."), @"\\?\" + Disk("x", "..", "..") })
+            {
+                var e = Assert.ThrowsExactly<ArgumentException>(() => new WriteablePhysicalFileProvider(root), root);
+                Assert.AreEqual("options", e.ParamName);
+            }
         }
+        finally
+        {
+            Directory.Delete(@"\\?\" + Disk("rootdot."));
+        }
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public async Task Root_InTheExtendedFormThatIsLongStillRefusesShortNames()
+    {
+        // Longer than MAX_PATH once a file is under it: the plain form works, and the short-name check holds.
+        var deep = Path.Combine(_root, new string('a', 150), new string('b', 150));
+        using var provider = new WriteablePhysicalFileProvider(@"\\?\" + deep);
+        Assert.AreEqual(deep, provider.Options.RootDirectoryPath);
+        await provider.UpdateFileAsync("long folder name/report-2024.txt", TestStreams.Text("original"));
+        Assert.IsTrue((await provider.GetFileInfoAsync("long folder name/report-2024.txt")).Exists);
+        if (!Directory.Exists(Path.Combine(deep, "LONGFO~1")))
+            Assert.Inconclusive("This volume keeps no 8.3 short names (fsutil 8dot3name).");
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => provider.UpdateFileAsync("LONGFO~1/REPORT~1.TXT", TestStreams.Text("REPLACED")));
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => provider.DeleteAsync("LONGFO~1"));
+        Assert.IsTrue((await provider.GetFileInfoAsync("long folder name/report-2024.txt")).Exists);
     }
 
     [TestMethod]

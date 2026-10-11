@@ -164,10 +164,12 @@ gateway URL instead.
 - Plain `http` toward a host that is not loopback, through `ServiceUrl` or a client's own endpoint, is refused when the
   provider is built unless `AllowInsecureHttp` is set.
 - An endpoint the AWS SDK takes from its own configuration (`AWS_ENDPOINT_URL_S3`, `AWS_ENDPOINT_URL`, or a profile's
-  `endpoint_url`) redirects a provider without `ServiceUrl`, as it does every AWS client, and counts as a named endpoint,
-  as `ServiceUrl` does: conditions are checked first, create URLs come from the gateway, plain `http` toward a host that
-  is not loopback needs `AllowInsecureHttp`, and requester-pays and a created bucket's location apply only to S3's own
-  host names. Set `AWS_IGNORE_CONFIGURED_ENDPOINT_URLS` to have the SDK ignore it.
+  `endpoint_url`) when the provider is built redirects a provider without `ServiceUrl`, as it does every AWS client,
+  and counts as a named endpoint, as `ServiceUrl` does: requests send checksums only where S3 requires them, conditions
+  are checked first, create URLs come from the gateway, plain `http` toward a host that is not loopback needs
+  `AllowInsecureHttp`, and requester-pays and a created bucket's location apply only to S3's own host names. One
+  configured later does not redirect a provider already built. Set `AWS_IGNORE_CONFIGURED_ENDPOINT_URLS` to have the
+  SDK ignore it.
 - Change notifications (`Watch`) are not supported.
 
 ## More

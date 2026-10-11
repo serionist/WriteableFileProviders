@@ -2201,12 +2201,23 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
       do not always enforce, so a file such as `con.txt` that 2026 served is now refused and left out of listings.
     - Nits: the 8.3 check and the device-name lookup allocate nothing (a span compare, a `FrozenSet` span lookup);
       `SharePointLiveChecks` pages through the site's libraries as the provider does.
-  - **Verified** (after round 1): the solution builds strict; every non-Live test on Windows with
-    `WFP_REQUIRE_DOCKER=1`: 2288, none failed, 12 skipped (the three concurrent-append cases and nine Unix-only Physical
-    tests); Physical (213: 206 passed; skipped the concurrent append, the Windows-only ACL test and five Windows-only
+  - **PR #43 review, round 2** (F1–F5 verified; four items, each decided by the main session):
+    - N1 (root protection, decided: refuse): under `\\?\`, `data.` and `data ` are folders of their own, and `.` and
+      `..` are names, but the plain form drops a trailing dot or space and applies `.` and `..`, so such a root would
+      name another folder (`\\?\C:\data\..\..\Windows` becomes `C:\Windows`). `PlainRootOf` now has no plain form for
+      a path holding such a name, and the constructor refuses it. Tests: each shape, and a real `rootdot.` folder.
+    - N2: the 259-character cap refused long roots that work in plain form; it is gone, and a long `\\?\` root builds and
+      still refuses short names (Windows test).
+    - N3: the configured endpoint is read when the provider is built, so a client the provider builds for AWS now sets
+      the SDK's `IgnoreConfiguredEndpointUrls`: an endpoint configured later, before the first call, cannot redirect it
+      unchecked. Tests: the client configuration, and an environment variable set after construction.
+    - N4: the README says the SDK-configured endpoint also gets checksums only where S3 requires them.
+  - **Verified** (after round 2): the solution builds strict; every non-Live test on Windows with
+    `WFP_REQUIRE_DOCKER=1`: 2298, none failed, 12 skipped (the three concurrent-append cases and nine Unix-only Physical
+    tests); Physical (222: 214 passed; skipped the concurrent append, the Windows-only ACL test and six Windows-only
     name and root tests) and Common (234 passed) in a `dotnet/sdk:10.0` container as a non-root user; the coverage gate
-    (Windows: AmazonS3 98.13/93.22, AzureBlob 99.22/91.12, Box 99.69/93.17, GCS 99.64/95.24, MinIO 98.22/91.57,
-    Physical 99.54/94.02, SharePoint 99.76/91.52), by whose rule the AmazonS3 branch floor rises from 91 to 92. No live
+    (Windows: AmazonS3 98.14/93.22, AzureBlob 99.22/91.12, Box 99.69/93.17, GCS 99.64/95.24, MinIO 98.23/91.57,
+    Physical 99.56/94.12, SharePoint 99.76/91.52), by whose rule the AmazonS3 branch floor rises from 91 to 92. No live
     suite ran (no accounts here; D21).
 
 ### For the maintainers

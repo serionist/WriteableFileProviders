@@ -1,9 +1,7 @@
 # WriteableFileProviders.SharePoint
 
-A writeable `IFileProvider` over a SharePoint document library, through Microsoft Graph, part of
-[WriteableFileProviders](https://github.com/serionist/WriteableFileProviders#readme): the same `IWriteableFileProvider`
-API, with the same meaning, as the local disk, Azure Blob Storage, Amazon S3, MinIO, Google Cloud Storage and Box
-providers. Built on `Microsoft.Graph` 6 and `Azure.Identity`.
+A SharePoint document library as an `IWriteableFileProvider`, through Microsoft Graph (`Microsoft.Graph` 6). Part of
+[WriteableFileProviders](https://github.com/serionist/WriteableFileProviders#readme).
 
 ## Install
 
@@ -11,9 +9,7 @@ providers. Built on `Microsoft.Graph` 6 and `Azure.Identity`.
 dotnet add package WriteableFileProviders.SharePoint
 ```
 
-It needs .NET 10 and brings `WriteableFileProviders.Common`, Microsoft.Graph 6 and Azure.Identity. Every
-WriteableFileProviders package in an application must be on the same major version: a `2026.10.10.x` package does not
-load against `WriteableFileProviders.Common` 2027.
+Needs .NET 10. Keep every WriteableFileProviders package in an app on the same major version.
 
 ## Use
 
@@ -25,132 +21,68 @@ load against `WriteableFileProviders.Common` 2027.
     "DocumentLibraryName": "Documents",
     "TenantId": "<tenant id>",
     "ClientId": "<app client id>",
-    "ClientSecret": "<from a secret store, never from source control>",
-    "WorkFolderPath": "Apps/Reports",
-    "RootDirectoryPath": "tenants/acme"
+    "ClientSecret": "<from a secret store>",
+    "WorkFolderPath": "Apps/Reports"
   }
 }
 ```
 
 ```csharp
-using WriteableFileProviders;
-
-services.AddWriteableFileProvider(configuration.GetSection("Files"));
-// or: await using var files = WriteableFileProviderSerializer.FromConfiguration(configuration.GetSection("Files"));
+services.AddWriteableFileProvider(configuration.GetSection("Files"));   // then inject IWriteableFileProvider
 ```
 
-To bring your own Graph client (custom retries or handlers, a national cloud, tests), pass it in. The provider then
-reads only the site, the library, the work folder and the root from the options, and never disposes the client:
+Or pass a `GraphServiceClient` you build (managed identity, national clouds, custom handlers). The provider never
+disposes it, and reads only the site, the library, the work folder and the root from the options. Downloads and uploads
+go through it to hosts other than Graph's, so its authentication must send tokens to Graph only, as Azure Identity does:
 
 ```csharp
-using Azure.Identity;
-using Microsoft.Graph;
-using WriteableFileProviders.SharePoint;
-
-var graph = new GraphServiceClient(new ManagedIdentityCredential(ManagedIdentityId.SystemAssigned), ["https://graph.microsoft.com/.default"]);
-await using var files = new WriteableSharePointFileProvider(
-    new SharePointFileProviderOptions { SiteUrl = "https://contoso.sharepoint.com/sites/Finance", DocumentLibraryName = "Documents" }, graph);
+var graph = new GraphServiceClient(new DefaultAzureCredential(), ["https://graph.microsoft.com/.default"]);
+await using var files = new WriteableSharePointFileProvider(new SharePointFileProviderOptions { SiteUrl = siteUrl }, graph);
 ```
-
-Downloads, upload fragments and copy monitoring go through that client's request adapter to SharePoint hosts that are
-not Graph's. The SDK's Azure Identity authentication sends tokens to Graph's hosts only; a custom authentication
-provider must do the same. The provider class is sealed: to change what it does, wrap it, or derive your own provider
-from `WriteableFileProvider<TOptions>`.
 
 ## Configuration
 
-| Key | Required | Meaning |
+| Option | Default | Meaning |
 |---|---|---|
-| `SiteUrl` | yes | The site's absolute URL; only its host and path are used. |
-| `DocumentLibraryName` | no | The library as Graph names it (`Documents` for the default library, whose URL says `Shared Documents`), ignoring case. Empty takes the site's first library. |
-| `TenantId` | for a secret or a certificate | The Microsoft Entra tenant of the app. With `UseDefaultAzureCredential`, the tenant to sign in to, when set. |
-| `ClientId` | for a secret or a certificate | The app's client id; with `UseDefaultAzureCredential`, a user-assigned managed identity's client id (empty: the system-assigned one). |
-| `ClientSecret` | one way to sign in | The app's client secret. |
-| `ClientCertificateBase64`, `ClientCertificatePassword` | one way to sign in | The app's certificate with its private key, as a base64 PKCS#12 (.pfx) file, and its password. New in 2027. |
-| `UseDefaultAzureCredential` | one way to sign in | `true` to sign in with `DefaultAzureCredential`: managed identity, workload identity, environment variables, or a developer sign-in. New in 2027. |
-| `WorkFolderPath` | no | A folder of the library that holds the root; created on the first write. Names as they are, never percent-escaped (`Team Files`, not `Team%20Files`, which is refused). |
-| `RootDirectoryPath` (or `RootDirectorySegments`) | no | The provider's root, inside the work folder. Nothing outside it can be reached. Not percent-escaped either. |
+| `SiteUrl` | required | The site's absolute URL. |
+| `DocumentLibraryName` | first library | The library as Graph names it: `Documents` for the default one (URL `Shared Documents`). |
+| `TenantId`, `ClientId` | | The app's Microsoft Entra tenant and client id; required with a secret or a certificate. With `UseDefaultAzureCredential`, `ClientId` picks a user-assigned managed identity. |
+| `ClientSecret` | | The app's client secret. A secret. |
+| `ClientCertificateBase64`, `ClientCertificatePassword` | | The app's certificate with its private key, as a base64 .pfx, and its password. A secret. |
+| `UseDefaultAzureCredential` | `false` | Sign in with `DefaultAzureCredential`: managed identity, workload identity, environment, developer sign-in. |
+| `WorkFolderPath` | the library | A folder of the library that holds the root, created on the first write. Plain names (`Team Files`), never `%20`. |
+| `RootDirectoryPath` | the work folder | The folder inside the work folder the provider is confined to. Plain names too. |
 
-The provider's root is `WorkFolderPath` followed by `RootDirectoryPath`. When the root starts with the work folder
-(ignoring case), that one leading copy is dropped, so a 2026 configuration that set both to the same folder keeps its
-files. A root that is only the start of the work folder (`WorkFolderPath` `Main/Work`, `RootDirectoryPath` `Main`) is
-refused. Caller paths are never rewritten: `Main/Work/a.txt` is a folder `Main/Work` inside the root, as on every other
-provider.
-
-The three options new in 2027 are written to JSON only when set, so a configuration that uses none of them keeps its
-2026 shape. The options hold secrets: never log them, nor the output of `ToJson`.
+The root is `WorkFolderPath` then `RootDirectoryPath`. If the root starts with the work folder, that copy is dropped
+(`Apps/Reports` twice is one `Apps/Reports`); a root that is only the start of it (`Apps`) is refused.
 
 ## Authentication
 
-The provider signs in with the first of these that is configured:
+The first configured wins: `UseDefaultAzureCredential`, a certificate, a client secret. With a certificate or a secret
+the app signs in as itself: grant it the Graph application permission `Sites.ReadWrite.All`, or `Sites.Selected` with
+write access to the site. Building the provider sends nothing; the site and library are looked up on the first call.
 
-1. `UseDefaultAzureCredential`;
-2. a certificate (`ClientCertificateBase64`, `ClientCertificatePassword`);
-3. a client secret (`ClientSecret`).
+## What's different
 
-With a certificate or a secret the app signs in as itself (application permissions). Grant it the Microsoft Graph
-application permission `Sites.ReadWrite.All`, or `Sites.Selected` with write access to the site. Graph lists
-`Sites.ReadWrite.All` as the least privileged application permission for upload sessions, which files over 4 MiB use.
-
-No request is sent when the provider is built: the site and the library are looked up on the first call, and kept once
-found; a failed lookup is tried again by the next call. A configuration the provider cannot use (no sign-in, a
-certificate it cannot read, a `SiteUrl` that is not absolute) throws `ArgumentException` when it is built. Dispose the
-provider to release the HTTP client and certificate it created.
-
-## How it behaves
-
-The rules every provider shares (real folders, case, the names a listing leaves out, the exceptions) are in the guide:
-[paths](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/paths-and-listings.md), [reading and
-writing](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/reading-and-writing.md), and
-[errors](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/errors.md#sharepoint) with this
-provider's own mapping. What follows is this provider's own.
-
-- **Path segments** may not contain `:` (Graph's path syntax), escaped or not. A `%` is sent escaped, so `a%41` names an
-  item called `a%41`, not `aA`.
-- **Writes** copy the stream, from its position, to a temp file first, so a source that fails sends nothing. Up to
-  4 MiB a file goes in one request; above, through an upload session in 5 MiB fragments that the service commits with
-  the last one. A fragment answered 500, 502, 503, 504 or 416, cut off by the network, or answered without progress is
-  sent once more from where the session stands; a second failure there ends the upload, and the session is cancelled.
-  Either way a failed write leaves the old content, and the caller's stream is left open. Writing onto a folder, or
-  under a file, throws `IOException`.
-- **Conditions** (`IfMatch`, `IfNotExists`) are checked before the write, which includes the time to copy the stream,
-  and also sent to the service (`If-Match`, and the conflict behaviour `fail`). They are not promised to be atomic:
-  Graph documents `If-Match` when an upload session starts, not at its commit, and not on a simple upload. An append
-  rewrites the file with `If-Match` on the version it read.
-- **Content type:** SharePoint names the type from the file name. `UpdateFileOptions.ContentType` is ignored, and
-  `IWriteableFileInfo.ContentType` is the type SharePoint reports.
-- **Reads** stream from the file's pre-authenticated download URL, with nothing buffered on disk. Ranges are read
-  natively, and a range the service ignores is cut from the whole file. A read pinned to an ETag
-  (`ReadOptions.IfMatch`, or the seekable stream unless `AllowModifications` is set) checks it before each fetch, which
-  is not atomic.
-- **Sizes:** a file's `Length` is always its real length. For a file whose size Graph does not report, reading its info
-  or listing it costs one extra ranged request for its first byte (after a request for its download URL), whose answer
-  gives the length; every other file costs nothing more.
-- **Move** is one `PATCH`, after the checks every provider makes and the creation of the destination's folders; it
-  refuses a destination that exists. **Copy** runs on the server and is polled until it completes, for about 10 minutes
-  at most; then it throws `IOException` naming the copy's last status. The service may still finish that copy
-  afterwards and create the destination.
-- **Delete** sends items to the site's recycle bin.
-
-## Signed URLs
-
-Read only: the file's download URL, which Graph says lives up to an hour and may stop working within minutes. It is
-returned only for a validity from an hour to 7 days with `AllowShorterValidity`, with `ExpiresOn` null, and never with
-a download file name or content type; every other URL comes from the gateway. Removing someone's access may not end a
-URL already issued. The details are in
-[Signed URLs](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/signed-urls.md#sharepoint).
-
-## Limits
-
-- Graph's own: a fragment under 60 MiB, a simple upload up to 250 MB, SharePoint's name and path length limits.
-- `Watch` is not supported, and version history is not exposed.
+- **Real folders, case ignored.** Deletes go to the site's recycle bin.
+- **Names** can't contain `:` (Graph's path syntax). A `%` is literal: `a%41` names `a%41`, not `aA`.
+- **Writes** go through a local temp file, then up in one request up to 4 MiB, or an upload session in 5 MiB
+  fragments. A fragment that hits a server or network error is sent once more. A failed write leaves the old content.
+- **Conditions aren't atomic.** `IfMatch` and `IfNotExists` are checked before the write and also sent to Graph.
+- **Content type** comes from the file name. `UpdateFileOptions.ContentType` is ignored.
+- **Lengths are real.** A file whose size Graph doesn't report costs one extra ranged request to measure.
+- **Copies** run on the server and are polled for about 10 minutes, then throw `IOException`; the copy may still
+  finish later.
+- **Signed URLs** are read only: Graph's download URL, which lives up to an hour. It's returned only with
+  `AllowShorterValidity` and a validity of an hour or more, with `ExpiresOn` null. Every other URL comes from the
+  gateway.
+- **Limits:** Graph's own (fragments under 60 MiB, SharePoint's name and path lengths). `Watch` throws
+  `NotSupportedException`.
 
 ## Learn more
 
-- [Providers compared](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/providers.md): what
-  every store can do, side by side.
-- The guide's [reading and writing](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/reading-and-writing.md),
-  [paths and listings](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/paths-and-listings.md)
-  and [dependency injection](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/dependency-injection.md).
-- [Moving from 2026](https://github.com/serionist/WriteableFileProviders/blob/main/docs/migration-2027.md#sharepoint):
-  what 2027.0.0 changed for this provider.
+- The guide: [reading and writing](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/reading-and-writing.md),
+  [signed URLs](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/signed-urls.md#sharepoint),
+  [errors](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/errors.md#sharepoint),
+  [providers compared](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/providers.md).
+- [Moving from 2026](https://github.com/serionist/WriteableFileProviders/blob/main/docs/migration-2027.md#sharepoint).

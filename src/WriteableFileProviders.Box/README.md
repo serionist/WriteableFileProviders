@@ -1,9 +1,7 @@
 # WriteableFileProviders.Box
 
-A writeable `IFileProvider` over a [Box](https://www.box.com) folder, part of
-[WriteableFileProviders](https://github.com/serionist/WriteableFileProviders#readme): the same `IWriteableFileProvider`
-API, with the same meaning, as the local disk, Azure Blob Storage, Amazon S3, MinIO, Google Cloud Storage and
-SharePoint providers. Built on the Box .NET SDK (`Box.V2.Core` 10, namespace `Box.Sdk.Gen`).
+A [Box](https://www.box.com) folder as an `IWriteableFileProvider`, on the Box .NET SDK (`Box.V2.Core` 10). Part of
+[WriteableFileProviders](https://github.com/serionist/WriteableFileProviders#readme).
 
 ## Install
 
@@ -11,8 +9,7 @@ SharePoint providers. Built on the Box .NET SDK (`Box.V2.Core` 10, namespace `Bo
 dotnet add package WriteableFileProviders.Box
 ```
 
-It needs .NET 10 and brings `WriteableFileProviders.Common`. Every WriteableFileProviders package in an application
-must be on the same major version: a `2026.10.10.x` package does not load against `WriteableFileProviders.Common` 2027.
+Needs .NET 10. Keep every WriteableFileProviders package in an app on the same major version.
 
 ## Use
 
@@ -21,146 +18,73 @@ must be on the same major version: a `2026.10.10.x` package does not load agains
   "Files": {
     "Type": "WriteableBoxFileProvider",
     "ClientId": "abc123",
-    "ClientSecret": "from a secret store",
+    "ClientSecret": "...",
     "EnterpriseId": "987654",
     "PublicKeyId": "k1x2y3",
     "PrivateKey": "-----BEGIN ENCRYPTED PRIVATE KEY-----\n...\n-----END ENCRYPTED PRIVATE KEY-----\n",
-    "Passphrase": "from a secret store",
-    "RootFolderId": "123456789",
-    "RootDirectoryPath": "tenants/acme"
+    "Passphrase": "...",
+    "RootFolderId": "123456789"
   }
 }
 ```
 
 ```csharp
-using WriteableFileProviders;
-
-services.AddWriteableFileProvider(configuration.GetSection("Files"));
-
-// then, with IWriteableFileProvider files injected:
-await files.UpdateFileAsync("reports/2026.csv", stream);              // parent folders are created
-await using var slice = await files.ReadRangeAsync("big.bin", 1_000_000, 4096);
-await files.MoveAsync("reports/2026.csv", "archive/2026.csv");         // on the server
+services.AddWriteableFileProvider(configuration.GetSection("Files"));   // then inject IWriteableFileProvider
 ```
 
-To sign in another way (OAuth, a developer token, as-user calls), to use a proxy or custom retries, build the Box client
-yourself and pass it in; the provider never disposes it:
+To sign in another way (OAuth, a developer token, as-user calls) or set a proxy or retries, pass a Box client you
+build. The provider never disposes it, and reads only `RootFolderId` and the root from the options:
 
 ```csharp
-using Box.Sdk.Gen;
-using WriteableFileProviders.Box;
-
 var client = new BoxClient(new BoxJwtAuth(JwtConfig.FromConfigFile("box-config.json"))).WithAsUserHeader("12345");
-var files = new WriteableBoxFileProvider(new BoxFileProviderOptions { RootFolderId = "123456789" }, client);
+await using var files = new WriteableBoxFileProvider(new BoxFileProviderOptions { RootFolderId = "123456789" }, client);
 ```
-
-With a client, only `RootFolderId` and the root folder are read from the options. A client that is exactly a
-`BoxClient` is used through a copy that shares its authentication and session settings (base URLs, extra and as-user
-headers, retries, proxy, timeouts), so its errors carry no credentials (see Errors). Any other `IBoxClient`, a class
-derived from `BoxClient` included, is used as it is: its errors are its own, and may carry its credentials. The
-provider class is sealed: to change what it does, wrap it, or derive your own provider from
-`WriteableFileProvider<TOptions>`.
 
 ## Configuration
 
-`Type` is `WriteableBoxFileProvider`; the keys are the options' property names, read without regard to case.
-
-| Key | Required | What |
+| Option | Default | Meaning |
 |---|---|---|
-| `ClientId` | yes | The app's client id (`boxAppSettings.clientID` in the app's JSON configuration). |
-| `ClientSecret` | yes | The app's client secret (`boxAppSettings.clientSecret`). |
-| `EnterpriseId` | yes | The enterprise the app signs in to as its service account (`enterpriseID`). |
-| `PublicKeyId` | yes | The id of the app's public key (`boxAppSettings.appAuth.publicKeyID`). |
-| `PrivateKey` | yes | The app's private key in PEM (`boxAppSettings.appAuth.privateKey`), encrypted or not. Escaped line breaks (`\n`) are turned into real ones, so the key can be pasted from the JSON configuration or an environment variable. |
-| `Passphrase` | for an encrypted key | The private key's passphrase (`boxAppSettings.appAuth.passphrase`). |
-| `RootFolderId` | no | The Box folder the provider works in; `0` (the service account's root) when empty. A folder that does not exist, or that the app cannot see, makes every member that reaches Box throw `InvalidOperationException`. |
-| `RootDirectoryPath` | no | A folder path under `RootFolderId` to confine the provider to, such as `tenants/acme`. `RootDirectorySegments` is the same as segments. |
-
-A missing credential throws `ArgumentException` naming it when the provider is built. `ClientSecret`, `PrivateKey` and
-`Passphrase` are secrets: keep them in a secret store, and never log the provider's `ToJson()` output, which contains
-them.
+| `ClientId`, `ClientSecret` | required | The app's `boxAppSettings.clientID` and `clientSecret` (a secret). |
+| `EnterpriseId` | required | The enterprise the app signs in to, as its service account (`enterpriseID`). |
+| `PublicKeyId` | required | The app's `appAuth.publicKeyID`. The SDK doesn't send it, so give the app one public key only. |
+| `PrivateKey` | required | The app's `appAuth.privateKey` in PEM, encrypted or not. Escaped `\n` line breaks are fine. A secret. |
+| `Passphrase` | | The private key's passphrase, for an encrypted key. A secret. |
+| `RootFolderId` | `0` | The Box folder the provider works in. `0` is the service account's own root. |
+| `RootDirectoryPath` | | A folder under `RootFolderId` to confine the provider to, such as `tenants/acme`. |
 
 ## Authentication
 
-The provider signs in as a Box app's service account, with server authentication (JWT):
+The provider signs in as a Box app's service account, with JWT:
 
 1. In the [Box developer console](https://app.box.com/developers/console), create a Custom App with "Server
    Authentication (with JWT)".
-2. Under Configuration, generate a public/private key pair. Box downloads the app's JSON configuration, which holds every
-   value above.
-3. Have a Box admin authorize the app in the enterprise (Admin Console, Apps, Custom Apps Manager).
-4. Share the folder the provider should work in with the app's service account (its address is on the app's General
-   Settings page), and use that folder's id as `RootFolderId`. The service account's own files start at folder `0`.
+2. Generate a key pair under Configuration. Box downloads a JSON file with every value above.
+3. Have a Box admin authorize the app (Admin Console, Apps, Custom Apps Manager).
+4. Share the folder with the app's service account, and use the folder's id as `RootFolderId`.
 
-Sign-in happens on the first call that needs Box: building the provider does no network I/O (it reads the private key,
-so a wrong key or passphrase fails there, with an `ArgumentException`). Box's access tokens last an hour; when Box
-answers 401, the SDK fetches a new one and retries. A sign-in Box refuses throws `UnauthorizedAccessException`, with
-the SDK's `BoxApiException` inside, without the token request it sent.
+Building the provider reads the private key, so a wrong key or passphrase throws `ArgumentException` there. Sign-in
+happens on the first call; a sign-in Box refuses throws `UnauthorizedAccessException`.
 
-## How it behaves
+## What's different
 
-The rules every provider shares (real folders, case, the names a listing leaves out, the exceptions) are in the guide:
-[paths](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/paths-and-listings.md), [reading and
-writing](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/reading-and-writing.md), and
-[errors](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/errors.md#box) with this provider's
-own mapping. What follows is this provider's own.
-
-- **Names:** writing `A.TXT` over `a.txt` keeps the stored name.
-- **Paths are resolved on every call:** Box has no lookup by path, so each call lists the folders on its path from the
-  root folder down (with marker paging, 1000 entries a page). Deep paths and very large folders cost one or more calls
-  per level; nothing is cached between calls, so a change made elsewhere is seen at once.
-- **Listings** also leave out items that are neither files nor folders (web links).
-- **Writes:** the caller's stream is copied to a local temp file from its current position, then uploaded: in one
-  request below 20 MiB, through a chunked upload session at or above it (exact part sizes, part and whole-file digests,
-  the session aborted on failure). Box makes the new version only once the upload is complete, so a write that fails
-  leaves the old content. An append rewrites the file on the version it read. Writing onto a folder, or under a file,
-  throws `IOException`; a name Box refuses (too long, or with characters it does not allow) throws `ArgumentException`.
-- **Content types:** Box keeps none, so `UpdateFileOptions.ContentType` is ignored and `ContentType` is null.
-- **ETags:** a file's `ETag` is the id of its current Box file version, which no other version of any file shares. A
-  file deleted and created again under the same name has a new ETag, although Box's own `etag` starts again at `0`.
-- **Conditions:** `IfNotExists` is atomic (Box refuses a name that is taken). `IfMatch` is compared with the file's
-  `ETag` just before the write, which is not atomic: a write that lands in between is replaced. The same holds for the
-  version an append rewrites.
-- **Reads** stream the download. `ReadRangeAsync` fetches a byte range of the version it finds, and throws
-  `PreconditionFailedException` when `ReadOptions.IfMatch` no longer matches; `OpenReadSeekableAsync` fetches ranges of
-  the version it opened, unless `AllowModifications` is set, and throws `PreconditionFailedException` once the file has
-  changed. The download itself, from Box's pre-authenticated URL, throws `FileNotFoundException` or `IOException` with
-  its HTTP status only: that URL is a credential, so no error carries it.
-- **Errors** carry the SDK's `BoxApiException` inside, which keeps the request it sent, credentials included; the
-  provider strips them from the errors of the clients it builds or copies, and not from another `IBoxClient`'s
-  ([errors](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/errors.md#box) says exactly what
-  each keeps).
-- **Move and copy** run on the server, on files only; they create the destination's folders and refuse an existing
-  destination with `FileExistsException`. A move is one call, or, when Box refuses a case-only rename, three through a
-  temporary name (`.wfp-rename-<guid>.tmp`), the old name put back if the last one fails.
-- **Delete** sends the file or folder (recursively) to the Box trash, or deletes it for good where the enterprise's
-  settings say so.
-- **Watch** is not supported.
-
-## Signed URLs
-
-Read only: Box's pre-authenticated download URL, which Box makes valid for about 15 minutes whatever is asked. It is
-returned only for a validity from 15 minutes to 7 days with `AllowShorterValidity`, and never with a download file
-name or content type; every other URL comes from the gateway. Anyone holding the URL can download that version of the
-file until it expires. The details are in
-[Signed URLs](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/signed-urls.md#box).
-
-## Limits
-
-- Box's own limits apply: the account's maximum file size (from 250 MB on free accounts to several GB), names of at most
-  255 characters, no `/` or `\`, no trailing spaces, and the API's rate limits (the SDK retries 429 and 5xx answers).
-- Box answers some calls with "not ready yet" (a download right after an upload, the commit of a large upload). For a
-  download the provider waits as Box's `Retry-After` asks, up to two minutes; for a commit it asks again every second,
-  for up to two minutes plus two more for every whole GiB. Then it throws `IOException`.
-- Every operation on a path walks the path from the root folder, so latency grows with depth.
-- The `PublicKeyId` is not sent in the JWT header by the Box SDK; Box accepts that while the app has one public key.
+- **Real folders, case ignored.** Writing `A.TXT` over `a.txt` keeps the stored name. Listings skip web links.
+- **Every call walks its path** from `RootFolderId`, one listing per folder; nothing is cached. Deep paths cost more.
+- **Writes** go through a local temp file, then up in one request below 20 MiB, or a chunked upload session from
+  20 MiB. A failed write leaves the old content. Appends rewrite the file. Deletes go to the Box trash.
+- **No content types.** `UpdateFileOptions.ContentType` is ignored; `ContentType` is null.
+- **ETags** are Box file version ids. `IfNotExists` is atomic; `IfMatch` is checked just before the write: not atomic.
+- **Errors** carry no credentials, unless you pass an `IBoxClient` other than a plain `BoxClient`.
+- **Signed URLs** are read only: Box's download URL, which lives about 15 minutes. You get it only with
+  `AllowShorterValidity`, a validity of 15 minutes or more, and no file name or content type; otherwise, the gateway's.
+- **Waits:** when Box says "not ready yet", a download waits up to 2 minutes, a large upload's commit 2 minutes plus 2
+  per GiB; then `IOException`.
+- **Limits:** the account's maximum file size, names of at most 255 characters, Box's rate limits (the SDK retries
+  429 and 5xx). `Watch` throws `NotSupportedException`.
 
 ## Learn more
 
-- [Providers compared](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/providers.md): what
-  every store can do, side by side.
-- The guide's [reading and writing](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/reading-and-writing.md),
-  [paths and listings](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/paths-and-listings.md)
-  and [dependency injection](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/dependency-injection.md).
-- [Moving from 2026](https://github.com/serionist/WriteableFileProviders/blob/main/docs/migration-2027.md#box): what
-  2027.0.0 changed for this provider.
+- The guide: [reading and writing](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/reading-and-writing.md),
+  [signed URLs](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/signed-urls.md#box),
+  [errors](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/errors.md#box),
+  [providers compared](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/providers.md).
+- [Moving from 2026](https://github.com/serionist/WriteableFileProviders/blob/main/docs/migration-2027.md#box).

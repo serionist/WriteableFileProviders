@@ -418,13 +418,11 @@ public sealed partial class WriteableSharePointFileProvider : WriteableFileProvi
 
     // ----- Addressing -----
     //
-    // ItemWithPath returns a CustomDriveItemItemRequestBuilder, which re-declares Children, Content, Copy and
-    // CreateUploadSession. Held as the base DriveItemItemRequestBuilder, those would address the parent item, so each
-    // sub-request has a helper of its own and only ItemRequest returns the base type (GetAsync, PatchAsync and DeleteAsync
-    // bind correctly on it). The library's top level has no path: ItemWithPath("") throws, so it is items/root.
+    // An item is addressed by its path, root:/{path}: (DriveItemPath, the URLs of Graph's ItemWithPath without its
+    // reflection). The library's top level has no path, so it is items/root.
     //
-    // ItemWithPath escapes what a URL path cannot hold but leaves a valid escape such as %41 as it is, which the service
-    // then decodes. Every '%' is escaped first, so each segment reaches Graph as the name it is.
+    // The path's escaping leaves a valid escape such as %41 as it is, which the service then decodes. Every '%' is
+    // escaped first, so each segment reaches Graph as the name it is.
 
     // A failed Graph call in the contract's terms (GraphErrors.Wrap), its sign-in hint naming who built the client.
     private Exception Failure(Exception exception, string what) => GraphErrors.Wrap(exception, what, givenClient: !_ownsGraph);
@@ -434,18 +432,19 @@ public sealed partial class WriteableSharePointFileProvider : WriteableFileProvi
     private static string GraphPath(string[] segments) =>
         string.Join('/', segments.Select(segment => segment.Replace("%", "%25", StringComparison.Ordinal)));
 
+    private DriveItemPath PathRequest(string driveId, string[] segments) => new(_graph.RequestAdapter, driveId, GraphPath(segments));
+
     private DriveItemItemRequestBuilder ItemRequest(string driveId, string[] segments) =>
-        segments.Length == 0 ? _graph.Drives[driveId].Items["root"] : _graph.Drives[driveId].Root.ItemWithPath(GraphPath(segments));
+        segments.Length == 0 ? _graph.Drives[driveId].Items["root"] : PathRequest(driveId, segments).Item;
 
     private ChildrenRequestBuilder ChildrenRequest(string driveId, string[] segments) =>
-        segments.Length == 0 ? _graph.Drives[driveId].Items["root"].Children : _graph.Drives[driveId].Root.ItemWithPath(GraphPath(segments)).Children;
+        segments.Length == 0 ? _graph.Drives[driveId].Items["root"].Children : PathRequest(driveId, segments).Children;
 
-    private ContentRequestBuilder ContentRequest(string driveId, string[] file) => _graph.Drives[driveId].Root.ItemWithPath(GraphPath(file)).Content;
+    private ContentRequestBuilder ContentRequest(string driveId, string[] file) => PathRequest(driveId, file).Content;
 
-    private CopyRequestBuilder CopyRequest(string driveId, string[] file) => _graph.Drives[driveId].Root.ItemWithPath(GraphPath(file)).Copy;
+    private CopyRequestBuilder CopyRequest(string driveId, string[] file) => PathRequest(driveId, file).Copy;
 
-    private CreateUploadSessionRequestBuilder UploadSessionRequest(string driveId, string[] file) =>
-        _graph.Drives[driveId].Root.ItemWithPath(GraphPath(file)).CreateUploadSession;
+    private CreateUploadSessionRequestBuilder UploadSessionRequest(string driveId, string[] file) => PathRequest(driveId, file).CreateUploadSession;
 
     // ----- Items -----
 

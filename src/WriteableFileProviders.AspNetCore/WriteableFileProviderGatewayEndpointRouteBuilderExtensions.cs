@@ -54,12 +54,16 @@ public static class WriteableFileProviderGatewayEndpointRouteBuilderExtensions
             ?? throw new InvalidOperationException("Call services.AddWriteableFileProviderGateway(...) before mapping the gateway.");
         var options = endpoints.ServiceProvider.GetRequiredService<IOptions<WriteableFileProviderGatewayOptions>>().Value;
 
+        // Plain request delegates, not route handlers: those bind parameters through reflection or a source generator,
+        // and this mapping stays safe in a trimmed or native AOT app without either.
         var group = endpoints.MapGroup(options.BasePath);
-        group.MapMethods("{token}/{fileName?}", _readMethods, (HttpContext context, string token) => handler.ReadAsync(context, token));
-        group.MapPut("{token}/{fileName?}", (HttpContext context, string token) => handler.WriteAsync(context, token));
+        group.MapMethods("{token}/{fileName?}", _readMethods, async context => await (await handler.ReadAsync(context, Token(context)).ConfigureAwait(false)).ExecuteAsync(context).ConfigureAwait(false));
+        group.MapPut("{token}/{fileName?}", async context => await (await handler.WriteAsync(context, Token(context)).ConfigureAwait(false)).ExecuteAsync(context).ConfigureAwait(false));
         group.AllowAnonymous();
         group.CacheOutput(policy => policy.NoCache());
         group.ExcludeFromDescription();
         return group;
     }
+
+    private static string Token(HttpContext context) => (string)context.Request.RouteValues["token"]!;
 }

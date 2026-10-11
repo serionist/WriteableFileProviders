@@ -32,6 +32,15 @@
     <EnablePackageValidation>true</EnablePackageValidation>
   </PropertyGroup>
 
+  <!-- Trimming and native AOT: the trim, AOT and single-file analyzers run on every package, and their warnings fail the
+       build. A member that needs reflection (the configuration serializer) says so with RequiresUnreferencedCode and
+       RequiresDynamicCode. tests/WriteableFileProviders.Aot publishes an app over the packages with native AOT, which
+       also checks the SDKs they bring: the Google Cloud Storage and Box SDKs fail it, so those two packages are not
+       called AOT compatible (README.md). -->
+  <PropertyGroup Label="AOT">
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="MinVer" PrivateAssets="all" />
   </ItemGroup>

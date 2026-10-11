@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.Configuration;
 using WriteableFileProviders;
 
@@ -19,10 +20,13 @@ public static class WriteableFileProviderServiceCollectionExtensions
     /// <summary>
     /// Registers a provider built from a configuration section (its <c>Type</c> and its options' property names; see
     /// <see cref="WriteableFileProviderSerializer"/>), as a singleton <see cref="IWriteableFileProvider"/> that the
-    /// container builds on first use and disposes.
+    /// container builds on first use and disposes. It warns in a trimmed or native AOT app, as the serializer does: there,
+    /// register a provider you build in code with the factory overload.
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <param name="configuration">The section that describes the provider.</param>
+    [RequiresUnreferencedCode(WriteableFileProviderSerializer.AotMessage)]
+    [RequiresDynamicCode(WriteableFileProviderSerializer.AotMessage)]
     public static IServiceCollection AddWriteableFileProvider(this IServiceCollection services, IConfiguration configuration)
     {
         ArgumentNullException.ThrowIfNull(configuration);

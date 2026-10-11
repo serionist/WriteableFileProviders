@@ -49,6 +49,7 @@ internal sealed class GraphFake
     private readonly List<Fault> _faults = [];
     private readonly Item _root;
     private int _nextId;
+    private int _disposedHandlers;
 
     public GraphFake(string sitePath = "/sites/Team Site")
     {
@@ -95,6 +96,12 @@ internal sealed class GraphFake
 
     /// <summary>Whether items come without their download URL.</summary>
     public bool OmitDownloadUrls { get; set; }
+
+    /// <summary>Whether files come without their size.</summary>
+    public bool OmitSizes { get; set; }
+
+    /// <summary>How many handlers from <see cref="CreateHandler"/> were disposed: an HTTP client that owns one disposes it.</summary>
+    public int DisposedHandlers => Volatile.Read(ref _disposedHandlers);
 
     /// <summary>Called with each request before it is answered; a test changes the library here to race the provider.</summary>
     public Action<RecordedRequest>? OnRequest { get; set; }
@@ -200,6 +207,13 @@ internal sealed class GraphFake
 
     private sealed class Handler(GraphFake fake) : HttpMessageHandler
     {
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                Interlocked.Increment(ref fake._disposedHandlers);
+            base.Dispose(disposing);
+        }
+
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             // The length a real handler would send, before the body is read; and the body itself, because the SDK disposes
@@ -356,6 +370,8 @@ internal sealed class GraphFake
             ("GET", []) => target is null ? NotFound() : Json(HttpStatusCode.OK, Select(ItemJson(target), request)),
             ("DELETE", []) => Delete(request, target),
             ("PATCH", []) => Patch(request, target, body),
+            // The children of a file: assumed to be an empty list; Graph does not document it (the maintainers' live
+            // checklist). The provider reads either answer as "not a folder".
             ("GET", ["children"]) => target is { IsFolder: true } ? Children(request, target) : target is null ? NotFound() : Json(HttpStatusCode.OK, new JsonObject { ["value"] = new JsonArray() }),
             ("POST", ["children"]) => target is { IsFolder: true } ? CreateFolder(request, target, body) : NotFound(),
             ("PUT", ["content"]) => PutContent(request, parent, name, target, body),
@@ -401,6 +417,8 @@ internal sealed class GraphFake
     {
         if (parent is not { IsFolder: true })
             return NotFound();
+        // If-Match on a simple upload: assumed to be enforced as on createUploadSession, PATCH and DELETE; Graph does not
+        // document it (the maintainers' live checklist).
         if (Precondition(request, target) is { } failed)
             return failed;
         var behavior = request.Query.GetValueOrDefault("@microsoft.graph.conflictBehavior") ?? "replace";
@@ -677,7 +695,7 @@ internal sealed class GraphFake
             ["id"] = item.Id,
             ["name"] = item.Name,
             ["eTag"] = item.ETag,
-            ["size"] = item.IsFolder ? item.TotalSize : item.Content.Length,
+            ["size"] = item.IsFolder ? item.TotalSize : OmitSizes ? null : item.Content.Length,
             ["createdDateTime"] = item.Created.ToString("O", CultureInfo.InvariantCulture),
             ["lastModifiedDateTime"] = item.Modified.ToString("O", CultureInfo.InvariantCulture),
             ["webUrl"] = $"https://{SiteHost}{SitePath}/Shared%20Documents/{Uri.EscapeDataString(item.Name)}",

@@ -87,7 +87,7 @@ agreement for a one-way door. D20 records how the two maintainers agree for this
 | D16 | GCS move | Copy with `IfGenerationMatch = 0` (destination must not exist), then delete the source with its generation. fake-gcs-server has no native move; `MoveObject` goes under Later. |
 | D17 | Two P2 items kept | Public constructors that take a prebuilt SDK client (with the options) on every cloud provider, for managed identity, Aspire, custom retries and tests. A provider never disposes a client it was given; the caller owns it. SDK types in public signatures (these constructors, `S3Region` and `S3StorageClass` on the S3 options) are part of the contract, so an SDK major that changes them is a WriteableFileProviders major. SharePoint signs in with a client secret, a certificate (`ClientCertificateBase64` and `ClientCertificatePassword`), or managed identity / `DefaultAzureCredential` (`UseDefaultAzureCredential`). |
 | D18 | URLs with a lifetime set by the service | Requested validity V and fixed lifetime L. If V < L, `NotSupportedException`, so the gateway takes over. If V ≥ L, the URL is returned only with `AllowShorterValidity`, with `ExpiresOn` = now + L (Box) or null (SharePoint). S3 and MinIO: when the credential expires before now + V, or is a session credential with an unknown expiry, the URL counts as shorter than asked. |
-| D19 | Concurrent appends | An append never silently loses a concurrent write, except on Physical and on SharePoint upload sessions, where the check is not atomic and the XML docs say so (round 2, P14; the conformance test for it runs only where the provider fixture declares the capability). Azure commits the block list with `IfMatch` on the ETag it read, re-reading and retrying a bounded number of times. `AppendByRewriteAsync` writes with `IfMatch` on the ETag or generation it read. A concurrent change it cannot absorb throws `PreconditionFailedException`. |
+| D19 | Concurrent appends | An append never silently loses a concurrent write, except on Physical and on SharePoint (its upload sessions, and its simple uploads until the maintainers' live run shows Graph honours `If-Match` there: D15 as amended in S9), where the check is not atomic and the XML docs say so (round 2, P14; the conformance test for it runs only where the provider fixture declares the capability). Azure commits the block list with `IfMatch` on the ETag it read, re-reading and retrying a bounded number of times. `AppendByRewriteAsync` writes with `IfMatch` on the ETag or generation it read. A concurrent change it cannot absorb throws `PreconditionFailedException`. |
 | D20 | Maintainers' agreement for this release | @serionist's word is the maintainers' agreement for the decisions of #3, and @NemesLaszlo reviews the merged PRs afterwards with him (the maintainer's instruction, 2026-10-10). Posted on #3. |
 | D21 | Live suites stay per PR (round 2, P3) | AGENTS.md's rule is unchanged: a provider change runs its emulator suite, or its live suite where there is none, and its PR says which ran or that it did not and why. Box and SharePoint get offline fakes in S9 and S10, but their PRs still say "live suite not run"; their live runs are outstanding items for the maintainers. |
 | D22 | Gateway defaults (round 2, P13, P26) | Fail closed: `MaxValidity` defaults to 1 hour for Create and Write tokens (configurable, never above 7 days) and to 7 days for Read; Create and Write tokens are one-time by default; the default replay store is in memory and holds only on one instance, which the README and XML docs say (a scaled-out app registers a shared `IGatewayReplayStore` or turns one-time off explicitly); `MaxUploadBytes` defaults to 100 MiB. Added in the review of #24 (S11): these rules bind gateway URLs only (`SignedUrlKind.Gateway`); a provider's native upload URL can be reused until it expires and lives up to the provider's maximum (7 days), which S6–S8 treat as intended, and an app that wants the same upload rules everywhere sets `PreferGateway` (F1). A gateway download is served as the content type its read token names, else `application/octet-stream`, never a type the store keeps, and every gateway response carries `Content-Security-Policy: default-src 'none'; sandbox`; the README recommends a host name of its own for the gateway (F2, the maintainer's call: fail closed and harden). |
@@ -477,8 +477,9 @@ public class PreconditionFailedException : IOException      public class FileExi
     - MinIO throws without `UseSSL` on a non-loopback host (D7).
     - SharePoint's `WorkFolderPath` is the root (D7).
 - **Behaviour:** the contract above. Each change from today is listed per provider in the migration guide.
-- **One meaning, per provider (P2):** D15 (`IfMatch` checked but not atomic on Physical and SharePoint upload
-  sessions), D18 (service-set URL lifetimes) and D19 (appends) differ by provider, and each says where.
+- **One meaning, per provider (P2):** D15 (`IfMatch` checked but not atomic on Physical, and on SharePoint: its
+  upload sessions, and its simple uploads until a live run confirms otherwise), D18 (service-set URL lifetimes) and D19
+  (appends) differ by provider, and each says where.
 - **Provider APIs (P10):** S3's `EnumerateObjects` and `ReadFileAsync(versionId, …)` are removed in favour of
   `ReadFileVersionAsync` on `ProviderPath`; the providers gain public constructors that take an SDK client (D17).
   SharePoint gains `ClientCertificateBase64`, `ClientCertificatePassword` and `UseDefaultAzureCredential`; MinIO gains
@@ -1144,14 +1145,16 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     - Reads take the file's `@microsoft.graph.downloadUrl` from its metadata and stream it, rather than following
       `/content`'s redirect: the same round trips, no dependence on a caller's client having a redirect handler, the
       size known before the body (so a 0-byte file needs no download), and ranges sent where Graph says to send them.
-    - A path segment holding a percent-escape (`a%41`) is refused through the segment hook, like `:`: Graph's
-      `ItemWithPath` leaves `%41` as it is and the service decodes it, so the file would be stored under another name.
-    - `WriteableSharePointFileProvider` is `sealed`.
+    - Every `%` in a path is escaped before `ItemWithPath`, which leaves a valid escape such as `%41` as it is for the
+      service to decode, so `a%41` names an item called `a%41` (review round 1; the first version refused such
+      segments). Listings leave out names the provider cannot address, such as one that decodes to `..`.
+    - `WriteableSharePointFileProvider` is `sealed` (D25, decided by the main session for every provider).
     - Kiota stays at Graph.Core's floor, 2.0.0. An error body that is not JSON (a proxy's HTML) raises
       `InvalidOperationException` there, which the provider maps to `IOException`; pinning Kiota 2.1.4, which raises
       `ApiException` instead, is left to the maintainers (.local/research/graph-v6.md, section 0).
-    - SharePoint's rows moved out of Common.Tests' `ConfigurationShapeTests` into `SharePointConfigurationShapeTests`
-      (its written shape now holds the three D17 keys); the golden file stays in Common.Tests and is linked.
+    - The three D17 options are written to JSON only when set (D26, a main-session decision), so SharePoint keeps its
+      row in Common.Tests' `ConfigurationShapeTests`; `SharePointConfigurationShapeTests` adds the cases with them set,
+      reading the same golden file.
     - Common is unchanged.
   - **Conformance fixtures and their flags:** `SharePointConformanceTests` (a caller's `GraphServiceClient`, a token for
     Graph's host only, a site URL with an escaped space) and `SharePointWorkFolderConformanceTests` (the options
@@ -1169,9 +1172,33 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     S10: its responses must carry `RequestMessage`, as a real handler's do, or the SDK's retry handler never retries.
   - **Tests and coverage:** SharePoint.Tests runs 236 offline tests (68 in each fixture, 100 unit tests); all pass but
     the two concurrent-append cases the flag skips. The full non-Live run (`WFP_REQUIRE_DOCKER=1`) passes. SharePoint
-    measures 99.87% of lines and 92.71% of branches on Windows; its floor is 98/91. Old SharePoint tests deleted:
+    measures 99.87% of lines and 92.71% of branches on Windows (after review round 1, see below). Old SharePoint tests deleted:
     `SharePointPathTests` (its colon and paging cases live on in the new tests; its work-folder cases pinned the 2026
     behaviour D7 removes) and the `SharePointFileProvider` TestBase suite, replaced by `SharePointLiveTests`.
+
+- **2026-10-11, S9 review round 1 (PR #28):** needs-fixes (1 major, 7 minors, 6 nits), all fixed:
+  - **F1 (major):** every `%` in a library path is escaped as `%25` before `ItemWithPath`, so names holding `%XX`
+    round-trip; the segment hook refuses only `:` again, and Common's decoded-form validation guards caller paths as on
+    the other providers. Listed names that fail the provider's validation (such as `%2E%2E`) are never yielded or
+    walked into. Tests seed `a%41` beside `aA`, `50%.txt`, `%2E%2E` and `%252E%252E`.
+  - **F2:** in an upload session, a 416 resyncs from the session's status within the one resend per fragment, a 202
+    that does not move past the fragment counts against it, and only 500, 502, 503, 504 and network faults are
+    transient (503 and 504 reach the provider only from a client without the SDK's retry handler).
+  - **F3:** a malformed JSON answer (`JsonException`) maps to `IOException`. Kiota stays at 2.0.0.
+  - **F4:** a server-side copy is waited for at most 10 minutes, then throws `IOException` naming its last status.
+  - **F5:** D25, the migration guide says to wrap `IWriteableFileProvider` or derive from `WriteableFileProvider<TOptions>`.
+  - **F6:** D19 and the Compatibility P2 line include SharePoint simple uploads as not atomic.
+  - **F7:** AGENTS.md's live-suite text: a filter by category and provider, inconclusive without `WFP_LIVE=1`, where a
+    provider's own Live class reads its settings, and `SharePointConfigurationShapeTests`.
+  - **F8:** an http `SiteUrl` is accepted as in 2026; only the host and path are used.
+  - **Nits:** a file whose size Graph does not report is downloaded rather than read as empty; tests show the owned
+    HTTP pipeline disposed and a caller's left alone; the fake's two assumptions are marked and the second added to the
+    live checklist; plan ids are gone from the public XML docs; the floor is the whole-point floor of the measured
+    figures; the options constructor disposes the certificate and HTTP client when a later step throws.
+  - **D26:** the three 2027 options carry `[JsonIgnore(Condition = WhenWritingDefault)]`; the SharePoint row is back in
+    Common.Tests' `ConfigurationShapeTests`.
+  - SharePoint.Tests now runs 245 offline tests. Coverage on Windows: 99.87% of lines, 91.46% of branches; floor 99/91
+    (it takes the Linux figure instead if CI measures lower, as the Tests section says).
 
 ### For the maintainers
 
@@ -1251,6 +1278,11 @@ What this session cannot do, kept current as the work goes on:
      ignored; a 0-byte download.
   7. Certificate sign-in with the key loaded as `EphemeralKeySet` (Windows and Linux), and managed identity.
   8. A site URL with an escaped character resolves, and names with `#`, `%`, `&`, `+` and non-ASCII letters round-trip.
+     In particular a folder named `a%41` beside one named `aA` (sent as `a%2541`: each stays itself), and an item named
+     `%2E%2E`: whether SharePoint lets one exist, and whether it ever resolves a decoded `..` in a path (the provider
+     escapes `%` and leaves such names out of listings).
+  11. `GET …/children` of a file: an empty list or an error (the fake assumes an empty list; the provider reads either
+      as "not a folder"). Also an assumption of the fake: `If-Match` enforced on a simple upload (item 1).
   9. The 100 MB conformance case through upload sessions of 5 MiB fragments.
   10. Optionally pin Kiota 2.1.4 (see S9's progress-log entry).
 - [ ] Run the live suites against your accounts before tagging `v2027.0.0`.

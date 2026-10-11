@@ -50,6 +50,7 @@ public sealed class GraphErrorsTests
         Assert.IsFalse(GraphErrors.IsFailure(new OperationCanceledException()));
         Assert.IsFalse(GraphErrors.IsFailure(new ObjectDisposedException("x")));
         Assert.IsTrue(GraphErrors.IsFailure(new InvalidOperationException("Content type text/html does not have a factory registered to be parsed")));
+        Assert.IsTrue(GraphErrors.IsFailure(new System.Text.Json.JsonException("Malformed")));
         Assert.IsNull(GraphErrors.Status(new IOException()));
         Assert.IsNull(GraphErrors.Code(new ApiException()));
     }

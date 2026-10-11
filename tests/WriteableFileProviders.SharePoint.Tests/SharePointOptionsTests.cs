@@ -40,9 +40,9 @@ public sealed class SharePointOptionsTests
     [DataRow(null)]
     [DataRow(" ")]
     [DataRow("/sites/Team")]
-    [DataRow("http://contoso.sharepoint.com/sites/Team")]
+    [DataRow("ftp://contoso.sharepoint.com/sites/Team")]
     [DataRow("not a url")]
-    public void SiteUrl_MustBeAnAbsoluteHttpsUrl(string? siteUrl)
+    public void SiteUrl_MustBeAnAbsoluteHttpOrHttpsUrl(string? siteUrl)
     {
         var options = TestGraph.Options();
         options.SiteUrl = siteUrl;
@@ -64,6 +64,15 @@ public sealed class SharePointOptionsTests
 
     [TestMethod]
     public async Task ClientSecret_SignsIn() => await AssertWorksOffline(TestGraph.Options("r"));
+
+    [TestMethod]
+    public async Task SiteUrl_OverHttp_IsTakenAs2026TookIt()
+    {
+        // Only the host and the path address the site.
+        var options = TestGraph.Options("r");
+        options.SiteUrl = "http://contoso.sharepoint.com/sites/Team%20Site";
+        await AssertWorksOffline(options);
+    }
 
     [TestMethod]
     public async Task Certificate_FromBase64Pkcs12_SignsIn()
@@ -158,7 +167,7 @@ public sealed class SharePointOptionsTests
     [TestMethod]
     [DataRow("a/../b", null)]
     [DataRow("a:b", null)]
-    [DataRow(null, "x%41")]
+    [DataRow(null, "%2E%2E")]
     [DataRow("Main", "a/./b")]
     public void WorkFolderAndRoot_MustBeValidFolders(string? workFolder, string? root) =>
         Assert.AreEqual("options", Assert.ThrowsExactly<ArgumentException>(() => new WriteableSharePointFileProvider(TestGraph.Options(root, workFolder))).ParamName);

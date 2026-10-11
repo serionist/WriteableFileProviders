@@ -6,7 +6,7 @@ using Microsoft.Kiota.Abstractions.Serialization;
 namespace WriteableFileProviders.SharePoint;
 
 /// <summary>
-/// What a Graph call threw, in the contract's terms (F66): only a 404 means "missing", and every other failure keeps
+/// What a Graph call threw, in the contract's terms: only a 404 means "missing", and every other failure keeps
 /// its status, its code and the SDK's exception as the inner exception.
 /// </summary>
 internal static class GraphErrors
@@ -26,12 +26,12 @@ internal static class GraphErrors
     /// <summary>
     /// Whether the exception came from the SDK or the service and must be mapped: an error answer, retries that ran out
     /// (<see cref="AggregateException"/>), a network failure, or an answer the SDK could not read (Kiota 2.0 raises
-    /// <see cref="InvalidOperationException"/> for an error body that is not JSON). Cancellation and disposal pass
-    /// through.
+    /// <see cref="InvalidOperationException"/> for an error body that is not JSON, and <see cref="JsonException"/> for a
+    /// JSON body that is malformed). Cancellation and disposal pass through.
     /// </summary>
     public static bool IsFailure(Exception exception) => exception switch
     {
-        ApiException or AggregateException or HttpRequestException => true,
+        ApiException or AggregateException or HttpRequestException or JsonException => true,
         ObjectDisposedException => false,
         InvalidOperationException => true,
         _ => false,

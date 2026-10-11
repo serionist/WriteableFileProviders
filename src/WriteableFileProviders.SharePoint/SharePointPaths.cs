@@ -1,6 +1,6 @@
 namespace WriteableFileProviders.SharePoint;
 
-/// <summary>Where the provider's root sits in the document library (D7).</summary>
+/// <summary>Where the provider's root sits in the document library: the work folder, then the root.</summary>
 internal static class SharePointPaths
 {
     private static readonly char[] _separators = ['/', '\\'];

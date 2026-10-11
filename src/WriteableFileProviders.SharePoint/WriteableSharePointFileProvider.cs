@@ -20,18 +20,21 @@ namespace WriteableFileProviders.SharePoint;
 /// <para>
 /// Folders are real: an empty folder exists, and writes create missing parents. Names are compared without regard to
 /// case, so moving <c>a.txt</c> to <c>A.txt</c> renames it. Deleted items go to the site's recycle bin. Path segments may
-/// not contain <c>:</c> (Graph's path syntax) or a percent-escape such as <c>%41</c> (the service would decode it).
+/// not contain <c>:</c>, Graph's path syntax; a <c>%</c> is sent escaped, so <c>a%41</c> names an item literally called
+/// <c>a%41</c>. Listings leave out items whose names the provider cannot address, such as one that decodes to
+/// <c>..</c>.
 /// </para>
 /// <para>
 /// Preconditions are checked, not atomic: <see cref="UpdateFileOptions.IfMatch"/> and
 /// <see cref="UpdateFileOptions.IfNotExists"/> are checked just before the write, and also sent to the service
 /// (<c>If-Match</c>, and the conflict behaviour <c>fail</c>), which the service enforces on uploads it documents them for.
-/// An append rewrites the file with <c>If-Match</c> on the version it read (D19). Reads pinned to a version check the
-/// ETag before each fetch, which is not atomic either.
+/// An append rewrites the file with <c>If-Match</c> on the version it read, so a concurrent change it sees throws
+/// <see cref="PreconditionFailedException"/>. Reads pinned to a version check the ETag before each fetch, which is not
+/// atomic either.
 /// </para>
 /// <para>
-/// Signed URLs are read-only, the service's own pre-authenticated download URLs, which live up to an hour (D18): a
-/// validity under an hour throws <see cref="NotSupportedException"/>, and a longer one needs
+/// Signed URLs are read-only: the service's own pre-authenticated download URLs, which live up to an hour. A validity
+/// under an hour throws <see cref="NotSupportedException"/>, because the URL could outlive it, and a longer one needs
 /// <see cref="SignedUrlOptions.AllowShorterValidity"/>.
 /// </para>
 /// </remarks>
@@ -100,11 +103,24 @@ public sealed partial class WriteableSharePointFileProvider : WriteableFileProvi
     {
         _siteUrl = ValidateSiteUrl(Options);
         _rootSegments = ResolveRoot(Options);
-        var credential = CreateCredential(Options, out _ownedCertificate);
-        // The SDK's default pipeline (retries with Retry-After, redirects) in front of the handler. GraphServiceClient
-        // never disposes an HttpClient it is given, so the provider keeps and disposes its own.
-        _ownedHttpClient = GraphClientFactory.Create(finalHandler: finalHandler);
-        _graph = new GraphServiceClient(_ownedHttpClient, credential, [GraphScope], baseUrl);
+        X509Certificate2? certificate = null;
+        HttpClient? httpClient = null;
+        try
+        {
+            var credential = CreateCredential(Options, out certificate);
+            // The SDK's default pipeline (retries with Retry-After, redirects) in front of the handler. GraphServiceClient
+            // never disposes an HttpClient it is given, so the provider keeps and disposes its own.
+            httpClient = GraphClientFactory.Create(finalHandler: finalHandler);
+            _graph = new GraphServiceClient(httpClient, credential, [GraphScope], baseUrl);
+        }
+        catch
+        {
+            httpClient?.Dispose();
+            certificate?.Dispose();
+            throw;
+        }
+        _ownedHttpClient = httpClient;
+        _ownedCertificate = certificate;
         _ownsGraph = true;
     }
 
@@ -120,7 +136,10 @@ public sealed partial class WriteableSharePointFileProvider : WriteableFileProvi
     /// <summary>The longest wait between two polls of a copy's monitor.</summary>
     internal TimeSpan MaxCopyPollDelay { get; set; } = TimeSpan.FromSeconds(5);
 
-    /// <summary>The longest a download URL lives, as Graph documents it (D18).</summary>
+    /// <summary>The longest a server-side copy is waited for before the copy throws <see cref="IOException"/>.</summary>
+    internal TimeSpan CopyTimeout { get; set; } = TimeSpan.FromMinutes(10);
+
+    /// <summary>The longest a download URL lives, as Graph documents it.</summary>
     internal static TimeSpan DownloadUrlLifetime { get; } = TimeSpan.FromHours(1);
 
     /// <inheritdoc />
@@ -128,7 +147,7 @@ public sealed partial class WriteableSharePointFileProvider : WriteableFileProvi
     /// False: the base class checks the conditions before the write, and the provider also sends them to the service.
     /// Graph documents <c>If-Match</c> when an upload session is created (not again at its commit), and does not document
     /// it on a simple upload, so the check is not promised to be atomic until a live run shows a stale <c>If-Match</c>
-    /// on a simple upload refused (D15).
+    /// on a simple upload refused.
     /// </remarks>
     protected override bool SupportsAtomicPreconditions => false;
 
@@ -139,9 +158,8 @@ public sealed partial class WriteableSharePointFileProvider : WriteableFileProvi
     protected override bool SupportsSignedUrl(SignedUrlAccess permission) => permission == SignedUrlAccess.Read;
 
     /// <inheritdoc />
-    /// <remarks>Refuses <c>:</c>, Graph's path syntax, and percent-escapes, which the service would decode.</remarks>
-    protected override bool IsSegmentAllowed(string part) =>
-        part is not null && !part.Contains(':', StringComparison.Ordinal) && !HasPercentEscape(part);
+    /// <remarks>Refuses <c>:</c>, Graph's path syntax.</remarks>
+    protected override bool IsSegmentAllowed(string part) => part is not null && !part.Contains(':', StringComparison.Ordinal);
 
     /// <inheritdoc />
     protected override bool IsNotFound(Exception exception) => exception is not null && GraphErrors.IsNotFound(exception);
@@ -151,7 +169,7 @@ public sealed partial class WriteableSharePointFileProvider : WriteableFileProvi
     {
         ArgumentNullException.ThrowIfNull(path);
         var driveId = await DriveIdAsync(cancellationToken).ConfigureAwait(false);
-        var item = await TryGetItemAsync(driveId, LibraryPath(path), _itemFields, $"Reading '{path}'", cancellationToken).ConfigureAwait(false);
+        var item = await TryGetItemAsync(driveId, LibrarySegments(path), _itemFields, $"Reading '{path}'", cancellationToken).ConfigureAwait(false);
         return item is null ? WriteableFileInfo.Missing(this, path.Path) : ToInfo(path.Path, item);
     }
 
@@ -160,13 +178,13 @@ public sealed partial class WriteableSharePointFileProvider : WriteableFileProvi
     {
         ArgumentNullException.ThrowIfNull(path);
         var driveId = await DriveIdAsync(cancellationToken).ConfigureAwait(false);
-        var request = ChildrenRequest(driveId, LibraryPath(path));
+        var request = ChildrenRequest(driveId, LibrarySegments(path));
         var page = await GetPageAsync(request, null, path, cancellationToken).ConfigureAwait(false);
         while (page is not null)
         {
             foreach (var item in page.Value ?? [])
             {
-                if (item.Name is { Length: > 0 } name)
+                if (item.Name is { Length: > 0 } name && IsAddressable(name))
                     yield return ToInfo(path.Child(name).Path, item);
             }
             page = page.OdataNextLink is { } next ? await GetPageAsync(request, next, path, cancellationToken).ConfigureAwait(false) : null;
@@ -180,7 +198,7 @@ public sealed partial class WriteableSharePointFileProvider : WriteableFileProvi
         var driveId = await DriveIdAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await ItemRequest(driveId, LibraryPath(path)).DeleteAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
+            await ItemRequest(driveId, LibrarySegments(path)).DeleteAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
             return true;
         }
         catch (Exception e) when (GraphErrors.IsNotFound(e))
@@ -213,8 +231,9 @@ public sealed partial class WriteableSharePointFileProvider : WriteableFileProvi
     {
         if (string.IsNullOrWhiteSpace(options.SiteUrl))
             throw new ArgumentException("SiteUrl is required: the site's URL, such as https://contoso.sharepoint.com/sites/Finance.", nameof(options));
-        if (!Uri.TryCreate(options.SiteUrl, UriKind.Absolute, out var url) || url.Scheme != Uri.UriSchemeHttps)
-            throw new ArgumentException($"SiteUrl '{options.SiteUrl}' is not an absolute https URL.", nameof(options));
+        // Only the host and the path are used, so http is taken as 2026 took it.
+        if (!Uri.TryCreate(options.SiteUrl, UriKind.Absolute, out var url) || (url.Scheme != Uri.UriSchemeHttps && url.Scheme != Uri.UriSchemeHttp))
+            throw new ArgumentException($"SiteUrl '{options.SiteUrl}' is not an absolute http or https URL.", nameof(options));
         return url;
     }
 
@@ -371,31 +390,35 @@ public sealed partial class WriteableSharePointFileProvider : WriteableFileProvi
     // CreateUploadSession. Held as the base DriveItemItemRequestBuilder, those would address the parent item, so each
     // sub-request has a helper of its own and only ItemRequest returns the base type (GetAsync, PatchAsync and DeleteAsync
     // bind correctly on it). The library's top level has no path: ItemWithPath("") throws, so it is items/root.
+    //
+    // ItemWithPath escapes what a URL path cannot hold but leaves a valid escape such as %41 as it is, which the service
+    // then decodes. Every '%' is escaped first, so each segment reaches Graph as the name it is.
 
-    private string LibraryPath(ResolvedPath path) => LibraryPath(path.RelativeSegments);
+    private string[] LibrarySegments(ResolvedPath path) => [.. _rootSegments, .. path.RelativeSegments];
 
-    private string LibraryPath(string[] relativeSegments) => string.Join('/', [.. _rootSegments, .. relativeSegments]);
+    private static string GraphPath(string[] segments) =>
+        string.Join('/', segments.Select(segment => segment.Replace("%", "%25", StringComparison.Ordinal)));
 
-    private DriveItemItemRequestBuilder ItemRequest(string driveId, string libraryPath) =>
-        libraryPath.Length == 0 ? _graph.Drives[driveId].Items["root"] : _graph.Drives[driveId].Root.ItemWithPath(libraryPath);
+    private DriveItemItemRequestBuilder ItemRequest(string driveId, string[] segments) =>
+        segments.Length == 0 ? _graph.Drives[driveId].Items["root"] : _graph.Drives[driveId].Root.ItemWithPath(GraphPath(segments));
 
-    private ChildrenRequestBuilder ChildrenRequest(string driveId, string libraryPath) =>
-        libraryPath.Length == 0 ? _graph.Drives[driveId].Items["root"].Children : _graph.Drives[driveId].Root.ItemWithPath(libraryPath).Children;
+    private ChildrenRequestBuilder ChildrenRequest(string driveId, string[] segments) =>
+        segments.Length == 0 ? _graph.Drives[driveId].Items["root"].Children : _graph.Drives[driveId].Root.ItemWithPath(GraphPath(segments)).Children;
 
-    private ContentRequestBuilder ContentRequest(string driveId, string filePath) => _graph.Drives[driveId].Root.ItemWithPath(filePath).Content;
+    private ContentRequestBuilder ContentRequest(string driveId, string[] file) => _graph.Drives[driveId].Root.ItemWithPath(GraphPath(file)).Content;
 
-    private CopyRequestBuilder CopyRequest(string driveId, string filePath) => _graph.Drives[driveId].Root.ItemWithPath(filePath).Copy;
+    private CopyRequestBuilder CopyRequest(string driveId, string[] file) => _graph.Drives[driveId].Root.ItemWithPath(GraphPath(file)).Copy;
 
-    private CreateUploadSessionRequestBuilder UploadSessionRequest(string driveId, string filePath) =>
-        _graph.Drives[driveId].Root.ItemWithPath(filePath).CreateUploadSession;
+    private CreateUploadSessionRequestBuilder UploadSessionRequest(string driveId, string[] file) =>
+        _graph.Drives[driveId].Root.ItemWithPath(GraphPath(file)).CreateUploadSession;
 
     // ----- Items -----
 
-    private async Task<DriveItem?> TryGetItemAsync(string driveId, string libraryPath, string[] fields, string what, CancellationToken cancellationToken)
+    private async Task<DriveItem?> TryGetItemAsync(string driveId, string[] segments, string[] fields, string what, CancellationToken cancellationToken)
     {
         try
         {
-            return await ItemRequest(driveId, libraryPath).GetAsync(c => c.QueryParameters.Select = fields, cancellationToken).ConfigureAwait(false)
+            return await ItemRequest(driveId, segments).GetAsync(c => c.QueryParameters.Select = fields, cancellationToken).ConfigureAwait(false)
                 ?? throw new IOException($"{what} failed: Microsoft Graph answered with no item.");
         }
         catch (Exception e) when (GraphErrors.IsNotFound(e))
@@ -438,37 +461,35 @@ public sealed partial class WriteableSharePointFileProvider : WriteableFileProvi
 
     /// <summary>
     /// Makes sure the folder exists, creating what is missing one level at a time, and returns its id. No request is
-    /// retried, so a folder that vanishes while it is created ends in an exception, never a loop (F8, F62).
+    /// retried, so a folder that vanishes while it is created ends in an exception, never a loop.
     /// </summary>
     private async Task<string> EnsureFolderAsync(string driveId, string[] relativeSegments, string what, CancellationToken cancellationToken)
     {
         string[] segments = [.. _rootSegments, .. relativeSegments];
-        var target = string.Join('/', segments);
-        var existing = await TryGetItemAsync(driveId, target, _folderFields, what, cancellationToken).ConfigureAwait(false);
+        var existing = await TryGetItemAsync(driveId, segments, _folderFields, what, cancellationToken).ConfigureAwait(false);
         if (existing is not null)
-            return FolderId(existing, target, what);
+            return FolderId(existing, segments, what);
 
         string? id = null;
         var creating = false;
         for (var depth = 1; depth <= segments.Length; depth++)
         {
-            var folderPath = string.Join('/', segments[..depth]);
             if (!creating)
             {
-                var item = await TryGetItemAsync(driveId, folderPath, _folderFields, what, cancellationToken).ConfigureAwait(false);
+                var item = await TryGetItemAsync(driveId, segments[..depth], _folderFields, what, cancellationToken).ConfigureAwait(false);
                 if (item is not null)
                 {
-                    id = FolderId(item, folderPath, what);
+                    id = FolderId(item, segments[..depth], what);
                     continue;
                 }
                 creating = true;
             }
-            id = await CreateFolderAsync(driveId, string.Join('/', segments[..(depth - 1)]), segments[depth - 1], what, cancellationToken).ConfigureAwait(false);
+            id = await CreateFolderAsync(driveId, segments[..(depth - 1)], segments[depth - 1], what, cancellationToken).ConfigureAwait(false);
         }
-        return id ?? throw new IOException($"{what} failed: the folder '{target}' could not be created.");
+        return id ?? throw new IOException($"{what} failed: the folder '{string.Join('/', segments)}' could not be created.");
     }
 
-    private async Task<string> CreateFolderAsync(string driveId, string parentPath, string name, string what, CancellationToken cancellationToken)
+    private async Task<string> CreateFolderAsync(string driveId, string[] parent, string name, string what, CancellationToken cancellationToken)
     {
         var folder = new DriveItem
         {
@@ -478,13 +499,13 @@ public sealed partial class WriteableSharePointFileProvider : WriteableFileProvi
         };
         try
         {
-            var created = await ChildrenRequest(driveId, parentPath).PostAsync(folder, cancellationToken: cancellationToken).ConfigureAwait(false);
+            var created = await ChildrenRequest(driveId, parent).PostAsync(folder, cancellationToken: cancellationToken).ConfigureAwait(false);
             return created?.Id ?? throw new IOException($"{what} failed: Microsoft Graph returned no id for the new folder '{name}'.");
         }
         catch (Exception e) when (GraphErrors.Status(e) == 409)
         {
             // Another writer created it first.
-            var path = parentPath.Length == 0 ? name : $"{parentPath}/{name}";
+            string[] path = [.. parent, name];
             var item = await TryGetItemAsync(driveId, path, _folderFields, what, cancellationToken).ConfigureAwait(false)
                 ?? throw GraphErrors.Wrap(e, what);
             return FolderId(item, path, what);
@@ -495,18 +516,25 @@ public sealed partial class WriteableSharePointFileProvider : WriteableFileProvi
         }
     }
 
-    private static string FolderId(DriveItem item, string libraryPath, string what) =>
+    private static string FolderId(DriveItem item, string[] segments, string what) =>
         item.Folder is null
-            ? throw new IOException($"{what} failed: '{libraryPath}' is a file, so it cannot hold a folder or a file.")
-            : item.Id ?? throw new IOException($"{what} failed: Microsoft Graph returned no id for '{libraryPath}'.");
+            ? throw new IOException($"{what} failed: '{string.Join('/', segments)}' is a file, so it cannot hold a folder or a file.")
+            : item.Id ?? throw new IOException($"{what} failed: Microsoft Graph returned no id for '{string.Join('/', segments)}'.");
 
-    private static bool HasPercentEscape(string part)
+    /// <summary>
+    /// Whether a listed name can be addressed through this provider: it passes the same segment validation as a caller's
+    /// path. A name that does not (one that decodes to <c>..</c>, or holds <c>:</c>) is left out of listings, so it is
+    /// never yielded or walked into.
+    /// </summary>
+    private bool IsAddressable(string name)
     {
-        for (var i = part.IndexOf('%', StringComparison.Ordinal); i >= 0; i = part.IndexOf('%', i + 1))
+        try
         {
-            if (i + 2 < part.Length && Uri.IsHexDigit(part[i + 1]) && Uri.IsHexDigit(part[i + 2]))
-                return true;
+            return Resolve(new ProviderPath(name)).RelativeSegments.Length == 1;
         }
-        return false;
+        catch (ArgumentException)
+        {
+            return false;
+        }
     }
 }

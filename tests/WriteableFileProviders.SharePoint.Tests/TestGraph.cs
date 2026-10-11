@@ -16,6 +16,10 @@ internal static class TestGraph
     public static GraphServiceClient Client(GraphFake fake) =>
         new(GraphClientFactory.Create(finalHandler: fake.CreateHandler()), new BaseBearerTokenAuthenticationProvider(new GraphOnlyTokenProvider()), GraphFake.BaseUrl);
 
+    /// <summary>A Graph client over a bare <see cref="HttpClient"/>: no retry or redirect handler, as a caller may build one.</summary>
+    public static GraphServiceClient BareClient(GraphFake fake) =>
+        new(new HttpClient(fake.CreateHandler()), new BaseBearerTokenAuthenticationProvider(new GraphOnlyTokenProvider()), GraphFake.BaseUrl);
+
     /// <summary>Options for the fake's site.</summary>
     public static SharePointFileProviderOptions Options(string? root = null, string? workFolder = null, string? library = "Documents") =>
         new(SiteUrl, library, "00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002", "fake-secret", workFolder)

@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace WriteableFileProviders.SharePoint;
 
 /// <summary>
@@ -76,15 +78,21 @@ public class SharePointFileProviderOptions : FileProviderOptions
     /// The app's certificate with its private key, as a base64-encoded PKCS#12 (.pfx) file, when it signs in with a
     /// certificate. Takes precedence over <see cref="ClientSecret"/>. A secret: never log it.
     /// </summary>
+    /// <remarks>New in 2027: written to JSON only when set, so a configuration that does not use it keeps its 2026 shape.</remarks>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public string? ClientCertificateBase64 { get; set; }
 
     /// <summary>The password of <see cref="ClientCertificateBase64"/>, if it has one. A secret: never log it.</summary>
+    /// <remarks>New in 2027: written to JSON only when set, so a configuration that does not use it keeps its 2026 shape.</remarks>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public string? ClientCertificatePassword { get; set; }
 
     /// <summary>
     /// Sign in with <c>DefaultAzureCredential</c> (managed identity, workload identity, environment variables, or a
     /// developer sign-in) instead of a secret or a certificate. False by default; takes precedence over both when true.
     /// </summary>
+    /// <remarks>New in 2027: written to JSON only when set, so a configuration that does not use it keeps its 2026 shape.</remarks>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool UseDefaultAzureCredential { get; set; }
 
     /// <summary>

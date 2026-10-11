@@ -93,9 +93,10 @@ step of #3, in a test project of its own:
 - **SharePoint**, `tests/WriteableFileProviders.SharePoint.Tests`: the suite runs offline against `GraphFake`, a stateful
   in-memory Microsoft Graph at the end of the SDK's own HTTP pipeline, through both constructors (a caller's
   `GraphServiceClient`, and options with a work folder). Unit tests cover the requests sent, upload sessions, races the
-  service settles, faults and the options. `SharePointLiveTests` (`Live`) runs the suite against a real library with
-  `WFP_LIVE=1` and the `WFP_SHAREPOINT_*` variables or a `testsettings.json` next to the project
-  (`testsettings.sample.json` lists the keys).
+  service settles, faults and the options; `SharePointConfigurationShapeTests` adds the 2027 sign-in keys to the
+  configuration-shape checks. `SharePointLiveTests` (`Live`) runs the suite against a real library: it is
+  inconclusive without `WFP_LIVE=1`, and reads its account from the `WFP_SHAREPOINT_*` variables or a
+  `testsettings.json` next to its project (`testsettings.sample.json` lists the keys).
 
 `WriteableFileProviders.AspNetCore.Tests` runs the gateway end to end on TestServer (`Microsoft.AspNetCore.TestHost`),
 with ephemeral Data Protection keys, over `InMemoryFileProvider` and a delegating provider that signs no URLs natively
@@ -133,15 +134,17 @@ overwrite, append, move, delete, listing, local stream, download URL and 100 MB 
     client's HTTP seam). `GcsOptionsTests` there runs offline.
 - **Live suites**, `[TestCategory("Live")]`, which the filter above leaves out: the shared suite against a real
   account, with the credentials from `testsettings.json`. They fail without them. Run one only against an account you
-  own (`--filter "TestCategory=Live&FullyQualifiedName~<Provider>"`, with the package's name such as `AzureBlob` or
-  `GoogleCloudStorage`), and check it is clean afterwards. Google Cloud Storage's (`GcsLiveConformanceTests`, and
+  own (`--filter "TestCategory=Live&FullyQualifiedName~<Provider>"`, with the package's name such as `AzureBlob`,
+  `GoogleCloudStorage` or `SharePoint`), and check it is clean afterwards. Google Cloud Storage's (`GcsLiveConformanceTests`, and
   `GcsLiveAtomicityTests` for what the emulator does not enforce) run only with `WFP_LIVE=1` and a bucket and service
   account key in `WFP_GCS_*` variables or a `testsettings.json` next to its test assembly (see `GcsLive`); otherwise
   they are inconclusive. Azure Blob's (`AzureBlobLiveTests`) runs only with `WFP_LIVE=1`, and is inconclusive without
   it; with it, it needs an account in the `WFP_AZURE_*` variables or a `testsettings.json` next to its project, and
-  fails without one.
+  fails without one. SharePoint's,
+  `SharePointLiveTests`, is described with its project above.
 - **Configuration shape**: `ConfigurationShapeTests`, in WriteableFileProviders.Common.Tests, pins the one-way door with
-  the files in `Serialization/Golden/`:
+  the files in `Serialization/Golden/` (a provider's own project may add its checks on the same files, as
+  `SharePointConfigurationShapeTests` does):
   `Writeable*.json` were written by the 2026.10.10.x serializer and are never regenerated; `Lenient.*.json` and
   `Config.*.json` are hand-written inputs the 2026.10.10.x readers accept (JSON and configuration), which every later
   reader must accept too.

@@ -20,7 +20,7 @@ public sealed partial class WriteableSharePointFileProvider
     {
         ArgumentNullException.ThrowIfNull(path);
         var item = await GetDownloadableAsync(path, cancellationToken).ConfigureAwait(false);
-        return (item.Size ?? 0) == 0
+        return item.Size == 0
             ? new MemoryStream([], writable: false)
             : await DownloadAsync(path, item, 0, null, cancellationToken).ConfigureAwait(false);
     }
@@ -36,7 +36,8 @@ public sealed partial class WriteableSharePointFileProvider
         var item = await GetDownloadableAsync(path, cancellationToken).ConfigureAwait(false);
         if (ifMatch is not null && !string.Equals(item.ETag, ifMatch, StringComparison.Ordinal))
             throw new PreconditionFailedException($"The file '{path}' changed: its version is no longer '{ifMatch}'.");
-        return offset >= (item.Size ?? 0) || length == 0
+        // A size the service does not report is left to the download: a range past the end answers 416, read as empty.
+        return length == 0 || (item.Size is { } size && offset >= size)
             ? new MemoryStream([], writable: false)
             : await DownloadAsync(path, item, offset, length, cancellationToken).ConfigureAwait(false);
     }
@@ -45,7 +46,7 @@ public sealed partial class WriteableSharePointFileProvider
     private async Task<DriveItem> GetDownloadableAsync(ResolvedPath path, CancellationToken cancellationToken)
     {
         var driveId = await DriveIdAsync(cancellationToken).ConfigureAwait(false);
-        var item = await TryGetItemAsync(driveId, LibraryPath(path), _downloadFields, $"Reading '{path}'", cancellationToken).ConfigureAwait(false);
+        var item = await TryGetItemAsync(driveId, LibrarySegments(path), _downloadFields, $"Reading '{path}'", cancellationToken).ConfigureAwait(false);
         return item is null || item.Folder is not null ? throw NotFound(path) : item;
     }
 
@@ -116,14 +117,14 @@ public sealed partial class WriteableSharePointFileProvider
             return;
         }
         // Kiota disposes a request's body, and an upload session reads it at absolute offsets: neither may touch the
-        // caller's stream (F6, F8).
+        // caller's stream.
         var spooled = await SpoolToTempFileAsync(contents, cancellationToken).ConfigureAwait(false);
         await using (spooled.ConfigureAwait(false))
         {
             var driveId = await DriveIdAsync(cancellationToken).ConfigureAwait(false);
             var what = $"Writing '{path}'";
             // The library's top level always exists; any other parent is created if missing.
-            if (LibraryPath(path.Parent).Length > 0)
+            if (LibrarySegments(path.Parent).Length > 0)
                 await EnsureFolderAsync(driveId, path.Parent.RelativeSegments, what, cancellationToken).ConfigureAwait(false);
             if (spooled.Length <= SimpleUploadLimit)
                 await PutAsync(driveId, path, spooled, options, what, cancellationToken).ConfigureAwait(false);
@@ -134,7 +135,7 @@ public sealed partial class WriteableSharePointFileProvider
 
     private async Task PutAsync(string driveId, ResolvedPath path, Stream content, UpdateFileOptions options, string what, CancellationToken cancellationToken)
     {
-        var request = ContentRequest(driveId, LibraryPath(path)).ToPutRequestInformation(content, c =>
+        var request = ContentRequest(driveId, LibrarySegments(path)).ToPutRequestInformation(content, c =>
         {
             if (options.IfMatch is { } etag)
                 c.Headers.Add("If-Match", etag);
@@ -156,10 +157,11 @@ public sealed partial class WriteableSharePointFileProvider
     }
 
     /// <summary>
-    /// Uploads through an upload session, in fragments that are multiples of 320 KiB. A fragment that fails for a
-    /// transient reason (a 5xx the SDK does not retry, or the network) is sent once more from where the service says it
-    /// stands; any other failure cancels the session and throws (F39). The service commits the file with the last
-    /// fragment, so a failure leaves the old content.
+    /// Uploads through an upload session, in fragments that are multiples of 320 KiB. Each fragment may be resent once:
+    /// after a transient failure (500, 502, 503, 504 or the network) or a 416 the session is asked where it stands, and
+    /// after an answer that does not move the upload on it says so itself; the upload goes on from there. A second such
+    /// answer for the same fragment, or any other failure, cancels the session and throws. The service commits the file
+    /// with the last fragment, so a failure leaves the old content.
     /// </summary>
     private async Task UploadInSessionAsync(string driveId, ResolvedPath path, FileStream content, UpdateFileOptions options, string what, CancellationToken cancellationToken)
     {
@@ -173,7 +175,7 @@ public sealed partial class WriteableSharePointFileProvider
         UploadSession? session;
         try
         {
-            session = await UploadSessionRequest(driveId, LibraryPath(path)).PostAsync(body, c =>
+            session = await UploadSessionRequest(driveId, LibrarySegments(path)).PostAsync(body, c =>
             {
                 if (options.IfMatch is { } etag)
                     c.Headers.Add("If-Match", etag);
@@ -196,7 +198,7 @@ public sealed partial class WriteableSharePointFileProvider
         {
             var total = content.Length;
             var offset = 0L;
-            var retried = false;
+            var resent = false;
             while (true)
             {
                 if (offset < 0 || offset >= total)
@@ -205,30 +207,40 @@ public sealed partial class WriteableSharePointFileProvider
                 content.Position = offset;
                 await content.ReadExactlyAsync(buffer.AsMemory(0, count), cancellationToken).ConfigureAwait(false);
                 var (status, answer) = await PutFragmentAsync(uploadUrl, buffer, offset, count, total, what, cancellationToken).ConfigureAwait(false);
-                if (status is not { } answered || (int)answered >= 500)
+                switch (status)
                 {
-                    // Transient: ask the session where it stands and send from there, once.
-                    if (retried)
-                        throw status is { } failed ? GraphErrors.FromResponse((int)failed, answer, what) : new IOException($"{what} failed: the upload was interrupted twice.");
-                    retried = true;
-                    offset = await NextExpectedAsync(uploadUrl, what, cancellationToken).ConfigureAwait(false) ?? offset;
-                    continue;
-                }
-                switch (answered)
-                {
+                    case null or HttpStatusCode.InternalServerError or HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable
+                        or HttpStatusCode.GatewayTimeout or HttpStatusCode.RequestedRangeNotSatisfiable:
+                        // Ask the session where it stands and go on from there, once.
+                        if (resent)
+                            throw status is { } failed ? GraphErrors.FromResponse((int)failed, answer, what) : new IOException($"{what} failed: the upload was interrupted twice.");
+                        resent = true;
+                        offset = await NextExpectedAsync(uploadUrl, what, cancellationToken).ConfigureAwait(false) ?? offset;
+                        continue;
                     case HttpStatusCode.OK or HttpStatusCode.Created:
                         return;
                     case HttpStatusCode.Accepted:
                         var next = NextExpectedOf(answer) ?? offset + count;
                         if (next >= total)
                             throw new IOException($"{what} failed: the service did not commit the upload after its last fragment.");
+                        if (next > offset)
+                        {
+                            resent = false;
+                        }
+                        else if (resent)
+                        {
+                            throw new IOException($"{what} failed: the upload session did not move past byte {offset}.");
+                        }
+                        else
+                        {
+                            resent = true;
+                        }
                         offset = next;
-                        retried = false;
                         continue;
                     case HttpStatusCode.Conflict when options.IfNotExists:
                         throw new PreconditionFailedException($"The file '{path}' already exists.");
                     default:
-                        throw GraphErrors.FromResponse((int)answered, answer, what);
+                        throw GraphErrors.FromResponse((int)status, answer, what);
                 }
             }
         }
@@ -351,7 +363,7 @@ public sealed partial class WriteableSharePointFileProvider
             var parentId = await EnsureFolderAsync(driveId, destination.Parent.RelativeSegments, what, cancellationToken).ConfigureAwait(false);
             change.ParentReference = new ItemReference { Id = parentId };
         }
-        var request = ItemRequest(driveId, LibraryPath(source)).ToPatchRequestInformation(change);
+        var request = ItemRequest(driveId, LibrarySegments(source)).ToPatchRequestInformation(change);
         if (!rename)
         {
             request.UrlTemplate += ConflictBehaviorTemplate;
@@ -387,7 +399,7 @@ public sealed partial class WriteableSharePointFileProvider
         var driveId = await DriveIdAsync(cancellationToken).ConfigureAwait(false);
         var what = $"Copying '{source}' to '{destination}'";
         var parentId = await EnsureFolderAsync(driveId, destination.Parent.RelativeSegments, what, cancellationToken).ConfigureAwait(false);
-        var request = CopyRequest(driveId, LibraryPath(source)).ToPostRequestInformation(new CopyPostRequestBody
+        var request = CopyRequest(driveId, LibrarySegments(source)).ToPostRequestInformation(new CopyPostRequestBody
         {
             Name = destination.Name,
             ParentReference = new ItemReference { DriveId = driveId, Id = parentId },
@@ -416,15 +428,17 @@ public sealed partial class WriteableSharePointFileProvider
     }
 
     /// <summary>
-    /// Polls a copy's monitor until it reports the copy completed or failed. It decides on the <c>status</c> field, never
-    /// on the status code, which differs between services; a redirect to the new item, or the item itself, also means
-    /// done.
+    /// Polls a copy's monitor until it reports the copy completed or failed, for at most <see cref="CopyTimeout"/>. It
+    /// decides on the <c>status</c> field, never on the status code, which differs between services; a redirect to the
+    /// new item, or the item itself, also means done.
     /// </summary>
     private async Task WaitForCopyAsync(Uri monitor, ResolvedPath destination, string what, CancellationToken cancellationToken)
     {
         const int MaxUnreadable = 10;
         var delay = CopyPollDelay;
         var unreadable = 0;
+        var started = TimeProvider.GetTimestamp();
+        string? last;
         while (true)
         {
             // A redirect from the monitor points at the new item: it means done, and is not followed (the monitor's
@@ -440,6 +454,7 @@ public sealed partial class WriteableSharePointFileProvider
                 if (!response.IsSuccessStatusCode)
                     throw GraphErrors.FromResponse(code, answer, $"{what} (its progress)");
                 var (status, isItem) = CopyStatusOf(answer);
+                last = status;
                 switch (status)
                 {
                     case "completed":
@@ -458,6 +473,8 @@ public sealed partial class WriteableSharePointFileProvider
                         throw new IOException($"{what} failed: the copy ended as '{status ?? "unknown"}'.");
                 }
             }
+            if (TimeProvider.GetElapsedTime(started) >= CopyTimeout)
+                throw new IOException($"{what} failed: the copy did not complete within {CopyTimeout}; it last reported '{last ?? "nothing readable"}'.");
             await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
             delay = TimeSpan.FromTicks(Math.Min(delay.Ticks * 2, MaxCopyPollDelay.Ticks));
         }
@@ -484,7 +501,7 @@ public sealed partial class WriteableSharePointFileProvider
 
     /// <inheritdoc />
     /// <remarks>
-    /// The file's pre-authenticated download URL (D18). Graph says it lives up to an hour and may stop working within
+    /// The file's pre-authenticated download URL. Graph says it lives up to an hour and may stop working within
     /// minutes, and does not say when: a validity under an hour throws <see cref="NotSupportedException"/> (the URL could
     /// outlive it), a longer one needs <see cref="SignedUrlOptions.AllowShorterValidity"/>, and
     /// <see cref="SignedUrl.ExpiresOn"/> is null. Removing someone's access may not end a URL already issued.

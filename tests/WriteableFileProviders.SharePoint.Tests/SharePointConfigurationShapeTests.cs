@@ -5,9 +5,9 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace WriteableFileProviders.SharePoint.Tests;
 
 /// <summary>
-/// The configuration shape (AGENTS.md, one-way doors) for SharePoint, moved here from ConfigurationShapeTests in S9: the
-/// 2026 golden reads back as it did, 2027 writes the same keys plus the three D17 additions, and the provider now builds
-/// from configuration with no network call (F13), so it round-trips through the serializer.
+/// The configuration shape (AGENTS.md, one-way doors) for SharePoint, beside ConfigurationShapeTests in Common.Tests: the
+/// 2026 golden builds a provider with no network call and round-trips through the serializer; a configuration that uses
+/// none of the 2027 sign-in options writes exactly the 2026 keys, and one that uses them writes them too.
 /// </summary>
 [TestClass]
 public sealed class SharePointConfigurationShapeTests
@@ -49,17 +49,24 @@ public sealed class SharePointConfigurationShapeTests
     }
 
     [TestMethod]
-    public void WrittenShape_IsTheGoldenPlusTheD17Additions()
+    public void WrittenShape_IsTheGolden_UntilThe2027OptionsAreUsed()
     {
         using var provider = WriteableFileProviderSerializer.FromJson(Golden());
         var written = WriteableFileProviderSerializer.ToJson(provider);
-        var golden = JsonNode.Parse(Golden())!.AsObject();
-        foreach (var (key, value) in golden)
-            Assert.IsTrue(JsonNode.DeepEquals(value, written[key]), $"{key}: {written[key]?.ToJsonString()}");
-        CollectionAssert.AreEquivalent(golden.Select(p => p.Key).Concat(_additions).ToList(), written.Select(p => p.Key).ToList());
-        Assert.IsNull(written["ClientCertificateBase64"]);
-        Assert.IsNull(written["ClientCertificatePassword"]);
-        Assert.IsFalse(written["UseDefaultAzureCredential"]!.GetValue<bool>());
+        Assert.IsTrue(JsonNode.DeepEquals(JsonNode.Parse(Golden()), written), $"Written: {written.ToJsonString()}");
+
+        var options = Expected();
+        options.ClientCertificateBase64 = "certificate";
+        options.ClientCertificatePassword = "password";
+        options.UseDefaultAzureCredential = true;
+        using var client = TestGraph.Client(new GraphFake());
+        using var withAdditions = new WriteableSharePointFileProvider(options, client);
+        var writtenWithAdditions = WriteableFileProviderSerializer.ToJson(withAdditions);
+        CollectionAssert.IsSubsetOf(_additions, writtenWithAdditions.Select(p => p.Key).ToList());
+        Assert.AreEqual("certificate", writtenWithAdditions["ClientCertificateBase64"]!.GetValue<string>());
+        Assert.IsTrue(writtenWithAdditions["UseDefaultAzureCredential"]!.GetValue<bool>());
+        using var readBack = WriteableFileProviderSerializer.FromJson(writtenWithAdditions);
+        Assert.AreEqual("password", ((SharePointFileProviderOptions)readBack.Options).ClientCertificatePassword);
     }
 
     [TestMethod]

@@ -170,10 +170,10 @@ public sealed class SharePointProviderTests
 
     [TestMethod]
     [DataRow("a:b")]
-    [DataRow("dir/a%41.txt")]
     [DataRow("a%3Ab")]
     [DataRow("a%253Ab")]
-    public async Task Segments_WithAColonOrAPercentEscape_AreRefusedBeforeAnyRequest(string path)
+    [DataRow("dir/%2E%2E")]
+    public async Task Segments_WithAColon_EvenEscaped_AreRefusedBeforeAnyRequest(string path)
     {
         var (provider, fake) = Create();
         await Assert.ThrowsAsync<ArgumentException>(() => provider.GetFileInfoAsync(path));
@@ -411,11 +411,15 @@ public sealed class SharePointProviderTests
             if (IsFragment(r) && answers.Count > 0)
                 fake.Intercept = q => q == r ? NewAccepted(answers.Dequeue()) : null;
         };
-        // The fake does not store an intercepted fragment, so the commit fails on its length; the point is that the
-        // provider moved on to the next fragment each time instead of resending.
-        await Assert.ThrowsExactlyAsync<IOException>(() => provider.UpdateFileAsync("a.bin", new MemoryStream(data)));
-        CollectionAssert.AreEqual(new[] { "bytes 0-327679/700000", "bytes 327680-655359/700000", "bytes 655360-699999/700000" },
-            fake.Requests.Where(IsFragment).Select(r => r.Header("Content-Range")).ToArray());
+        // The provider moves on after each answer. The fake stored neither intercepted fragment, so the third answers
+        // 416; the provider asks the session where it stands, goes back to byte 0 once, and completes.
+        await provider.UpdateFileAsync("a.bin", new MemoryStream(data));
+        CollectionAssert.AreEqual(data, fake.GetFile("r/a.bin"));
+        CollectionAssert.AreEqual(new[]
+        {
+            "bytes 0-327679/700000", "bytes 327680-655359/700000", "bytes 655360-699999/700000",
+            "bytes 0-327679/700000", "bytes 327680-655359/700000", "bytes 655360-699999/700000",
+        }, fake.Requests.Where(IsFragment).Select(r => r.Header("Content-Range")).ToArray());
 
         fake.OnRequest = null;
         fake.Intercept = null;
@@ -815,6 +819,156 @@ public sealed class SharePointProviderTests
         };
         await Assert.ThrowsAsync<OperationCanceledException>(() => provider.CopyAsync("a.txt", "b.txt", cancel.Token));
     }
+
+    // ----- Review round 1 -----
+
+    [TestMethod]
+    public async Task PercentInNames_IsSentEscaped_AndUnaddressableNamesAreLeftOut()
+    {
+        var (provider, fake) = Create();
+        fake.SetFile("r/a%41/f.txt", Encoding.UTF8.GetBytes("percent"));
+        fake.SetFile("r/aA/g.txt", Encoding.UTF8.GetBytes("plain"));
+        fake.SetFile("r/50%.txt", Encoding.UTF8.GetBytes("fifty"));
+        fake.SetFile("r/%2E%2E/x.txt", Encoding.UTF8.GetBytes("hidden"));
+        fake.SetFile("r/%252E%252E/y.txt", Encoding.UTF8.GetBytes("hidden"));
+
+        CollectionAssert.AreEquivalent(new[] { "a%41", "aA", "50%.txt" }, (await provider.GetDirectoryContentsAsync("")).Select(e => e.Name).ToList());
+        var all = new List<string>();
+        await foreach (var entry in provider.EnumerateAsync("", recursive: true))
+            all.Add(entry.Path.ToString());
+        CollectionAssert.AreEquivalent(new[] { "a%41", "a%41/f.txt", "aA", "aA/g.txt", "50%.txt" }, all, "Nothing under an unaddressable name is walked into");
+
+        Assert.AreEqual("percent", await Read(provider, "a%41/f.txt"));
+        Assert.AreEqual("plain", await Read(provider, "aA/g.txt"));
+        Assert.AreEqual("fifty", await Read(provider, "50%.txt"));
+        Assert.IsFalse((await provider.GetFileInfoAsync("a%41/g.txt")).Exists, "a%41 is not aA");
+        await Write(provider, "a%41/new.txt", "n");
+        await Write(provider, "new%20dir/z.txt", "z");
+        Assert.AreEqual("n", Text(fake.GetFile("r/a%41/new.txt")));
+        Assert.IsNull(fake.GetFile("r/aA/new.txt"));
+        Assert.AreEqual("z", Text(fake.GetFile("r/new%20dir/z.txt")));
+        Assert.IsTrue(fake.Requests.Any(r => r.Path == $"{Docs}/root:/r/a%41/f.txt:"), "The path reached Graph with '%' escaped once");
+        await Assert.ThrowsAsync<ArgumentException>(() => provider.GetFileInfoAsync("%2E%2E"));
+    }
+
+    [TestMethod]
+    public async Task UploadSession_416_IsResyncedOnce()
+    {
+        var (provider, fake) = Create();
+        var data = TestStreams.Bytes(700_000, seed: 9);
+        var fragments = 0;
+        fake.Intercept = r => IsFragment(r) && ++fragments == 2 ? Answer(HttpStatusCode.RequestedRangeNotSatisfiable, GraphFake.ErrorJson("invalidRange", "No")) : null;
+        await provider.UpdateFileAsync("a.bin", new MemoryStream(data));
+        CollectionAssert.AreEqual(data, fake.GetFile("r/a.bin"));
+        Assert.AreEqual(1, fake.Requests.Count(r => r.Host == GraphFake.UploadHost && r.Method == "GET"));
+
+        fake.Intercept = r => IsFragment(r) && r.Header("Content-Range")!.StartsWith("bytes 327680-", StringComparison.Ordinal)
+            ? Answer(HttpStatusCode.RequestedRangeNotSatisfiable, GraphFake.ErrorJson("invalidRange", "No"))
+            : null;
+        StringAssert.Contains((await Assert.ThrowsExactlyAsync<IOException>(() => provider.UpdateFileAsync("b.bin", new MemoryStream(data)))).Message, "416");
+        Assert.AreEqual(0, fake.OpenSessions);
+    }
+
+    [TestMethod]
+    public async Task UploadSession_AnswerThatDoesNotMoveOn_CountsAgainstTheResend()
+    {
+        var (provider, fake) = Create();
+        var data = TestStreams.Bytes(700_000, seed: 10);
+        var first = true;
+        fake.Intercept = r =>
+        {
+            if (!IsFragment(r) || !first)
+                return null;
+            first = false;
+            return Answer(HttpStatusCode.Accepted, "{\"nextExpectedRanges\":[\"0-\"]}");
+        };
+        await provider.UpdateFileAsync("a.bin", new MemoryStream(data));
+        CollectionAssert.AreEqual(data, fake.GetFile("r/a.bin"));
+
+        fake.ClearRequests();
+        fake.Intercept = r => IsFragment(r) ? Answer(HttpStatusCode.Accepted, "{\"nextExpectedRanges\":[\"0-\"]}") : null;
+        StringAssert.Contains((await Assert.ThrowsExactlyAsync<IOException>(() => provider.UpdateFileAsync("b.bin", new MemoryStream(data)))).Message, "did not move past byte 0");
+        Assert.AreEqual(2, fake.Requests.Count(IsFragment), "The first fragment is sent once more, then the upload ends");
+    }
+
+    [TestMethod]
+    public async Task UploadSession_OnlyServerErrorsAndTheNetworkAreTransient()
+    {
+        var (provider, fake) = Create();
+        fake.FailNext(1, HttpStatusCode.NotImplemented, IsFragment, GraphFake.ErrorJson("notSupported", "No"));
+        await Assert.ThrowsExactlyAsync<IOException>(() => provider.UpdateFileAsync("a.bin", new MemoryStream(TestStreams.Bytes(700_000))));
+        Assert.AreEqual(1, fake.Requests.Count(IsFragment), "A 501 is not resent");
+        Assert.IsFalse(fake.Requests.Any(r => r.Host == GraphFake.UploadHost && r.Method == "GET"));
+
+        // 503 and 504 reach the provider only from a client without the SDK's retry handler: resent once.
+        var bareFake = new GraphFake();
+        using var bare = TestGraph.BareClient(bareFake);
+        var data = TestStreams.Bytes(700_000, seed: 11);
+        using (var overBare = TestGraph.Provider(bare, TestGraph.Options("r")))
+        {
+            bareFake.FailNext(1, HttpStatusCode.ServiceUnavailable, IsFragment);
+            await overBare.UpdateFileAsync("a.bin", new MemoryStream(data));
+            bareFake.FailNext(1, HttpStatusCode.GatewayTimeout, IsFragment);
+            await overBare.UpdateFileAsync("b.bin", new MemoryStream(data));
+            // Without a redirect handler too, reads work: they go to the download URL, not through /content's redirect.
+            await using var read = await overBare.ReadFileAsync("b.bin");
+            using var copy = new MemoryStream();
+            await read.CopyToAsync(copy);
+            CollectionAssert.AreEqual(data, copy.ToArray());
+        }
+        CollectionAssert.AreEqual(data, bareFake.GetFile("r/a.bin"));
+    }
+
+    [TestMethod]
+    public async Task MalformedJson_IsAnIOException()
+    {
+        var (provider, fake) = Create();
+        await provider.GetFileInfoAsync("warm-up");
+        fake.Intercept = r => r.Method == "GET" && r.Path.EndsWith("/f.txt:", StringComparison.Ordinal) ? Answer(HttpStatusCode.OK, "{\"id\": ") : null;
+        await Assert.ThrowsExactlyAsync<IOException>(() => provider.GetFileInfoAsync("f.txt"));
+    }
+
+    [TestMethod]
+    public async Task Copy_ThatNeverEnds_TimesOutNamingItsLastStatus()
+    {
+        var (provider, _) = Create(configure: f => f.CopyPollsBeforeDone = int.MaxValue);
+        provider.CopyTimeout = TimeSpan.FromMilliseconds(30);
+        await Write(provider, "a.txt", "a");
+        StringAssert.Contains((await Assert.ThrowsExactlyAsync<IOException>(() => provider.CopyAsync("a.txt", "b.txt"))).Message, "'inProgress'");
+    }
+
+    [TestMethod]
+    public async Task UnknownSize_IsDownloadedRatherThanReadAsEmpty()
+    {
+        var (provider, fake) = Create();
+        await Write(provider, "f.txt", "0123456789");
+        fake.OmitSizes = true;
+        Assert.AreEqual("0123456789", await Read(provider, "f.txt"));
+        Assert.AreEqual("345", await ReadRange(provider, "f.txt", 3, 3));
+        Assert.AreEqual("", await ReadRange(provider, "f.txt", 50, null), "Past the end: the service answers 416");
+        Assert.AreEqual("", await ReadRange(provider, "f.txt", 2, 0));
+    }
+
+    [TestMethod]
+    public async Task Dispose_ReleasesTheOwnHttpPipeline_AndNotTheCallers()
+    {
+        var fake = new GraphFake();
+        var own = TestGraph.OwnProvider(fake, TestGraph.Options("r"));
+        await own.GetFileInfoAsync("x");
+        Assert.AreEqual(0, fake.DisposedHandlers);
+        own.Dispose();
+        Assert.AreEqual(1, fake.DisposedHandlers, "The provider's own HttpClient, with its handler, is disposed");
+
+        var callerFake = new GraphFake();
+        var client = TestGraph.Client(callerFake);
+        await using (var given = new WriteableSharePointFileProvider(TestGraph.Options("r"), client))
+            await given.GetFileInfoAsync("x");
+        Assert.AreEqual(0, callerFake.DisposedHandlers, "The caller's client is left alone");
+        client.Dispose();
+    }
+
+    private static HttpResponseMessage Answer(HttpStatusCode code, string json) =>
+        new(code) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
 
     // ----- Signed URLs, content types, disposal -----
 

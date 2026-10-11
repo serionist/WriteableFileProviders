@@ -73,31 +73,36 @@ internal sealed class DriveItemPath
 
     private sealed class ItemBuilder : DriveItemItemRequestBuilder
     {
-        public ItemBuilder(Dictionary<string, object> pathParameters, IRequestAdapter requestAdapter, string template)
-            : base(pathParameters, requestAdapter) => UrlTemplate = template;
+        public ItemBuilder(
+            Dictionary<string, object> pathParameters, IRequestAdapter requestAdapter, string itemTemplate)
+            : base(pathParameters, requestAdapter) => UrlTemplate = itemTemplate;
     }
 
     private sealed class ChildrenBuilder : ChildrenRequestBuilder
     {
-        public ChildrenBuilder(Dictionary<string, object> pathParameters, IRequestAdapter requestAdapter, string item)
-            : base(pathParameters, requestAdapter) => UrlTemplate = Below(item, UrlTemplate);
+        public ChildrenBuilder(
+            Dictionary<string, object> pathParameters, IRequestAdapter requestAdapter, string itemTemplate)
+            : base(pathParameters, requestAdapter) => UrlTemplate = Below(itemTemplate, UrlTemplate);
     }
 
     private sealed class ContentBuilder : ContentRequestBuilder
     {
-        public ContentBuilder(Dictionary<string, object> pathParameters, IRequestAdapter requestAdapter, string item)
-            : base(pathParameters, requestAdapter) => UrlTemplate = Below(item, UrlTemplate);
+        public ContentBuilder(
+            Dictionary<string, object> pathParameters, IRequestAdapter requestAdapter, string itemTemplate)
+            : base(pathParameters, requestAdapter) => UrlTemplate = Below(itemTemplate, UrlTemplate);
     }
 
     private sealed class CopyBuilder : CopyRequestBuilder
     {
-        public CopyBuilder(Dictionary<string, object> pathParameters, IRequestAdapter requestAdapter, string item)
-            : base(pathParameters, requestAdapter) => UrlTemplate = Below(item, UrlTemplate);
+        public CopyBuilder(
+            Dictionary<string, object> pathParameters, IRequestAdapter requestAdapter, string itemTemplate)
+            : base(pathParameters, requestAdapter) => UrlTemplate = Below(itemTemplate, UrlTemplate);
     }
 
     private sealed class UploadSessionBuilder : CreateUploadSessionRequestBuilder
     {
-        public UploadSessionBuilder(Dictionary<string, object> pathParameters, IRequestAdapter requestAdapter, string item)
-            : base(pathParameters, requestAdapter) => UrlTemplate = Below(item, UrlTemplate);
+        public UploadSessionBuilder(
+            Dictionary<string, object> pathParameters, IRequestAdapter requestAdapter, string itemTemplate)
+            : base(pathParameters, requestAdapter) => UrlTemplate = Below(itemTemplate, UrlTemplate);
     }
 }

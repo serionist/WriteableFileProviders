@@ -14,9 +14,9 @@
     <IlcTreatWarningsAsErrors>true</IlcTreatWarningsAsErrors>
     <!-- The runtime CI publishes it for, so a restore without one brings its packages. -->
     <RuntimeIdentifiers>linux-x64</RuntimeIdentifiers>
-    <!-- No lock file: beyond ours, its packages are the SDK's native AOT compiler, at the SDK's own runtime version, so
-         a lock file would fail a locked restore at every SDK patch. Every other version is pinned in
-         Directory.Packages.props. -->
+    <!-- No lock file: its own packages are the SDK's native AOT compiler and trimmer, at the SDK's own runtime
+         version, so a lock file would fail a locked restore at every SDK patch. The rest come through our projects,
+         whose lock files hold them. -->
     <RestorePackagesWithLockFile>false</RestorePackagesWithLockFile>
     <!-- Never packed (tests/Directory.Build.props); the web SDK would warn when dotnet pack meets it in the
          solution. -->

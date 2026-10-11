@@ -2,7 +2,8 @@
 
   <PropertyGroup>
     <PackageId>WriteableFileProviders.Box</PackageId>
-    <Description>WriteableFileProviders for Box: a writeable IFileProvider over a Box folder, on the Box .NET SDK (Box.Sdk.Gen), with JWT sign-in, ranged reads pinned to a file version, chunked uploads and Box's pre-authenticated download URLs.</Description>
+    <Description>WriteableFileProviders for Box: a writeable IFileProvider over a Box folder, on the Box .NET SDK (Box.Sdk.Gen), with JWT sign-in, chunked uploads, ranged reads pinned to a file version, server-side copies and moves, and Box's pre-authenticated download URLs.</Description>
+    <PackageTags>$(PackageTags);box;box-api</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 

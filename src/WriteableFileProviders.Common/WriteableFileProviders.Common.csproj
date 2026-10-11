@@ -3,7 +3,8 @@
   <PropertyGroup>
     <RootNamespace>WriteableFileProviders</RootNamespace>
     <PackageId>WriteableFileProviders.Common</PackageId>
-    <Description>The core of WriteableFileProviders: IWriteableFileProvider, a writeable IFileProvider with one meaning on every storage backend, its base class, and configuration-driven construction.</Description>
+    <Description>The core of WriteableFileProviders: IWriteableFileProvider, a writeable IFileProvider that means the same thing on every storage backend; the base class providers build on; byte-range and seekable reads, conditional writes, signed URLs; construction from configuration or JSON, and dependency injection.</Description>
+    <PackageTags>$(PackageTags);abstractions</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 

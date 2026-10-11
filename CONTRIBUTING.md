@@ -12,8 +12,12 @@ short path through it for a first contribution.
   behaves, a dependency upgrade that changes behaviour. Write it in `docs/plans/` from the template in
   [docs/plans/README.md](docs/plans/README.md), and put it up as a draft PR. A maintainer approves it before any code.
 - **The one-way doors** (AGENTS.md) are what consumers depend on: the package ids and namespaces, the Common API, the
-  configuration shape, and one meaning for every member on every provider. A change to one needs the maintainers'
-  agreement in its issue first.
+  configuration shape, the gateway's URLs, and one meaning for every member on every provider. A change to one needs
+  the maintainers' agreement in its issue first, and ships only in the next major version.
+- **Versions** are not yours to set: every package is released together, at the version of the release tag. A change
+  that breaks consumers (a one-way door, a dropped target framework, a dependency change that breaks their builds)
+  waits for the next major; a new feature or target framework goes into a minor, a fix into a patch. See the README's
+  [Versioning](README.md#versioning) section.
 - **Security issues** never go in an issue: see [SECURITY.md](SECURITY.md).
 
 ## Build and test

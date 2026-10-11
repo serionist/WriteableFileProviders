@@ -2,7 +2,8 @@
 
   <PropertyGroup>
     <PackageId>WriteableFileProviders.Minio</PackageId>
-    <Description>WriteableFileProviders for MinIO: a writeable IFileProvider over a MinIO bucket, on the AWS SDK for .NET v4.</Description>
+    <Description>WriteableFileProviders for MinIO: a writeable IFileProvider over a MinIO bucket, on the AWS SDK for .NET v4 (no Minio SDK), with multipart uploads, ranged reads, server-side copies and presigned URLs.</Description>
+    <PackageTags>$(PackageTags);minio;s3;object-storage</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 

@@ -2,7 +2,8 @@
 
   <PropertyGroup>
     <PackageId>WriteableFileProviders.AzureBlob</PackageId>
-    <Description>WriteableFileProviders for Azure Blob Storage: a writeable IFileProvider over a blob container, on block blobs, with atomic and conditional writes, ranged reads and SAS URLs.</Description>
+    <Description>WriteableFileProviders for Azure Blob Storage: a writeable IFileProvider over a blob container, on block blobs, with atomic and conditional writes, appends that never lose a concurrent write, ranged reads, server-side copies and SAS URLs (service or user delegation).</Description>
+    <PackageTags>$(PackageTags);azure;azure-storage;blob;blob-storage</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 

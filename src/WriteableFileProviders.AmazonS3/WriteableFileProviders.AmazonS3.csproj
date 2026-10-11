@@ -2,7 +2,8 @@
 
   <PropertyGroup>
     <PackageId>WriteableFileProviders.AmazonS3</PackageId>
-    <Description>WriteableFileProviders for Amazon S3 and S3-compatible servers: a writeable IFileProvider over a bucket, on the AWS SDK for .NET v4.</Description>
+    <Description>WriteableFileProviders for Amazon S3 and S3-compatible servers: a writeable IFileProvider over a bucket, on the AWS SDK for .NET v4, with multipart uploads, conditional writes, ranged reads, server-side copies and presigned URLs.</Description>
+    <PackageTags>$(PackageTags);aws;amazon;s3;amazon-s3</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 

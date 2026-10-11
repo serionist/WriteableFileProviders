@@ -2,7 +2,8 @@
 
   <PropertyGroup>
     <PackageId>WriteableFileProviders.AspNetCore</PackageId>
-    <Description>WriteableFileProviders for ASP.NET Core: a signed-URL gateway that serves and accepts files for any IWriteableFileProvider, and a URL service that issues a provider's native signed URL or a gateway URL.</Description>
+    <Description>WriteableFileProviders for ASP.NET Core: a URL service that issues a provider's native signed URL or else a URL of the app's own gateway, and the gateway endpoints that serve downloads (with HTTP ranges) and accept uploads for any IWriteableFileProvider, on Data Protection tokens.</Description>
+    <PackageTags>$(PackageTags);aspnetcore;signed-url;presigned-url;download;upload</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 

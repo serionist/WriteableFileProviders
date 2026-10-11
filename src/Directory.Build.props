@@ -3,11 +3,17 @@
   <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
 
   <!-- Packaging, for every package under src/. Versions come from git tags (MinVer): tag v2027.0.0 to release
-       2027.0.0; an untagged build is 2027.0.0-alpha.0.<height>. All packages release together at one version. -->
+       2027.0.0; an untagged build is 2027.0.0-alpha.0.<height>. All packages release together at one version, under the
+       policy in the root README's Versioning section. Each .csproj adds its Description, its own tags after these, and
+       its README. No licence or copyright line until the maintainers agree the licence; no icon yet. -->
 
   <PropertyGroup Label="Package">
     <IsPackable>true</IsPackable>
-    <PackageTags>IFileProvider;fileprovider;storage;writeable;blob;s3;minio;gcs;box;sharepoint</PackageTags>
+    <Authors>Soma Osvay</Authors>
+    <PackageProjectUrl>https://github.com/serionist/WriteableFileProviders</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/serionist/WriteableFileProviders.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>IFileProvider;fileprovider;file-storage;storage;writeable</PackageTags>
     <PackageReleaseNotes>https://github.com/serionist/WriteableFileProviders/releases</PackageReleaseNotes>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <IncludeSymbols>true</IncludeSymbols>

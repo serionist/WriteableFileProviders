@@ -1,0 +1,31 @@
+#nullable enable
+WriteableFileProviders.AmazonS3.AmazonS3FileProviderOptions
+WriteableFileProviders.AmazonS3.AmazonS3FileProviderOptions.AccessKey.get -> string?
+WriteableFileProviders.AmazonS3.AmazonS3FileProviderOptions.AccessKey.set -> void
+WriteableFileProviders.AmazonS3.AmazonS3FileProviderOptions.AmazonS3FileProviderOptions() -> void
+WriteableFileProviders.AmazonS3.AmazonS3FileProviderOptions.AmazonS3FileProviderOptions(string? rootDirectory, string? accessKey, string? secretKey, string? bucketName, Amazon.S3.S3Region? bucketRegion, Amazon.S3.S3StorageClass? storageClassForNewFiles = null) -> void
+WriteableFileProviders.AmazonS3.AmazonS3FileProviderOptions.AmazonS3FileProviderOptions(string? rootDirectory, string? accessKey, string? secretKey, string? bucketName, string? bucketRegion, Amazon.S3.S3StorageClass? storageClassForNewFiles = null) -> void
+WriteableFileProviders.AmazonS3.AmazonS3FileProviderOptions.AmazonS3FileProviderOptions(string? rootDirectory, string? bucketName, Amazon.S3.S3Region? bucketRegion, Amazon.S3.S3StorageClass? storageClassForNewFiles = null) -> void
+WriteableFileProviders.AmazonS3.AmazonS3FileProviderOptions.AmazonS3FileProviderOptions(string? rootDirectory, string? bucketName, string? bucketRegion, Amazon.S3.S3StorageClass? storageClassForNewFiles = null) -> void
+WriteableFileProviders.AmazonS3.AmazonS3FileProviderOptions.BucketName.get -> string?
+WriteableFileProviders.AmazonS3.AmazonS3FileProviderOptions.BucketName.set -> void
+WriteableFileProviders.AmazonS3.AmazonS3FileProviderOptions.BucketRegion.get -> string?
+WriteableFileProviders.AmazonS3.AmazonS3FileProviderOptions.BucketRegion.set -> void
+WriteableFileProviders.AmazonS3.AmazonS3FileProviderOptions.CreateBucketIfMissing.get -> bool
+WriteableFileProviders.AmazonS3.AmazonS3FileProviderOptions.CreateBucketIfMissing.set -> void
+WriteableFileProviders.AmazonS3.AmazonS3FileProviderOptions.ForcePathStyle.get -> bool
+WriteableFileProviders.AmazonS3.AmazonS3FileProviderOptions.ForcePathStyle.set -> void
+WriteableFileProviders.AmazonS3.AmazonS3FileProviderOptions.IsAnonymus.get -> bool
+WriteableFileProviders.AmazonS3.AmazonS3FileProviderOptions.IsAnonymus.set -> void
+WriteableFileProviders.AmazonS3.AmazonS3FileProviderOptions.SecretKey.get -> string?
+WriteableFileProviders.AmazonS3.AmazonS3FileProviderOptions.SecretKey.set -> void
+WriteableFileProviders.AmazonS3.AmazonS3FileProviderOptions.ServiceUrl.get -> string?
+WriteableFileProviders.AmazonS3.AmazonS3FileProviderOptions.ServiceUrl.set -> void
+WriteableFileProviders.AmazonS3.AmazonS3FileProviderOptions.StorageClassForNewFiles.get -> Amazon.S3.S3StorageClass?
+WriteableFileProviders.AmazonS3.AmazonS3FileProviderOptions.StorageClassForNewFiles.set -> void
+WriteableFileProviders.AmazonS3.AmazonS3FileProviderOptions.UseDefaultCredentials.get -> bool
+WriteableFileProviders.AmazonS3.AmazonS3FileProviderOptions.UseDefaultCredentials.set -> void
+WriteableFileProviders.AmazonS3.WriteableAmazonS3FileProvider
+WriteableFileProviders.AmazonS3.WriteableAmazonS3FileProvider.ReadFileVersionAsync(string? versionId, WriteableFileProviders.ProviderPath path, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.IO.Stream!>!
+WriteableFileProviders.AmazonS3.WriteableAmazonS3FileProvider.WriteableAmazonS3FileProvider(WriteableFileProviders.AmazonS3.AmazonS3FileProviderOptions! options) -> void
+WriteableFileProviders.AmazonS3.WriteableAmazonS3FileProvider.WriteableAmazonS3FileProvider(WriteableFileProviders.AmazonS3.AmazonS3FileProviderOptions! options, Amazon.S3.IAmazonS3! client) -> void

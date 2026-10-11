@@ -1,0 +1,31 @@
+#nullable enable
+static WriteableFileProviders.AspNetCore.WriteableFileProviderGatewayEndpointRouteBuilderExtensions.MapWriteableFileProviderGateway(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder! endpoints) -> Microsoft.AspNetCore.Builder.IEndpointConventionBuilder!
+static WriteableFileProviders.AspNetCore.WriteableFileProviderGatewayOptions.MaxValidityLimit.get -> System.TimeSpan
+static WriteableFileProviders.AspNetCore.WriteableFileProviderGatewayServiceCollectionExtensions.AddWriteableFileProviderGateway(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<WriteableFileProviders.AspNetCore.WriteableFileProviderGatewayOptions!>! configure) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+WriteableFileProviders.AspNetCore.DistributedCacheGatewayReplayStore
+WriteableFileProviders.AspNetCore.DistributedCacheGatewayReplayStore.DistributedCacheGatewayReplayStore(Microsoft.Extensions.Caching.Distributed.IDistributedCache! cache, System.TimeProvider! timeProvider) -> void
+WriteableFileProviders.AspNetCore.DistributedCacheGatewayReplayStore.TryConsumeAsync(string! tokenId, System.DateTimeOffset expiresOn, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!
+WriteableFileProviders.AspNetCore.IGatewayReplayStore
+WriteableFileProviders.AspNetCore.IGatewayReplayStore.TryConsumeAsync(string! tokenId, System.DateTimeOffset expiresOn, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!
+WriteableFileProviders.AspNetCore.IWriteableFileUrlService
+WriteableFileProviders.AspNetCore.IWriteableFileUrlService.GetSignedUrlAsync(string! providerName, WriteableFileProviders.ProviderPath path, WriteableFileProviders.SignedUrlOptions! options, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<WriteableFileProviders.SignedUrl!>!
+WriteableFileProviders.AspNetCore.WriteableFileProviderGatewayEndpointRouteBuilderExtensions
+WriteableFileProviders.AspNetCore.WriteableFileProviderGatewayOptions
+WriteableFileProviders.AspNetCore.WriteableFileProviderGatewayOptions.AllowInsecureHttp.get -> bool
+WriteableFileProviders.AspNetCore.WriteableFileProviderGatewayOptions.AllowInsecureHttp.set -> void
+WriteableFileProviders.AspNetCore.WriteableFileProviderGatewayOptions.BasePath.get -> string!
+WriteableFileProviders.AspNetCore.WriteableFileProviderGatewayOptions.BasePath.set -> void
+WriteableFileProviders.AspNetCore.WriteableFileProviderGatewayOptions.MaxReadValidity.get -> System.TimeSpan
+WriteableFileProviders.AspNetCore.WriteableFileProviderGatewayOptions.MaxReadValidity.set -> void
+WriteableFileProviders.AspNetCore.WriteableFileProviderGatewayOptions.MaxUploadBytes.get -> long
+WriteableFileProviders.AspNetCore.WriteableFileProviderGatewayOptions.MaxUploadBytes.set -> void
+WriteableFileProviders.AspNetCore.WriteableFileProviderGatewayOptions.MaxUploadValidity.get -> System.TimeSpan
+WriteableFileProviders.AspNetCore.WriteableFileProviderGatewayOptions.MaxUploadValidity.set -> void
+WriteableFileProviders.AspNetCore.WriteableFileProviderGatewayOptions.OneTimeUploadTokens.get -> bool
+WriteableFileProviders.AspNetCore.WriteableFileProviderGatewayOptions.OneTimeUploadTokens.set -> void
+WriteableFileProviders.AspNetCore.WriteableFileProviderGatewayOptions.PreferGateway.get -> bool
+WriteableFileProviders.AspNetCore.WriteableFileProviderGatewayOptions.PreferGateway.set -> void
+WriteableFileProviders.AspNetCore.WriteableFileProviderGatewayOptions.PublicBaseUri.get -> System.Uri?
+WriteableFileProviders.AspNetCore.WriteableFileProviderGatewayOptions.PublicBaseUri.set -> void
+WriteableFileProviders.AspNetCore.WriteableFileProviderGatewayOptions.WriteableFileProviderGatewayOptions() -> void
+WriteableFileProviders.AspNetCore.WriteableFileProviderGatewayServiceCollectionExtensions

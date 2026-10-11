@@ -89,6 +89,11 @@ dotnet_diagnostic.CA1875.severity = warning    # Regex.Count over Matches().Coun
 dotnet_diagnostic.CA2007.severity = warning    # ConfigureAwait(false): a library must not capture its caller's context
 dotnet_diagnostic.SYSLIB1045.severity = warning  # [GeneratedRegex]; relaxed for tests in tests/.editorconfig
 
+# Errors. The packages' public API is declared in PublicAPI.*.txt (src/Directory.Build.props): a public member added or
+# removed without updating PublicAPI.Unshipped.txt fails the build.
+dotnet_diagnostic.RS0016.severity = error      # a public member missing from the PublicAPI files
+dotnet_diagnostic.RS0017.severity = error      # a PublicAPI entry with no public member left
+
 # Off.
 # CA1859: IReadOnlyList, IReadOnlyDictionary and IReadOnlySet return types are an immutability contract.
 dotnet_diagnostic.CA1859.severity = none

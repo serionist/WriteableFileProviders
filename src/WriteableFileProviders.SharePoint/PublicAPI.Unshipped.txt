@@ -1,0 +1,25 @@
+#nullable enable
+WriteableFileProviders.SharePoint.SharePointFileProviderOptions
+WriteableFileProviders.SharePoint.SharePointFileProviderOptions.ClientCertificateBase64.get -> string?
+WriteableFileProviders.SharePoint.SharePointFileProviderOptions.ClientCertificateBase64.set -> void
+WriteableFileProviders.SharePoint.SharePointFileProviderOptions.ClientCertificatePassword.get -> string?
+WriteableFileProviders.SharePoint.SharePointFileProviderOptions.ClientCertificatePassword.set -> void
+WriteableFileProviders.SharePoint.SharePointFileProviderOptions.ClientId.get -> string?
+WriteableFileProviders.SharePoint.SharePointFileProviderOptions.ClientId.set -> void
+WriteableFileProviders.SharePoint.SharePointFileProviderOptions.ClientSecret.get -> string?
+WriteableFileProviders.SharePoint.SharePointFileProviderOptions.ClientSecret.set -> void
+WriteableFileProviders.SharePoint.SharePointFileProviderOptions.DocumentLibraryName.get -> string?
+WriteableFileProviders.SharePoint.SharePointFileProviderOptions.DocumentLibraryName.set -> void
+WriteableFileProviders.SharePoint.SharePointFileProviderOptions.SharePointFileProviderOptions() -> void
+WriteableFileProviders.SharePoint.SharePointFileProviderOptions.SharePointFileProviderOptions(string? siteUrl, string? documentLibraryName, string? tenantId, string? clientId, string? clientSecret, string? workFolderPath) -> void
+WriteableFileProviders.SharePoint.SharePointFileProviderOptions.SiteUrl.get -> string?
+WriteableFileProviders.SharePoint.SharePointFileProviderOptions.SiteUrl.set -> void
+WriteableFileProviders.SharePoint.SharePointFileProviderOptions.TenantId.get -> string?
+WriteableFileProviders.SharePoint.SharePointFileProviderOptions.TenantId.set -> void
+WriteableFileProviders.SharePoint.SharePointFileProviderOptions.UseDefaultAzureCredential.get -> bool
+WriteableFileProviders.SharePoint.SharePointFileProviderOptions.UseDefaultAzureCredential.set -> void
+WriteableFileProviders.SharePoint.SharePointFileProviderOptions.WorkFolderPath.get -> string?
+WriteableFileProviders.SharePoint.SharePointFileProviderOptions.WorkFolderPath.set -> void
+WriteableFileProviders.SharePoint.WriteableSharePointFileProvider
+WriteableFileProviders.SharePoint.WriteableSharePointFileProvider.WriteableSharePointFileProvider(WriteableFileProviders.SharePoint.SharePointFileProviderOptions! options) -> void
+WriteableFileProviders.SharePoint.WriteableSharePointFileProvider.WriteableSharePointFileProvider(WriteableFileProviders.SharePoint.SharePointFileProviderOptions! options, Microsoft.Graph.GraphServiceClient! client) -> void

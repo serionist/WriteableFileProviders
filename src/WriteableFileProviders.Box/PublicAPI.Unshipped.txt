@@ -1,0 +1,21 @@
+#nullable enable
+WriteableFileProviders.Box.BoxFileProviderOptions
+WriteableFileProviders.Box.BoxFileProviderOptions.BoxFileProviderOptions() -> void
+WriteableFileProviders.Box.BoxFileProviderOptions.BoxFileProviderOptions(string? clientId, string? clientSecret, string? enterpriseId, string? publicKeyId, string? privateKey, string? passphrase, string? rootFolderId) -> void
+WriteableFileProviders.Box.BoxFileProviderOptions.ClientId.get -> string?
+WriteableFileProviders.Box.BoxFileProviderOptions.ClientId.set -> void
+WriteableFileProviders.Box.BoxFileProviderOptions.ClientSecret.get -> string?
+WriteableFileProviders.Box.BoxFileProviderOptions.ClientSecret.set -> void
+WriteableFileProviders.Box.BoxFileProviderOptions.EnterpriseId.get -> string?
+WriteableFileProviders.Box.BoxFileProviderOptions.EnterpriseId.set -> void
+WriteableFileProviders.Box.BoxFileProviderOptions.Passphrase.get -> string?
+WriteableFileProviders.Box.BoxFileProviderOptions.Passphrase.set -> void
+WriteableFileProviders.Box.BoxFileProviderOptions.PrivateKey.get -> string?
+WriteableFileProviders.Box.BoxFileProviderOptions.PrivateKey.set -> void
+WriteableFileProviders.Box.BoxFileProviderOptions.PublicKeyId.get -> string?
+WriteableFileProviders.Box.BoxFileProviderOptions.PublicKeyId.set -> void
+WriteableFileProviders.Box.BoxFileProviderOptions.RootFolderId.get -> string?
+WriteableFileProviders.Box.BoxFileProviderOptions.RootFolderId.set -> void
+WriteableFileProviders.Box.WriteableBoxFileProvider
+WriteableFileProviders.Box.WriteableBoxFileProvider.WriteableBoxFileProvider(WriteableFileProviders.Box.BoxFileProviderOptions! options) -> void
+WriteableFileProviders.Box.WriteableBoxFileProvider.WriteableBoxFileProvider(WriteableFileProviders.Box.BoxFileProviderOptions! options, Box.Sdk.Gen.IBoxClient! client) -> void

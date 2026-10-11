@@ -43,6 +43,10 @@ To bring your own Graph client (custom retries or handlers, a national cloud, te
 reads only the site, the library, the work folder and the root from the options, and never disposes the client:
 
 ```csharp
+using Azure.Identity;
+using Microsoft.Graph;
+using WriteableFileProviders.SharePoint;
+
 var graph = new GraphServiceClient(new ManagedIdentityCredential(ManagedIdentityId.SystemAssigned), ["https://graph.microsoft.com/.default"]);
 await using var files = new WriteableSharePointFileProvider(
     new SharePointFileProviderOptions { SiteUrl = "https://contoso.sharepoint.com/sites/Finance", DocumentLibraryName = "Documents" }, graph);

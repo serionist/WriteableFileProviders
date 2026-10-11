@@ -117,10 +117,12 @@ Configurations stored by the 2026 versions read unchanged.
 ```csharp
 // Paths are relative to the provider's root. Strings and string arrays convert: "a/b.txt", "a\\b.txt" and
 // new[] { "a", "b.txt" } are one path.
-// Empty, dot-only, control-character and percent-encoded escape segments throw ArgumentException.
+// A segment that is empty, only dots and spaces, holds a control character, or decodes to one throws ArgumentException.
 ProviderPath path = "reports/2026.csv";
 
-// Every member is async and takes a CancellationToken; the sync forms are extension methods.
+// Every operation is an async member that takes a CancellationToken. GetFileInfo, GetDirectoryContents and Watch
+// are also sync members of IFileProvider; ReadFile, UpdateFile, Delete, Move, CreateLocalFileStream and
+// GetDownloadUrl have sync forms as extension methods; copy, ranges, listings and signed URLs have none.
 IWriteableFileInfo info = await files.GetFileInfoAsync(path, ct);      // Exists, IsDirectory, Length, ETag, ContentType
 await foreach (var entry in files.EnumerateAsync("reports", recursive: true, ct)) { }
 
@@ -154,7 +156,9 @@ SignedUrl url = await files.GetSignedUrlAsync(path, new SignedUrlOptions
 
 What every provider promises:
 
-- **Paths** never reach outside the provider's root. The root is a folder; it cannot be written, moved or deleted.
+- **Paths** never reach outside the provider's root; on Physical, symbolic links and junctions inside the root are
+  followed wherever they point ([its README](src/WriteableFileProviders.Physical/README.md)). The root is a folder: it
+  cannot be written, moved or deleted (`InvalidOperationException`), nor read as a file (`ArgumentException`).
 - **Missing things:** a read of a missing file, or of a folder, throws `FileNotFoundException`; `GetFileInfoAsync`
   returns `Exists` false; a missing folder lists as not existing and empty; `DeleteAsync` returns false. A missing
   bucket or container throws `InvalidOperationException` from every member that reaches it, naming the option that
@@ -186,7 +190,7 @@ What differs is what each store can do. Every cell below comes from the provider
 | Provider | Overwrite | `IfMatch` / `IfNotExists` | Append | Ranges | Seekable reads | Content type |
 |---|---|---|---|---|---|---|
 | Physical | Atomic: temp file, then rename | Checked / atomic | Rewrite through a temp file; a concurrent change is checked, not atomically | Native | Ranges, the ETag checked on each fetch | Not kept |
-| Azure Blob | Atomic: staged blocks, one commit | Atomic / atomic | Native: the block list is recommitted on the ETag read; atomic | Native | The SDK's stream, pinned to the ETag | Kept |
+| Azure Blob | Atomic: staged blocks, one commit | Atomic / atomic | Native: the block list recommitted on the ETag read; atomic | Native | The SDK's stream, pinned to the ETag | Kept |
 | Amazon S3 | Atomic: one PUT, or multipart above 8 MiB | Atomic on AWS (no `ServiceUrl`); checked, then sent, toward any named endpoint | Rewrite with `If-Match`; atomic on AWS (no `ServiceUrl`) | Native | Ranged GETs, pinned with `If-Match` | Kept |
 | MinIO | Atomic: one PUT, or multipart above 8 MiB | Checked, then sent for the server to enforce | Rewrite with `If-Match`, checked first | Native | Ranged GETs, pinned with `If-Match` | Kept |
 | Google Cloud Storage | Atomic: resumable upload | Atomic / atomic (generation) | Rewrite on the generation read; atomic | Native | Ranged GETs, pinned to the generation | Kept |
@@ -199,17 +203,17 @@ What differs is what each store can do. Every cell below comes from the provider
 |---|---|---|---|---|---|
 | Physical | None | Every URL | A copy into a temp file, then an atomic rename | Native rename | Yes |
 | Azure Blob | Read, create, write: SAS (service, or user delegation), up to 7 days | Upload URLs with a content type or file name; a user delegation key that ends sooner, without `AllowShorterValidity`; a client that cannot sign | On the server | Server copy, then a conditional delete | No |
-| Amazon S3 | Read, create, write: presigned (SigV4), up to 7 days | Anonymous access; credentials that expire sooner, a session token or a client of yours, without `AllowShorterValidity` | On the server | Server copy, then a conditional delete | No |
-| MinIO | Read, create, write: presigned, up to 7 days | Anonymous access; a client of yours, without `AllowShorterValidity` | On the server | Server copy, then a checked delete | No |
-| Google Cloud Storage | Read, create, write: V4, 1 second to 7 days | A credential that cannot sign | On the server | Server copy, then a conditional delete | No |
+| Amazon S3 | Read, create, write: presigned (SigV4), up to 7 days | Anonymous access; credentials that expire sooner, a session token or a client of yours, without `AllowShorterValidity`; upload URLs that ask for a file name | On the server | Server copy, then a conditional delete | No |
+| MinIO | Read, create, write: presigned, up to 7 days | Anonymous access; a client of yours, without `AllowShorterValidity`; upload URLs that ask for a file name | On the server | Server copy, then a checked delete | No |
+| Google Cloud Storage | Read, create, write: V4, 1 second to 7 days | A credential that cannot sign; upload URLs that ask for a file name; a validity under 1 second | On the server | Server copy, then a conditional delete | No |
 | Box | Read only: Box's download URL, about 15 minutes, with `AllowShorterValidity` | Create and write; a read without `AllowShorterValidity`, under 15 minutes, or with a file name or content type | On the server | On the server | No |
 | SharePoint | Read only: Graph's download URL, up to an hour, with `AllowShorterValidity` | Create and write; a read without `AllowShorterValidity`, under an hour, or with a file name or content type | On the server | On the server | No |
 
 Notes:
 
 - **Atomic** means the store itself refuses a write whose condition fails; **checked** means the provider checks the
-  condition just before the write, so a change that lands in between is not seen. Box's `IfMatch` becomes atomic once
-  a live run confirms that Box matches the ETag form its SDK sends.
+  condition just before the write, so a change that lands in between is not seen. Box's `IfMatch` is checked, not
+  atomic; a later release may make it atomic once a live run confirms Box honours the ETag form its SDK sends.
 - **Folders:** a real folder exists while empty; a virtual one exists while something is under it.
 - **Listings** leave out names the provider cannot address on every provider, such as `..`, a name holding `\`, or a
   percent-encoded form of one, so everything listed can be read back.
@@ -252,7 +256,8 @@ application takes, then lists each change with what to do. Applications on .NET 
   every package that version. Use the same version of every WriteableFileProviders package: a provider of one major
   does not load against the Common of another. Each provider's package depends on Common of its own major
   (`[2027.0.0, 2028.0.0-0)` for 2027.0.0, which also keeps out the next major's prereleases), so NuGet warns (NU1608)
-  when an application mixes majors.
+  or fails the restore (NU1107) when packages of different majors from 2027 on meet; the 2026.10.10.x providers carry
+  no upper bound, so nothing warns there: update every package together.
 - **The major is a sequence number, not a date.** It continues above the 2018–2026 date-stamped versions
   (`yyyy.M.d.n`, such as `2026.10.10.4`), so NuGet orders every new release after them. `2027.0.0` is the first
   SemVer release; `2027.1.0` adds features and `2027.0.1` fixes bugs; the next breaking release is `2028.0.0`, whenever

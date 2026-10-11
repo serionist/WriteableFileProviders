@@ -74,11 +74,11 @@ and conveniences as extension methods, and System.Text.Json instead of Newtonsof
 | `FileInfo` (it clashed with `System.IO.FileInfo`) | `WriteableFileInfo`, and the interface `IWriteableFileInfo` with `Path`, `ETag`, `ContentType` | Replace `(FileInfo)x` with `(WriteableFileInfo)x`; `PathSegments` becomes `Path.Segments`. |
 | `GetFileInfoAsync` returns `IFileInfo` | It returns `IWriteableFileInfo` | Nothing; it is an `IFileInfo`. |
 | Overloads that take an `IFileInfo` accepted any entry, falling back to its `PhysicalPath` | They take only entries a writeable provider returned (`IWriteableFileInfo`), and throw `ArgumentException` for any other | For an entry from elsewhere, pass its path instead. |
-| `DirectoryContents`: a `public class` built from `(bool, IFileInfo[])`, null entries allowed | A `public sealed class` built from `(bool, IEnumerable<IFileInfo>)`; null entries throw `ArgumentNullException` | Stop deriving from it; pass an empty sequence instead of null. |
+| `DirectoryContents`: a `public class` built from `(bool, IFileInfo[])`, null entries allowed | A `public sealed class` built from `(bool, IEnumerable<IFileInfo>)`; a null sequence throws `ArgumentNullException` | Stop deriving from it; pass an empty sequence instead of null. |
 | `IWriteableFileProvider.ToJson()` returns Newtonsoft's `JObject` | `WriteableFileProvider<T>.ToJson()` and `WriteableFileProviderSerializer.ToJson(provider)` return `System.Text.Json.Nodes.JsonObject`; `ToJsonString` returns text. `ToJson` is no longer on the interface | Call `WriteableFileProviderSerializer.ToJson(provider)` on an `IWriteableFileProvider`. |
 | `WriteableFileProviderSerializer.FromJson(JObject, ...)` | `FromJson(string | JsonElement | JsonObject, ...)` | Pass the JSON text. |
 | `OnLocalFileStreamDisposingAsync` on the interface | Gone: the base class commits a local stream through the path it resolved when the stream was opened | Nothing, unless you implemented it. |
-| `LocalFileStream`'s public constructor, `TargetFilePathSegments` | Only providers create it; `Path` replaces `TargetFilePathSegments` | Create local streams with `CreateLocalFileStreamAsync`. |
+| `LocalFileStream`'s public constructor, `TargetFilePathSegments` | Only Common creates it: its constructor is internal, so no provider outside Common, yours included, can construct one; `Path` replaces `TargetFilePathSegments` | Create local streams with `CreateLocalFileStreamAsync`. |
 | `LocalFileStream.DisposeAsync()` returns `Task` and hid `Stream.DisposeAsync()` | A real `ValueTask DisposeAsync()` override; `CommitAsync()` uploads explicitly | `await using` works the same; disposing through `Stream` no longer blocks. |
 | Providers were not disposable | `IWriteableFileProvider` is `IDisposable` and `IAsyncDisposable` | Dispose providers you create (the DI container disposes the ones it creates). |
 | Common brought in Microsoft.Extensions.Configuration, Configuration.Binder and Newtonsoft.Json | It depends on the `.Abstractions` packages of Configuration, DependencyInjection and FileProviders only | If your code used `ConfigurationBuilder`, `Bind` or `Get<T>` through this dependency, reference those packages yourself. |
@@ -107,7 +107,7 @@ the move and copy checks, preconditions, signed URL validity).
 | `move(string[], string[])` | `MoveCoreAsync(ResolvedPath, ResolvedPath, CancellationToken)` | Optional: the default copies, then deletes exactly the source. |
 | `getDownloadUrl(string[], TimeSpan)` | `GetSignedUrlCoreAsync(ResolvedPath, SignedUrlOptions, CancellationToken)` with `SupportsSignedUrl(access)` | Override both, or neither (the call then throws `NotSupportedException`). |
 | `watchAsync(string)` (abstract) | `WatchCore(string)`, optional | Override it only if the store can watch. |
-| `createLocalFileStreamAsync(bool, params string[])` (protected virtual), and overriding the public virtual `CreateLocalFileStreamAsync(bool, params string[])` | `CreateLocalFileStreamCoreAsync(ResolvedPath, bool, CancellationToken)`, optional. The public `CreateLocalFileStreamAsync(ProviderPath, bool, CancellationToken)` is no longer virtual | Move an override of the public member to the protected one. |
+| `createLocalFileStreamAsync(bool, params string[])` (protected virtual), and overriding the public virtual `CreateLocalFileStreamAsync(bool, params string[])` | `CreateLocalFileStreamCoreAsync(ResolvedPath, bool, CancellationToken)`, optional. The public `CreateLocalFileStreamAsync(ProviderPath, bool, CancellationToken)` is no longer virtual | Drop the override. `LocalFileStream`'s constructor is internal, so an override of `CreateLocalFileStreamCoreAsync` can only call the base, which gives every provider a local temp copy committed through `UpdateFileAsync`. |
 | `isSegmentAllowed`, `validateSegments` | `IsSegmentAllowed`, `ValidateSegments` | Rename. |
 | `getRelativeSegments`, `isRootPath` | Removed | `ResolvedPath.RelativeSegments` and `ResolvedPath.IsRoot`. |
 | `normalizePem` | Removed | Keep your own helper. |
@@ -158,7 +158,7 @@ What changed: the base class enforces the contract on every provider, so these h
 | An append or a local stream's commit stored the store's default content type, such as `application/octet-stream` | Both keep the file's content type when the caller gives none; an overwrite without one still stores the default | Nothing. |
 | Unsupported operations threw `PlatformNotSupportedException` on some providers | They throw `NotSupportedException` | Catch `NotSupportedException`. |
 | An invalid path segment's `ArgumentException` named various parameters | It names the parameter `path` | Nothing. |
-| Listings could show names no path could read back | Listings leave out names the provider's path validation would refuse (an empty segment, a name of only dots, a control character, a backslash, a percent-encoded form of one of these, and what a provider refuses on its own), on every provider | Rename such objects with another tool if you need them. Each provider's section names its cases. |
+| Listings could show names no path could read back | Listings leave out names the provider's path validation would refuse (an empty segment, a name of only dots and spaces, a control character, a backslash, a percent-encoded form of one of these, and what a provider refuses on its own), on every provider | Rename such objects with another tool if you need them. Each provider's section names its cases. |
 
 ## Stored configuration
 
@@ -198,7 +198,7 @@ the provider gains ETags, conditions, ranges and `Watch`. `WriteablePhysicalFile
 | There was no `IfNotExists`, and an append to a missing file created it whatever appeared meanwhile | `IfNotExists`, an append to a missing file, and the destination of a move or a copy are taken atomically: Windows renames without replacing; Linux and macOS take the name with an exclusive create and rename onto it, so the file exists empty for that moment, a watcher sees it, and a process that dies there leaves an empty file | Nothing, unless you watch the folder: expect that empty file on Linux and macOS. |
 | A symbolic link to a file was described by `FileInfo`, which on Windows describes the link itself (length 0, the link's time) | A link to a file is described by its target, which reads open: length, last-write time and ETag, on every system; `PhysicalPath` stays the link's own path. A link to nothing, or in a loop, is described as itself | Nothing. |
 | A recursive walk followed linked folders | `EnumerateAsync(recursive: true)` lists a linked folder (symbolic link, junction) but does not walk into it | Walk a linked folder by listing it. |
-| Listings showed every name on disk | Listings leave out names no path can address: on Linux and macOS a name holding `:` or `\`, a control character, or only dots (`...`); on any system a name such as `%2e%2e` that decodes to one of these | Rename such files with another tool if you need them. |
+| Listings showed every name on disk | Listings leave out names no path can address: on Linux and macOS a name holding `:` or `\`, a control character, or only dots and spaces (`...`); on any system a name such as `%2e%2e` that decodes to one of these | Rename such files with another tool if you need them. |
 | `WriteablePhysicalFileProvider` could be derived from | It is sealed | Wrap it instead: implement `IWriteableFileProvider` and delegate, or derive your own provider from `WriteableFileProvider<TOptions>`. |
 | On Linux and macOS, `Options.RootDirectoryPath`, and so `ToJson`, gave `root:/srv/files` | `/srv/files`. The `root:` form still reads, from JSON and from configuration, and `RootDirectorySegments` keeps its 2026 form | Code that stripped `root:` can stop. |
 | A root of `C:\` read back as `C:` | `C:\` | Nothing. |
@@ -263,7 +263,7 @@ their new options are written to JSON only when set.
 | A folder: `Exists` false, `IsDirectory` true; `PhysicalPath` the key | `Exists` and `IsDirectory` true; `PhysicalPath` null | Use `IWriteableFileInfo.Path`. |
 | Move overwrote an existing destination | `FileExistsException`; it deletes exactly the source key, with `If-Match` on the version it copied; a source deleted meanwhile completes the move, and one changed meanwhile undoes the copy with `PreconditionFailedException` | Delete the destination first if you meant to replace it; retry on `PreconditionFailedException`. |
 | A missing bucket failed with the SDK's error | `InvalidOperationException` naming the bucket, unless `CreateBucketIfMissing` is set | Create the bucket, or set the option. |
-| One PUT per write, at most 5 GB, and the caller's stream was disposed | Multipart above 8 MiB (up to 5 TiB); the stream is left open | Dispose your stream yourself. |
+| One PUT per write, at most 5 GB, and the caller's stream was disposed | Multipart above 8 MiB (up to 5 TiB from a stream that knows its length, about 430 GiB from one that does not); the stream is left open | Dispose your stream yourself. |
 | A failed append could upload a half-appended file | An append is a rewrite with `If-Match`: it fails whole, and a concurrent write makes it throw `PreconditionFailedException` | Retry on `PreconditionFailedException`. |
 | Content type inferred from the key's extension | The `ContentType` you give, else `application/octet-stream`; an append keeps the file's type | Pass `UpdateFileOptions.ContentType` where you relied on the inference. |
 | Download URLs forced `Content-Type: application/octet-stream` | Read URLs serve the stored type unless `SignedUrlOptions.ContentType` says otherwise; create and write URLs are new | Set `ContentType` on the URL to keep the old header. |
@@ -273,7 +273,8 @@ their new options are written to JSON only when set.
 
 New: `ServiceUrl` and `ForcePathStyle` for S3-compatible servers, `UseDefaultCredentials` for the SDK's default
 credential chain, `CreateBucketIfMissing`, and a constructor that takes your own `IAmazonS3`. `IfMatch` and
-`IfNotExists` are atomic on AWS; toward a `ServiceUrl` the provider also checks them first, which is not atomic.
+`IfNotExists` are atomic on AWS; toward an endpoint named by `ServiceUrl` or a client's `ServiceURL`, the provider also
+checks them first, which is not atomic.
 
 ### MinIO
 
@@ -351,15 +352,15 @@ is stored as before.
 | Errors were re-thrown as `BoxException` with the path in the message | The SDK's `BoxApiException` (status in `ResponseInfo.StatusCode`), except where the contract names an exception (`FileNotFoundException`, `FileExistsException`, `PreconditionFailedException`, `ArgumentException` for a name Box refuses, `InvalidOperationException` for a `RootFolderId` that does not exist or the app cannot see). A failed download throws `FileNotFoundException` or `IOException` with its status only, since the SDK's error names the pre-authenticated URL. When the provider built its client, or was given exactly a `BoxClient`, every `BoxApiException` it throws or wraps keeps Box's status, code and message, and of the request only its method, its URL without the query, and an allow-list of headers and parameters (the SDK keeps the access token, extra headers, the query and the body, and a token request's body holds the client secret); over any other `IBoxClient`, a class derived from `BoxClient` included, the errors are the client's own and may carry its credentials | Catch the contract's exceptions, or `BoxApiException`. |
 | Writing under a file threw `InvalidOperationException` | `IOException` | Catch `IOException`. |
 | Folder listings paged by offset (500 a page) | Marker paging, 1000 a page | Nothing. |
-| Listings showed every item | Items whose names no path can address are left out: a name of only dots (`...`), or one such as `%2e%2e` that decodes to one | Rename such items in Box if you need them. |
+| Listings showed every item | Items whose names no path can address are left out: a name of only dots and spaces (`...`), or one such as `%2e%2e` that decodes to one | Rename such items in Box if you need them. |
 | `ReadFile` downloaded the whole file to a temp file first | It streams the download; ranged and seekable reads fetch only their bytes, pinned to the version they opened | Nothing. |
 | `GetDownloadUrl(validity)` ignored the validity: Box's URL lives about 15 minutes | `GetSignedUrlAsync` refuses a validity under 15 minutes (`NotSupportedException`, so the gateway serves it), and returns Box's URL for 15 minutes to 7 days only with `AllowShorterValidity`, with `ExpiresOn` set | Ask for at least 15 minutes with `AllowShorterValidity = true`, or use the gateway. `GetDownloadUrl(path, validity)` throws `NotSupportedException` for Box, since it cannot accept a shorter URL. |
 | Chunked uploads from 20,000,000 bytes through the SDK's helper | From 20 MiB, through the provider's own upload-session loop (exact part sizes, part and whole-file digests, a bounded wait while Box processes the commit, the session aborted on failure) | Nothing. |
 
 New: a file's `ETag` is the id of its current Box file version, not Box's `etag`, which starts again at `0` for a file
-deleted and created again. `IfNotExists` is atomic on Box. `IfMatch` is checked just before the write, not atomically,
-until a live run confirms that Box matches the quoted ETag the SDK sends; appends are checked the same way. Box keeps no
-content type, so `ContentType` is ignored on writes and null on reads.
+deleted and created again. `IfNotExists` is atomic on Box. `IfMatch` is checked just before the write, not atomic, and
+appends are checked the same way; a later release may make them atomic once a live run confirms that Box honours the
+ETag the SDK sends. Box keeps no content type, so `ContentType` is ignored on writes and null on reads.
 
 ## SharePoint
 
@@ -395,7 +396,7 @@ The work folder is created on the first write instead of in the constructor; rea
 
 | 2026 | 2027 | What to do |
 |---|---|---|
-| The constructor signed in and looked up the site, library and work folder, blocking on the network; a failure threw `InvalidOperationException("Failed to initialize SharePoint connection")` | No I/O in the constructor. The site and library are looked up on the first call; a missing one throws `InvalidOperationException` naming `SiteUrl` or `DocumentLibraryName` from every member, and any other failure is retried on the next call | Expect configuration errors on the first call, not at construction. |
+| The constructor signed in and looked up the site, library and work folder, blocking on the network; a failure threw `InvalidOperationException("Failed to initialize SharePoint connection")` | No I/O in the constructor. The site and library are looked up on the first call; a missing one throws `InvalidOperationException` naming `SiteUrl` or `DocumentLibraryName` from every member that reaches the library, and any other failure is retried on the next call | Expect configuration errors on the first call, not at construction. |
 | A site URL with an escaped character (`Team%20Site`) was escaped twice and not found | It is found | Nothing. |
 | Every Graph error while reading file info meant "missing" or `FileNotFoundException` | Only a 404 means missing. 401 and 403 throw `UnauthorizedAccessException`; throttling after the SDK's retries, and every other error, `IOException`; each wraps Graph's error | Catch `UnauthorizedAccessException` and `IOException` where you caught `FileNotFoundException` for them. |
 | An empty folder listed as `Exists = false` | It exists | Nothing. |
@@ -407,7 +408,7 @@ The work folder is created on the first write instead of in the constructor; rea
 | Move was a lookup and a `PATCH` | One `PATCH` with the conflict behaviour `fail`: a taken destination throws `FileExistsException`. Copy runs on the server, waited for at most 10 minutes | Delete the destination first if you meant to replace it. |
 | A path segment with a percent-escape (`a%41`) reached the service unescaped, which decoded it (`aA`) | The `%` is escaped, so `a%41` names an item called `a%41`. Files 2026 wrote through such a path are under the decoded name. `WorkFolderPath` and `RootDirectoryPath` with such an escape are refused instead, so a stored value never silently names another folder. Listings leave out names the provider cannot address, such as one that decodes to `..` | Use the decoded name for files 2026 wrote through an escaped path. |
 | `UpdateFileOptions` did not exist | `IfMatch` and `IfNotExists` are checked before the write and sent to the service; not promised atomic. `ContentType` is ignored: SharePoint names the type from the file name | Nothing. |
-| `GetDownloadUrl` returned the download URL whatever validity was asked | A read URL (`SignedUrlKind.PreAuthenticated`, `ExpiresOn` null) only for a validity of an hour to 7 days, and only with `AllowShorterValidity`; a shorter validity throws `NotSupportedException`, so the gateway can serve it | Ask for at least an hour with `AllowShorterValidity = true`, or use the gateway. |
+| `GetDownloadUrl` returned the download URL whatever validity was asked | A read URL (`SignedUrlKind.PreAuthenticated`, `ExpiresOn` null) only for a validity of an hour to 7 days, and only with `AllowShorterValidity`; a shorter validity throws `NotSupportedException`, so the gateway can serve it | Ask for at least an hour with `AllowShorterValidity = true`, or use the gateway. `GetDownloadUrl(path, validity)` throws `NotSupportedException` for SharePoint, since it cannot accept a shorter URL. |
 
 New, for sign-in, all optional: `ClientCertificateBase64` and `ClientCertificatePassword` (a base64 PKCS#12 file), and
 `UseDefaultAzureCredential` (managed identity, workload identity, environment, developer sign-in). The first one

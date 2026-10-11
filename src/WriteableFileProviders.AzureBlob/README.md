@@ -48,7 +48,7 @@ With a client you build yourself (a managed identity, custom retries or transpor
 disposes:
 
 ```csharp
-var container = new BlobContainerClient(new Uri("https://contoso.blob.core.windows.net/files"), new ManagedIdentityCredential());
+var container = new BlobContainerClient(new Uri("https://contoso.blob.core.windows.net/files"), new ManagedIdentityCredential(ManagedIdentityId.SystemAssigned));
 await using var files = new WriteableAzureBlobFileProvider(new AzureFileProviderOptions { RootDirectoryPath = "tenants/acme" }, container);
 ```
 

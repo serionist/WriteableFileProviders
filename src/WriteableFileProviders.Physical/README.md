@@ -102,13 +102,13 @@ None: the provider reads and writes with the permissions of the process that run
   when the reader shares writing, as this provider's readers do, and with `IOException` ("being used by another
   process") when it does not.
 - **Ranges.** `ReadRangeAsync` reads through `RandomAccess` on one handle, checking `ReadOptions.IfMatch` on that
-  handle. `OpenReadSeekableAsync` reads ranges as it is read and, unless `AllowModifications` is set, checks the ETag on
-  each fetch: a file that changed throws `PreconditionFailedException`, one that shrank `IOException`, one that went
-  `FileNotFoundException`.
+  handle. `OpenReadSeekableAsync` reads ranges as it is read. Pinned, as by default, it checks the ETag on each fetch,
+  and a file that changed, a shorter one included, throws `PreconditionFailedException`; with `AllowModifications`,
+  only a file that got shorter throws, with `IOException`. A file deleted meanwhile throws `FileNotFoundException`.
 - **Names** are matched without regard to case on Windows and macOS (a move from `a.txt` to `A.txt` renames the file),
   and with regard to case on other systems; the choice follows the operating system, not the volume. A `:` in a name is
   refused. Listings leave out names no path can address: on Linux and macOS a name holding `:` or `\`, a control
-  character, or only dots (`...`); on any system a name such as `%2e%2e` that decodes to one of these.
+  character, or only dots and spaces (`...`); on any system a name such as `%2e%2e` that decodes to one of these.
 - **Content types** are not kept: `UpdateFileOptions.ContentType` is ignored, and `ContentType` is null.
 - **The root.** Every path stays under the root folder, checked on the path: symbolic links and junctions inside the
   root are followed wherever they point. A recursive listing lists a linked folder but does not walk into it, since it

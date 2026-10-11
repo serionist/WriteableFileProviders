@@ -32,7 +32,8 @@ var url = await files.GetSignedUrlAsync("archive/2026.csv", new SignedUrlOptions
 ```
 
 Every path is a `ProviderPath` relative to the provider's root, which a string or a string array converts to; nothing
-outside the root can be reached. Every async member takes a `CancellationToken`. Synchronous forms of the common
+outside the root can be reached by a path (on Physical, symbolic links and junctions inside the root are followed
+wherever they point: see its README). Every async member takes a `CancellationToken`. Synchronous forms of the common
 operations are extension methods (`ReadFile`, `UpdateFile`, `Delete`, `Move`, `CreateLocalFileStream`,
 `GetDownloadUrl`), beside the three members `IFileProvider` itself has (`GetFileInfo`, `GetDirectoryContents`,
 `Watch`).
@@ -81,7 +82,9 @@ Every provider runs the same conformance suite, the written contract, declaring 
 ## Writing a provider
 
 Derive from `WriteableFileProvider<TOptions>`: it validates and resolves every path, protects the root, checks moves,
-copies and conditions, and calls the protected `...CoreAsync` members you implement. Its protected helpers:
+copies and conditions, and calls the protected `...CoreAsync` members you implement. For the serializer and
+`AddWriteableFileProvider` to build it, give it a public constructor that takes only its `TOptions` (a class with a
+public parameterless constructor and settable properties) and does no network I/O. Its protected helpers:
 `AppendByRewriteAsync` (an append for a store without one, conditional on the version read), `SpoolToTempFileAsync`,
 `NotFound`, and `IsAddressable(name)`, true when the provider's own path validation (`IsSegmentAllowed` included) would
 accept the name as one path segment: leave the names it refuses out of your listings, so everything listed can be read

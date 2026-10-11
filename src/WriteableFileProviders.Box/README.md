@@ -73,7 +73,7 @@ provider class is sealed: to change what it does, wrap it, or derive your own pr
 | `PublicKeyId` | yes | The id of the app's public key (`boxAppSettings.appAuth.publicKeyID`). |
 | `PrivateKey` | yes | The app's private key in PEM (`boxAppSettings.appAuth.privateKey`), encrypted or not. Escaped line breaks (`\n`) are turned into real ones, so the key can be pasted from the JSON configuration or an environment variable. |
 | `Passphrase` | for an encrypted key | The private key's passphrase (`boxAppSettings.appAuth.passphrase`). |
-| `RootFolderId` | no | The Box folder the provider works in; `0` (the service account's root) when empty. A folder that does not exist, or that the app cannot see, makes every member throw `InvalidOperationException`. |
+| `RootFolderId` | no | The Box folder the provider works in; `0` (the service account's root) when empty. A folder that does not exist, or that the app cannot see, makes every member that reaches Box throw `InvalidOperationException`. |
 | `RootDirectoryPath` | no | A folder path under `RootFolderId` to confine the provider to, such as `tenants/acme`. `RootDirectorySegments` is the same as segments. |
 
 A missing credential throws `ArgumentException` naming it when the provider is built. `ClientSecret`, `PrivateKey` and

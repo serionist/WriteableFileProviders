@@ -2302,7 +2302,7 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     - **`SignedUrlOptions.Permission` is `Access`** (candidate 9), with `SupportsSignedUrl(access)` and
       `SupportsSignedUrlContentHeaders(access)`; nothing stored or signed carries the name, so no door moves.
     - **Azure** (candidates 14 and 15): `AzureFileProviderOptions` is `AzureBlobFileProviderOptions`; the old name is
-      an `[Obsolete]`, sealed, empty subclass, so `new WriteableAzureBlobFileProvider(new AzureFileProviderOptions
+      an `[Obsolete]`, empty subclass (not sealed, as the 2026 class was not), so `new WriteableAzureBlobFileProvider(new AzureFileProviderOptions
       { ... })` compiles and builds the same provider, and a test pins that it writes the same JSON and reads back as
       the new type. The configuration shape names the provider class and the properties, not the options class, so the
       goldens pass unchanged. The client constructor takes non-null options, as the other five do.
@@ -2323,6 +2323,23 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     gateway door, Names and Common API lines, and its tests line; and the READMEs' samples, edited only so they compile
     against this API (the launch half rewrites the READMEs). All 24 C# samples of the READMEs compile, in a scratch
     project where an obsolete call is an error.
+
+- **2026-10-11, S12 part 2, simplify, review round 1 (PR #44, read at `7cadd5c`):** no blocker or major. The review
+  confirmed the gateway token design (no collision between default and keyed chains, the purpose count authenticated,
+  empty and whitespace keys refused, v1 tokens still redeeming, the gateway failing closed without a default provider),
+  that the obsolete sync forms do not deadlock under a `SynchronizationContext`, and that Azure's binder, JSON and
+  goldens are unchanged. Fixed:
+  - **F1:** the PR's title (the main session).
+  - **F2 (decided: string):** 2026's `GetDownloadUrl[Async]` returned `string`/`Task<string>`, so the obsolete forms
+    return them again, the URL's `AbsoluteUri` (escaped, never `Uri.ToString()`), and `string url =
+    p.GetDownloadUrl(...)` compiles as the agreement says. The compatibility tests take a string and pin the escaping.
+  - **F3:** the obsolete `AzureFileProviderOptions` is not sealed, as 2026's class was not; the migration row says that
+    `provider.Options` is now an `AzureBlobFileProviderOptions`, so code that types it with the old name changes it.
+  - **F4 (decided: document):** the URL service resolves the provider from the root container and the gateway from the
+    request's services, so a scoped or transient provider that names another store per scope would let a URL be
+    redeemed against another store. The `IWriteableFileUrlService` remarks, the AspNetCore README and the migration
+    guide say every provider the gateway serves, default or keyed, must be a singleton or resolve to the same store in
+    every scope.
 
 ### For the maintainers
 

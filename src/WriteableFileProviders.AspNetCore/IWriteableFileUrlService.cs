@@ -14,6 +14,12 @@ namespace WriteableFileProviders.AspNetCore;
 /// <c>AddKeyedSingleton&lt;IWriteableFileProvider&gt;(key, ...)</c>. The gateway serves each URL from the same provider.
 /// </para>
 /// <para>
+/// Every provider the gateway serves, the default one or a keyed one, must be a singleton, or resolve to the same store
+/// in every scope. This service resolves the provider from the root container when it issues a URL, and the gateway
+/// resolves it from the request's services when it redeems one, so a scoped or transient provider that names another
+/// store per scope (one per tenant, say) would let a URL issued for one store be redeemed against another.
+/// </para>
+/// <para>
 /// The provider's native URL comes first, unless <see cref="WriteableFileProviderGatewayOptions.PreferGateway"/> is set;
 /// when the provider throws <see cref="NotSupportedException"/> (no native URLs, not for this access, not for this long,
 /// not with a download name or content type), the gateway issues one instead (<see cref="SignedUrlKind.Gateway"/>).

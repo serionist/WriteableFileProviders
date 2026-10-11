@@ -105,7 +105,11 @@ gives a URL that lives the maximum, with its true `ExpiresOn`. The options are v
 
 `GetSignedUrlAsync(path, options)` takes the app's `IWriteableFileProvider` (the last one registered, when there are
 several), and `GetSignedUrlAsync(path, options, providerKey)` the one registered with
-`AddKeyedSingleton<IWriteableFileProvider>(providerKey, ...)`; the gateway serves each URL from the same provider. Then:
+`AddKeyedSingleton<IWriteableFileProvider>(providerKey, ...)`; the gateway serves each URL from the same provider.
+Every provider the gateway serves, default or keyed, must be a singleton, or resolve to the same store in every scope:
+the URL service resolves it from the root container when it issues a URL, and the gateway from the request's services
+when it redeems one, so a scoped or transient provider per tenant would let a URL be redeemed against another tenant's
+store. Then:
 
 1. Unless `PreferGateway` is set, it calls the provider's `GetSignedUrlAsync`. If that returns, you get the provider's
    own URL (`SignedUrl.Kind` is `Presigned` or `PreAuthenticated`).

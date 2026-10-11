@@ -59,7 +59,8 @@ public sealed class ExtensionTests
         p.Move("a.txt", "b.txt");
         using (var local = p.CreateLocalFileStream("b.txt", readOnly: true))
             Assert.AreEqual(7, local.Length);
-        Assert.AreEqual("memory", p.GetDownloadUrl("b.txt", TimeSpan.FromMinutes(1)).Scheme);
+        string url = p.GetDownloadUrl("b.txt", TimeSpan.FromMinutes(1));   // a string, as 2026 returned
+        Assert.AreEqual("memory", new Uri(url).Scheme);
         Assert.IsTrue(p.Delete("b.txt"));
     }
 
@@ -70,7 +71,11 @@ public sealed class ExtensionTests
         await p.UpdateFileAsync("a.txt", TestStreams.Text("x"), UpdateFileMode.Overwrite);
         await p.UpdateFileAsync("a.txt", TestStreams.Text("y"), UpdateFileMode.Append);
         Assert.AreEqual(2, (await p.GetFileInfoAsync("a.txt")).Length);
-        Assert.AreEqual("memory", (await p.GetDownloadUrlAsync("a.txt", TimeSpan.FromMinutes(1))).Scheme);
+        // A string, as 2026 returned: the URL's AbsoluteUri, escaped, never Uri.ToString()'s unescaped form.
+        await p.UpdateFileAsync("a b.txt", TestStreams.Text("z"));
+        string url = await p.GetDownloadUrlAsync("a b.txt", TimeSpan.FromMinutes(1));
+        StringAssert.Contains(url, "a%20b.txt");
+        Assert.AreEqual(new Uri(url).AbsoluteUri, url);
     }
 
     [TestMethod]
@@ -89,8 +94,8 @@ public sealed class ExtensionTests
             Assert.AreEqual(1, local.Length);
         using (var local = p.CreateLocalFileStream(file, readOnly: true))
             Assert.AreEqual(1, local.Length);
-        Assert.AreEqual("memory", (await p.GetDownloadUrlAsync(file, TimeSpan.FromMinutes(1))).Scheme);
-        Assert.AreEqual("memory", p.GetDownloadUrl(file, TimeSpan.FromMinutes(1)).Scheme);
+        Assert.AreEqual("memory", new Uri(await p.GetDownloadUrlAsync(file, TimeSpan.FromMinutes(1))).Scheme);
+        Assert.AreEqual("memory", new Uri(p.GetDownloadUrl(file, TimeSpan.FromMinutes(1))).Scheme);
         await p.MoveAsync(file, "b.txt");
         p.Move(await p.GetFileInfoAsync("b.txt"), "c.txt");
         Assert.IsTrue(await p.DeleteAsync(await p.GetFileInfoAsync("c.txt")));

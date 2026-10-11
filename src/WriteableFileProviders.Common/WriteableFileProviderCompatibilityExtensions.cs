@@ -103,23 +103,26 @@ public static class WriteableFileProviderCompatibilityExtensions
     // ---- GetDownloadUrl ----
 
     /// <summary>
-    /// Issues a URL to download a file for exactly <paramref name="validity"/>; see
-    /// <see cref="IWriteableFileProvider.GetSignedUrlAsync"/>.
+    /// Issues a URL to download a file for exactly <paramref name="validity"/>, as the string 2026 returned (the URL's
+    /// <see cref="Uri.AbsoluteUri"/>); see <see cref="IWriteableFileProvider.GetSignedUrlAsync"/>.
     /// </summary>
     /// <param name="provider">The provider.</param>
     /// <param name="path">The file.</param>
     /// <param name="validity">How long the URL lives.</param>
     /// <param name="cancellationToken">Cancels the call.</param>
     [Obsolete(DownloadUrl + Goes)]
-    public static async Task<Uri> GetDownloadUrlAsync(this IWriteableFileProvider provider, ProviderPath path, TimeSpan validity, CancellationToken cancellationToken = default) =>
-        (await Required(provider).GetSignedUrlAsync(path, new SignedUrlOptions { Validity = validity }, cancellationToken).ConfigureAwait(false)).Url;
+    public static async Task<string> GetDownloadUrlAsync(this IWriteableFileProvider provider, ProviderPath path, TimeSpan validity, CancellationToken cancellationToken = default) =>
+        (await Required(provider).GetSignedUrlAsync(path, new SignedUrlOptions { Validity = validity }, cancellationToken).ConfigureAwait(false)).Url.AbsoluteUri;
 
-    /// <summary>Issues a URL to download a file for exactly <paramref name="validity"/>.</summary>
+    /// <summary>
+    /// Issues a URL to download a file for exactly <paramref name="validity"/>, as the string 2026 returned (the URL's
+    /// <see cref="Uri.AbsoluteUri"/>).
+    /// </summary>
     /// <param name="provider">The provider.</param>
     /// <param name="path">The file.</param>
     /// <param name="validity">How long the URL lives.</param>
     [Obsolete(DownloadUrl + Goes)]
-    public static Uri GetDownloadUrl(this IWriteableFileProvider provider, ProviderPath path, TimeSpan validity) =>
+    public static string GetDownloadUrl(this IWriteableFileProvider provider, ProviderPath path, TimeSpan validity) =>
         Wait(provider.GetDownloadUrlAsync(path, validity));
 
     // ---- An IFileInfo instead of a path ----
@@ -207,21 +210,27 @@ public static class WriteableFileProviderCompatibilityExtensions
     public static LocalFileStream CreateLocalFileStream(this IWriteableFileProvider provider, IFileInfo file, bool readOnly) =>
         Wait(Required(provider).CreateLocalFileStreamAsync(provider.PathOf(file), readOnly));
 
-    /// <summary>Issues a URL to download a file for exactly <paramref name="validity"/>.</summary>
+    /// <summary>
+    /// Issues a URL to download a file for exactly <paramref name="validity"/>, as the string 2026 returned (the URL's
+    /// <see cref="Uri.AbsoluteUri"/>).
+    /// </summary>
     /// <param name="provider">The provider.</param>
     /// <param name="file">The file, as the provider returned it.</param>
     /// <param name="validity">How long the URL lives.</param>
     /// <param name="cancellationToken">Cancels the call.</param>
     [Obsolete(DownloadUrl + Goes)]
-    public static Task<Uri> GetDownloadUrlAsync(this IWriteableFileProvider provider, IFileInfo file, TimeSpan validity, CancellationToken cancellationToken = default) =>
+    public static Task<string> GetDownloadUrlAsync(this IWriteableFileProvider provider, IFileInfo file, TimeSpan validity, CancellationToken cancellationToken = default) =>
         provider.GetDownloadUrlAsync(provider.PathOf(file), validity, cancellationToken);
 
-    /// <summary>Issues a URL to download a file for exactly <paramref name="validity"/>.</summary>
+    /// <summary>
+    /// Issues a URL to download a file for exactly <paramref name="validity"/>, as the string 2026 returned (the URL's
+    /// <see cref="Uri.AbsoluteUri"/>).
+    /// </summary>
     /// <param name="provider">The provider.</param>
     /// <param name="file">The file, as the provider returned it.</param>
     /// <param name="validity">How long the URL lives.</param>
     [Obsolete(DownloadUrl + Goes)]
-    public static Uri GetDownloadUrl(this IWriteableFileProvider provider, IFileInfo file, TimeSpan validity) =>
+    public static string GetDownloadUrl(this IWriteableFileProvider provider, IFileInfo file, TimeSpan validity) =>
         Wait(provider.GetDownloadUrlAsync(provider.PathOf(file), validity));
 
     // ---- Segment lists ----

@@ -78,7 +78,7 @@ Newtonsoft.Json.
 | `UpdateFileAsync(Stream, UpdateFileMode, params string[])`, `UpdateFileAsync(string, UpdateFileMode, Stream)` | `UpdateFileAsync(path, contents, UpdateFileOptions?)`, with `UpdateFileOptions.Append` or `UpdateFileOptions.Overwrite` for the mode | The old orders, and `UpdateFileAsync(path, contents, UpdateFileMode)`, compile through `[Obsolete]` shims; move the path first and pass `UpdateFileOptions.Append`. |
 | `CreateLocalFileStreamAsync(bool readOnly, ...)` | `CreateLocalFileStreamAsync(path, bool readOnly)` | The path comes first; the old order compiles through a shim. |
 | Sync members on the interface (`ReadFile`, `UpdateFile`, `Delete`, `Move`, `CreateLocalFileStream`) | `[Obsolete]` extension methods, which go in 2028.0.0 | Call the async member: `await ReadFileAsync(path)` for `ReadFile(path)`, and so on. They compile, with a warning, if you add `using WriteableFileProviders;`. `GetFileInfo(string)`, `GetDirectoryContents(string)` and `Watch(string)` stay on the interface (`IFileProvider`). |
-| `GetDownloadUrl(...)` returns `string` | `GetSignedUrlAsync(path, SignedUrlOptions)` returns a `SignedUrl`, whose `Url` is the URL. `GetDownloadUrl` and `GetDownloadUrlAsync(path, validity)`, returning a `Uri`, are `[Obsolete]` and go in 2028.0.0 | `(await files.GetSignedUrlAsync(path, new SignedUrlOptions { Validity = validity })).Url`, or the ASP.NET Core package's `IWriteableFileUrlService`, which falls back to a gateway URL where a provider cannot sign one. |
+| `GetDownloadUrl(...)` returns `string` | `GetSignedUrlAsync(path, SignedUrlOptions)` returns a `SignedUrl`, whose `Url` is the URL. `GetDownloadUrl` and `GetDownloadUrlAsync(path, validity)` still return the URL as a `string` (its `AbsoluteUri`), so `string url = files.GetDownloadUrl(...)` compiles, with a warning; they are `[Obsolete]` and go in 2028.0.0 | `(await files.GetSignedUrlAsync(path, new SignedUrlOptions { Validity = validity })).Url`, or the ASP.NET Core package's `IWriteableFileUrlService`, which falls back to a gateway URL where a provider cannot sign one. |
 | `WatchAsync(string)` | `Watch(string)` | The async form compiles through a shim. |
 | `FileInfo` (it clashed with `System.IO.FileInfo`) | `WriteableFileInfo`, and the interface `IWriteableFileInfo` with `Path`, `ETag`, `ContentType` | Replace `(FileInfo)x` with `(WriteableFileInfo)x`; `PathSegments` becomes `Path.Segments`. |
 | `GetFileInfoAsync` returns `IFileInfo` | It returns `IWriteableFileInfo` | Nothing; it is an `IFileInfo`. |
@@ -272,7 +272,7 @@ unchanged; the two new options are written to JSON only when `true`.
 
 | 2026 | 2027 | What to do |
 |---|---|---|
-| `AzureFileProviderOptions` | `AzureBlobFileProviderOptions`, the same properties. The old name is an `[Obsolete]` class derived from it, so `new WriteableAzureBlobFileProvider(new AzureFileProviderOptions { ... })` compiles, with a warning, and builds the same provider; it goes in 2028.0.0. Stored configurations name the provider class, not the options class, so they read unchanged | Rename the type in your code. |
+| `AzureFileProviderOptions` | `AzureBlobFileProviderOptions`, the same properties. The old name is an `[Obsolete]` class derived from it, so `new WriteableAzureBlobFileProvider(new AzureFileProviderOptions { ... })` compiles, with a warning, and builds the same provider; it goes in 2028.0.0. Stored configurations name the provider class, not the options class, so they read unchanged. `provider.Options` is now an `AzureBlobFileProviderOptions` | Rename the type in your code, including where you type `provider.Options` as `AzureFileProviderOptions` or name `WriteableFileProvider<AzureFileProviderOptions>`. |
 | Files are append blobs; an overwrite empties the blob, then appends, so a failed write truncates the file | Files are block blobs, staged and committed in one request: a failed write keeps the old content, and readers never see half of it | Nothing. |
 | A missing container is created by the first write or move; reads report it as missing files and empty listings | A missing container makes every member throw `InvalidOperationException`, naming the container | Create the container, or set `CreateContainerIfMissing: true` to keep the old creation on the first write. Reads never create it. |
 | Reading a missing file throws `RequestFailedException` (404) | `FileNotFoundException`, with the SDK's error as `InnerException` | Catch `FileNotFoundException`. |
@@ -488,16 +488,18 @@ changed:
 - **`IWriteableFileUrlService.GetSignedUrlAsync(path, options)`** asks the app's `IWriteableFileProvider` for its
   native URL and, when the provider throws `NotSupportedException`, issues a URL of the app's own gateway instead;
   `GetSignedUrlAsync(path, options, providerKey)` does the same for a provider registered under a key
-  (`AddKeyedSingleton<IWriteableFileProvider>(providerKey, ...)`). A provider throws it when it cannot sign the URL
-  asked for: Physical signs none, and Box and SharePoint sign only download URLs whose lifetime their service sets. So
-  the service gives a 2026 caller of `GetDownloadUrl` a URL that does what was asked on every provider, the local disk
-  included.
-- **The gateway** (`AddWriteableFileProviderGateway(publicBaseUri)`, or `AddWriteableFileProviderGateway(options => ...)`
-  for the other options, then `MapWriteableFileProviderGateway()`) serves `GET`, `HEAD` (with HTTP ranges) and `PUT` on
-  `{BasePath}/{token}/{fileName?}`. The registration lives in `Microsoft.Extensions.DependencyInjection` and the
-  mapping in `Microsoft.AspNetCore.Builder`, as ASP.NET Core's own do, so neither needs a `using`. The token is an
-  ASP.NET Core Data Protection payload, so an app on several instances shares its key ring, and one-time upload URLs
-  need a shared `IGatewayReplayStore`.
+  (`AddKeyedSingleton<IWriteableFileProvider>(providerKey, ...)`). Every provider it serves, default or keyed, must be
+  a singleton, or resolve to the same store in every scope: the service resolves it from the root container and the
+  gateway from the request's services, so a scoped provider per tenant would let a URL be redeemed against another
+  tenant's store. A provider throws `NotSupportedException` when it cannot sign the URL asked for: Physical signs
+  none, and Box and SharePoint sign only download URLs whose lifetime their service sets. So the service gives a 2026
+  caller of `GetDownloadUrl` a URL that does what was asked on every provider, the local disk included.
+- **The gateway** (`AddWriteableFileProviderGateway(publicBaseUri)`, or
+  `AddWriteableFileProviderGateway(options => ...)` for the other options, then `MapWriteableFileProviderGateway()`)
+  serves `GET`, `HEAD` (with HTTP ranges) and `PUT` on `{BasePath}/{token}/{fileName?}`. The registration lives in
+  `Microsoft.Extensions.DependencyInjection` and the mapping in `Microsoft.AspNetCore.Builder`, as ASP.NET Core's own
+  do, so neither needs a `using`. The token is an ASP.NET Core Data Protection payload, so an app on several instances
+  shares its key ring, and one-time upload URLs need a shared `IGatewayReplayStore`.
 - **Defaults fail closed:** `PublicBaseUri` is required and gateway URLs never use the request's `Host`; gateway
   download URLs live at most 7 days and gateway upload URLs 1 hour by default; gateway upload URLs work once; uploads
   are capped at 100 MiB; a download is served as the content type its read URL names, else

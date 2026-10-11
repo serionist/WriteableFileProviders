@@ -1296,6 +1296,9 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     - F10: the concurrent-append rule runs in `BoxConformanceTests` and `BoxLiveTests` (it passes: the race it stages
       lands before the check); D15 still says the check is not atomic.
     - D25: `WriteableBoxFileProvider` is sealed (in the migration guide). D26: Box adds no options property.
+    - Verified after the round: every non-Live test passes with `WFP_REQUIRE_DOCKER=1` (601, 30 skipped, all of them
+      the S3 suites without `AWS_ENDPOINT_URL_S3`; no Box test is skipped); Box 99.33% lines, 90.40% branches, floor
+      98/89; the coverage gate passes. Mutations of the ETag form and of both redactions each fail tests.
 
 ### For the maintainers
 

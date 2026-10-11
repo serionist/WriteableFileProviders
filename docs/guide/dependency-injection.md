@@ -45,9 +45,7 @@ app.MapGet("/archive/{**path}", async (string path, [FromKeyedServices("archive"
 ```
 
 The signed-URL service takes the same key, and the gateway serves the URL from that provider:
-`urls.GetSignedUrlAsync(path, options, providerKey: "archive")` ([Signed URLs](signed-urls.md#the-url-service)). A
-provider the gateway serves, keyed or not, is a singleton, or resolves to the same store in every scope: a URL issued
-for one store must not redeem against another.
+`urls.GetSignedUrlAsync(path, options, providerKey: "archive")` ([Signed URLs](signed-urls.md#the-url-service)).
 
 **Every provider at once:** each `AddWriteableFileProvider` call adds one, and `GetServices` returns them all, in the
 order they were registered:
@@ -73,6 +71,14 @@ public sealed class ArchiveFiles(IWriteableFileProvider files) : IDisposable, IA
 builder.Services.AddSingleton(_ => new ArchiveFiles(
     WriteableFileProviderSerializer.FromConfiguration(builder.Configuration.GetSection("Archive"))));
 ```
+
+**With the gateway, register every provider as a singleton**, whichever way you tell them apart:
+`AddWriteableFileProvider`, `AddSingleton` or `AddKeyedSingleton`, never scoped or transient, unless it resolves to
+the same store in every scope. The URL service resolves the provider from the root container when it issues a URL,
+and the gateway from the request's services when it redeems one, so a provider per scope, such as one per tenant,
+would let a URL be redeemed against another tenant's store. The gateway serves only providers registered as
+`IWriteableFileProvider`, plain or keyed: links for a provider held by a type of your own need it registered under a
+key too.
 
 ## Configuration
 

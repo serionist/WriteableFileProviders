@@ -122,7 +122,8 @@ await using (var local = await files.CreateLocalFileStreamAsync("book.xlsx", rea
 ## Synchronous code
 
 The only synchronous members are the three `IFileProvider` has: `GetFileInfo`, `GetDirectoryContents` and `Watch`.
-Everything else is async. The synchronous forms of 2026 (`ReadFile`, `UpdateFile`, `Delete`, `Move`,
-`CreateLocalFileStream`, `GetDownloadUrl`) are `[Obsolete]` extension methods in
-`WriteableFileProviderCompatibilityExtensions`, kept for the 2027 versions to ease the move and removed in the next
-major ([Moving from 2026](../migration-2027.md)).
+Everything else is async. The 2026 forms (the synchronous `ReadFile`, `UpdateFile`, `Delete`, `Move` and
+`CreateLocalFileStream`, the overloads that take an `IFileInfo` or an `UpdateFileMode`, and `GetDownloadUrl`, which
+still returns a `string`) are `[Obsolete]` extension methods in `WriteableFileProviderCompatibilityExtensions`: they
+compile, with a warning that names the async member to call, and go in 2028.0.0
+([Moving from 2026](../migration-2027.md#common-the-api)).

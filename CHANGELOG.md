@@ -50,7 +50,8 @@ break and what to do about it.
 - `GetSignedUrlAsync` never returns a URL that lives shorter than asked, or other than asked: it throws
   `NotSupportedException`, and the URL service of WriteableFileProviders.AspNetCore falls back to its gateway.
 - Every provider class is sealed; `FileInfo` is `WriteableFileInfo`; `ToJson` returns a `JsonObject` and leaves the
-  interface; the base class's protected members are renamed for third-party providers.
+  interface; Azure's options class is `AzureBlobFileProviderOptions` (the old name compiles, obsolete, until
+  2028.0.0); the base class's protected members are renamed for third-party providers.
 - Store exceptions no longer escape as they are: catch the contract's types.
 - Every provider changed behaviour to follow the contract: missing containers and buckets are no longer created unless
   asked, moves refuse an existing destination, MinIO refuses plain HTTP to a host that is not loopback unless

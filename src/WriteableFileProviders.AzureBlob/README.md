@@ -53,8 +53,8 @@ await using var files = new WriteableAzureBlobFileProvider(new AzureBlobFileProv
 ```
 
 The options come first, as on every provider's client constructor. With a client, only the root and
-`CreateContainerIfMissing` are read from them, and they may be null (the container's root); a `ContainerName` that
-differs from the client's throws `ArgumentException`. The provider class is sealed: to change what it does, wrap it,
+`CreateContainerIfMissing` are read from them (pass `new()` for the container's root; null throws
+`ArgumentNullException`); a `ContainerName` that differs from the client's throws `ArgumentException`. The provider class is sealed: to change what it does, wrap it,
 or derive your own provider from `WriteableFileProvider<TOptions>`.
 
 ## Configuration

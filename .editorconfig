@@ -1,6 +1,5 @@
-# Code style: one line per rule, with its reason where it isn't obvious. A project builds with EnforceCodeStyleInBuild
-# and TreatWarningsAsErrors (Directory.Build.targets), so every `warning` here fails its build; a project that still
-# holds code from before the modernization sets WfpLegacy, which turns both off until its rewrite.
+# Code style: one line per rule, with its reason where it isn't obvious. Every project builds with
+# EnforceCodeStyleInBuild and TreatWarningsAsErrors (Directory.Build.targets), so every `warning` here fails its build.
 root = true
 
 [*]

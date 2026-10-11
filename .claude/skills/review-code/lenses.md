@@ -88,7 +88,7 @@ Complexity that carries security or data integrity is not a finding.
 Would each new test fail without the change? Is a fix pinned by a test that reproduced the bug? Are failure paths
 tested, not only the happy path? Do the tests clean up what they create, on disk and in the cloud? Are they
 deterministic (no sleeps, no clock or order dependence)? Does a provider that can run on an emulator have an emulator
-suite, and does the shared suite in `TestBase` cover what every provider must do?
+suite, and does the conformance suite (`ProviderConformanceTests`) cover what every provider must do?
 
 ## docs-freshness
 

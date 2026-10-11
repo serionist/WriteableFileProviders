@@ -16,8 +16,9 @@ using StorageObject = Google.Apis.Storage.v1.Data.Object;
 namespace WriteableFileProviders.GoogleCloudStorage;
 
 /// <summary>
-/// A writeable file provider over a Google Cloud Storage bucket. Object names are paths: the provider shows the <c>/</c>
-/// in them as folders, and a folder exists while some object has its prefix.
+/// A writeable file provider over a Google Cloud Storage bucket. Object names are paths: the provider shows the
+/// <c>/</c> in them as folders, a folder exists while some object has its prefix, and a file and a folder may share a
+/// name.
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
@@ -37,11 +38,15 @@ namespace WriteableFileProviders.GoogleCloudStorage;
 /// again.
 /// </description></item>
 /// <item><description>
-/// <b>Signed URLs</b> are V4 signed URLs, for read, create and write, valid from one second to seven days.
+/// <b>Signed URLs</b> are V4 signed URLs, for read, create and write, valid from one second to seven days. A credential
+/// that cannot sign, or an identity whose signing through IAM's <c>signBlob</c> is refused or fails, throws
+/// <see cref="NotSupportedException"/>, so WriteableFileProviders.AspNetCore issues a gateway URL instead.
 /// </description></item>
 /// <item><description>
 /// <b>Credentials</b> are resolved on the first call, never in a constructor; see
-/// <see cref="GoogleCloudStorageFileProviderOptions"/>.
+/// <see cref="GoogleCloudStorageFileProviderOptions"/>. Without a key in the options or a client of yours, the first
+/// call looks up Application Default Credentials, and where there are none it throws
+/// <see cref="InvalidOperationException"/>, as for a store that is not set up.
 /// </description></item>
 /// </list>
 /// </remarks>
@@ -333,7 +338,9 @@ public sealed class WriteableGoogleCloudStorageFileProvider : WriteableFileProvi
     /// <param name="options">The validated options.</param>
     /// <param name="cancellationToken">Cancels the call.</param>
     /// <exception cref="NotSupportedException">
-    /// The credential cannot sign; the validity is under one second; or a download name was asked for an upload URL.
+    /// The credential cannot sign, or signing through IAM's <c>signBlob</c> was refused or failed (the cause is the
+    /// <see cref="Exception.InnerException"/>); the validity is under one second; or a download name was asked for an
+    /// upload URL.
     /// </exception>
     protected override async Task<SignedUrl> GetSignedUrlCoreAsync(ResolvedPath path, SignedUrlOptions options, CancellationToken cancellationToken)
     {
@@ -374,7 +381,19 @@ public sealed class WriteableGoogleCloudStorageFileProvider : WriteableFileProvi
                 template = template.WithContentHeaders(new Dictionary<string, IEnumerable<string>>(StringComparer.Ordinal) { ["Content-Type"] = [contentType] });
             }
         }
-        var signed = await signer.SignAsync(template, UrlSigner.Options.FromDuration(TimeSpan.FromSeconds(seconds)), cancellationToken).ConfigureAwait(false);
+        string signed;
+        try
+        {
+            signed = await signer.SignAsync(template, UrlSigner.Options.FromDuration(TimeSpan.FromSeconds(seconds)), cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception e) when (e is GoogleApiException or HttpRequestException or TokenResponseException)
+        {
+            // An identity that signs through IAM's signBlob (Compute Engine, Cloud Run, Workload Identity,
+            // impersonation) may be refused it, or fail to reach it: the URL cannot be signed natively, so the gateway
+            // can serve it.
+            throw new NotSupportedException(
+                $"{GetType().Name} could not sign the URL: the signing service refused or failed it. Grant iam.serviceAccounts.signBlob, or use a service account key.", e);
+        }
         var url = new Uri(signed);
         return new SignedUrl
         {

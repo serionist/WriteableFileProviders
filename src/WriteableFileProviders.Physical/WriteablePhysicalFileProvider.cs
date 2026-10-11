@@ -1,3 +1,5 @@
+using System.Buffers;
+using System.Collections.Frozen;
 using System.Globalization;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.FileProviders.Physical;
@@ -10,9 +12,10 @@ namespace WriteableFileProviders.Physical;
 /// <remarks>
 /// <para>
 /// <b>Writes are atomic.</b> An overwrite, an append, a copy and a local stream's commit write a temp file named
-/// <c>.wfp-&lt;guid&gt;.tmp</c> in the target's folder, then rename it over the target: the file has its old content or
-/// its new content, never a part. A write that fails removes its temp file; listings never show one. An append copies
-/// the file and the new bytes into the temp file.
+/// <c>.wfp-&lt;guid&gt;.tmp</c> (32 lowercase hex digits) in the target's folder, then rename it over the target: the
+/// file has its old content or its new content, never a part. A write that fails removes its temp file; listings never
+/// show one, and show every other name, <c>.wfp-notes.tmp</c> included. An append copies the file and the new bytes
+/// into the temp file.
 /// </para>
 /// <para>
 /// <b>Replacing by rename</b> makes the new content a new file at the path, so a write is refused, the file keeping its
@@ -57,12 +60,21 @@ namespace WriteableFileProviders.Physical;
 /// </para>
 /// <para>
 /// <b>Names</b> are matched without regard to case on Windows and macOS, so a move between names that differ only in
-/// case renames the file, and with regard to case elsewhere. A <c>:</c> is not allowed in a name. Listings leave out
-/// the files and folders whose names a path cannot name (on Linux and macOS, a name holding <c>:</c>, <c>\</c> or a
-/// control character, or only dots and spaces; on any system, a percent-encoded form of those, such as
-/// <c>%2e%2e</c>), and never walk into such a folder, so everything listed can be read back. Containment in the root is
-/// checked on the path: symbolic links and junctions inside the root are followed, except that a recursive listing lists
-/// a linked folder without walking into it.
+/// case renames the file, and with regard to case elsewhere. A <c>:</c> is not allowed in a name. On Windows, a name is
+/// also refused (<see cref="ArgumentException"/>) when Windows would read it as another name or cannot hold it: one
+/// that ends in <c>.</c> or a space, which Windows drops (so <c>a.txt.</c> would name <c>a.txt</c>), one that holds
+/// <c>"</c>, <c>&lt;</c>, <c>&gt;</c>, <c>|</c>, <c>?</c> or <c>*</c>, and a reserved device name (<c>CON</c>,
+/// <c>PRN</c>, <c>AUX</c>, <c>NUL</c>, <c>COM1</c> to <c>COM9</c>, <c>LPT1</c> to <c>LPT9</c>), in any case, alone or
+/// with an extension, such as <c>con.txt</c>. Listings leave out the files and folders whose names a path cannot name
+/// (those names on Windows; on Linux and macOS, a name holding <c>:</c>, <c>\</c> or a control character, or only dots
+/// and spaces; on any system, a percent-encoded form of those, such as <c>%2e%2e</c>), and never walk into such a
+/// folder, so everything listed can be read back. Containment in the root is checked on the path: symbolic links and
+/// junctions inside the root are followed, except that a recursive listing lists a linked folder without walking into
+/// it.
+/// </para>
+/// <para>
+/// <b>Access.</b> Where the operating system refuses the process access to a file or a folder, any member, a read, a
+/// listing, a delete or a move as well as a write, throws <see cref="UnauthorizedAccessException"/>.
 /// </para>
 /// <para>
 /// <b>Not native:</b> signed URLs (WriteableFileProviders.AspNetCore issues gateway URLs) and content types (a given
@@ -85,6 +97,17 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
         UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute;
 
     private static readonly char[] _separators = ['/', '\\'];
+
+    // The digits of the GUID in a temp file's name, as Guid.ToString("N") writes them.
+    private static readonly SearchValues<char> _tempDigits = SearchValues.Create("0123456789abcdef");
+
+    // What Windows refuses in a name besides ':' and the separators, which every system refuses here.
+    private static readonly SearchValues<char> _windowsReserved = SearchValues.Create("\"<>|?*");
+
+    // Windows' reserved device names, which name a device in every folder; COM and LPT also take the superscripts.
+    private static readonly FrozenSet<string> _windowsDevices = new[] { "CON", "PRN", "AUX", "NUL" }
+        .Concat(new[] { "COM", "LPT" }.SelectMany(device => "123456789¹²³".Select(digit => device + digit)))
+        .ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
     // Every entry, hidden and system ones included, as 2026 listed them.
     private static readonly EnumerationOptions _listing = new() { AttributesToSkip = 0, IgnoreInaccessible = false };
@@ -129,6 +152,9 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
     internal bool IgnoresCase { get; init; } = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS();
 
     internal bool RenamesWithoutReplacing { get; init; } = OperatingSystem.IsWindows();
+
+    // Whether names Windows reads as another name, or cannot hold, are refused (IsSegmentAllowed).
+    internal bool RefusesWindowsNames { get; init; } = OperatingSystem.IsWindows();
 
     // How a link is followed to describe it: by walking the path as the kernel does (Linux, macOS), or by asking the system
     // for the final target (Windows).
@@ -342,8 +368,29 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
         }
     }
 
-    /// <inheritdoc />
-    protected override bool IsSegmentAllowed(string part) => !part.Contains(':', StringComparison.Ordinal);
+    /// <summary>
+    /// Refuses a <c>:</c> on every system. On Windows, which would read such a name as another one or not at all, also
+    /// refuses a name that ends in <c>.</c> or a space (Windows drops them, so <c>a.txt.</c> would name <c>a.txt</c>),
+    /// holds <c>"</c>, <c>&lt;</c>, <c>&gt;</c>, <c>|</c>, <c>?</c> or <c>*</c>, or is a reserved device name
+    /// (<c>CON</c>, <c>PRN</c>, <c>AUX</c>, <c>NUL</c>, <c>COM1</c> to <c>COM9</c>, <c>LPT1</c> to <c>LPT9</c>, and
+    /// <c>COM</c> or <c>LPT</c> followed by <c>¹</c>, <c>²</c> or <c>³</c>), in any case, alone or followed by an
+    /// extension, such as <c>con.txt</c>.
+    /// </summary>
+    /// <param name="part">A single path segment.</param>
+    protected override bool IsSegmentAllowed(string part) =>
+        part is not null && !part.Contains(':', StringComparison.Ordinal)
+        && (!RefusesWindowsNames || IsWindowsName(part));
+
+    // Whether Windows names exactly this file: no trailing dot or space, no reserved character, no device name.
+    internal static bool IsWindowsName(string part)
+    {
+        if (part.EndsWith('.') || part.EndsWith(' ') || part.AsSpan().IndexOfAny(_windowsReserved) >= 0)
+            return false;
+        // A device name stands for the device whatever extension follows it, and with spaces before that extension.
+        var dot = part.IndexOf('.', StringComparison.Ordinal);
+        var stem = (dot < 0 ? part : part[..dot]).TrimEnd(' ');
+        return !_windowsDevices.Contains(stem);
+    }
 
     /// <summary>Stops watching.</summary>
     /// <inheritdoc />
@@ -397,8 +444,9 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
         foreach (var entry in folder.EnumerateFileSystemInfos("*", _listing))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            // A name a path cannot name again (on Linux, one with ':' or '\', a control character or only dots; anywhere,
-            // a percent-encoded form of those) is left out, and never walked into: everything listed can be read back.
+            // A name a path cannot name again (on Linux, one with ':' or '\', a control character or only dots; on
+            // Windows, a trailing dot or space, a reserved character or a device name; anywhere, a percent-encoded form
+            // of those) is left out, and never walked into: everything listed can be read back.
             if (!IsAddressable(entry.Name))
                 continue;
             if (entry is FileInfo file)
@@ -635,8 +683,13 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
 
     private static string VersionOf(SafeFileHandle handle) => ETag(File.GetLastWriteTimeUtc(handle), RandomAccess.GetLength(handle));
 
-    private static bool IsTempFile(string name) =>
-        name.StartsWith(TempPrefix, StringComparison.Ordinal) && name.EndsWith(TempSuffix, StringComparison.Ordinal);
+    // Exactly the name a write gives its temp file, ".wfp-" and a GUID's 32 lowercase hex digits and ".tmp": any other
+    // name, ".wfp-notes.tmp" included, is a file of the caller's and is listed.
+    internal static bool IsTempFile(string name) =>
+        name.Length == TempPrefix.Length + 32 + TempSuffix.Length
+        && name.StartsWith(TempPrefix, StringComparison.Ordinal)
+        && name.EndsWith(TempSuffix, StringComparison.Ordinal)
+        && name.AsSpan(TempPrefix.Length, 32).IndexOfAnyExcept(_tempDigits) < 0;
 
     // The physical path is the entry's own, under the root, even when it is a link to a file elsewhere.
     private WriteableFileInfo FileEntry(ProviderPath path, FileInfo file)

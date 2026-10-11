@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Security.Cryptography;
 using Box.Sdk.Gen;
 using Box.Sdk.Gen.Managers;
@@ -119,22 +120,31 @@ public sealed partial class WriteableBoxFileProvider
                 : throw new IOException($"Box opened upload session '{sessionId}' with no usable part size.");
             var length = content.Length;
             var parts = new List<UploadPart>();
-            var buffer = new byte[(int)Math.Min(partSize, length)];
             using var whole = IncrementalHash.CreateHash(HashAlgorithmName.SHA1);
-            for (long offset = 0; offset < length;)
+            // One part at a time, in a buffer rented from the shared pool (a part is several MB); every use is sliced
+            // to the part's count, so a longer array is fine.
+            var buffer = ArrayPool<byte>.Shared.Rent((int)Math.Min(partSize, length));
+            try
             {
-                var count = (int)Math.Min(partSize, length - offset);
-                await content.ReadExactlyAsync(buffer.AsMemory(0, count), cancellationToken).ConfigureAwait(false);
-                whole.AppendData(buffer, 0, count);
-                var part = new MemoryStream(buffer, 0, count, writable: false);
-                await using (part.ConfigureAwait(false))
+                for (long offset = 0; offset < length;)
                 {
-                    var uploaded = await _client.ChunkedUploads.UploadFilePartAsync(sessionId, part,
-                        new UploadFilePartHeaders(Digest(buffer.AsSpan(0, count)), $"bytes {offset}-{offset + count - 1}/{length}"),
-                        cancellationToken).ConfigureAwait(false);
-                    parts.Add(uploaded.Part ?? throw new IOException($"Box did not describe part {offset} of upload session '{sessionId}'."));
+                    var count = (int)Math.Min(partSize, length - offset);
+                    await content.ReadExactlyAsync(buffer.AsMemory(0, count), cancellationToken).ConfigureAwait(false);
+                    whole.AppendData(buffer, 0, count);
+                    var part = new MemoryStream(buffer, 0, count, writable: false);
+                    await using (part.ConfigureAwait(false))
+                    {
+                        var uploaded = await _client.ChunkedUploads.UploadFilePartAsync(sessionId, part,
+                            new UploadFilePartHeaders(Digest(buffer.AsSpan(0, count)), $"bytes {offset}-{offset + count - 1}/{length}"),
+                            cancellationToken).ConfigureAwait(false);
+                        parts.Add(uploaded.Part ?? throw new IOException($"Box did not describe part {offset} of upload session '{sessionId}'."));
+                    }
+                    offset += count;
                 }
-                offset += count;
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
             }
             var headers = new CreateFileUploadSessionCommitHeaders("sha=" + Convert.ToBase64String(whole.GetHashAndReset())) { IfMatch = Quote(ifMatch) };
             var body = new CreateFileUploadSessionCommitRequestBody(parts);

@@ -847,12 +847,37 @@ public sealed class PhysicalProviderTests
     [TestMethod]
     public async Task List_HidesOnlyTheProvidersTempFiles()
     {
+        // Exactly the provider's own temp name: ".wfp-", a GUID's 32 lowercase hex digits, ".tmp". Every other name is
+        // the caller's, and listed, however like it it looks.
         await Write("f.txt", "x");
-        foreach (var name in new[] { ".wfp-0123abcd.tmp", ".hidden", "x.tmp", ".wfp-notes.txt" })
+        var guid = Guid.NewGuid().ToString("N");
+        var temp = $".wfp-{guid}.tmp";
+        string[] listed = [".hidden", "x.tmp", ".wfp-notes.txt", ".wfp-notes.tmp", ".wfp-0123abcd.tmp", $".wfp-{Guid.NewGuid().ToString("N").ToUpperInvariant()}.tmp",
+            $".wfp-{guid}x.tmp", $".wfp-{guid[..^1]}g.tmp", $"a.wfp-{guid}.tmp"];
+        foreach (var name in listed.Append(temp))
             File.WriteAllText(Disk(name), name);
-        Directory.CreateDirectory(Disk(".wfp-folder.tmp"));
-        CollectionAssert.AreEqual(new[] { ".hidden", ".wfp-folder.tmp", ".wfp-notes.txt", "f.txt", "x.tmp" }, Names());
+        Directory.CreateDirectory(Disk($".wfp-{Guid.NewGuid():N}.tmp"));
+        var folder = Path.GetFileName(Directory.GetDirectories(_root).Single());
+        CollectionAssert.AreEquivalent(listed.Append("f.txt").Append(folder).ToArray(), Names(), "Only a temp file is hidden; a folder of that name is listed");
+        var recursive = new List<string>();
+        await foreach (var entry in _provider.EnumerateAsync("", recursive: true))
+            recursive.Add(entry.Name);
+        CollectionAssert.DoesNotContain(recursive, temp);
+        Assert.HasCount(listed.Length + 2, recursive);
     }
+
+    [TestMethod]
+    [DataRow(".wfp-0123456789abcdef0123456789abcdef.tmp", true)]
+    [DataRow(".wfp-0123456789ABCDEF0123456789abcdef.tmp", false)]
+    [DataRow(".wfp-0123456789abcdef0123456789abcde.tmp", false)]
+    [DataRow(".wfp-0123456789abcdef0123456789abcdef0.tmp", false)]
+    [DataRow(".wfp-0123456789abcdef0123456789abcdeg.tmp", false)]
+    [DataRow(".wfp-0123456789abcdef0123456789abcdef.txt", false)]
+    [DataRow(".wfp-rename-0123456789abcdef0123456789abcdef.tmp", false)]
+    [DataRow(".wfp-notes.tmp", false)]
+    [DataRow("wfp-0123456789abcdef0123456789abcdef.tmp", false)]
+    public void TempFile_IsExactlyTheProvidersOwnName(string name, bool temp) =>
+        Assert.AreEqual(temp, WriteablePhysicalFileProvider.IsTempFile(name), name);
 
     [TestMethod]
     public async Task List_EntriesCarryTheirDiskPaths()
@@ -1007,6 +1032,123 @@ public sealed class PhysicalProviderTests
         await Assert.ThrowsExactlyAsync<ArgumentException>(() => _provider.MoveAsync("a.txt", name));
         Assert.IsFalse(Directory.Exists(_root));
     }
+
+    [TestMethod]
+    public async Task Paths_NamesWindowsReadsAsOthersAreRefused()
+    {
+        // The rule of Windows, forced here on every system: each path would name 'a.txt' or 'dir' there, or no file at
+        // all, so a write would replace another file and a delete remove another folder.
+        using var provider = new WriteablePhysicalFileProvider(_root) { RefusesWindowsNames = true };
+        await provider.UpdateFileAsync("a.txt", TestStreams.Text("original"));
+        await provider.UpdateFileAsync("dir/inner.txt", TestStreams.Text("inner"));
+
+        var write = await Assert.ThrowsExactlyAsync<ArgumentException>(() => provider.UpdateFileAsync("a.txt.", TestStreams.Text("REPLACED")));
+        Assert.AreEqual("path", write.ParamName);
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => provider.UpdateFileAsync("a.txt ", TestStreams.Text("REPLACED"), UpdateFileOptions.Append));
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => provider.DeleteAsync("dir "));
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => provider.DeleteAsync("dir."));
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => provider.MoveAsync("a.txt", "dir /a.txt"));
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => provider.GetFileInfoAsync("x?"));
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => provider.ReadFileAsync("a.txt%2E"));
+        foreach (var name in new[] { "CON.txt", "con", "NUL.tar.gz", "Com1.log", "lpt9", "COM¹", "aux .txt", "prn", "a\"b", "a<b", "a>b", "a|b", "a*b" })
+        {
+            await Assert.ThrowsExactlyAsync<ArgumentException>(() => provider.GetFileInfoAsync(name), name);
+            await Assert.ThrowsExactlyAsync<ArgumentException>(() => provider.UpdateFileAsync("dir/" + name, TestStreams.Text("x")), name);
+            await Assert.ThrowsExactlyAsync<ArgumentException>(() => provider.ReadFileAsync(name), name);
+        }
+
+        Assert.AreEqual("original", File.ReadAllText(Disk("a.txt")));
+        Assert.AreEqual("inner", File.ReadAllText(Disk("dir", "inner.txt")));
+        CollectionAssert.AreEqual(new[] { "a.txt", "dir" }, Directory.GetFileSystemEntries(_root).Select(Path.GetFileName).Order(StringComparer.Ordinal).ToArray());
+
+        // Names that only look like those are names like any other.
+        foreach (var name in new[] { "CONSOLE.txt", "COM10", "report.con", "nul_", ".nul", "a.b c", "x.y.z" })
+        {
+            await provider.UpdateFileAsync("ok/" + name, TestStreams.Text(name));
+            Assert.AreEqual(name, File.ReadAllText(Disk("ok", name)), name);
+        }
+    }
+
+    [TestMethod]
+    public async Task List_LeavesOutNamesWindowsReadsAsOthers()
+    {
+        // Such names exist where another program made them: through a \\?\ path on Windows, or any path on Linux and
+        // macOS (where the rule is forced). Listings leave them out, and never walk into such a folder.
+        using var provider = new WriteablePhysicalFileProvider(_root) { RefusesWindowsNames = true };
+        await provider.UpdateFileAsync("dir/ok.txt", TestStreams.Text("ok"));
+        string[] names = ["a.txt.", "b ", "CON.txt", "nul"];
+        if (!OperatingSystem.IsWindows())
+            names = [.. names, "x?y", "a<b"];
+        string Raw(params string[] segments) => (OperatingSystem.IsWindows() ? @"\\?\" : "") + Path.Combine([_root, "dir", .. segments]);
+        foreach (var name in names)
+        {
+            File.WriteAllText(Raw(name), name);
+            Directory.CreateDirectory(Raw(name + "-folder."));
+            File.WriteAllText(Raw(name + "-folder.", "inner.txt"), "inner");
+        }
+        try
+        {
+            CollectionAssert.AreEqual(new[] { "ok.txt" }, (await provider.GetDirectoryContentsAsync("dir")).Select(e => e.Name).ToArray());
+            var all = new List<string>();
+            await foreach (var entry in provider.EnumerateAsync("", recursive: true))
+                all.Add(entry.Path.ToString());
+            CollectionAssert.AreEqual(new[] { "dir", "dir/ok.txt" }, all);
+        }
+        finally
+        {
+            foreach (var name in names)
+            {
+                File.Delete(Raw(name));
+                File.Delete(Raw(name + "-folder.", "inner.txt"));
+                Directory.Delete(Raw(name + "-folder."));
+            }
+        }
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Linux | OperatingSystems.OSX)]
+    public async Task Paths_NamesWindowsReadsAsOthersLandAsGivenElsewhere()
+    {
+        // Linux and macOS hold every one of these names as itself, so the provider takes them there.
+        await Write("a.txt", "original");
+        foreach (var name in new[] { "a.txt.", "a.txt ", "CON.txt", "nul", "x?", "a<b>" })
+        {
+            await Write(name, name);
+            Assert.AreEqual(name, File.ReadAllText(Disk(name)), name);
+        }
+        Assert.AreEqual("original", File.ReadAllText(Disk("a.txt")));
+        CollectionAssert.IsSubsetOf(new[] { "a.txt.", "CON.txt", "x?" }, Names());
+    }
+
+    [TestMethod]
+    [DataRow("a.txt", true)]
+    [DataRow(".hidden", true)]
+    [DataRow("a..b", true)]
+    [DataRow("CONSOLE", true)]
+    [DataRow("COM10", true)]
+    [DataRow("COM0", true)]
+    [DataRow("file.con", true)]
+    [DataRow("a.", false)]
+    [DataRow("a ", false)]
+    [DataRow("a\"b", false)]
+    [DataRow("a<b", false)]
+    [DataRow("a>b", false)]
+    [DataRow("a|b", false)]
+    [DataRow("a?b", false)]
+    [DataRow("a*b", false)]
+    [DataRow("CON", false)]
+    [DataRow("con.txt", false)]
+    [DataRow("Nul.tar.gz", false)]
+    [DataRow("AUX  .log", false)]
+    [DataRow("prn", false)]
+    [DataRow("COM1", false)]
+    [DataRow("com9.txt", false)]
+    [DataRow("LPT1", false)]
+    [DataRow("lpt9", false)]
+    [DataRow("COM²", false)]
+    [DataRow("LPT³.txt", false)]
+    public void WindowsName_IsOneWindowsReadsAsItself(string name, bool windowsName) =>
+        Assert.AreEqual(windowsName, WriteablePhysicalFileProvider.IsWindowsName(name), name);
 
     [TestMethod]
     [DataRow("my file.txt")]

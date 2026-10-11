@@ -186,11 +186,11 @@ What differs is what each store can do. Every cell below comes from the provider
 
 | Provider | Package | Store, SDK | Folders | Names | Tested on |
 |---|---|---|---|---|---|
-| Physical | `WriteableFileProviders.Physical` | A folder on disk, .NET's file APIs | Real | Case ignored on Windows and macOS, kept elsewhere | A temp folder |
-| Azure Blob | `WriteableFileProviders.AzureBlob` | Azure Blob Storage, Azure.Storage.Blobs 12 (block blobs) | Virtual (name prefixes) | Case kept | Azurite |
-| Amazon S3 | `WriteableFileProviders.AmazonS3` | Amazon S3 or an S3-compatible server, AWSSDK.S3 4 | Virtual | Case kept | S3Mock and MinIO |
-| MinIO | `WriteableFileProviders.Minio` | MinIO, AWSSDK.S3 4 (no Minio SDK) | Virtual | Case kept | S3Mock and MinIO |
-| Google Cloud Storage | `WriteableFileProviders.GoogleCloudStorage` | Cloud Storage, Google.Cloud.Storage.V1 5 | Virtual | Case kept | fake-gcs-server |
+| Physical | `WriteableFileProviders.Physical` | A folder on disk, .NET's file APIs | Real | Case ignored on Windows and macOS, kept elsewhere; on Windows, no name Windows reads as another (`a.`, `CON.txt`) | A temp folder |
+| Azure Blob | `WriteableFileProviders.AzureBlob` | Azure Blob Storage, Azure.Storage.Blobs 12 (block blobs) | Virtual (name prefixes); a file and a folder may share a name | Case kept | Azurite |
+| Amazon S3 | `WriteableFileProviders.AmazonS3` | Amazon S3 or an S3-compatible server, AWSSDK.S3 4 | Virtual; a file and a folder may share a name | Case kept | S3Mock and MinIO |
+| MinIO | `WriteableFileProviders.Minio` | MinIO, AWSSDK.S3 4 (no Minio SDK) | Virtual; a file and a folder may share a name, and MinIO then lists only the file | Case kept | S3Mock and MinIO |
+| Google Cloud Storage | `WriteableFileProviders.GoogleCloudStorage` | Cloud Storage, Google.Cloud.Storage.V1 5 | Virtual; a file and a folder may share a name | Case kept | fake-gcs-server |
 | Box | `WriteableFileProviders.Box` | Box, Box.V2.Core 10 (`Box.Sdk.Gen`) | Real | Case ignored | An in-memory Box API fake |
 | SharePoint | `WriteableFileProviders.SharePoint` | A document library, Microsoft Graph 6 | Real | Case ignored | An in-memory Graph fake |
 
@@ -212,9 +212,9 @@ What differs is what each store can do. Every cell below comes from the provider
 |---|---|---|---|---|---|
 | Physical | None | Every URL | A copy into a temp file, then an atomic rename | Native rename | Yes |
 | Azure Blob | Read, create, write: SAS (service, or user delegation), up to 7 days | Upload URLs with a content type or file name; a user delegation key that ends sooner, without `AllowShorterValidity`; a client that cannot sign | On the server | Server copy, then a conditional delete | No |
-| Amazon S3 | Read, create, write: presigned (SigV4), up to 7 days | Anonymous access; credentials that expire sooner, a session token or a client of yours, without `AllowShorterValidity`; upload URLs that ask for a file name | On the server | Server copy, then a conditional delete | No |
-| MinIO | Read, create, write: presigned, up to 7 days | Anonymous access; a client of yours, without `AllowShorterValidity`; upload URLs that ask for a file name | On the server | Server copy, then a checked delete | No |
-| Google Cloud Storage | Read, create, write: V4, 1 second to 7 days | A credential that cannot sign; upload URLs that ask for a file name; a validity under 1 second | On the server | Server copy, then a conditional delete | No |
+| Amazon S3 | Read and write: presigned (SigV4), up to 7 days; create on AWS only (no `ServiceUrl`) | Create URLs toward a named endpoint; anonymous access; credentials that expire sooner, a session token or a client of yours, without `AllowShorterValidity`; upload URLs that ask for a file name | On the server | Server copy, then a conditional delete | No |
+| MinIO | Read and write: presigned, up to 7 days | Create URLs; anonymous access; a client of yours, without `AllowShorterValidity`; upload URLs that ask for a file name | On the server | Server copy, then a checked delete | No |
+| Google Cloud Storage | Read, create, write: V4, 1 second to 7 days | A credential that cannot sign, or whose signing IAM refuses; upload URLs that ask for a file name; a validity under 1 second | On the server | Server copy, then a conditional delete | No |
 | Box | Read only: Box's download URL, about 15 minutes, with `AllowShorterValidity` | Create and write; a read without `AllowShorterValidity`, under 15 minutes, or with a file name or content type | On the server | On the server | No |
 | SharePoint | Read only: Graph's download URL, up to an hour, with `AllowShorterValidity` | Create and write; a read without `AllowShorterValidity`, under an hour, or with a file name or content type | On the server | On the server | No |
 
@@ -223,9 +223,16 @@ Notes:
 - **Atomic** means the store itself refuses a write whose condition fails; **checked** means the provider checks the
   condition just before the write, so a change that lands in between is not seen. Box's `IfMatch` is checked, not
   atomic; a later release may make it atomic once a live run confirms Box honours the ETag form its SDK sends.
-- **Folders:** a real folder exists while empty; a virtual one exists while something is under it.
+- **Folders:** a real folder exists while empty; a virtual one exists while something is under it. Where folders are
+  virtual, they are name prefixes, so a file can be written at a folder's path, or a folder under a file's path: both
+  are stored, read back by path, and listed side by side (MinIO lists only the file, and hides what is under the folder
+  while the file exists). Where folders are real, either write throws `IOException`.
 - **Listings** leave out names the provider cannot address on every provider, such as `..`, a name holding `\`, or a
-  percent-encoded form of one, so everything listed can be read back.
+  percent-encoded form of one, so everything listed can be read back. They also leave out the temporary names a
+  provider makes itself (Physical's `.wfp-<guid>.tmp` write files, Azure's `.wfp-tmp` folder at the root), and only
+  those: a name of yours that starts with `.wfp-` is listed like any other.
+- **Create URLs** upload only if the file does not exist yet. A provider issues one natively only where the store
+  enforces that condition; toward an S3-compatible server, which may ignore it, the gateway issues it.
 - **Signed URLs** never outlive the validity asked. A URL whose lifetime the service sets (Box, SharePoint) is returned
   only with `SignedUrlOptions.AllowShorterValidity`; otherwise, and wherever a provider cannot sign, the call throws
   `NotSupportedException`, which is what lets the gateway take over.

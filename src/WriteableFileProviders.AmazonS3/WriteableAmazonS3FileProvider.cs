@@ -10,20 +10,24 @@ namespace WriteableFileProviders.AmazonS3;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Folders are key prefixes: a folder exists while some key is under it. Names are case-sensitive. Files up to 8 MiB are
-/// written in one request, larger ones in a multipart upload; either way S3 replaces a file only once the whole content
-/// arrived, so a failed write leaves the old content. <see cref="UpdateFileOptions.IfMatch"/> and
-/// <see cref="UpdateFileOptions.IfNotExists"/> go to the store with the write, and an append (a rewrite of the whole file)
-/// writes with <c>If-Match</c> on the version it read. A copy refuses an existing destination with <c>If-None-Match: *</c>,
-/// and a move deletes the source with <c>If-Match</c> on the version it copied, undoing the copy when the source changed.
-/// AWS checks all of these atomically. Toward an endpoint that <see cref="AmazonS3FileProviderOptions.ServiceUrl"/> or
-/// a given client names, which may be an S3-compatible server that ignores some of them, the provider also checks them
-/// first, which is not atomic.
+/// Folders are key prefixes: a folder exists while some key is under it, and a file and a folder may share a name.
+/// Names are case-sensitive. Files up to 8 MiB are written in one request, larger ones in a multipart upload; either
+/// way S3 replaces a file only once the whole content arrived, so a failed write leaves the old content.
+/// <see cref="UpdateFileOptions.IfMatch"/> and <see cref="UpdateFileOptions.IfNotExists"/> go to the store with the
+/// write, and an append (a rewrite of the whole file) writes with <c>If-Match</c> on the version it read. A copy
+/// refuses an existing destination with <c>If-None-Match: *</c>, and a move deletes the source with <c>If-Match</c> on
+/// the version it copied, undoing the copy when the source changed. AWS checks all of these atomically. Toward an
+/// endpoint that <see cref="AmazonS3FileProviderOptions.ServiceUrl"/> or a given client names, which may be an
+/// S3-compatible server that ignores some of them, the provider also checks them first, which is not atomic.
 /// </para>
 /// <para>
 /// Nothing touches the network until the first call, which resolves the credentials of the default chain if asked and
 /// checks the bucket once. Presigned read, create and write URLs live at most 7 days, and never longer than the
-/// credential that signs them.
+/// credential that signs them. A create URL (only if the file does not exist yet) is issued only on AWS, which enforces
+/// the <c>If-None-Match: *</c> it signs; toward an endpoint the options or a given client name, it throws
+/// <see cref="NotSupportedException"/>, so WriteableFileProviders.AspNetCore issues a gateway URL instead. Plain
+/// <c>http</c> toward a host that is not loopback is refused unless
+/// <see cref="AmazonS3FileProviderOptions.AllowInsecureHttp"/> allows it.
 /// </para>
 /// </remarks>
 public sealed class WriteableAmazonS3FileProvider : WriteableFileProvider<AmazonS3FileProviderOptions>
@@ -32,7 +36,11 @@ public sealed class WriteableAmazonS3FileProvider : WriteableFileProvider<Amazon
 
     /// <summary>Creates the provider; it connects on first use.</summary>
     /// <param name="options">The options.</param>
-    /// <exception cref="ArgumentException">The options are incomplete or contradict each other.</exception>
+    /// <exception cref="ArgumentException">
+    /// The options are incomplete or contradict each other, or <see cref="AmazonS3FileProviderOptions.ServiceUrl"/> is
+    /// plain http toward a host that is not loopback without
+    /// <see cref="AmazonS3FileProviderOptions.AllowInsecureHttp"/>.
+    /// </exception>
     public WriteableAmazonS3FileProvider(AmazonS3FileProviderOptions options)
         : this(options, null, null)
     {
@@ -45,17 +53,21 @@ public sealed class WriteableAmazonS3FileProvider : WriteableFileProvider<Amazon
     /// <see cref="AmazonS3FileProviderOptions.UseDefaultCredentials"/> are not used. The options give the bucket, the root,
     /// the storage class and <see cref="AmazonS3FileProviderOptions.CreateBucketIfMissing"/>, and two more:
     /// <see cref="AmazonS3FileProviderOptions.ServiceUrl"/>, when set (as when the client's own <c>ServiceURL</c> is),
-    /// makes the provider check conditions before a write too; and when that endpoint is not one of S3's own host names
-    /// (under <c>amazonaws.com</c> or <c>amazonaws.com.cn</c>, with an <c>s3</c> label, such as
-    /// <c>s3.eu-west-1.amazonaws.com</c>, a dual-stack or a VPC endpoint), no requester-pays header is sent either. On
-    /// S3, <see cref="AmazonS3FileProviderOptions.BucketRegion"/> is the location of a bucket the provider creates. The
+    /// makes the provider check conditions before a write too, and issue no native create URL; and when that endpoint
+    /// is not one of S3's own host names (under <c>amazonaws.com</c> or <c>amazonaws.com.cn</c>, with an <c>s3</c> or
+    /// <c>s3-fips</c> label, such as <c>s3.eu-west-1.amazonaws.com</c>, a FIPS, a dual-stack or a VPC endpoint), no
+    /// requester-pays header is sent either. A client whose endpoint is plain <c>http</c> toward a host that is not
+    /// loopback needs <see cref="AmazonS3FileProviderOptions.AllowInsecureHttp"/>. On S3,
+    /// <see cref="AmazonS3FileProviderOptions.BucketRegion"/> is the location of a bucket the provider creates. The
     /// provider cannot see when the client's credentials expire, so its presigned URLs need
     /// <see cref="SignedUrlOptions.AllowShorterValidity"/>.
     /// </summary>
     /// <param name="options">The options.</param>
     /// <param name="client">The client.</param>
     /// <exception cref="ArgumentException">
-    /// The options name no bucket, or <see cref="AmazonS3FileProviderOptions.ServiceUrl"/> is not an http or https URL.
+    /// The options name no bucket, <see cref="AmazonS3FileProviderOptions.ServiceUrl"/> is not an http or https URL, or
+    /// the client's endpoint or <see cref="AmazonS3FileProviderOptions.ServiceUrl"/> is plain http toward a host that
+    /// is not loopback without <see cref="AmazonS3FileProviderOptions.AllowInsecureHttp"/>.
     /// </exception>
     public WriteableAmazonS3FileProvider(AmazonS3FileProviderOptions options, IAmazonS3 client)
         : this(options, client ?? throw new ArgumentNullException(nameof(client)), null)
@@ -161,8 +173,16 @@ public sealed class WriteableAmazonS3FileProvider : WriteableFileProvider<Amazon
     protected override Task MoveCoreAsync(ResolvedPath source, ResolvedPath destination, CancellationToken cancellationToken) =>
         _core.MoveAsync(source, destination, cancellationToken);
 
-    /// <inheritdoc />
-    protected override bool SupportsSignedUrl(SignedUrlAccess permission) => _core.CanPresign;
+    /// <summary>
+    /// Read and write URLs whenever the credential can sign. A create URL (only if the file does not exist yet) only on
+    /// AWS through the SDK's own endpoint, which enforces the <c>If-None-Match: *</c> it signs: toward an endpoint the
+    /// options or the client name, a server may ignore that header and let the URL overwrite a file, so a create URL is
+    /// <see cref="NotSupportedException"/> there, and WriteableFileProviders.AspNetCore issues a gateway URL, which
+    /// enforces it.
+    /// </summary>
+    /// <param name="permission">The permission.</param>
+    protected override bool SupportsSignedUrl(SignedUrlAccess permission) =>
+        _core.CanPresign && (permission != SignedUrlAccess.Create || _core.ChecksAtomically);
 
     /// <inheritdoc />
     protected override bool SupportsSignedUrlContentHeaders(SignedUrlAccess permission) => true;
@@ -201,8 +221,11 @@ public sealed class WriteableAmazonS3FileProvider : WriteableFileProvider<Amazon
         {
             if (!Uri.TryCreate(options.ServiceUrl, UriKind.Absolute, out var uri) || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
                 throw new ArgumentException("ServiceUrl is not an absolute http or https URL.", nameof(options));
+            RefuseInsecureHttp(options, uri.Scheme == Uri.UriSchemeHttp ? uri : null, "ServiceUrl");
             serviceUrl = options.ServiceUrl;
         }
+        if (client is not null)
+            RefuseInsecureHttp(options, PlainHttpEndpointOf(client.Config), "The client's endpoint");
         var region = S3Core.NormalizeRegion(options.BucketRegion);
         if (!clientGiven && serviceUrl is null && region is null)
             throw new ArgumentException("BucketRegion is required unless ServiceUrl is set.", nameof(options));
@@ -228,12 +251,35 @@ public sealed class WriteableAmazonS3FileProvider : WriteableFileProvider<Amazon
         };
     }
 
-    // No endpoint, or a host name of S3's own: under amazonaws.com or amazonaws.com.cn (one trailing dot trimmed), with a
-    // label that is exactly "s3", as in s3.amazonaws.com, s3.eu-west-1.amazonaws.com, bucket.s3.eu-west-1.amazonaws.com,
-    // s3.dualstack.eu-west-1.amazonaws.com or a VPC endpoint's bucket.vpce-0abc.s3.eu-west-1.vpce.amazonaws.com. A load
-    // balancer's, an instance's or an API's name under amazonaws.com is not S3's, nor are the legacy dashed names
-    // (s3-eu-west-1, s3-external-1, s3-fips): with those, requests do not accept requester-pays charges and a created
-    // bucket gets no location, the safe side for a server that may not be S3.
+    // Plain http toward a host that is not loopback sends files, session tokens and presigned bearer URLs in clear
+    // text: refused unless the options allow it, as the MinIO provider refuses it.
+    private static void RefuseInsecureHttp(AmazonS3FileProviderOptions options, Uri? plainHttp, string what)
+    {
+        if (plainHttp is not null && !plainHttp.IsLoopback && !options.AllowInsecureHttp)
+        {
+            throw new ArgumentException(
+                $"{what} is plain http, so files would cross the network to '{plainHttp.Host}' in clear text. Use https, or set AllowInsecureHttp to accept plain HTTP.",
+                nameof(options));
+        }
+    }
+
+    // The plain-http endpoint a client sends to: its ServiceURL when that is http, or S3's own when the client is set
+    // to use http; null when it uses https.
+    private static Uri? PlainHttpEndpointOf(IClientConfig config)
+    {
+        if (config.ServiceURL is { } url)
+            return Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttp ? uri : null;
+        return config.UseHttp ? new Uri("http://s3.amazonaws.com") : null;
+    }
+
+    // No endpoint, or a host name of S3's own: under amazonaws.com or amazonaws.com.cn (one trailing dot trimmed), with
+    // a label that is exactly "s3" or "s3-fips", as in s3.amazonaws.com, s3.eu-west-1.amazonaws.com,
+    // bucket.s3.eu-west-1.amazonaws.com, s3.dualstack.eu-west-1.amazonaws.com, a VPC endpoint's
+    // bucket.vpce-0abc.s3.eu-west-1.vpce.amazonaws.com, or the FIPS endpoints s3-fips.us-east-1.amazonaws.com and
+    // s3-fips.dualstack.us-east-1.amazonaws.com. A load balancer's, an instance's or an API's name under amazonaws.com
+    // is not S3's, nor are the legacy dashed regional names (s3-eu-west-1, s3-external-1): with those, requests do not
+    // accept requester-pays charges and a created bucket gets no location, the safe side for a server that may not be
+    // S3.
     internal static bool IsS3Endpoint(string? url)
     {
         if (url is null)
@@ -243,7 +289,8 @@ public sealed class WriteableAmazonS3FileProvider : WriteableFileProvider<Amazon
         var host = uri.Host.EndsWith('.') ? uri.Host[..^1] : uri.Host;
         var underAws = host.EndsWith(".amazonaws.com", StringComparison.OrdinalIgnoreCase)
             || host.EndsWith(".amazonaws.com.cn", StringComparison.OrdinalIgnoreCase);
-        return underAws && host.Split('.').Any(label => label.Equals("s3", StringComparison.OrdinalIgnoreCase));
+        return underAws && host.Split('.').Any(label => label.Equals("s3", StringComparison.OrdinalIgnoreCase)
+            || label.Equals("s3-fips", StringComparison.OrdinalIgnoreCase));
     }
 
     // Null: the default credential chain, resolved on first use.

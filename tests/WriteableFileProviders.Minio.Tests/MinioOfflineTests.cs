@@ -70,6 +70,28 @@ public sealed class MinioOfflineTests
     }
 
     [TestMethod]
+    public async Task Presign_NeverACreateUrl()
+    {
+        // Its only guard would be the If-None-Match it signs, which older MinIO releases ignore: the gateway issues it.
+        var (provider, factory, _) = Offline(Options("us-east-1"));
+        using (provider)
+        {
+            var e = await Assert.ThrowsExactlyAsync<NotSupportedException>(() => provider.GetSignedUrlAsync("new.txt",
+                new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Permission = SignedUrlAccess.Create }));
+            StringAssert.Contains(e.Message, "Create");
+            Assert.AreEqual(0, factory.Requests.Count, "Refused before any request");
+            var write = await provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Permission = SignedUrlAccess.Write });
+            Assert.AreEqual("PUT", write.Method);
+            Assert.IsFalse(write.Headers.ContainsKey("If-None-Match"));
+        }
+        using var client = new AmazonS3Client(new Amazon.Runtime.BasicAWSCredentials("key", "secret"),
+            new AmazonS3Config { ServiceURL = "https://minio.example.net:9000", ForcePathStyle = true });
+        using var given = new WriteableMinioFileProvider(new MinioFileProviderOptions { BucketName = "bucket" }, client);
+        await Assert.ThrowsExactlyAsync<NotSupportedException>(() => given.GetSignedUrlAsync("new.txt",
+            new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Permission = SignedUrlAccess.Create, AllowShorterValidity = true }));
+    }
+
+    [TestMethod]
     public async Task Region_ThatCannotBeAskedIsUsEast1()
     {
         var (provider, _, signatures) = Offline(Options(), r => IsLocation(r) ? Error(HttpStatusCode.Forbidden, "AccessDenied") : null);

@@ -40,6 +40,7 @@ public sealed class AmazonS3EmulatorTests
             {
                 ServiceUrl = Endpoint.ServiceUrl,
                 ForcePathStyle = true,
+                AllowInsecureHttp = !Endpoint.IsLoopback,
             });
             await provider.UpdateFileAsync("dir/f.txt", TestStreams.Text("one"));
             await provider.UpdateFileAsync("dir/f.txt", TestStreams.Text("two"));
@@ -75,6 +76,7 @@ public sealed class AmazonS3EmulatorTests
             ["RootDirectoryPath"] = root + "/",
             ["ServiceUrl"] = Endpoint.ServiceUrl,
             ["ForcePathStyle"] = true,
+            ["AllowInsecureHttp"] = !Endpoint.IsLoopback,
             ["Type"] = "WriteableAmazonS3FileProvider",
         };
         using var fromJson = WriteableFileProviderSerializer.FromJson(json);

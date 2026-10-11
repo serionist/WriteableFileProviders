@@ -81,9 +81,10 @@ its 2026 shape. The options hold secrets: never log them, nor the output of `ToJ
 
 The first credential that is set wins: `ClientEmail` with `PrivateKey`, then `CredentialsJson`, then Application
 Default Credentials. The provider's constructor does no network I/O: it reads a key, but the client is built, and
-Application Default Credentials are looked up, on the first call; a failure there is tried again by the next call. A
-key that cannot be read, a missing bucket name, an `Endpoint` that is not a root URL, or a plain-`http` `Endpoint`
-toward a host that is not loopback without `AllowInsecureHttp` throws `ArgumentException` from the constructor.
+Application Default Credentials are looked up, on the first call, which throws `InvalidOperationException` where there
+are none; a failure there is tried again by the next call. A key that cannot be read, a missing bucket name, an
+`Endpoint` that is not a root URL, or a plain-`http` `Endpoint` toward a host that is not loopback without
+`AllowInsecureHttp` throws `ArgumentException` from the constructor.
 
 The credentials go to the `Endpoint` as they go to Google, so use `https` except for a local emulator. Against
 fake-gcs-server, any service account key works: the client signs its own tokens and never asks Google for one.
@@ -98,7 +99,9 @@ copies and moves, appends to a new file, and seekable reads, local streams and r
 ## How it behaves
 
 - **Folders** are prefixes: a folder exists while an object is under it, and lists as missing once the last one goes.
-  An object named like a folder (`dir/`, as the console makes) is an empty folder. Names are case-sensitive.
+  An object named like a folder (`dir/`, as the console makes) is an empty folder. Names are case-sensitive. So a file
+  and a folder may share a name: an object written at a folder's path, or under an object's path, is stored, reads back
+  by path, and a listing shows both. `GetFileInfoAsync` of such a name describes the file.
 - **Listings** leave out objects whose names no path can address: an empty segment (`a//b`), one of only dots and
   spaces (`x/../y`), a control character, a backslash, or a percent-encoded form of one of these.
 - **Versions:** a file's `ETag` is its generation. `UpdateFileOptions.IfMatch` and `IfNotExists` are generation
@@ -130,8 +133,9 @@ copies and moves, appends to a new file, and seekable reads, local streams and r
 
 `GetSignedUrlAsync` issues V4 signed URLs, which need a credential that can sign: a service account key, or an identity
 that holds `iam.serviceAccounts.signBlob` on its service account (Workload Identity, Compute Engine, Cloud Run). With a
-credential that cannot sign (a user, an access token), it throws `NotSupportedException`, and the
-WriteableFileProviders.AspNetCore gateway can take over.
+credential that cannot sign (a user, an access token), or when IAM refuses or fails the signing (an identity without
+`signBlob`), it throws `NotSupportedException` with the cause inside, and the WriteableFileProviders.AspNetCore gateway
+can take over.
 
 | Permission | URL | The request must send |
 |---|---|---|

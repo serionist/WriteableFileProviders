@@ -1,5 +1,5 @@
 {
-  "WriteableFileProviders.AmazonS3": { "lines": 97, "branches": 91 },
+  "WriteableFileProviders.AmazonS3": { "lines": 97, "branches": 92 },
   "WriteableFileProviders.AspNetCore": { "lines": 99, "branches": 98 },
   "WriteableFileProviders.AzureBlob": { "lines": 98, "branches": 90 },
   "WriteableFileProviders.Box": { "lines": 98, "branches": 92 },

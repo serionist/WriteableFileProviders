@@ -537,6 +537,18 @@ public sealed class SharePointProviderTests
     }
 
     [TestMethod]
+    public async Task Range_LongerThanARangeCanName_AsksForTheRest()
+    {
+        // offset + length - 1 overflows: the header asks for everything from the offset, never a malformed range.
+        var (provider, fake) = Create();
+        await Write(provider, "f.txt", "0123456789");
+        fake.ClearRequests();
+        Assert.AreEqual("23456789", await ReadRange(provider, "f.txt", 2, long.MaxValue));
+        Assert.AreEqual("3456789", await ReadRange(provider, "f.txt", 3, long.MaxValue - 1));
+        CollectionAssert.AreEqual(new[] { "bytes=2-", "bytes=3-" }, Sent(fake, "GET", GraphFake.DownloadHost).Select(d => d.Header("Range")).ToArray());
+    }
+
+    [TestMethod]
     public async Task Range_IgnoredByTheService_IsCutFromTheWholeFile()
     {
         var (provider, _) = Create(configure: f => f.IgnoreRanges = true);

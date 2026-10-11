@@ -14,6 +14,9 @@ public sealed class AzuriteConformanceTests : ProviderConformanceTests
 
     protected override bool KeepsContentType => true;
 
+    // Folders are name prefixes: a file and a folder may share a name.
+    protected override bool FileAndFolderMayShareAName => true;
+
     protected override bool SupportsSignedUrls(SignedUrlAccess access) => true;
 
     protected override long LargeFileSize => 16L << 20;
@@ -50,6 +53,9 @@ public sealed class AzuriteStrictConformanceTests : ProviderConformanceTests
     private static readonly string _containerName = Azurite.NewContainerName();
 
     protected override bool KeepsContentType => true;
+
+    // Folders are name prefixes: a file and a folder may share a name.
+    protected override bool FileAndFolderMayShareAName => true;
 
     protected override bool SupportsSignedUrls(SignedUrlAccess access) => true;
 

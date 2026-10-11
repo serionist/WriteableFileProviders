@@ -377,6 +377,45 @@ public sealed class GcsOptionsTests
             provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Permission = access }));
     }
 
+    [TestMethod]
+    [DataRow(HttpStatusCode.Forbidden)]
+    [DataRow(HttpStatusCode.InternalServerError)]
+    [DataRow((HttpStatusCode)0)]
+    public async Task SignedUrl_ThatIamRefusesOrFailsIsNotSupported(HttpStatusCode status)
+    {
+        // An identity that signs through IAM's signBlob, here Compute Engine's: a refusal (403 without
+        // iam.serviceAccounts.signBlob), an error or a network failure of the signing is NotSupportedException with the
+        // cause inside, so the URL service falls back to the gateway. All of it through the client's HTTP seam.
+        var http = new FaultInjection
+        {
+            OnRequest = request => request.RequestUri!.AbsolutePath switch
+            {
+                var p when p.EndsWith("/service-accounts/default/email", StringComparison.Ordinal) => Text("wfp@example-project.iam.gserviceaccount.com"),
+                var p when p.EndsWith("/service-accounts/default/token", StringComparison.Ordinal) =>
+                    Text("""{"access_token":"fake-token","expires_in":3600,"token_type":"Bearer"}""", "application/json"),
+                var p when p.EndsWith(":signBlob", StringComparison.Ordinal) => status == 0
+                    ? throw new HttpRequestException("Injected network failure")
+                    : Task.FromResult<HttpResponseMessage?>(FaultInjection.Error(status, "Permission 'iam.serviceAccounts.signBlob' denied")),
+                _ => Task.FromResult<HttpResponseMessage?>(FaultInjection.Error(HttpStatusCode.NotFound)),
+            },
+        };
+        // The universe is named, so the credential asks the metadata server nothing but the email and the token.
+        var credential = new ComputeCredential(new ComputeCredential.Initializer { HttpClientFactory = http }).ToGoogleCredential().CreateWithUniverseDomain("googleapis.com");
+        using var client = new StorageClientBuilder { GoogleCredential = credential, HttpClientFactory = http }.Build();
+        using var provider = new WriteableGoogleCloudStorageFileProvider(Options(null), client);
+        var e = await Assert.ThrowsExactlyAsync<NotSupportedException>(() =>
+            provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Permission = SignedUrlAccess.Write }));
+        Assert.IsNotNull(e.InnerException, "The cause travels inside");
+        Assert.IsTrue(http.Requests.Any(r => r.Contains(":signBlob", StringComparison.Ordinal)), string.Join("\n", http.Requests) + "\n" + e.InnerException);
+
+        static Task<HttpResponseMessage?> Text(string body, string type = "text/plain")
+        {
+            var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, type) };
+            response.Headers.Add("Metadata-Flavor", "Google");
+            return Task.FromResult<HttpResponseMessage?>(response);
+        }
+    }
+
     // A client signed in with the made-up key, for Google's endpoint, whose HTTP never leaves the process: it answers
     // every metadata request with one small object, which is all a read URL asks the server.
     private static StorageClient Offline()

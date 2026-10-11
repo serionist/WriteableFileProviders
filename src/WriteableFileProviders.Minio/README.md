@@ -82,7 +82,10 @@ A MinIO key pair (`AccessKey`, `SecretKey`), or none for anonymous access. For a
 ## How it behaves
 
 - **Folders** are key prefixes: a folder exists while a key is under it (or a `dir/` marker key another tool made), and
-  an empty one does not. Names are case-sensitive.
+  an empty one does not. Names are case-sensitive. So a file and a folder may share a name: a file written at a
+  folder's path, or a folder under a file's path, is stored and reads back by path. MinIO then lists only the file, and
+  hides what is under the folder from every listing while the file exists; deleting the file shows the folder again.
+  `GetFileInfoAsync` of such a name describes the file.
 - **Listings** leave out keys a path cannot name: an empty or whitespace segment, one of only dots and spaces such as
   `..`, a backslash, a control character, or a percent-encoded form of one of these. They carry no content type;
   `GetFileInfoAsync` does.
@@ -117,13 +120,15 @@ A MinIO key pair (`AccessKey`, `SecretKey`), or none for anonymous access. For a
 
 ## Signed URLs
 
-`GetSignedUrlAsync` presigns read (GET), create (PUT with a signed `If-None-Match: *`) and write (PUT) URLs for at most
-7 days, over the scheme `UseSSL` chooses. A longer validity throws `NotSupportedException`, so
-WriteableFileProviders.AspNetCore can issue a gateway URL instead. A read URL can carry a download file name and a
-content type, and needs the file to exist; an upload URL with a download file name throws `NotSupportedException`, and
-an upload must send every header in `SignedUrl.Headers`. A create URL refuses an existing file only on a MinIO release
-with conditional writes. URLs from a client you passed in need `AllowShorterValidity`, since the provider cannot see
-when its credentials expire.
+`GetSignedUrlAsync` presigns read (GET) and write (PUT) URLs for at most 7 days, over the scheme `UseSSL` chooses. A
+longer validity throws `NotSupportedException`, so WriteableFileProviders.AspNetCore can issue a gateway URL instead. A
+read URL can carry a download file name and a content type, and needs the file to exist; an upload URL with a download
+file name throws `NotSupportedException`, and an upload must send every header in `SignedUrl.Headers`. URLs from a
+client you passed in need `AllowShorterValidity`, since the provider cannot see when its credentials expire.
+
+A create URL (only if the file does not exist yet) throws `NotSupportedException`: its only guard would be the
+`If-None-Match: *` it signs, which MinIO releases without conditional writes ignore, so it could overwrite a file. The
+gateway issues create URLs instead, and enforces them.
 
 ## Limits
 

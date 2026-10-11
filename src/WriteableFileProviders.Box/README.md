@@ -100,6 +100,8 @@ the SDK's `BoxApiException` inside, without the token request it sent.
 ## How it behaves
 
 - **Folders are real:** an empty folder exists, and `GetFileInfoAsync` on a folder says it exists and is a directory.
+  A file and a folder cannot share a name: writing a file at a folder's path, or under a file's path, throws
+  `IOException`.
 - **Names ignore case:** a folder cannot hold `a.txt` and `A.txt`; moving `a.txt` to `A.txt` renames it. Writing
   `A.TXT` over `a.txt` keeps the stored name.
 - **Paths are resolved on every call:** Box has no lookup by path, so each call lists the folders on its path from the

@@ -72,7 +72,7 @@ public sealed class AmazonS3OptionsTests
     public void NewOptions_AreWrittenOnlyWhenSet()
     {
         // D26: a configuration that uses none of the 2027 options keeps its 2026 shape.
-        string[] added = ["ServiceUrl", "ForcePathStyle", "UseDefaultCredentials", "CreateBucketIfMissing"];
+        string[] added = ["ServiceUrl", "ForcePathStyle", "UseDefaultCredentials", "CreateBucketIfMissing", "AllowInsecureHttp"];
         using (var plain = new WriteableAmazonS3FileProvider(Valid()))
         {
             var json = plain.ToJson();
@@ -85,12 +85,66 @@ public sealed class AmazonS3OptionsTests
             ForcePathStyle = true,
             UseDefaultCredentials = true,
             CreateBucketIfMissing = true,
+            AllowInsecureHttp = true,
         });
         var written = set.ToJson();
         Assert.IsTrue(added.All(written.ContainsKey), written.ToJsonString());
         using var read = (WriteableAmazonS3FileProvider)WriteableFileProviderSerializer.FromJson(written);
         Assert.AreEqual("http://localhost:9000", read.Options.ServiceUrl);
-        Assert.IsTrue(read.Options.ForcePathStyle && read.Options.UseDefaultCredentials && read.Options.CreateBucketIfMissing);
+        Assert.IsTrue(read.Options.ForcePathStyle && read.Options.UseDefaultCredentials && read.Options.CreateBucketIfMissing && read.Options.AllowInsecureHttp);
+    }
+
+    [TestMethod]
+    [DataRow("http://minio.internal:9000")]
+    [DataRow("http://10.0.0.5:9000")]
+    [DataRow("HTTP://S3.EXAMPLE.COM")]
+    public void PlainHttp_TowardAHostThatIsNotLoopback_NeedsAllowInsecureHttp(string endpoint)
+    {
+        // Files, session tokens and presigned URLs would cross the network in clear text, as MinIO's provider refuses.
+        var options = new AmazonS3FileProviderOptions("root", "key", "secret", "bucket", "us-east-1") { ServiceUrl = endpoint };
+        var e = Assert.ThrowsExactly<ArgumentException>(() => new WriteableAmazonS3FileProvider(options));
+        Assert.AreEqual("options", e.ParamName);
+        StringAssert.Contains(e.Message, "AllowInsecureHttp");
+        StringAssert.Contains(e.Message, new Uri(endpoint).Host);
+        options.AllowInsecureHttp = true;
+        using (new WriteableAmazonS3FileProvider(options))
+        {
+        }
+
+        // A client given to the provider is held to the same rule, through its own endpoint.
+        using var client = new AmazonS3Client(new AnonymousAWSCredentials(), new AmazonS3Config { ServiceURL = endpoint, ForcePathStyle = true });
+        var bare = new AmazonS3FileProviderOptions { BucketName = "bucket" };
+        StringAssert.Contains(Assert.ThrowsExactly<ArgumentException>(() => new WriteableAmazonS3FileProvider(bare, client)).Message, "AllowInsecureHttp");
+        bare.AllowInsecureHttp = true;
+        using (new WriteableAmazonS3FileProvider(bare, client))
+        {
+        }
+    }
+
+    [TestMethod]
+    [DataRow("http://localhost:9000")]
+    [DataRow("http://127.0.0.1:9000")]
+    [DataRow("http://[::1]:9000")]
+    [DataRow("https://minio.internal:9000")]
+    public void PlainHttp_ToLoopbackOrHttps_NeedsNothing(string endpoint)
+    {
+        using (new WriteableAmazonS3FileProvider(new AmazonS3FileProviderOptions("root", "key", "secret", "bucket", "us-east-1") { ServiceUrl = endpoint }))
+        {
+        }
+        using var client = new AmazonS3Client(new AnonymousAWSCredentials(), new AmazonS3Config { ServiceURL = endpoint, ForcePathStyle = true });
+        using (new WriteableAmazonS3FileProvider(new AmazonS3FileProviderOptions { BucketName = "bucket" }, client))
+        {
+        }
+    }
+
+    [TestMethod]
+    public void PlainHttp_ToAwsThroughAGivenClient_NeedsAllowInsecureHttp()
+    {
+        using var client = new AmazonS3Client(new AnonymousAWSCredentials(), new AmazonS3Config { RegionEndpoint = RegionEndpoint.EUWest1, UseHttp = true });
+        Assert.ThrowsExactly<ArgumentException>(() => new WriteableAmazonS3FileProvider(new AmazonS3FileProviderOptions { BucketName = "bucket" }, client));
+        using (new WriteableAmazonS3FileProvider(new AmazonS3FileProviderOptions { BucketName = "bucket", AllowInsecureHttp = true }, client))
+        {
+        }
     }
 
     [TestMethod]

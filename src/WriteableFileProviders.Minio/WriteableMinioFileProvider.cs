@@ -10,19 +10,22 @@ namespace WriteableFileProviders.Minio;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Folders are key prefixes: a folder exists while some key is under it. Names are case-sensitive. Files up to 8 MiB are
-/// written in one request, larger ones in a multipart upload; either way MinIO replaces a file only once the whole
-/// content arrived, so a failed write leaves the old content. <see cref="UpdateFileOptions.IfMatch"/> and
-/// <see cref="UpdateFileOptions.IfNotExists"/> are checked by the provider first, which is not atomic, and sent with the
-/// write, which MinIO releases with conditional writes then enforce; an append (a rewrite of the whole file) writes with
-/// <c>If-Match</c> on the version it read. A move or copy checks that the destination is free first, and a move checks
-/// the source's version before deleting it, undoing the copy when it changed; neither is atomic, as MinIO ignores
-/// <c>If-None-Match</c> on copies and <c>If-Match</c> on deletes.
+/// Folders are key prefixes: a folder exists while some key is under it, and a file and a folder may share a name
+/// (MinIO then lists only the file, and hides what is under the folder while the file exists). Names are
+/// case-sensitive. Files up to 8 MiB are written in one request, larger ones in a multipart upload; either way MinIO
+/// replaces a file only once the whole content arrived, so a failed write leaves the old content.
+/// <see cref="UpdateFileOptions.IfMatch"/> and <see cref="UpdateFileOptions.IfNotExists"/> are checked by the provider
+/// first, which is not atomic, and sent with the write, which MinIO releases with conditional writes then enforce; an
+/// append (a rewrite of the whole file) writes with <c>If-Match</c> on the version it read. A move or copy checks that
+/// the destination is free first, and a move checks the source's version before deleting it, undoing the copy when it
+/// changed; neither is atomic, as MinIO ignores <c>If-None-Match</c> on copies and <c>If-Match</c> on deletes.
 /// </para>
 /// <para>
 /// Nothing touches the network until the first call, which asks the server for the bucket's region (unless
-/// <see cref="MinioFileProviderOptions.Region"/> names it) and checks the bucket once. Presigned read, create and write
-/// URLs live at most 7 days.
+/// <see cref="MinioFileProviderOptions.Region"/> names it) and checks the bucket once. Presigned read and write URLs
+/// live at most 7 days. A create URL (only if the file does not exist yet) throws <see cref="NotSupportedException"/>:
+/// its guard would be the <c>If-None-Match: *</c> it signs, which older MinIO releases ignore, so
+/// WriteableFileProviders.AspNetCore issues a gateway URL instead, which enforces it.
 /// </para>
 /// </remarks>
 public sealed class WriteableMinioFileProvider : WriteableFileProvider<MinioFileProviderOptions>
@@ -121,8 +124,15 @@ public sealed class WriteableMinioFileProvider : WriteableFileProvider<MinioFile
     protected override Task MoveCoreAsync(ResolvedPath source, ResolvedPath destination, CancellationToken cancellationToken) =>
         _core.MoveAsync(source, destination, cancellationToken);
 
-    /// <inheritdoc />
-    protected override bool SupportsSignedUrl(SignedUrlAccess permission) => _core.CanPresign;
+    /// <summary>
+    /// Read and write URLs whenever the credential can sign. Never a create URL (only if the file does not exist yet):
+    /// its guard is the <c>If-None-Match: *</c> it signs, which older MinIO releases ignore, so such a URL could
+    /// overwrite a file; a create URL is <see cref="NotSupportedException"/>, and WriteableFileProviders.AspNetCore
+    /// issues a gateway URL, which enforces it.
+    /// </summary>
+    /// <param name="permission">The permission.</param>
+    protected override bool SupportsSignedUrl(SignedUrlAccess permission) =>
+        _core.CanPresign && (permission != SignedUrlAccess.Create || _core.ChecksAtomically);
 
     /// <inheritdoc />
     protected override bool SupportsSignedUrlContentHeaders(SignedUrlAccess permission) => true;

@@ -1,7 +1,10 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
+using System.Web;
 using Amazon.S3;
 using Amazon.S3.Model;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -209,20 +212,6 @@ public abstract class S3BehaviourTests
         await Assert.ThrowsExactlyAsync<FileNotFoundException>(() => provider.ReadRangeAsync("missing.txt", 0, 0));
         await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => provider.ReadRangeAsync("f.txt", 0, 0, new ReadOptions { IfMatch = "\"stale\"" }));
         await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => provider.ReadRangeAsync("f.txt", 0, 2, new ReadOptions { IfMatch = "\"stale\"" }));
-    }
-
-    [TestMethod]
-    public async Task Range_LongerThanARangeCanNameReadsToTheEnd()
-    {
-        using var provider = CreateProvider(Root);
-        await provider.UpdateFileAsync("f.txt", TestStreams.Text("0123"));
-        // offset + length - 1 overflows for the last two: the read must still go to the end, not fail.
-        foreach (var (offset, length) in new[] { (1L, long.MaxValue), (2L, long.MaxValue - 1), (2L, long.MaxValue), (3L, long.MaxValue - 1) })
-        {
-            await using var stream = await provider.ReadRangeAsync("f.txt", offset, length);
-            using var reader = new StreamReader(stream, Encoding.UTF8);
-            Assert.AreEqual("0123"[(int)offset..], await reader.ReadToEndAsync(), $"{offset}, {length}");
-        }
     }
 
     [TestMethod]
@@ -608,11 +597,10 @@ public abstract class S3BehaviourTests
         Assert.AreEqual("again", await ReadAsync(provider, "w.txt"));
         Assert.AreEqual("text/plain", (await provider.GetFileInfoAsync("w.txt")).ContentType);
 
-        var create = await provider.GetSignedUrlAsync("c.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Permission = SignedUrlAccess.Create });
-        Assert.AreEqual("*", create.Headers["If-None-Match"]);
-        Assert.AreEqual(HttpStatusCode.OK, await PutAsync(create, "first"));
-        Assert.AreEqual(HttpStatusCode.PreconditionFailed, await PutAsync(create, "second"));
-        Assert.AreEqual("first", await ReadAsync(provider, "c.txt"));
+        // Toward a named endpoint the server may ignore the If-None-Match that guards a create URL, so there is none:
+        // the gateway issues it instead.
+        await Assert.ThrowsExactlyAsync<NotSupportedException>(() =>
+            provider.GetSignedUrlAsync("c.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Permission = SignedUrlAccess.Create }));
 
         await Assert.ThrowsExactlyAsync<NotSupportedException>(() => provider.GetSignedUrlAsync("w.txt",
             new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Permission = SignedUrlAccess.Write, DownloadFileName = "x.txt" }));
@@ -633,13 +621,39 @@ public abstract class S3BehaviourTests
         var tampered = new Uri(url.Url.ToString()[..^1] + (url.Url.ToString()[^1] == '0' ? "1" : "0"));
         using (var response = await _http.GetAsync(tampered))
             Assert.AreEqual(HttpStatusCode.Forbidden, response.StatusCode);
-        await Task.Delay(TimeSpan.FromSeconds(2.5));
+        // The server judges the expiry on its own clock, which may lag this one (a Docker VM after the host slept):
+        // wait, within a bound, until its Date is past the URL's X-Amz-Date plus X-Amz-Expires, then expect the
+        // refusal.
+        var query = HttpUtility.ParseQueryString(url.Url.Query);
+        var expires = DateTimeOffset.ParseExact(query["X-Amz-Date"]!, "yyyyMMdd'T'HHmmss'Z'", CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal).AddSeconds(int.Parse(query["X-Amz-Expires"]!, CultureInfo.InvariantCulture));
+        var serverTime = await ServerTimeAsync();
+        for (var deadline = DateTimeOffset.UtcNow.AddMinutes(1); serverTime <= expires && DateTimeOffset.UtcNow < deadline; serverTime = await ServerTimeAsync())
+            await Task.Delay(TimeSpan.FromMilliseconds(250));
         using (var response = await _http.GetAsync(url.Url))
-            Assert.AreEqual(HttpStatusCode.Forbidden, response.StatusCode, "The URL outlived its validity");
-        var create = await provider.GetSignedUrlAsync("c.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Permission = SignedUrlAccess.Create });
-        using var withoutHeader = new HttpRequestMessage(HttpMethod.Put, create.Url) { Content = new StringContent("x") };
+            Assert.AreEqual(HttpStatusCode.Forbidden, response.StatusCode, $"The URL outlived its validity: it expired at {expires:O}, the server's clock says {serverTime:O}");
+    }
+
+    [TestMethod]
+    public async Task SignedUrls_TheCoresCreateUrlIsCheckedByTheServer()
+    {
+        // The create URL the core signs, which the providers issue only toward AWS: its If-None-Match is part of the
+        // signature, and a server with conditional writes refuses an overwrite with it.
+        if (!ValidatesSignatures)
+            return;
+        using var provider = CreateProvider(Root);
+        var path = (ResolvedPath)typeof(ResolvedPath).GetConstructors(BindingFlags.NonPublic | BindingFlags.Instance).Single()
+            .Invoke([new[] { Root }, new[] { "c.txt" }]);
+        var create = await CoreOf(provider).PresignAsync(path, new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Permission = SignedUrlAccess.Create },
+            DateTimeOffset.UtcNow, CancellationToken.None);
+        Assert.AreEqual("*", create.Headers["If-None-Match"]);
+        StringAssert.Contains(HttpUtility.ParseQueryString(create.Url.Query)["X-Amz-SignedHeaders"], "if-none-match");
+        using (var withoutHeader = new HttpRequestMessage(HttpMethod.Put, create.Url) { Content = new StringContent("x") })
         using (var response = await _http.SendAsync(withoutHeader))
             Assert.AreNotEqual(HttpStatusCode.OK, response.StatusCode, "A create URL needs its signed If-None-Match");
+        Assert.AreEqual(HttpStatusCode.OK, await PutAsync(create, "first"));
+        Assert.AreEqual(HttpStatusCode.PreconditionFailed, await PutAsync(create, "second"));
+        Assert.AreEqual("first", await ReadAsync(provider, "c.txt"));
     }
 
     [TestMethod]
@@ -669,6 +683,14 @@ public abstract class S3BehaviourTests
         core.HttpClientFactory = factory;
         core.PartSize = S3Core.MinimumPartSize;
         return (provider, factory);
+    }
+
+    // The server's own time, from the Date header of any answer: what it judges a URL's expiry by.
+    private async Task<DateTimeOffset> ServerTimeAsync()
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Head, Endpoint.ServiceUrl + "/");
+        using var response = await _http.SendAsync(request);
+        return response.Headers.Date ?? throw new AssertFailedException($"{Endpoint.Name} sent no Date header.");
     }
 
     private async Task PutRawAsync(string relativeKey, string text)

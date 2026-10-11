@@ -16,7 +16,11 @@ public abstract class AmazonS3ConformanceTests : ProviderConformanceTests
 
     protected override bool KeepsContentType => true;
 
-    protected override bool SupportsSignedUrls(SignedUrlAccess access) => true;
+    // Folders are name prefixes: a file and a folder may share a name.
+    protected override bool FileAndFolderMayShareAName => true;
+
+    // Toward a named endpoint, no create URL: the server may ignore the If-None-Match that guards it (the gateway's).
+    protected override bool SupportsSignedUrls(SignedUrlAccess access) => access != SignedUrlAccess.Create;
 
     // Three parts of 5 MiB, the smallest S3 takes: the large-file test crosses multipart without 100 MB of traffic.
     protected override long LargeFileSize => 11L << 20;
@@ -44,6 +48,8 @@ public abstract class AmazonS3ConformanceTests : ProviderConformanceTests
         {
             ServiceUrl = Endpoint.ServiceUrl,
             ForcePathStyle = true,
+            // On a local Docker the containers listen on loopback, where plain HTTP needs no opt-in.
+            AllowInsecureHttp = !Endpoint.IsLoopback,
         });
         provider.Core.PartSize = S3Core.MinimumPartSize;
         return provider;
@@ -68,4 +74,7 @@ public sealed class AmazonS3OnS3MockConformanceTests : AmazonS3ConformanceTests
 public sealed class AmazonS3OnMinioConformanceTests : AmazonS3ConformanceTests
 {
     internal override S3Endpoint Endpoint => S3Emulators.Minio;
+
+    // MinIO lists only the file where a file and a folder share a name, and hides what is under the folder meanwhile.
+    protected override bool ListsAFileAndAFolderOfOneName => false;
 }

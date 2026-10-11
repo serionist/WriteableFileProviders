@@ -57,6 +57,20 @@ public abstract class ProviderConformanceTests
     /// </summary>
     protected virtual bool DetectsConcurrentAppends => true;
 
+    /// <summary>
+    /// Whether a file and a folder may share a name: true on the object stores (S3, MinIO, Azure Blob, Google Cloud
+    /// Storage), where folders are name prefixes, so a file written at a folder's path, or a folder under a file's
+    /// path, is stored and a listing shows both (D30); false where the store refuses either write with
+    /// <see cref="IOException"/> (Physical, Box, SharePoint, the in-memory provider).
+    /// </summary>
+    protected virtual bool FileAndFolderMayShareAName => false;
+
+    /// <summary>
+    /// Where a file and a folder share a name, whether a one-level listing shows both. False on MinIO, which lists only
+    /// the file, and hides what is under the folder from every listing while the file exists; both still read back.
+    /// </summary>
+    protected virtual bool ListsAFileAndAFolderOfOneName => FileAndFolderMayShareAName;
+
     /// <summary>Whether entries can have a local-disk <see cref="IFileInfo.PhysicalPath"/>.</summary>
     protected virtual bool HasPhysicalPaths => false;
 
@@ -462,6 +476,54 @@ public abstract class ProviderConformanceTests
         Assert.IsFalse((await Provider.GetDirectoryContentsAsync("dir")).Exists, "The deleted folder still lists");
     }
 
+    [TestMethod]
+    public async Task List_RecursiveShowsTheFoldersTheOneLevelListingShows()
+    {
+        // A folder whose only content sits under a name the path rules refuse: the one-level listing shows the folder,
+        // and so must the recursive one, which leaves out only the name below it (D27).
+        await Write("ok.txt", "ok");
+        var staged = new List<string>();
+        foreach (var name in new[] { "%2e%2e", "...", " " })
+        {
+            if (await StoreRawFileAsync([RootName, "only", name, "x.txt"], "staged"))
+                staged.Add(name);
+        }
+        if (staged.Count == 0)
+            Assert.Inconclusive("The fixture cannot store a file past the provider (StoreRawFileAsync).");
+
+        var oneLevel = (await Provider.GetDirectoryContentsAsync("")).Select(e => $"{e.Name}{(e.IsDirectory ? "/" : "")}").ToList();
+        var recursive = new List<IWriteableFileInfo>();
+        await foreach (var entry in Provider.EnumerateAsync("", recursive: true))
+            recursive.Add(entry);
+        var topLevel = recursive.Where(e => e.Path.Segments.Count == 1).Select(e => $"{e.Name}{(e.IsDirectory ? "/" : "")}").ToList();
+        CollectionAssert.Contains(oneLevel, "only/", $"Staged under 'only': {string.Join(", ", staged)}");
+        CollectionAssert.AreEquivalent(oneLevel, topLevel, $"One level: {string.Join(", ", oneLevel)}; recursive: {string.Join(", ", topLevel)}");
+        Assert.IsTrue((await Provider.GetFileInfoAsync("only")).IsDirectory);
+        Assert.IsFalse(recursive.Any(e => e.Path.Segments.Count > 1 && e.Path.Segments[0] == "only"), "Nothing addressable is under 'only'");
+    }
+
+    [TestMethod]
+    public async Task List_ShowsACallersNamesThatLookLikeTheProvidersOwn()
+    {
+        // A provider hides only the temporary names it makes itself (D32): a caller's ".wfp-" names are listed like any
+        // other, at the top and further down, and read back.
+        await Write(".wfp-notes.txt", "notes");
+        await Write(".wfp-draft.tmp", "draft");
+        await Write("d/.wfp-cache/x.json", "{}");
+
+        var root = (await Provider.GetDirectoryContentsAsync("")).Select(e => e.Name).ToList();
+        CollectionAssert.IsSubsetOf(new[] { ".wfp-notes.txt", ".wfp-draft.tmp", "d" }, root, string.Join(", ", root));
+        var d = (await Provider.GetDirectoryContentsAsync("d")).Cast<IWriteableFileInfo>().ToList();
+        Assert.IsTrue(d.Any(e => e.Name == ".wfp-cache" && e.IsDirectory), string.Join(", ", d.Select(e => e.Name)));
+        CollectionAssert.AreEqual(new[] { "x.json" }, (await Provider.GetDirectoryContentsAsync("d/.wfp-cache")).Select(e => e.Name).ToArray());
+        var all = new List<string>();
+        await foreach (var entry in Provider.EnumerateAsync("", recursive: true))
+            all.Add(entry.Path.ToString());
+        CollectionAssert.AreEquivalent(new[] { ".wfp-notes.txt", ".wfp-draft.tmp", "d", "d/.wfp-cache", "d/.wfp-cache/x.json" }, all, string.Join(", ", all));
+        Assert.AreEqual("notes", await Read(".wfp-notes.txt"));
+        Assert.AreEqual("{}", await Read("d/.wfp-cache/x.json"));
+    }
+
     // ----- Reads -----
 
     [TestMethod]
@@ -486,6 +548,15 @@ public abstract class ProviderConformanceTests
         Assert.AreEqual("", await ReadAll(await Provider.ReadRangeAsync("f.txt", 2, 0)));
         await Assert.ThrowsExactlyAsync<ArgumentOutOfRangeException>(() => Provider.ReadRangeAsync("f.txt", -1, 1));
         await Assert.ThrowsExactlyAsync<ArgumentOutOfRangeException>(() => Provider.ReadRangeAsync("f.txt", 0, -1));
+    }
+
+    [TestMethod]
+    public async Task Range_LongerThanARangeCanNameReadsToTheEnd()
+    {
+        await Write("f.txt", "0123");
+        // offset + length - 1 overflows for the last two: the read must still go to the end, not fail or read from 0.
+        foreach (var (offset, length) in new[] { (1L, long.MaxValue), (2L, long.MaxValue - 1), (2L, long.MaxValue), (3L, long.MaxValue - 1) })
+            Assert.AreEqual("0123"[(int)offset..], await ReadAll(await Provider.ReadRangeAsync("f.txt", offset, length)), $"{offset}, {length}");
     }
 
     [TestMethod]
@@ -679,6 +750,56 @@ public abstract class ProviderConformanceTests
     }
 
     [TestMethod]
+    public async Task Write_AFileAtAFolderPath()
+    {
+        await Write("dir/x.txt", "below");
+        if (!FileAndFolderMayShareAName)
+        {
+            await Assert.ThrowsExactlyAsync<IOException>(() => Write("dir", "file"));
+            Assert.IsTrue((await Provider.GetFileInfoAsync("dir")).IsDirectory, "The folder is left as it was");
+            Assert.AreEqual("below", await Read("dir/x.txt"));
+            return;
+        }
+        // Folders are name prefixes: the file is stored beside the folder, and a listing shows both (D30).
+        await Write("dir", "file");
+        Assert.AreEqual("file", await Read("dir"));
+        Assert.AreEqual("below", await Read("dir/x.txt"));
+        await AssertListsAFileAndAFolderAsync("dir");
+    }
+
+    [TestMethod]
+    public async Task Write_AFolderUnderAFilePath()
+    {
+        await Write("f.txt", "file");
+        if (!FileAndFolderMayShareAName)
+        {
+            await Assert.ThrowsExactlyAsync<IOException>(() => Write("f.txt/y.txt", "below"));
+            Assert.AreEqual("file", await Read("f.txt"));
+            Assert.IsFalse((await Provider.GetFileInfoAsync("f.txt/y.txt")).Exists, "Nothing is written under the file");
+            return;
+        }
+        // Folders are name prefixes: the file under the name is stored, and a listing shows both (D30).
+        await Write("f.txt/y.txt", "below");
+        Assert.AreEqual("file", await Read("f.txt"));
+        Assert.AreEqual("below", await Read("f.txt/y.txt"));
+        await AssertListsAFileAndAFolderAsync("f.txt");
+    }
+
+    // The root's listing of a name a file and a folder share: both, or, where the store lists only the file, the file.
+    private async Task AssertListsAFileAndAFolderAsync(string name)
+    {
+        var listed = (await Provider.GetDirectoryContentsAsync("")).ToList();
+        var named = listed.Where(e => e.Name == name).ToList();
+        var shown = string.Join(", ", listed.Select(e => e.IsDirectory ? e.Name + "/" : e.Name));
+        Assert.IsTrue(named.Any(e => !e.IsDirectory), $"A file named '{name}': {shown}");
+        if (ListsAFileAndAFolderOfOneName)
+            Assert.IsTrue(named.Count == 2 && named.Any(e => e.IsDirectory), $"A folder named '{name}' too: {shown}");
+        else
+            Assert.HasCount(1, named, shown);
+        Assert.IsTrue((await Provider.GetFileInfoAsync(name)).Exists);
+    }
+
+    [TestMethod]
     public async Task Write_LeavesNoTempFiles()
     {
         if (LocalTempFolder is not { } folder)
@@ -782,7 +903,7 @@ public abstract class ProviderConformanceTests
         Assert.AreEqual("a", await Read("b.txt"));
         Assert.AreEqual("backup", await Read("a.txt.bak"));
         Assert.IsFalse((await Provider.GetFileInfoAsync("a.txt")).Exists);
-        if (HasRealFolders)
+        if (!FileAndFolderMayShareAName)
             return;
         // On an object store a key and a "folder" of the same name can both exist: moving the key leaves the folder.
         await Write("k", "key");

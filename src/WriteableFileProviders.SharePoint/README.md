@@ -100,7 +100,8 @@ provider to release the HTTP client and certificate it created.
 ## How it behaves
 
 - **Folders are real:** an empty folder exists, and writes, moves and copies create missing parents. A folder's
-  `Length` is -1.
+  `Length` is -1. A file and a folder cannot share a name: writing a file at a folder's path, or under a file's path,
+  throws `IOException`.
 - **Names ignore case:** `a.txt` and `A.txt` are one file; moving one to the other renames it.
 - **Path segments** may not contain `:` (Graph's path syntax), escaped or not. A `%` is sent escaped, so `a%41` names an
   item called `a%41`, not `aA`. Listings leave out items whose names the provider cannot address, such as one that

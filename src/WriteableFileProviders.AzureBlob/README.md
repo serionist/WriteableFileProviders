@@ -104,10 +104,13 @@ exactly as 2026.10.10.x stored it. `ToJson` output contains the account key: nev
   and listings. An append keeps the stored type unless it gives one, and keeps the encoding, cache control, language,
   disposition, metadata and a tier set on the blob.
 - **Folders** are name prefixes: a folder exists while some blob is under it (or a `dir/` marker blob another tool
-  made). Names are case-sensitive.
+  made). Names are case-sensitive. So a file and a folder may share a name: a blob written at a folder's path, or under
+  a blob's path, is stored, reads back by path, and a listing shows both. `GetFileInfoAsync` of such a name describes
+  the file.
 - **Listings** leave out blob names no path can address (an empty or whitespace segment, one of only dots and spaces
-  such as `..`, a control character, a backslash, or a percent-encoded form of one of these) and every name starting
-  with `.wfp-`, the provider's own. A recursive listing is one flat listing of the prefix.
+  such as `..`, a control character, a backslash, or a percent-encoded form of one of these) and the provider's own
+  temporary folder, `.wfp-tmp` at the provider root. Every other name, one of yours that starts with `.wfp-` included,
+  is listed. A recursive listing is one flat listing of the prefix.
 - **Reads:** `ReadRangeAsync` asks Azure for the range, checking `ReadOptions.IfMatch` atomically.
   `OpenReadSeekableAsync` is the SDK's own seekable stream, pinned to the version it opened unless modifications are
   allowed: a change throws `PreconditionFailedException`, a delete `FileNotFoundException`.
@@ -131,9 +134,10 @@ They stay readable. Azure cannot turn an append blob into a block blob in place,
 goes through a temporary blob under `.wfp-tmp/` in the provider root: the new content is committed there, the append
 blob is deleted (with its snapshots) if it has not changed, the temporary blob is copied to its name, and then removed.
 Meanwhile the file is missing, or empty while the server copy runs. If the copy fails, the exception names the temporary
-blob, which holds the content and which the provider can read at that path. Listings hide `.wfp-` entries. From then
-on the file is a block blob, and a 2026.10.10.x provider can no longer append to it (`InvalidBlobType`): upgrade every
-writer of a shared file together. A copy of an append blob is an append blob too, converted on its first write.
+blob, which holds the content and which the provider can read at that path. Listings hide the `.wfp-tmp` folder at
+the provider root. From then on the file is a block blob, and a 2026.10.10.x provider can no longer append to it
+(`InvalidBlobType`): upgrade every writer of a shared file together. A copy of an append blob is an append blob too,
+converted on its first write.
 
 ## Signed URLs
 

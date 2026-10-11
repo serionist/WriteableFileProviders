@@ -64,8 +64,9 @@ None: the provider reads and writes with the permissions of the process that run
 - **Writes are atomic.** An overwrite, an append, a copy and a local stream's commit write a temp file named
   `.wfp-<guid>.tmp` next to the target, then rename it over the target, so the file has its old content or its new
   content, never a part. A failed write removes its temp file where it can; a crash, or a temp file that cannot be
-  deleted, leaves one behind, which you can delete. Listings never show a file named `.wfp-*.tmp`, yours included. An
-  append copies the file and the new bytes into the temp file, so it costs a copy of the file.
+  deleted, leaves one behind, which you can delete. Listings never show such a temp file: exactly `.wfp-`, 32
+  lowercase hex digits and `.tmp`. Any other name, `.wfp-notes.tmp` of yours included, is listed. An append copies the
+  file and the new bytes into the temp file, so it costs a copy of the file.
 - **Replacing by rename** puts a new file at the path, so a write is refused, with the file keeping its content:
   - with `UnauthorizedAccessException` when the process may not write the file (read-only, or another user's), on every
     system, as in 2026, or may not create files in its folder, since the new content is created there;
@@ -107,8 +108,16 @@ None: the provider reads and writes with the permissions of the process that run
   only a file that got shorter throws, with `IOException`. A file deleted meanwhile throws `FileNotFoundException`.
 - **Names** are matched without regard to case on Windows and macOS (a move from `a.txt` to `A.txt` renames the file),
   and with regard to case on other systems; the choice follows the operating system, not the volume. A `:` in a name is
-  refused. Listings leave out names no path can address: on Linux and macOS a name holding `:` or `\`, a control
-  character, or only dots and spaces (`...`); on any system a name such as `%2e%2e` that decodes to one of these.
+  refused (`ArgumentException`). On Windows, so is a name Windows would read as another name or cannot hold: one that
+  ends in `.` or a space, which Windows drops (`report.txt.` would name `report.txt`, `logs ` the folder `logs`), one
+  that holds `"`, `<`, `>`, `|`, `?` or `*`, and a reserved device name (`CON`, `PRN`, `AUX`, `NUL`, `COM1` to `COM9`,
+  `LPT1` to `LPT9`), in any case, alone or with an extension (`con.txt`). Listings leave out names no path can
+  address: those names on Windows; on Linux and macOS a name holding `:` or `\`, a control character, or only dots and
+  spaces (`...`); on any system a name such as `%2e%2e` that decodes to one of these.
+- **A file and a folder** cannot share a name: writing a file at a folder's path, or under a file's path, throws
+  `IOException`.
+- **Access.** Where the operating system refuses the process access to a file or a folder, any member throws
+  `UnauthorizedAccessException`: a read, a listing, a delete or a move as well as a write.
 - **Content types** are not kept: `UpdateFileOptions.ContentType` is ignored, and `ContentType` is null.
 - **The root.** Every path stays under the root folder, checked on the path: symbolic links and junctions inside the
   root are followed wherever they point. A recursive listing lists a linked folder but does not walk into it, since it

@@ -5,49 +5,60 @@ using WriteableFileProviders.Testing;
 namespace WriteableFileProviders.SharePoint.Tests;
 
 /// <summary>
-/// The conformance suite against a real SharePoint document library. Without <c>WFP_LIVE=1</c> it is inconclusive; with
-/// it, a missing account fails the run, naming what is missing. The account comes from environment variables
-/// (<c>WFP_SHAREPOINT_SITE_URL</c>, <c>WFP_SHAREPOINT_LIBRARY</c>, <c>WFP_SHAREPOINT_TENANT_ID</c>,
-/// <c>WFP_SHAREPOINT_CLIENT_ID</c>, <c>WFP_SHAREPOINT_CLIENT_SECRET</c>,
-/// <c>WFP_SHAREPOINT_CERTIFICATE_BASE64</c>, <c>WFP_SHAREPOINT_CERTIFICATE_PASSWORD</c>,
-/// <c>WFP_SHAREPOINT_USE_DEFAULT_CREDENTIAL</c>, <c>WFP_SHAREPOINT_WORK_FOLDER</c>) or from an optional
-/// <c>testsettings.json</c> next to this project (see testsettings.sample.json; git-ignored). Each test works in a
-/// <c>wfp-&lt;id&gt;</c> folder under the work folder and deletes it; deleted items go to the site's recycle bin.
+/// The conformance suite against a real SharePoint document library (<see cref="SharePointLive"/>). Each test works in
+/// a <c>wfp-&lt;id&gt;</c> folder under the work folder and deletes it; deleted items go to the site's recycle bin.
 /// </summary>
 [TestClass]
 [TestCategory("Live")]
 public sealed class SharePointLiveTests : ProviderConformanceTests
 {
-    private static readonly Lazy<(SharePointFileProviderOptions Options, string[] Missing)> _settings = new(Read);
-
     protected override bool HasRealFolders => true;
 
     protected override bool IsCaseInsensitive => true;
 
     protected override bool KeepsContentType => false;
 
-    // Set to true once a live run shows Graph refuses a stale If-Match on a simple upload (D15, D19).
+    // Set to true once a live run shows Graph refuses a stale If-Match on a simple upload (D15, D19):
+    // SharePointLiveChecks asks it directly.
     protected override bool DetectsConcurrentAppends => false;
 
     protected override TimeSpan? FixedSignedUrlLifetime => WriteableSharePointFileProvider.DownloadUrlLifetime;
 
     protected override bool SupportsSignedUrls(SignedUrlAccess access) => access == SignedUrlAccess.Read;
 
-    protected override IWriteableFileProvider CreateProvider(string? root)
+    protected override IWriteableFileProvider CreateProvider(string? root) => new WriteableSharePointFileProvider(SharePointLive.Options(root));
+}
+
+/// <summary>
+/// The SharePoint account the live classes use. Without <c>WFP_LIVE=1</c> they are inconclusive; with it, a missing
+/// account fails them, naming what is missing. The account comes from environment variables
+/// (<c>WFP_SHAREPOINT_SITE_URL</c>, <c>WFP_SHAREPOINT_LIBRARY</c>, <c>WFP_SHAREPOINT_TENANT_ID</c>,
+/// <c>WFP_SHAREPOINT_CLIENT_ID</c>, <c>WFP_SHAREPOINT_CLIENT_SECRET</c>,
+/// <c>WFP_SHAREPOINT_CERTIFICATE_BASE64</c>, <c>WFP_SHAREPOINT_CERTIFICATE_PASSWORD</c>,
+/// <c>WFP_SHAREPOINT_USE_DEFAULT_CREDENTIAL</c>, <c>WFP_SHAREPOINT_WORK_FOLDER</c>) or from an optional
+/// <c>testsettings.json</c> next to this project (see testsettings.sample.json; git-ignored).
+/// </summary>
+internal static class SharePointLive
+{
+    private static readonly Lazy<(SharePointFileProviderOptions Options, string[] Missing)> _settings = new(Read);
+
+    /// <summary>The account's options, rooted at <paramref name="root"/> under the work folder.</summary>
+    /// <param name="root">A folder under the work folder, or null for the work folder.</param>
+    public static SharePointFileProviderOptions Options(string? root)
     {
         if (Environment.GetEnvironmentVariable("WFP_LIVE") != "1")
             Assert.Inconclusive("The live SharePoint suite runs with WFP_LIVE=1 and an account in WFP_SHAREPOINT_* or testsettings.json.");
         var (settings, missing) = _settings.Value;
         if (missing.Length > 0)
             Assert.Fail($"WFP_LIVE=1, but the SharePoint account is not configured: set {string.Join(", ", missing)} (WFP_SHAREPOINT_* or testsettings.json).");
-        return new WriteableSharePointFileProvider(new SharePointFileProviderOptions(settings.SiteUrl, settings.DocumentLibraryName, settings.TenantId,
+        return new SharePointFileProviderOptions(settings.SiteUrl, settings.DocumentLibraryName, settings.TenantId,
             settings.ClientId, settings.ClientSecret, settings.WorkFolderPath)
         {
             ClientCertificateBase64 = settings.ClientCertificateBase64,
             ClientCertificatePassword = settings.ClientCertificatePassword,
             UseDefaultAzureCredential = settings.UseDefaultAzureCredential,
             RootDirectoryPath = root,
-        });
+        };
     }
 
     private static (SharePointFileProviderOptions Options, string[] Missing) Read()

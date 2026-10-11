@@ -184,7 +184,7 @@ public sealed partial class AzureBlobProviderTests
         StringAssert.Contains(e.Message, "'f.txt'");
         Assert.AreEqual("keep", await ReadRaw("f.txt"));
 
-        using (var atTheContainer = new WriteableAzureBlobFileProvider(Azurite.Container(_containerName)))
+        using (var atTheContainer = new WriteableAzureBlobFileProvider(null, Azurite.Container(_containerName)))
             StringAssert.Contains((await Assert.ThrowsExactlyAsync<IOException>(() => atTheContainer.DeleteAsync(Name("f.txt")))).Message, $"'{Name("f.txt")}'");
 
         await Write(provider, "d/a.txt", "a");

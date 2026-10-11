@@ -144,7 +144,7 @@ public sealed class GcsLiveAtomicityTests
     {
         var client = GcsLive.CreateClient(http);
         _disposables.Add(client);
-        var provider = new WriteableGoogleCloudStorageFileProvider(client, GcsLive.Options(_root));
+        var provider = new WriteableGoogleCloudStorageFileProvider(GcsLive.Options(_root), client);
         _disposables.Add(provider);
         return provider;
     }

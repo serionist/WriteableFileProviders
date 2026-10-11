@@ -75,13 +75,13 @@ public sealed partial class WriteableAzureBlobFileProvider : WriteableFileProvid
     /// and sign-in options may stay empty, and <see cref="WriteableFileProvider{TOptions}.ToJson"/> writes only the
     /// options.
     /// </summary>
+    /// <param name="options">The root folder and the container option; null for the container's root.</param>
     /// <param name="container">The container client. Its credential decides how signed URLs are signed: a shared key signs a
     /// service SAS, a token credential a user delegation SAS; with neither, signed URLs throw
     /// <see cref="NotSupportedException"/>.</param>
-    /// <param name="options">The root folder and the container option; null for the container's root.</param>
     /// <exception cref="ArgumentNullException"><paramref name="container"/> is null.</exception>
     /// <exception cref="ArgumentException"><see cref="AzureFileProviderOptions.ContainerName"/> names another container.</exception>
-    public WriteableAzureBlobFileProvider(BlobContainerClient container, AzureFileProviderOptions? options = null)
+    public WriteableAzureBlobFileProvider(AzureFileProviderOptions? options, BlobContainerClient container)
         : base(options ?? new AzureFileProviderOptions())
     {
         ArgumentNullException.ThrowIfNull(container);

@@ -169,7 +169,7 @@ public sealed partial class AzureBlobProviderTests
     {
         await _raw.GetBlobClient(Name("put.txt")).UploadAsync(BinaryData.FromString("v1;"));
         var sas = _raw.GenerateSasUri(BlobContainerSasPermissions.All, DateTimeOffset.UtcNow.AddHours(1));
-        using var provider = new WriteableAzureBlobFileProvider(new BlobContainerClient(sas, Azurite.ClientOptions(_handler)), new AzureFileProviderOptions { RootDirectoryPath = _root });
+        using var provider = new WriteableAzureBlobFileProvider(new AzureFileProviderOptions { RootDirectoryPath = _root }, new BlobContainerClient(sas, Azurite.ClientOptions(_handler)));
         Before(r => r.Method == HttpMethod.Get && AzureHandler.Comp(r) is null && AzureHandler.BlobName(r) == Name("put.txt"),
             () => _raw.GetBlobClient(Name("put.txt")).Upload(BinaryData.FromString("v2;"), overwrite: true));
         await Append(provider, "put.txt", "mine;");

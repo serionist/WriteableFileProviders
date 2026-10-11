@@ -135,14 +135,14 @@ public sealed class GcsOptionsTests
         var e = Assert.ThrowsExactly<ArgumentException>(() => new WriteableGoogleCloudStorageFileProvider(new GoogleCloudStorageFileProviderOptions { BucketName = bucket }));
         StringAssert.Contains(e.Message, "BucketName");
         using var client = Unauthenticated();
-        Assert.ThrowsExactly<ArgumentException>(() => new WriteableGoogleCloudStorageFileProvider(client, new GoogleCloudStorageFileProviderOptions { BucketName = bucket }));
+        Assert.ThrowsExactly<ArgumentException>(() => new WriteableGoogleCloudStorageFileProvider(new GoogleCloudStorageFileProviderOptions { BucketName = bucket }, client));
     }
 
     [TestMethod]
     public void Provider_RefusesNullArguments()
     {
         Assert.ThrowsExactly<ArgumentNullException>(() => new WriteableGoogleCloudStorageFileProvider(null!));
-        Assert.ThrowsExactly<ArgumentNullException>(() => new WriteableGoogleCloudStorageFileProvider(null!, new GoogleCloudStorageFileProviderOptions { BucketName = "b" }));
+        Assert.ThrowsExactly<ArgumentNullException>(() => new WriteableGoogleCloudStorageFileProvider(new GoogleCloudStorageFileProviderOptions { BucketName = "b" }, null!));
     }
 
     [TestMethod]
@@ -257,7 +257,7 @@ public sealed class GcsOptionsTests
     public async Task SignedUrl_ReadLivesExactlyAsLongAsAsked()
     {
         using var client = Offline();
-        using var provider = new WriteableGoogleCloudStorageFileProvider(client, Options(null, "base"));
+        using var provider = new WriteableGoogleCloudStorageFileProvider(Options(null, "base"), client);
         var before = DateTimeOffset.UtcNow;
         var url = await provider.GetSignedUrlAsync("dir/file.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5) });
 
@@ -282,7 +282,7 @@ public sealed class GcsOptionsTests
     public async Task SignedUrl_ValidityIsRoundedDownToWholeSeconds(double seconds, string expires)
     {
         using var client = Offline();
-        using var provider = new WriteableGoogleCloudStorageFileProvider(client, Options(null));
+        using var provider = new WriteableGoogleCloudStorageFileProvider(Options(null), client);
         var url = await provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromSeconds(seconds), Permission = SignedUrlAccess.Write });
         Assert.AreEqual(expires, HttpUtility.ParseQueryString(url.Url.Query)["X-Goog-Expires"]);
     }
@@ -291,7 +291,7 @@ public sealed class GcsOptionsTests
     public async Task SignedUrl_OutsideOneSecondToSevenDaysIsNotSupported()
     {
         using var client = Offline();
-        using var provider = new WriteableGoogleCloudStorageFileProvider(client, Options(null));
+        using var provider = new WriteableGoogleCloudStorageFileProvider(Options(null), client);
         await Assert.ThrowsExactlyAsync<NotSupportedException>(() =>
             provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromMilliseconds(900), Permission = SignedUrlAccess.Write }));
         await Assert.ThrowsExactlyAsync<NotSupportedException>(() =>
@@ -304,7 +304,7 @@ public sealed class GcsOptionsTests
     public async Task SignedUrl_ReadCarriesTheDownloadNameAndContentType()
     {
         using var client = Offline();
-        using var provider = new WriteableGoogleCloudStorageFileProvider(client, Options(null));
+        using var provider = new WriteableGoogleCloudStorageFileProvider(Options(null), client);
         var url = await provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions
         {
             Validity = TimeSpan.FromMinutes(1),
@@ -325,7 +325,7 @@ public sealed class GcsOptionsTests
     public async Task SignedUrl_CreateSignsTheIfGenerationMatchHeader()
     {
         using var client = Offline();
-        using var provider = new WriteableGoogleCloudStorageFileProvider(client, Options(null));
+        using var provider = new WriteableGoogleCloudStorageFileProvider(Options(null), client);
         var url = await provider.GetSignedUrlAsync("new.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Permission = SignedUrlAccess.Create });
         Assert.AreEqual("PUT", url.Method);
         CollectionAssert.AreEquivalent(new[] { "x-goog-if-generation-match" }, url.Headers.Keys.ToArray());
@@ -341,7 +341,7 @@ public sealed class GcsOptionsTests
     public async Task SignedUrl_WriteSignsOnlyTheContentTypeItWasGiven()
     {
         using var client = Offline();
-        using var provider = new WriteableGoogleCloudStorageFileProvider(client, Options(null));
+        using var provider = new WriteableGoogleCloudStorageFileProvider(Options(null), client);
         var url = await provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Permission = SignedUrlAccess.Write });
         Assert.AreEqual("PUT", url.Method);
         Assert.AreEqual(0, url.Headers.Count);
@@ -358,7 +358,7 @@ public sealed class GcsOptionsTests
     public async Task SignedUrl_UploadRefusesADownloadName(SignedUrlAccess access)
     {
         using var client = Offline();
-        using var provider = new WriteableGoogleCloudStorageFileProvider(client, Options(null));
+        using var provider = new WriteableGoogleCloudStorageFileProvider(Options(null), client);
         await Assert.ThrowsExactlyAsync<NotSupportedException>(() =>
             provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Permission = access, DownloadFileName = "x.txt" }));
     }
@@ -372,7 +372,7 @@ public sealed class GcsOptionsTests
         // Round-1 F10 of #23: a client whose credential cannot sign refuses with NotSupportedException (so the gateway can
         // take over), before any request: this client has no server to reach.
         using var client = Unauthenticated();
-        using var provider = new WriteableGoogleCloudStorageFileProvider(client, Options(null));
+        using var provider = new WriteableGoogleCloudStorageFileProvider(Options(null), client);
         await Assert.ThrowsExactlyAsync<NotSupportedException>(() =>
             provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Permission = access }));
     }

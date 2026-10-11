@@ -43,7 +43,7 @@ public sealed class GcsProviderTests
 
     // A provider whose every request passes through the seam first.
     private WriteableGoogleCloudStorageFileProvider Provider(FaultInjection http) =>
-        Own(new WriteableGoogleCloudStorageFileProvider(Own(FakeGcs.CreateClient(httpClientFactory: http)), new GoogleCloudStorageFileProviderOptions { BucketName = Bucket, RootDirectoryPath = _root }));
+        Own(new WriteableGoogleCloudStorageFileProvider(new GoogleCloudStorageFileProviderOptions { BucketName = Bucket, RootDirectoryPath = _root }, Own(FakeGcs.CreateClient(httpClientFactory: http))));
 
     private StorageClient Side => Own(FakeGcs.CreateClient());
 
@@ -174,7 +174,7 @@ public sealed class GcsProviderTests
     }
 
     private WriteableGoogleCloudStorageFileProvider Provider(StorageClient client, GoogleCloudStorageFileProviderOptions options) =>
-        Own(new WriteableGoogleCloudStorageFileProvider(client, options));
+        Own(new WriteableGoogleCloudStorageFileProvider(options, client));
 
     // ----- Credentials and the client -----
 
@@ -240,7 +240,7 @@ public sealed class GcsProviderTests
     public async Task GivenClient_IsNeverDisposedByTheProvider()
     {
         var client = Own(FakeGcs.CreateClient());
-        var provider = new WriteableGoogleCloudStorageFileProvider(client, new GoogleCloudStorageFileProviderOptions { BucketName = Bucket, RootDirectoryPath = _root });
+        var provider = new WriteableGoogleCloudStorageFileProvider(new GoogleCloudStorageFileProviderOptions { BucketName = Bucket, RootDirectoryPath = _root }, client);
         await provider.UpdateFileAsync("f.txt", TestStreams.Text("x"));
         provider.Dispose();
         await provider.DisposeAsync();

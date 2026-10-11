@@ -148,16 +148,16 @@ public sealed class AzureBlobOptionsTests
     public void ClientConstructor_TakesTheClientAsItIs()
     {
         var client = new BlobContainerClient(new Uri("http://127.0.0.1:1/account/files"), new StorageSharedKeyCredential("account", Azurite.AccountKey));
-        using var provider = new WriteableAzureBlobFileProvider(client);
+        using var provider = new WriteableAzureBlobFileProvider(null, client);
         Assert.AreSame(client, provider.Container);
         Assert.AreEqual(0, provider.Options.RootDirectorySegments.Length);
 
-        using var rooted = new WriteableAzureBlobFileProvider(client, new AzureFileProviderOptions { ContainerName = "files", RootDirectoryPath = "a/b" });
+        using var rooted = new WriteableAzureBlobFileProvider(new AzureFileProviderOptions { ContainerName = "files", RootDirectoryPath = "a/b" }, client);
         CollectionAssert.AreEqual(new[] { "a", "b" }, rooted.Options.RootDirectorySegments);
 
-        var e = Assert.ThrowsExactly<ArgumentException>(() => new WriteableAzureBlobFileProvider(client, new AzureFileProviderOptions { ContainerName = "other" }));
+        var e = Assert.ThrowsExactly<ArgumentException>(() => new WriteableAzureBlobFileProvider(new AzureFileProviderOptions { ContainerName = "other" }, client));
         StringAssert.Contains(e.Message, "other");
-        Assert.ThrowsExactly<ArgumentNullException>(() => new WriteableAzureBlobFileProvider((BlobContainerClient)null!));
+        Assert.ThrowsExactly<ArgumentNullException>(() => new WriteableAzureBlobFileProvider(null, (BlobContainerClient)null!));
     }
 
     [TestMethod]
@@ -165,7 +165,7 @@ public sealed class AzureBlobOptionsTests
     {
         var handler = new StubHandler(_ => AzureHandler.Error(HttpStatusCode.NotFound, "BlobNotFound"));
         var client = new BlobContainerClient(new Uri("http://127.0.0.1:1/account/files"), new StorageSharedKeyCredential("account", Azurite.AccountKey), Offline(handler));
-        var provider = new WriteableAzureBlobFileProvider(client);
+        var provider = new WriteableAzureBlobFileProvider(null, client);
         await provider.DisposeAsync();
         await Assert.ThrowsExactlyAsync<ObjectDisposedException>(() => provider.GetFileInfoAsync("a.txt"));
         Assert.IsFalse((await client.GetBlobClient("a.txt").ExistsAsync()).Value, "The client still works after the provider is disposed");

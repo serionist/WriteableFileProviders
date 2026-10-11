@@ -84,10 +84,10 @@ public sealed class WriteableGoogleCloudStorageFileProvider : WriteableFileProvi
     /// <see cref="GoogleCloudStorageFileProviderOptions.ProjectId"/> are used; the credential properties and the endpoint
     /// are the client's own. Signed URLs need a client whose credential can sign.
     /// </summary>
-    /// <param name="client">The client; the caller keeps it and disposes it.</param>
     /// <param name="options">The options.</param>
+    /// <param name="client">The client; the caller keeps it and disposes it.</param>
     /// <exception cref="ArgumentException">The bucket is missing.</exception>
-    public WriteableGoogleCloudStorageFileProvider(StorageClient client, GoogleCloudStorageFileProviderOptions options) : base(options)
+    public WriteableGoogleCloudStorageFileProvider(GoogleCloudStorageFileProviderOptions options, StorageClient client) : base(options)
     {
         ArgumentNullException.ThrowIfNull(client);
         _bucket = RequireBucket(Options);

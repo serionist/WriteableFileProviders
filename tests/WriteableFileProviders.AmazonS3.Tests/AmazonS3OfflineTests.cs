@@ -275,6 +275,8 @@ public sealed class AmazonS3SharedOfflineTests : S3OfflineTests
     // The SDK sends eu-west-1 under its legacy location name, which S3 accepts.
     protected override string? ExpectedLocationConstraint => "EU";
 
+    protected override bool ChecksAtomically => true;
+
     internal override IWriteableFileProvider CreateOffline(bool createBucketIfMissing = false) =>
         new WriteableAmazonS3FileProvider(new AmazonS3FileProviderOptions("root", "AKIDEXAMPLE", "secret", "bucket", "eu-west-1")
         {

@@ -106,6 +106,17 @@ public sealed class MinioOptionsTests
     }
 
     [TestMethod]
+    public void Conditions_AreAlsoCheckedFirst()
+    {
+        // MinIO may ignore a condition (on copies and deletes it does), whatever the client.
+        using (var own = new WriteableMinioFileProvider(Options("localhost:9000")))
+            Assert.IsFalse(own.Core.ChecksAtomically);
+        using var client = new AmazonS3Client(new AnonymousAWSCredentials(), RegionEndpoint.USEast1);
+        using var given = new WriteableMinioFileProvider(new MinioFileProviderOptions { BucketName = "b" }, client);
+        Assert.IsFalse(given.Core.ChecksAtomically);
+    }
+
+    [TestMethod]
     public void Provider_IsSealed() =>
         // D25: a custom provider derives from WriteableFileProvider<TOptions>, not from a provider.
         Assert.IsTrue(typeof(WriteableMinioFileProvider).IsSealed);

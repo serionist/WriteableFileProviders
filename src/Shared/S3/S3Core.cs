@@ -56,6 +56,13 @@ internal sealed partial class S3Core(IWriteableFileProvider owner, S3CoreSetting
     /// <summary>The bucket.</summary>
     public string Bucket => _settings.Bucket;
 
+    /// <summary>
+    /// Whether the store checks conditions atomically: AWS does. S3-compatible servers (MinIO, S3Mock, any
+    /// <see cref="S3CoreSettings.ServiceUrl"/>) may ignore some headers, so the provider also checks first, which is not
+    /// atomic; the headers are sent either way.
+    /// </summary>
+    public bool ChecksAtomically => _settings.ChecksAtomically;
+
     /// <summary>Whether URLs can be presigned: never with anonymous credentials.</summary>
     public bool CanPresign => _settings.Credentials is not AnonymousAWSCredentials || _givenClient is not null;
 
@@ -172,9 +179,10 @@ internal sealed partial class S3Core(IWriteableFileProvider owner, S3CoreSetting
             var response = await probe.GetBucketLocationAsync(new GetBucketLocationRequest { BucketName = Bucket }).ConfigureAwait(false);
             return NormalizeRegion(response.Location?.Value) ?? UsEast1;
         }
-        catch (AmazonS3Exception)
+        catch (AmazonS3Exception e) when (e.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Forbidden || e.ErrorCode == "NoSuchBucket")
         {
             // No such bucket (the bucket check says so next), or no permission to ask: the server's default region.
+            // Anything else fails the connection, and the next call asks again.
             return UsEast1;
         }
     }
@@ -191,20 +199,19 @@ internal sealed partial class S3Core(IWriteableFileProvider owner, S3CoreSetting
             if (!_settings.CreateBucketIfMissing)
                 throw MissingBucket(e);
         }
-        catch (AmazonS3Exception)
+        catch (AmazonS3Exception e) when (e.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.BadRequest || (int)e.StatusCode is >= 300 and < 400)
         {
-            // Forbidden or redirected: the bucket exists, or the credentials may not ask. Each operation reports its own
-            // error, and a missing bucket still maps to the same exception there.
+            // Forbidden, refused or redirected: the bucket exists, or these credentials may not ask. Each operation reports
+            // its own error, and a missing bucket still maps to the same exception there. Any other failure faults the
+            // check, and the next call checks again.
             return;
         }
         try
         {
-            var region = NormalizeRegion(_settings.Region);
             await client.PutBucketAsync(new PutBucketRequest
             {
                 BucketName = Bucket,
-                // Outside us-east-1, AWS needs the region as the bucket's location; custom endpoints use their own.
-                BucketRegionName = _settings.ServiceUrl is null && region is not null and not UsEast1 ? region : null,
+                BucketRegionName = _settings.BucketLocation,
             }).ConfigureAwait(false);
         }
         catch (AmazonS3Exception e) when (e.ErrorCode == "BucketAlreadyOwnedByYou")
@@ -223,8 +230,29 @@ internal sealed partial class S3Core(IWriteableFileProvider owner, S3CoreSetting
     {
         lock (_gate)
             _bucketCheck = null;
-        return new InvalidOperationException(
-            $"The bucket '{Bucket}' does not exist. Create it, or set the option CreateBucketIfMissing to let the provider create it.", inner);
+        return new InvalidOperationException(_settings.CreateBucketIfMissing
+            ? $"The bucket '{Bucket}' does not exist; with the option CreateBucketIfMissing set, the next call creates it again."
+            : $"The bucket '{Bucket}' does not exist. Create it, or set the option CreateBucketIfMissing to let the provider create it.", inner);
+    }
+
+    // HEAD answers 404 for a missing key and for a missing bucket alike. Where a 404 would end the call as "file not
+    // found", the bucket is asked first, so a bucket that went missing since the check is reported as such.
+    private async Task<FileNotFoundException> NotFoundAsync(ResolvedPath path, CancellationToken cancellationToken)
+    {
+        var client = await ClientAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await client.HeadBucketAsync(new HeadBucketRequest { BucketName = Bucket }, cancellationToken).ConfigureAwait(false);
+        }
+        catch (AmazonS3Exception e) when (e.StatusCode == HttpStatusCode.NotFound)
+        {
+            throw MissingBucket(e);
+        }
+        catch (AmazonS3Exception)
+        {
+            // Not allowed to ask: the file is what is missing.
+        }
+        return NotFound(path);
     }
 
     // Every call goes through here, so a bucket that disappears is reported the same way everywhere.

@@ -207,6 +207,19 @@ public abstract class S3BehaviourTests
     }
 
     [TestMethod]
+    public async Task Range_LongerThanARangeCanNameReadsToTheEnd()
+    {
+        using var provider = CreateProvider(Root);
+        await provider.UpdateFileAsync("f.txt", TestStreams.Text("0123"));
+        foreach (var (offset, length) in new[] { (1L, long.MaxValue), (2L, long.MaxValue - 1), (3L, long.MaxValue - 3) })
+        {
+            await using var stream = await provider.ReadRangeAsync("f.txt", offset, length);
+            using var reader = new StreamReader(stream, Encoding.UTF8);
+            Assert.AreEqual("0123"[(int)offset..], await reader.ReadToEndAsync(), $"{offset}, {length}");
+        }
+    }
+
+    [TestMethod]
     public async Task Read_MissingFileKeepsTheStoresError()
     {
         using var provider = CreateProvider(Root);
@@ -230,9 +243,11 @@ public abstract class S3BehaviourTests
             Assert.AreEqual(3, factory.Requests.Count(r => r.StartsWith("PUT", StringComparison.Ordinal) && r.Contains("partNumber=", StringComparison.Ordinal)));
             await AssertContentAsync(provider, "unknown-length.bin", large);
 
+            var uploads = factory.Requests.Count(r => r.Contains("?uploads", StringComparison.Ordinal));
             var exact = TestStreams.Bytes(5 * MiB, seed: 8);
             await provider.UpdateFileAsync("one-part.bin", new NonSeekableStream(new MemoryStream(exact)));
             await AssertContentAsync(provider, "one-part.bin", exact);
+            Assert.AreEqual(uploads, factory.Requests.Count(r => r.Contains("?uploads", StringComparison.Ordinal)), "Exactly one part is one PUT");
 
             var positioned = new MemoryStream(large) { Position = MiB };
             await provider.UpdateFileAsync("from-position.bin", positioned);
@@ -419,6 +434,46 @@ public abstract class S3BehaviourTests
         }
     }
 
+    [TestMethod]
+    public async Task Move_WhoseSourceChangesAfterTheCopyIsUndone()
+    {
+        var (provider, factory) = Intercepted();
+        using (provider)
+        {
+            await provider.UpdateFileAsync("a.txt", TestStreams.Text("old"));
+            var heads = 0;
+            factory.Intercept = async r =>
+            {
+                // The third HEAD of the source is the check before the delete off AWS: another writer gets there first.
+                if (r.Method == HttpMethod.Head && r.RequestUri!.AbsolutePath.EndsWith("/a.txt", StringComparison.Ordinal) && Interlocked.Increment(ref heads) == 3)
+                    await PutRawAsync("a.txt", "theirs");
+                return null;
+            };
+            await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => provider.MoveAsync("a.txt", "b.txt"));
+            factory.Intercept = null;
+            Assert.AreEqual("theirs", await ReadAsync(provider, "a.txt"), "The concurrent change is kept");
+            Assert.IsFalse((await provider.GetFileInfoAsync("b.txt")).Exists, "The copy was removed");
+        }
+    }
+
+    [TestMethod]
+    public async Task Move_WhoseSourceDeleteIsRefusedIsUndone()
+    {
+        var (provider, factory) = Intercepted();
+        using (provider)
+        {
+            await provider.UpdateFileAsync("a.txt", TestStreams.Text("a"));
+            // What AWS answers when the source changed between the copy and the delete.
+            factory.Intercept = r => Task.FromResult(r.Method == HttpMethod.Delete && r.RequestUri!.AbsolutePath.EndsWith("/a.txt", StringComparison.Ordinal)
+                ? Error(HttpStatusCode.PreconditionFailed, "PreconditionFailed")
+                : null);
+            await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => provider.MoveAsync("a.txt", "b.txt"));
+            factory.Intercept = null;
+            Assert.AreEqual("a", await ReadAsync(provider, "a.txt"));
+            Assert.IsFalse((await provider.GetFileInfoAsync("b.txt")).Exists, "The copy was removed");
+        }
+    }
+
     // ----- Buckets -----
 
     [TestMethod]
@@ -450,6 +505,8 @@ public abstract class S3BehaviourTests
             using var provider = CreateProvider(Root, bucket);
             await provider.UpdateFileAsync("f.txt", TestStreams.Text("x"));
             await Endpoint.DeleteBucketAsync(bucket);
+            // A HEAD answers 404 for a missing bucket as for a missing key: the provider still names the bucket.
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.ReadRangeAsync("f.txt", 0, 0));
             var e = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.ReadFileAsync("f.txt"));
             StringAssert.Contains(e.Message, bucket);
             StringAssert.Contains(e.Message, "CreateBucketIfMissing");

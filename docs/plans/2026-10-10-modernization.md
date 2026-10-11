@@ -83,7 +83,7 @@ agreement for a one-way door. D20 records how the two maintainers agree for this
 | D12 | READMEs | A root README and one per package, packed into the nupkg. |
 | D13 | How the work lands | Several issues and PRs under #3, which this session opens and merges itself without waiting for a maintainer; the maintainers review them afterwards (decided 2026-10-10, superseding "one single PR"). Each PR builds, passes its tests and has its `review-code` pass before merge. This is a scoped exception to finish-work steps 4 and 6 (the developer's look before review, and a maintainer marking the PR ready) for the #3 issues only; AGENTS.md is not amended. Every merged PR is listed for the maintainers' after-the-fact review under "For the maintainers". |
 | D14 | Scope | All findings, the P1 and P2 features, full unit tests, Testcontainers. P3 goes under Later. |
-| D15 | `IfMatch` guarantees | The precondition is atomic on Azure, S3, MinIO, GCS (generation), Box and SharePoint simple uploads. On Physical (synthesized ETag from length and last-write time) and on SharePoint upload sessions it is checked, not atomic, and the XML docs say so. `IfNotExists` is atomic everywhere it can be: on Physical it uses `File.Move(overwrite: false)`. Amended in S9 (2026-10-11, main-session decision): SharePoint declares `SupportsAtomicPreconditions = false`, "checked, not atomic", for simple uploads too, because Graph does not document `If-Match` on `PUT /content`. The provider still sends `If-Match` and the conflict behaviour `fail` with every upload; the maintainers' live run decides whether simple uploads become atomic (see "For the maintainers"). Amended in S10 (main-session decision, 2026-10-11): on Box, `IfMatch` (and the version an append rewrites, D19) is checked, not atomic, until the maintainers' live run confirms that Box matches the quoted `If-Match` the v10 SDK can only send (Box documents unquoted ETags); the provider's wire path is behind an internal switch, tested on the fake, and turning it on is one line. `IfNotExists` is atomic on Box (409 on a taken name). |
+| D15 | `IfMatch` guarantees | The precondition is atomic on Azure, S3 on AWS, GCS (generation), Box and SharePoint simple uploads. On MinIO and any other S3-compatible server (`ServiceUrl`), which may ignore a condition, the provider checks it first, which is not atomic, and still sends the header for the server to enforce where it can (S7 review, round 1). On Physical (synthesized ETag from length and last-write time) and on SharePoint upload sessions it is checked, not atomic, and the XML docs say so. `IfNotExists` is atomic everywhere it can be: on Physical it uses `File.Move(overwrite: false)`. Amended in S9 (2026-10-11, main-session decision): SharePoint declares `SupportsAtomicPreconditions = false`, "checked, not atomic", for simple uploads too, because Graph does not document `If-Match` on `PUT /content`. The provider still sends `If-Match` and the conflict behaviour `fail` with every upload; the maintainers' live run decides whether simple uploads become atomic (see "For the maintainers"). Amended in S10 (main-session decision, 2026-10-11): on Box, `IfMatch` (and the version an append rewrites, D19) is checked, not atomic, until the maintainers' live run confirms that Box matches the quoted `If-Match` the v10 SDK can only send (Box documents unquoted ETags); the provider's wire path is behind an internal switch, tested on the fake, and turning it on is one line. `IfNotExists` is atomic on Box (409 on a taken name). |
 | D16 | GCS move | Copy with `IfGenerationMatch = 0` (destination must not exist), then delete the source with its generation. fake-gcs-server has no native move; `MoveObject` goes under Later. |
 | D17 | Two P2 items kept | Public constructors that take a prebuilt SDK client (with the options) on every cloud provider, for managed identity, Aspire, custom retries and tests. A provider never disposes a client it was given; the caller owns it. SDK types in public signatures (these constructors, `S3Region` and `S3StorageClass` on the S3 options) are part of the contract, so an SDK major that changes them is a WriteableFileProviders major. SharePoint signs in with a client secret, a certificate (`ClientCertificateBase64` and `ClientCertificatePassword`), or managed identity / `DefaultAzureCredential` (`UseDefaultAzureCredential`). |
 | D18 | URLs with a lifetime set by the service | Requested validity V and fixed lifetime L. If V < L, `NotSupportedException`, so the gateway takes over. If V ≥ L, the URL is returned only with `AllowShorterValidity`, with `ExpiresOn` = now + L (Box) or null (SharePoint). S3 and MinIO: when the credential expires before now + V, or is a session credential with an unknown expiry, the URL counts as shorter than asked. |
@@ -618,7 +618,7 @@ Status: `todo`, `done` (with the PR), `wontfix` (with the reason). F-numbers are
 | F16 | No CancellationToken | S4 | done (S4): every async member takes a token |
 | F17 | No ranged reads | S4, S5–S10 | S4 done (API, base default); S6 done (Azure: ranged download, `OpenReadAsync` seekable stream); S7 done (ranged GETs with `If-Match`); S8 done (GCS: ranged media GET); S9 done (SharePoint: `Range` on the download URL, and a range the service ignores is cut); S10 done for Box (`Range` on the version's download URL); S5 native ranges |
 | F18 | Missing-file exception differs | S4, S5–S10 | S4 done (the base turns a store's not-found into `FileNotFoundException`; conformance tests); S6 done (Azure, conformance on Azurite); S7 done; S8 done (GCS, the `GoogleApiException` as inner); S9 done (SharePoint); S10 done for Box (a 404 after the path was found maps too); S5 per provider |
-| F19 | Move semantics differ | S4, S5–S10 | S4 done (the base checks the source and the destination; case-only renames on stores that ignore case); S6 done (Azure: server-side copy with `IfNoneMatch = *`, move deletes the source on its ETag); S7 done (copy with `If-None-Match: *`, atomic on AWS, checked first on S3Mock and MinIO, which ignore it); S8 done (GCS copies with `ifGenerationMatch=0`); S9 done (SharePoint: one `PATCH` with conflict behaviour `fail`, server-side copy); S10 done for Box (files only, destination folders created, Box's 409 is `FileExistsException`); S5 per provider |
+| F19 | Move semantics differ | S4, S5–S10 | S4 done (the base checks the source and the destination; case-only renames on stores that ignore case); S6 done (Azure: server-side copy with `IfNoneMatch = *`, move deletes the source on its ETag); S7 done (copy with `If-None-Match: *`; the source deleted with `If-Match` on the version copied, the copy undone when it changed; atomic on AWS, checked first elsewhere); S8 done (GCS copies with `ifGenerationMatch=0`); S9 done (SharePoint: one `PATCH` with conflict behaviour `fail`, server-side copy); S10 done for Box (files only, destination folders created, Box's 409 is `FileExistsException`); S5 per provider |
 | F20 | GetFileInfo on folders differs | S4, S5–S10 | S4 done (the contract and its conformance tests); S6 done (Azure); S7 done; S8 done (GCS); S9 done (SharePoint: a folder's `Length` is -1); S10 done for Box (a folder exists, `Length` -1; a missing path `Length` -1); S5 per provider |
 | F21 | PhysicalPath means different things | S4, S5–S10 | S4 done (the contract and its conformance test); S6 done (Azure: null); S7 done (null); S8 done (GCS: null); S9 done (SharePoint: null); S10 done for Box (null in info and listings); S5 per provider |
 | F22 | Naming rule vs protected camelCase members | S4 | done (S4): the protected members are PascalCase `...CoreAsync` |
@@ -627,7 +627,7 @@ Status: `todo`, `done` (with the PR), `wontfix` (with the reason). F-numbers are
 | F25 | Box.V2.Core 5.8 outdated | S10 | done (S10): Box.V2.Core 10.19.0 (`Box.Sdk.Gen`), no Newtonsoft, no advisory |
 | F26 | Azure.Identity unused and deprecated | S6 | done (S6): AzureBlob uses it (`UseDefaultAzureCredential`) at the one shared version, 1.21.0, which SharePoint also takes |
 | F27 | Coverage not configured or enforced | S3, S12 | todo |
-| F28 | Download URL test passes on NotSupported | S4 (suite), S7, S8 | S4 done (suite: `NotSupportedException` is asserted exactly where the fixture says so, never swallowed); S7 done (offline expiry and credential-lifetime tests; presigned URLs used for real on S3Mock and MinIO, whose signature and expiry checks they pass); S8 done (`GcsOptionsTests` checks `X-Goog-Expires`, `ExpiresOn` and the signed headers offline; `GcsClientConformanceTests` asserts `NotSupportedException` without a signer) |
+| F28 | Download URL test passes on NotSupported | S4 (suite), S7, S8 | S4 done (suite: `NotSupportedException` is asserted exactly where the fixture says so, never swallowed); S7 done (offline expiry and credential-lifetime tests; presigned URLs used for real on S3Mock and MinIO, of which only MinIO checks signatures and expiry; on AWS a manual check, see "For the maintainers"); S8 done (`GcsOptionsTests` checks `X-Goog-Expires`, `ExpiresOn` and the signed headers offline; `GcsClientConformanceTests` asserts `NotSupportedException` without a signer) |
 | F29 | No cleanup after failed live tests | S4 (suite) | done (S4): each conformance test works under its own root folder, deleted in `[TestCleanup]` whether it passed or failed |
 | F30 | Configuration shape not pinned | S3 | todo |
 | F31 | LocalFileStream contract untested | S4 | done (S4): `LocalFileStreamTests` and the `LocalStream_*` conformance tests |
@@ -1383,13 +1383,43 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
   - **Verified:** the solution builds strict; all non-Live tests with `WFP_REQUIRE_DOCKER=1`, 775 passed and none skipped
     (S3Mock 5.2.3 and MinIO by digest through Testcontainers); the coverage gate. Coverage on Windows: AmazonS3 98.3% of
     lines and 93.0% of branches, Minio 99.2% and 88.3%; floors 97/91 and 98/87.
-  - **Not verified:** anything only AWS shows, listed under "For the maintainers".
+  - **Not verified:** anything only AWS shows: the live suite, and a manual checklist, under "For the maintainers".
   - **For later steps:**
     - A local stream commits with no content type, so editing a file through one stores `application/octet-stream` on
       S3 and MinIO; keeping the type needs the base's commit to pass it (Common; S12 or a follow-up).
     - No PublicAPI files yet: Common has none either (S12).
     - Docker Desktop's container clock can drift, so near-7-day presigns can be refused locally; CI's Linux containers
       share the host clock.
+
+- **2026-10-11, S7 review round 1** (PR #30, read at 34611d9: 6 minors, 2 nits), all fixed:
+  - **F1** The part loop reads the next part before deciding: a 0-byte read ends it, and the part limit throws only when
+    part `MaxPartCount + 1` has data (offline: 2048 bytes in two 1024-byte parts completes; 5000 bytes fails).
+  - **F8** Exactly `PartSize` is one PUT: the buffer reads one byte past the part, which carries into the next part
+    (offline and emulator tests).
+  - **F2** The bucket check counts only 403, 400 and 3xx as "exists"; any other failure faults it, and the next call
+    checks again. Where a HEAD 404 would end a call as "file not found" (a zero-length range, a copy's source), the
+    bucket is asked first, so a bucket that went missing is still `InvalidOperationException` (P18). The message says
+    whether `CreateBucketIfMissing` will create it again.
+  - **F3** MinIO's region question falls back to us-east-1 only on 403, 404 or `NoSuchBucket`; anything else fails the
+    connection, which the next call retries.
+  - **F4** (owner call: yes) `SupportsAtomicPreconditions` is true only on AWS. For MinIO and any `ServiceUrl` (or a
+    given client with one) the base checks first, and the headers are still sent. D15 amended; READMEs and the
+    migration guide say so. The provider decides it (`S3CoreSettings.ChecksAtomically`, `BucketLocation`), so neither
+    assembly carries the other's unreachable branches.
+  - **F5** (owner call: yes) The providers override the move: the source is deleted with `If-Match` on the version the
+    copy matched; on 412 or 404 the copy is deleted and the move throws `PreconditionFailedException` (parity with
+    Azure and GCS); a copy that cannot be removed throws `IOException` naming it. Off AWS the source's version is also
+    checked just before the delete (MinIO ignores `If-Match` on deletes): checked, not atomic. Offline and emulator
+    tests.
+  - **F6** The live suites run the conformance suite only; the plan, the tracker (F19, F28) and the live classes now
+    say so. Choice: a manual AWS checklist under "For the maintainers", not an AWS subclass of the behaviour tests,
+    which create buckets and write 1,100 objects in the account they run against.
+  - **F7** A range length past what a range can name reads to the end (`bytes={offset}-`) instead of overflowing.
+  - **F9** A copy in parts (over 5 GiB) carries the source's Content-Type, -Encoding, -Disposition, Cache-Control and
+    user metadata (offline test).
+  - The core's static tests moved to `tests/Shared/S3/S3CoreTests.cs`, so both assemblies run them.
+  - **Floors** from this Windows run, the whole-point floor of each figure: AmazonS3 lines 98 / branches 92, Minio
+    99 / 91. CI on PR #30 reports Linux; the lower of the two is the floor.
 
 ### For the maintainers
 
@@ -1402,10 +1432,22 @@ What this session cannot do, kept current as the work goes on:
   S4 and S12 touch the harness or a one-way door.
 - [ ] Run the live suites the PRs could not: AmazonS3 for #17 and every provider changed after it; Box and SharePoint
   for S9 and S10 (D21).
-  - S7: `AmazonS3LiveTests` and `MinioLiveTests` (`WFP_LIVE=1`, the `WFP_S3_*` and `WFP_MINIO_*` settings). Only AWS
-    can show: copy refusing an existing destination atomically (`If-None-Match`), presigned URLs expiring and
-    refusing tampering, the SDK's default checksums (CRC32 on PUT and parts, validated ranged GETs), multipart
-    completion with part ETags only, `UseDefaultCredentials`, requester-pays, and a bucket created outside us-east-1.
+  - S7, automated: `AmazonS3LiveTests` and `MinioLiveTests` (`WFP_LIVE=1`, the `WFP_S3_*` and `WFP_MINIO_*`
+    settings) run the conformance suite. On AWS that shows the SDK's default checksums (CRC32 on PUT and parts,
+    validated ranged and seekable GETs), multipart completion with part ETags only (writes and appends past 8 MiB),
+    conditional writes checked by AWS, a missing bucket reported, and presigned URLs issued (not used).
+  - S7, by hand on AWS, which no suite runs (the behaviour suite creates buckets and writes 1,100 objects, so it stays
+    on the emulators):
+    1. Presigned URLs: a 2-minute read URL downloads, with one character of its signature changed it is refused (403),
+       and after 2 minutes it is refused; a create URL used twice answers 200 then 412; a write URL with a
+       `ContentType` refuses another `Content-Type`.
+    2. Conditions AWS must enforce, with the AWS CLI on scratch keys: `copy-object` with `--if-none-match '*'` onto an
+       existing key, and `delete-object` with `--if-match` and a stale ETag, both answer 412.
+    3. `UseDefaultCredentials` on a machine or role with credentials: read and write work; with STS session
+       credentials, a signed URL needs `AllowShorterValidity` and carries their expiry.
+    4. A requester-pays bucket of another account: the live suite against it passes.
+    5. `CreateBucketIfMissing` with a new bucket name outside us-east-1: the bucket is created in that region.
+    6. `ReadFileVersionAsync` on a bucket with versioning reads an older version.
 - [ ] Google Cloud Storage (S8): run `GcsLiveConformanceTests` and `GcsLiveAtomicityTests` (`WFP_LIVE=1`, `WFP_GCS_*`)
   against a bucket you own, and check:
   - a copy or move racing a writer of its destination throws `FileExistsException` (`ifGenerationMatch=0` on rewrite);

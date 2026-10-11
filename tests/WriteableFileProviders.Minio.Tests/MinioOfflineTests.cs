@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
+using Amazon.S3;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using WriteableFileProviders.S3.Testing;
 using WriteableFileProviders.Testing;
@@ -78,6 +79,23 @@ public sealed class MinioOfflineTests
     }
 
     [TestMethod]
+    public async Task Region_ThatFailsOtherwiseIsAskedAgain()
+    {
+        var failing = true;
+        var (provider, _, signatures) = Offline(Options(), r => !IsLocation(r) ? null
+            : failing ? Error(HttpStatusCode.InternalServerError, "InternalError")
+            : Xml(HttpStatusCode.OK, Location("eu-central-1")));
+        using (provider)
+        {
+            // A server error says nothing about the region: the connection fails, and the next call asks again.
+            await Assert.ThrowsExactlyAsync<AmazonS3Exception>(() => provider.GetFileInfoAsync("a.txt"));
+            failing = false;
+            Assert.IsTrue((await provider.GetFileInfoAsync("a.txt")).Exists);
+        }
+        Assert.AreEqual("eu-central-1", Scope(signatures[^1]));
+    }
+
+    [TestMethod]
     public async Task Region_GivenIsNotAsked()
     {
         var (provider, _, signatures) = Offline(Options("ap-south-1"));
@@ -146,10 +164,6 @@ public sealed class MinioOfflineTests
         answer.SetResult();
         await Assert.ThrowsExactlyAsync<ObjectDisposedException>(() => first);
     }
-
-    [TestMethod]
-    public void AttachmentDisposition_NeedsAName() =>
-        Assert.ThrowsExactly<ArgumentNullException>(() => S3.S3Core.AttachmentDisposition(null!));
 
     private static bool IsLocationLine(string signature) => signature.Contains("?location", StringComparison.Ordinal);
 }

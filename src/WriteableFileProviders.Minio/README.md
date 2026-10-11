@@ -78,12 +78,16 @@ The provider never disposes a client it was given. Its options then give only th
   ranged GETs, pinned to the version with `If-Match`.
 - **Writes** up to 8 MiB go in one request, larger ones in a multipart upload. MinIO replaces a file only once all of it
   arrived, so a failed write leaves the old content. The caller's stream is never seeked, rewound or disposed.
-- **Conditions:** `IfMatch` and `IfNotExists` are sent to the server, which checks them atomically. An append rewrites
-  the file with `If-Match` on the version it read, so a concurrent write is never lost.
+- **Conditions:** `IfMatch` and `IfNotExists` are checked by the provider first, which is not atomic, and sent with the
+  write, which MinIO enforces where it supports conditional writes. An append rewrites the file with `If-Match` on the
+  version it read, so a concurrent write is not lost.
 - **Content type:** the type given is stored; without one a new file is `application/octet-stream`, and an append keeps
   the file's type.
 - **Copy and move** happen on the server. MinIO ignores `If-None-Match` on copies, so an existing destination is
-  checked first, which is not atomic. A move deletes exactly the source key.
+  checked first, which is not atomic. A move deletes exactly the source key, after checking that the source is still
+  the version it copied (MinIO ignores `If-Match` on deletes, so this is not atomic either); when it changed, the copy
+  is removed and the move throws `PreconditionFailedException`. Copies over 5 GiB keep the content type, encoding,
+  disposition, cache control and metadata.
 - No storage class is sent: MinIO refuses the ones it does not know.
 - Nothing touches the network before the first call, which asks for the region (unless `Region` names it) and checks
   the bucket.
@@ -98,8 +102,9 @@ content type; an upload must send every header in `SignedUrl.Headers`. URLs from
 
 ## Limits
 
-- MinIO releases older than its conditional-write support may ignore `If-Match` and `If-None-Match`: on such a server
-  the conditions, and the protection of concurrent appends, do not hold.
+- Conditions, moves and copies are checked by the provider first, then by MinIO where it can: not atomic. MinIO
+  releases older than its conditional-write support ignore `If-Match` and `If-None-Match` on writes too, so on such a
+  server a concurrent change can slip in between the check and the write.
 - A server with a site region and a bucket that does not exist yet needs `Region`, so the provider can create the
   bucket with `CreateBucketIfMissing`.
 - 10,000 parts per file, as on S3.

@@ -13,9 +13,11 @@ namespace WriteableFileProviders.Minio;
 /// Folders are key prefixes: a folder exists while some key is under it. Names are case-sensitive. Files up to 8 MiB are
 /// written in one request, larger ones in a multipart upload; either way MinIO replaces a file only once the whole
 /// content arrived, so a failed write leaves the old content. <see cref="UpdateFileOptions.IfMatch"/> and
-/// <see cref="UpdateFileOptions.IfNotExists"/> are checked atomically by MinIO releases that support conditional writes,
-/// and an append (a rewrite of the whole file) writes with <c>If-Match</c> on the version it read. A move or copy checks
-/// that the destination is free first, which is not atomic: MinIO ignores <c>If-None-Match</c> on copies.
+/// <see cref="UpdateFileOptions.IfNotExists"/> are checked by the provider first, which is not atomic, and sent with the
+/// write, which MinIO releases with conditional writes then enforce; an append (a rewrite of the whole file) writes with
+/// <c>If-Match</c> on the version it read. A move or copy checks that the destination is free first, and a move checks
+/// the source's version before deleting it, undoing the copy when it changed; neither is atomic, as MinIO ignores
+/// <c>If-None-Match</c> on copies and <c>If-Match</c> on deletes.
 /// </para>
 /// <para>
 /// Nothing touches the network until the first call, which asks the server for the bucket's region (unless
@@ -57,8 +59,11 @@ public sealed class WriteableMinioFileProvider : WriteableFileProvider<MinioFile
     /// <summary>The shared S3 core, for tests that tune its part sizes.</summary>
     internal S3Core Core => _core;
 
-    /// <inheritdoc />
-    protected override bool SupportsAtomicPreconditions => true;
+    /// <summary>
+    /// True on AWS, which checks <c>If-Match</c> and <c>If-None-Match</c> atomically. On an S3-compatible server the
+    /// provider checks them first too (not atomic), and still sends them.
+    /// </summary>
+    protected override bool SupportsAtomicPreconditions => _core.ChecksAtomically;
 
     /// <inheritdoc />
     protected override TimeSpan MaxSignedUrlValidity => S3Core.MaxPresignValidity;
@@ -107,6 +112,13 @@ public sealed class WriteableMinioFileProvider : WriteableFileProvider<MinioFile
     /// <inheritdoc />
     protected override Task CopyCoreAsync(ResolvedPath source, ResolvedPath destination, CancellationToken cancellationToken) =>
         _core.CopyAsync(source, destination, cancellationToken);
+
+    /// <summary>
+    /// Copies the file, then deletes the source with <c>If-Match</c> on the version copied; when the source changed
+    /// meanwhile, the copy is removed and <see cref="PreconditionFailedException"/> is thrown.
+    /// </summary>
+    protected override Task MoveCoreAsync(ResolvedPath source, ResolvedPath destination, CancellationToken cancellationToken) =>
+        _core.MoveAsync(source, destination, cancellationToken);
 
     /// <inheritdoc />
     protected override bool SupportsSignedUrl(SignedUrlAccess permission) => _core.CanPresign;

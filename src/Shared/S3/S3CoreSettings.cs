@@ -30,6 +30,15 @@ internal sealed record S3CoreSettings
     /// <summary>Whether requests accept the charges of a requester-pays bucket.</summary>
     public bool RequesterPays { get; init; }
 
+    /// <summary>
+    /// Whether the store checks conditions atomically, as AWS does; false for an S3-compatible server (MinIO, S3Mock, a
+    /// <see cref="ServiceUrl"/>), which may ignore some, so they are also checked first.
+    /// </summary>
+    public bool ChecksAtomically { get; init; }
+
+    /// <summary>The location a bucket the provider creates is given (AWS outside us-east-1), or null for none.</summary>
+    public string? BucketLocation { get; init; }
+
     /// <summary>Whether a missing bucket is created; otherwise every member throws <see cref="InvalidOperationException"/>.</summary>
     public bool CreateBucketIfMissing { get; init; }
 }

@@ -151,7 +151,8 @@ internal sealed partial class S3Core
         if (length == 0)
         {
             // Nothing to fetch, but the file and its version are still checked.
-            var head = await HeadAsync(Key(path), cancellationToken).ConfigureAwait(false) ?? throw NotFound(path);
+            var head = await HeadAsync(Key(path), cancellationToken).ConfigureAwait(false)
+                ?? throw await NotFoundAsync(path, cancellationToken).ConfigureAwait(false);
             if (ifMatch is not null && !string.Equals(head.ETag, ifMatch, StringComparison.Ordinal))
                 throw Changed(path, ifMatch, null);
             return Stream.Null;
@@ -160,7 +161,10 @@ internal sealed partial class S3Core
         {
             BucketName = Bucket,
             Key = Key(path),
-            ByteRange = length is { } count ? new ByteRange(offset, offset + count - 1) : new ByteRange($"bytes={offset}-"),
+            // A length past what a range can name (offset + length overflows) reads to the end, as no file is that long.
+            ByteRange = length is { } count && count <= long.MaxValue - offset
+                ? new ByteRange(offset, offset + count - 1)
+                : new ByteRange($"bytes={offset}-"),
             EtagToMatch = ifMatch,
             RequestPayer = Payer,
         };

@@ -5,7 +5,8 @@ using WriteableFileProviders.Testing;
 namespace WriteableFileProviders.Minio.Tests;
 
 /// <summary>
-/// The contract against a MinIO server you own. Runs only with <c>WFP_LIVE=1</c> and <c>WFP_MINIO_ENDPOINT</c>
+/// The contract against a MinIO server you own, such as one older than the container the emulator tests use. Runs only
+/// with <c>WFP_LIVE=1</c> and <c>WFP_MINIO_ENDPOINT</c>
 /// (<c>host:port</c>), <c>WFP_MINIO_ACCESS_KEY</c>, <c>WFP_MINIO_SECRET_KEY</c> and <c>WFP_MINIO_BUCKET</c>; HTTPS unless
 /// <c>WFP_MINIO_USE_SSL</c> is <c>false</c>, and <c>WFP_MINIO_REGION</c> when the server has a site region. Each test
 /// works under its own folder of <c>wfp-live-…/</c> and deletes it.

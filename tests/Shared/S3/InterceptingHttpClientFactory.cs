@@ -54,11 +54,13 @@ internal sealed class InterceptingHttpClientFactory : HttpClientFactory
     /// <param name="status">The status.</param>
     public static HttpResponseMessage Empty(HttpStatusCode status = HttpStatusCode.OK) => new(status) { Content = new ByteArrayContent([]) };
 
-    /// <summary>A ListObjectsV2 page with these keys and common prefixes, not truncated.</summary>
+    /// <summary>A ListObjectsV2 page with these keys and common prefixes.</summary>
     /// <param name="keys">The object keys.</param>
     /// <param name="prefixes">The common prefixes, each ending in <c>/</c>.</param>
-    public static HttpResponseMessage ListResult(IEnumerable<string> keys, IEnumerable<string>? prefixes = null) => Xml(HttpStatusCode.OK,
-        "<ListBucketResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"><Name>bucket</Name><IsTruncated>false</IsTruncated>"
+    /// <param name="next">The continuation token of a next page, or null for the last page.</param>
+    public static HttpResponseMessage ListResult(IEnumerable<string> keys, IEnumerable<string>? prefixes = null, string? next = null) => Xml(HttpStatusCode.OK,
+        "<ListBucketResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"><Name>bucket</Name>"
+        + (next is null ? "<IsTruncated>false</IsTruncated>" : $"<IsTruncated>true</IsTruncated><NextContinuationToken>{next}</NextContinuationToken>")
         + string.Concat(keys.Select(k => $"<Contents><Key>{k}</Key><LastModified>2026-10-10T00:00:00.000Z</LastModified><ETag>\"e\"</ETag><Size>1</Size></Contents>"))
         + string.Concat((prefixes ?? []).Select(p => $"<CommonPrefixes><Prefix>{p}</Prefix></CommonPrefixes>"))
         + "</ListBucketResult>");
@@ -67,6 +69,16 @@ internal sealed class InterceptingHttpClientFactory : HttpClientFactory
     /// <param name="uploadId">The upload id.</param>
     public static HttpResponseMessage InitiateResult(string uploadId = "upload-1") => Xml(HttpStatusCode.OK,
         $"<InitiateMultipartUploadResult><Bucket>bucket</Bucket><Key>key</Key><UploadId>{uploadId}</UploadId></InitiateMultipartUploadResult>");
+
+    /// <summary>The answer to CompleteMultipartUpload.</summary>
+    public static HttpResponseMessage CompleteResult() => Xml(HttpStatusCode.OK,
+        "<CompleteMultipartUploadResult><Bucket>bucket</Bucket><Key>key</Key><ETag>\"done-2\"</ETag></CompleteMultipartUploadResult>");
+
+    /// <summary>The answer to CopyObject or UploadPartCopy.</summary>
+    /// <param name="part">Whether it answers UploadPartCopy.</param>
+    public static HttpResponseMessage CopyResult(bool part = false) => Xml(HttpStatusCode.OK, part
+        ? "<CopyPartResult><ETag>\"part\"</ETag><LastModified>2026-10-10T00:00:00.000Z</LastModified></CopyPartResult>"
+        : "<CopyObjectResult><ETag>\"copy\"</ETag><LastModified>2026-10-10T00:00:00.000Z</LastModified></CopyObjectResult>");
 
     /// <summary>Whether the request starts a multipart upload.</summary>
     /// <param name="request">The request.</param>

@@ -7,8 +7,9 @@ namespace WriteableFileProviders.S3.Testing;
 
 /// <summary>
 /// What the S3 core does that a real server will not provoke, run through each provider over a fake S3 behind the SDK's
-/// HTTP layer: the part limit, a bucket created by someone else meanwhile, keys no path can name, and a skewed SDK clock
-/// near the 7-day limit.
+/// HTTP layer: the part limit and the one-request boundary, the bucket check and a bucket that goes missing, conditions
+/// checked first or not, the version a move deletes, a copy in parts, keys no path can name, and a skewed SDK clock near
+/// the 7-day limit.
 /// </summary>
 public abstract class S3OfflineTests
 {
@@ -26,6 +27,14 @@ public abstract class S3OfflineTests
     /// <summary>The location constraint a bucket the provider creates is given, or null for none.</summary>
     protected virtual string? ExpectedLocationConstraint => null;
 
+    /// <summary>Whether the provider leaves conditions to the store (AWS), rather than also checking them first.</summary>
+    protected virtual bool ChecksAtomically => false;
+
+    private const string ETag = "\"0123456789abcdef\"";
+
+    private static bool IsKey(HttpRequestMessage request, string relativeKey) =>
+        request.RequestUri!.AbsolutePath.EndsWith("/root/" + relativeKey, StringComparison.Ordinal);
+
     private (IWriteableFileProvider Provider, InterceptingHttpClientFactory Factory) Offline(Func<HttpRequestMessage, Task<HttpResponseMessage?>>? answer = null,
         bool createBucketIfMissing = false)
     {
@@ -38,10 +47,16 @@ public abstract class S3OfflineTests
     private static HttpResponseMessage Existing(HttpRequestMessage request)
     {
         var response = Empty();
-        if (request.Method == HttpMethod.Head)
-            response.Headers.ETag = new System.Net.Http.Headers.EntityTagHeaderValue("\"0123456789abcdef\"");
+        if (request.Method == HttpMethod.Head || request.Method == HttpMethod.Put)
+            response.Headers.ETag = new System.Net.Http.Headers.EntityTagHeaderValue(ETag);
         return response;
     }
+
+    // A key that does not exist: HEAD answers 404, and the folder listing is empty.
+    private static HttpResponseMessage? Missing(HttpRequestMessage request, string relativeKey) =>
+        request.Method == HttpMethod.Head && IsKey(request, relativeKey) ? Empty(HttpStatusCode.NotFound)
+        : IsList(request) ? ListResult([])
+        : null;
 
     [TestMethod]
     public async Task Write_OfMorePartsThanS3TakesFailsAndAborts()
@@ -60,6 +75,282 @@ public abstract class S3OfflineTests
             Assert.IsFalse(factory.Requests.Any(r => r.StartsWith("POST", StringComparison.Ordinal) && r.Contains("uploadId=", StringComparison.Ordinal)), "Never completed");
         }
     }
+
+    [TestMethod]
+    public async Task Write_OfExactlyTheLastPartS3TakesCompletes()
+    {
+        var (provider, factory) = Offline(r => Task.FromResult(IsInitiate(r) ? InitiateResult() : IsComplete(r) ? CompleteResult() : null));
+        using (provider)
+        {
+            var core = CoreOf(provider);
+            core.PartSize = 1024;
+            core.MaxPartCount = 2;
+            await provider.UpdateFileAsync("f.bin", new NonSeekableStream(new MemoryStream(new byte[2048])));
+        }
+        Assert.AreEqual(2, factory.Requests.Count(r => r.Contains("partNumber=", StringComparison.Ordinal)));
+        Assert.IsTrue(factory.Requests.Any(r => r.StartsWith("POST", StringComparison.Ordinal) && r.Contains("uploadId=upload-1", StringComparison.Ordinal)), "Completed");
+        Assert.IsFalse(factory.Requests.Any(r => r.StartsWith("DELETE", StringComparison.Ordinal)), "Not aborted");
+    }
+
+    [TestMethod]
+    public async Task Write_OfExactlyOnePartIsOneRequest()
+    {
+        var (provider, factory) = Offline();
+        using (provider)
+        {
+            CoreOf(provider).PartSize = 1024;
+            await provider.UpdateFileAsync("f.bin", new NonSeekableStream(new MemoryStream(new byte[1024])));
+            await provider.UpdateFileAsync("g.bin", new MemoryStream(new byte[1024]));
+        }
+        Assert.IsFalse(factory.Requests.Any(r => r.Contains("uploads", StringComparison.Ordinal)), string.Join("\n", factory.Requests));
+        Assert.AreEqual(2, factory.Requests.Count(r => r.StartsWith("PUT", StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
+    public async Task Write_SendsItsConditionAndChecksFirstOnlyOffAws()
+    {
+        string? ifNoneMatch = null;
+        var (provider, factory) = Offline(r =>
+        {
+            if (r.Method == HttpMethod.Put && IsKey(r, "f.txt"))
+                ifNoneMatch = Header(r, "If-None-Match");
+            return Task.FromResult(Missing(r, "f.txt"));
+        });
+        using (provider)
+            await provider.UpdateFileAsync("f.txt", new MemoryStream([1]), new UpdateFileOptions { IfNotExists = true });
+        Assert.AreEqual("*", ifNoneMatch, "The condition goes to the store either way");
+        Assert.AreEqual(!ChecksAtomically, factory.Requests.Any(r => r.StartsWith("HEAD", StringComparison.Ordinal) && r.Contains("/root/f.txt", StringComparison.Ordinal)),
+            "Off AWS the provider checks first");
+    }
+
+    [TestMethod]
+    public async Task Move_DeletesTheSourceOnlyAtTheVersionCopied()
+    {
+        string? ifMatch = null;
+        var (provider, factory) = Offline(r =>
+        {
+            if (r.Method == HttpMethod.Delete && IsKey(r, "a.txt"))
+                ifMatch = Header(r, "If-Match");
+            return Task.FromResult(IsCopy(r) ? CopyResult() : Missing(r, "b.txt"));
+        });
+        using (provider)
+            await provider.MoveAsync("a.txt", "b.txt");
+        Assert.AreEqual(ETag, ifMatch);
+        // The base checks the source and the copy reads its version; off AWS the move checks it again before deleting.
+        Assert.AreEqual(ChecksAtomically ? 2 : 3,
+            factory.Requests.Count(r => r.StartsWith("HEAD", StringComparison.Ordinal) && r.Contains("/root/a.txt", StringComparison.Ordinal)));
+        Assert.IsFalse(factory.Requests.Any(r => r.StartsWith("DELETE", StringComparison.Ordinal) && r.Contains("/root/b.txt", StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
+    public async Task Move_WhoseSourceChangedRemovesTheCopy()
+    {
+        var (provider, factory) = Offline(r => Task.FromResult(
+            IsCopy(r) ? CopyResult()
+            : r.Method == HttpMethod.Delete && IsKey(r, "a.txt") ? Error(HttpStatusCode.PreconditionFailed, "PreconditionFailed")
+            : Missing(r, "b.txt")));
+        using (provider)
+        {
+            var e = await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => provider.MoveAsync("a.txt", "b.txt"));
+            StringAssert.Contains(e.Message, "undone");
+        }
+        Assert.IsTrue(factory.Requests.Any(r => r.StartsWith("DELETE", StringComparison.Ordinal) && r.Contains("/root/b.txt", StringComparison.Ordinal)), "The copy was removed");
+    }
+
+    [TestMethod]
+    public async Task Move_ThatCannotRemoveItsCopyNamesIt()
+    {
+        var (provider, _) = Offline(r => Task.FromResult(
+            IsCopy(r) ? CopyResult()
+            : r.Method == HttpMethod.Delete ? Error(HttpStatusCode.PreconditionFailed, "PreconditionFailed")
+            : Missing(r, "b.txt")));
+        using (provider)
+        {
+            var e = await Assert.ThrowsExactlyAsync<IOException>(() => provider.MoveAsync("a.txt", "b.txt"));
+            StringAssert.Contains(e.Message, "b.txt");
+            Assert.IsInstanceOfType<AggregateException>(e.InnerException);
+        }
+    }
+
+    [TestMethod]
+    public async Task Copy_InPartsKeepsTheSourcesHeadersAndMetadata()
+    {
+        var initiate = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var (provider, factory) = Offline(r =>
+        {
+            if (r.Method == HttpMethod.Head && IsKey(r, "big.bin"))
+            {
+                var head = Existing(r);
+                head.Content.Headers.ContentLength = 2048;
+                head.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/x-test");
+                head.Content.Headers.ContentEncoding.Add("gzip");
+                head.Content.Headers.ContentDisposition = new System.Net.Http.Headers.ContentDispositionHeaderValue("attachment") { FileName = "big.bin" };
+                head.Headers.CacheControl = new System.Net.Http.Headers.CacheControlHeaderValue { MaxAge = TimeSpan.FromHours(1) };
+                head.Headers.Add("x-amz-meta-owner", "tests");
+                return Task.FromResult<HttpResponseMessage?>(head);
+            }
+            if (IsInitiate(r))
+            {
+                foreach (var (name, values) in r.Headers.Concat(r.Content?.Headers ?? Enumerable.Empty<KeyValuePair<string, IEnumerable<string>>>()))
+                    initiate[name] = string.Join(",", values);
+                return Task.FromResult<HttpResponseMessage?>(InitiateResult());
+            }
+            return Task.FromResult(IsCopyPart(r) ? CopyResult(part: true) : IsComplete(r) ? CompleteResult() : Missing(r, "copy.bin"));
+        });
+        using (provider)
+        {
+            var core = CoreOf(provider);
+            core.MaxSingleCopySize = 1024;
+            core.CopyPartSize = 1024;
+            await provider.CopyAsync("big.bin", "copy.bin");
+        }
+        Assert.AreEqual(2, factory.Requests.Count(r => r.Contains("partNumber=", StringComparison.Ordinal)));
+        Assert.AreEqual("application/x-test", initiate.GetValueOrDefault("Content-Type"));
+        Assert.AreEqual("gzip", initiate.GetValueOrDefault("Content-Encoding"));
+        StringAssert.Contains(initiate.GetValueOrDefault("Content-Disposition"), "big.bin");
+        Assert.AreEqual("max-age=3600", initiate.GetValueOrDefault("Cache-Control"));
+        Assert.AreEqual("tests", initiate.GetValueOrDefault("x-amz-meta-owner"));
+    }
+
+    [TestMethod]
+    public async Task BucketCheck_ThatFailsOtherwiseIsRetriedAndARefusalMeansItExists()
+    {
+        var status = HttpStatusCode.ServiceUnavailable;
+        var checks = 0;
+        var (provider, _) = Offline(r =>
+        {
+            if (!IsBucket(r) || r.Method != HttpMethod.Head)
+                return Task.FromResult<HttpResponseMessage?>(null);
+            Interlocked.Increment(ref checks);
+            return Task.FromResult<HttpResponseMessage?>(Empty(status));
+        });
+        using (provider)
+        {
+            // 503 after the SDK's retries says nothing about the bucket: the next call checks again.
+            await Assert.ThrowsAsync<Exception>(() => provider.GetFileInfoAsync("f.txt"));
+            var failed = checks;
+            Assert.IsTrue(failed > 0);
+            status = HttpStatusCode.BadRequest;
+            Assert.IsTrue((await provider.GetFileInfoAsync("f.txt")).Exists, "400: the bucket exists, or cannot be asked");
+            var recovered = checks;
+            Assert.IsTrue(recovered > failed, "Checked again");
+            Assert.IsTrue((await provider.GetFileInfoAsync("g.txt")).Exists);
+            Assert.AreEqual(recovered, checks, "Then never again");
+        }
+    }
+
+    [TestMethod]
+    public async Task MissingBucket_SinceTheCheckIsReportedEvenWhereOnlyHeadIsAsked()
+    {
+        var gone = false;
+        var (provider, _) = Offline(r => Task.FromResult(gone && r.Method == HttpMethod.Head ? Empty(HttpStatusCode.NotFound) : null));
+        using (provider)
+        {
+            Assert.IsTrue((await provider.GetFileInfoAsync("f.txt")).Exists);
+            gone = true;
+            // HEAD answers 404 for a missing key and a missing bucket alike: the provider asks which.
+            var e = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.ReadRangeAsync("f.txt", 0, 0));
+            StringAssert.Contains(e.Message, "set the option CreateBucketIfMissing to let the provider create it");
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.CopyAsync("f.txt", "g.txt"));
+        }
+    }
+
+    [TestMethod]
+    public async Task MissingBucket_WithTheOptionSaysTheNextCallCreatesIt()
+    {
+        var gone = false;
+        var (provider, _) = Offline(r => Task.FromResult(gone && r.Method == HttpMethod.Get ? Error(HttpStatusCode.NotFound, "NoSuchBucket") : null),
+            createBucketIfMissing: true);
+        using (provider)
+        {
+            Assert.IsTrue((await provider.GetFileInfoAsync("f.txt")).Exists);
+            gone = true;
+            var e = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.ReadFileAsync("f.txt"));
+            StringAssert.Contains(e.Message, "the next call creates it again");
+        }
+    }
+
+    [TestMethod]
+    public async Task Listing_FollowsEveryPage()
+    {
+        // Keys come in order across pages, as a store lists them; the folder d spans the page boundary.
+        var (provider, _) = Offline(r =>
+        {
+            if (!IsList(r))
+                return Task.FromResult<HttpResponseMessage?>(null);
+            var second = r.RequestUri!.Query.Contains("continuation-token=page2", StringComparison.Ordinal);
+            var oneLevel = r.RequestUri.Query.Contains("delimiter", StringComparison.Ordinal);
+            return Task.FromResult<HttpResponseMessage?>((oneLevel, second) switch
+            {
+                (true, false) => ListResult(["root/a.txt"], ["root/d/"], next: "page2"),
+                (true, true) => ListResult(["root/e.txt"], ["root/f/"]),
+                (false, false) => ListResult(["root/a.txt", "root/d/x.txt"], next: "page2"),
+                (false, true) => ListResult(["root/d/y.txt", "root/e.txt", "root/f/z.txt"]),
+            });
+        });
+        using (provider)
+        {
+            var level = (await provider.GetDirectoryContentsAsync("")).Select(e => e.Name).ToList();
+            CollectionAssert.AreEquivalent(new[] { "a.txt", "d", "e.txt", "f" }, level, "One level: both pages");
+            var all = new List<string>();
+            await foreach (var entry in provider.EnumerateAsync("", recursive: true))
+                all.Add(entry.Path.ToString());
+            CollectionAssert.AreEqual(new[] { "a.txt", "d", "d/x.txt", "d/y.txt", "e.txt", "f", "f/z.txt" }, all, "Recursive: d once, across the pages");
+        }
+    }
+
+    [TestMethod]
+    public async Task Write_RefusedByTheStoreIsAPreconditionFailure()
+    {
+        // The check before the write passes; the store refuses it anyway, as when another writer got there in between.
+        var (provider, _) = Offline(r => Task.FromResult(
+            r.Method == HttpMethod.Put && IsKey(r, "new.txt") ? Error(HttpStatusCode.PreconditionFailed, "PreconditionFailed")
+            : r.Method == HttpMethod.Put && IsKey(r, "f.txt") ? Error(HttpStatusCode.NotFound, "NoSuchKey")
+            : Missing(r, "new.txt")));
+        using (provider)
+        {
+            var exists = await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() =>
+                provider.UpdateFileAsync("new.txt", new MemoryStream([1]), new UpdateFileOptions { IfNotExists = true }));
+            StringAssert.Contains(exists.Message, "already exists");
+            var gone = await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() =>
+                provider.UpdateFileAsync("f.txt", new MemoryStream([1]), new UpdateFileOptions { IfMatch = ETag }));
+            StringAssert.Contains(gone.Message, "no longer");
+        }
+    }
+
+    [TestMethod]
+    public async Task Move_WhoseSourceWentAfterTheCopyIsUndone()
+    {
+        var (provider, factory) = Offline(r => Task.FromResult(
+            IsCopy(r) ? CopyResult()
+            : r.Method == HttpMethod.Delete && IsKey(r, "a.txt") ? Error(HttpStatusCode.NotFound, "NoSuchKey")
+            : Missing(r, "b.txt")));
+        using (provider)
+            await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => provider.MoveAsync("a.txt", "b.txt"));
+        Assert.IsTrue(factory.Requests.Any(r => r.StartsWith("DELETE", StringComparison.Ordinal) && r.Contains("/root/b.txt", StringComparison.Ordinal)), "The copy was removed");
+    }
+
+    [TestMethod]
+    public async Task Range_OfLengthZeroOfAMissingFileIsNotFoundWhenTheBucketCannotBeAsked()
+    {
+        var checkedOnce = false;
+        var (provider, _) = Offline(r =>
+        {
+            if (IsBucket(r) && r.Method == HttpMethod.Head)
+            {
+                // The first check passes; asked again, the credentials may not ask.
+                var answer = checkedOnce ? Empty(HttpStatusCode.Forbidden) : null;
+                checkedOnce = true;
+                return Task.FromResult(answer);
+            }
+            return Task.FromResult(Missing(r, "f.txt"));
+        });
+        using (provider)
+            await Assert.ThrowsExactlyAsync<FileNotFoundException>(() => provider.ReadRangeAsync("f.txt", 0, 0));
+    }
+
+    private static string? Header(HttpRequestMessage request, string name) =>
+        request.Headers.TryGetValues(name, out var values) ? string.Join(",", values) : null;
 
     [TestMethod]
     public async Task MissingBucket_CreatedByAnotherCallerMeanwhileIsUsed()

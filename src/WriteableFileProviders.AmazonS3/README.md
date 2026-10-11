@@ -76,13 +76,17 @@ and `CreateBucketIfMissing`.
 - **Writes** up to 8 MiB go in one request, larger ones in a multipart upload of 8 MiB parts (larger for files over
   80 GiB). S3 replaces a file only once all of it arrived, so a failed write leaves the old content. The caller's stream
   is read from its position and never seeked, rewound or disposed.
-- **Conditions:** `IfMatch` and `IfNotExists` are checked by S3, atomically. An append rewrites the file with `If-Match`
-  on the version it read, so a concurrent write is never lost: the append throws `PreconditionFailedException` instead.
+- **Conditions:** `IfMatch` and `IfNotExists` go to S3 with the write, which AWS checks atomically. Toward an
+  S3-compatible server (`ServiceUrl`), which may ignore some of them, the provider also checks them first, which is not
+  atomic. An append rewrites the file with `If-Match` on the version it read, so a concurrent write is not lost: the
+  append throws `PreconditionFailedException` instead.
 - **Content type:** the type given is stored; without one a new file is `application/octet-stream`, and an append keeps
   the file's type. Listings carry no content type; `GetFileInfoAsync` does.
 - **Copy and move** happen on the server. An existing destination is refused, atomically on AWS (`If-None-Match`);
   S3-compatible servers that ignore that header on copies are still checked first. Files over 5 GiB are copied in
-  parts. A move deletes exactly the source key.
+  parts, keeping the content type, encoding, disposition, cache control and metadata. A move deletes exactly the source
+  key, with `If-Match` on the version it copied: when the source changed meanwhile, the copy is removed and the move
+  throws `PreconditionFailedException`. Atomic on AWS; elsewhere the version is also checked just before the delete.
 - **Ranged and seekable reads** are ranged GETs, pinned to the version with `If-Match`.
 - **Requester-pays** buckets on AWS work: every request accepts the charge.
 - **Versions:** `ReadFileVersionAsync(versionId, path)` reads a version in a bucket with versioning.
@@ -105,7 +109,9 @@ gateway URL instead.
 
 - 10,000 parts per file: up to 5 TiB from a stream that knows its length, about 430 GiB from one that does not.
 - Copies over 5 GiB take one request per 512 MiB part.
-- A missing bucket throws `InvalidOperationException` naming the bucket and `CreateBucketIfMissing`.
+- A missing bucket throws `InvalidOperationException` naming the bucket and `CreateBucketIfMissing`. The bucket is
+  checked once, on first use; a bucket deleted later is reported by the next call that finds it gone.
+- Off AWS (`ServiceUrl`), conditions are checked first and then sent: atomic only where the server enforces them.
 - The SDK's configured endpoints (`AWS_ENDPOINT_URL_S3`) redirect a provider without `ServiceUrl`, as they do every AWS
   client.
 

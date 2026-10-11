@@ -13,10 +13,11 @@ namespace WriteableFileProviders.AmazonS3;
 /// Folders are key prefixes: a folder exists while some key is under it. Names are case-sensitive. Files up to 8 MiB are
 /// written in one request, larger ones in a multipart upload; either way S3 replaces a file only once the whole content
 /// arrived, so a failed write leaves the old content. <see cref="UpdateFileOptions.IfMatch"/> and
-/// <see cref="UpdateFileOptions.IfNotExists"/> are checked atomically by S3, and an append (a rewrite of the whole file)
-/// writes with <c>If-Match</c> on the version it read, so it never loses a concurrent write. A copy refuses an existing
-/// destination with <c>If-None-Match: *</c>, atomic on AWS; S3-compatible servers that ignore it on copies are still
-/// checked first, not atomically.
+/// <see cref="UpdateFileOptions.IfNotExists"/> go to the store with the write, and an append (a rewrite of the whole file)
+/// writes with <c>If-Match</c> on the version it read. A copy refuses an existing destination with <c>If-None-Match: *</c>,
+/// and a move deletes the source with <c>If-Match</c> on the version it copied, undoing the copy when the source changed.
+/// AWS checks all of these atomically. An S3-compatible server (<see cref="AmazonS3FileProviderOptions.ServiceUrl"/>) may
+/// ignore some of them, so there the provider also checks them first, which is not atomic.
 /// </para>
 /// <para>
 /// Nothing touches the network until the first call, which resolves the credentials of the default chain if asked and
@@ -61,13 +62,16 @@ public sealed class WriteableAmazonS3FileProvider : WriteableFileProvider<Amazon
 
     private WriteableAmazonS3FileProvider(AmazonS3FileProviderOptions options, IAmazonS3? client, AWSCredentials? credentials)
         : base(options) =>
-        _core = new S3Core(this, SettingsFor(Options, client is not null, credentials), client, IsAddressable);
+        _core = new S3Core(this, SettingsFor(Options, client, credentials), client, IsAddressable);
 
     /// <summary>The shared S3 core, for tests that tune its part sizes.</summary>
     internal S3Core Core => _core;
 
-    /// <inheritdoc />
-    protected override bool SupportsAtomicPreconditions => true;
+    /// <summary>
+    /// True on AWS, which checks <c>If-Match</c> and <c>If-None-Match</c> atomically. On an S3-compatible server the
+    /// provider checks them first too (not atomic), and still sends them.
+    /// </summary>
+    protected override bool SupportsAtomicPreconditions => _core.ChecksAtomically;
 
     /// <inheritdoc />
     protected override TimeSpan MaxSignedUrlValidity => S3Core.MaxPresignValidity;
@@ -134,6 +138,13 @@ public sealed class WriteableAmazonS3FileProvider : WriteableFileProvider<Amazon
     protected override Task CopyCoreAsync(ResolvedPath source, ResolvedPath destination, CancellationToken cancellationToken) =>
         _core.CopyAsync(source, destination, cancellationToken);
 
+    /// <summary>
+    /// Copies the file, then deletes the source with <c>If-Match</c> on the version copied; when the source changed
+    /// meanwhile, the copy is removed and <see cref="PreconditionFailedException"/> is thrown.
+    /// </summary>
+    protected override Task MoveCoreAsync(ResolvedPath source, ResolvedPath destination, CancellationToken cancellationToken) =>
+        _core.MoveAsync(source, destination, cancellationToken);
+
     /// <inheritdoc />
     protected override bool SupportsSignedUrl(SignedUrlAccess permission) => _core.CanPresign;
 
@@ -168,8 +179,9 @@ public sealed class WriteableAmazonS3FileProvider : WriteableFileProvider<Amazon
         }
     }
 
-    private static S3CoreSettings SettingsFor(AmazonS3FileProviderOptions options, bool clientGiven, AWSCredentials? credentials)
+    private static S3CoreSettings SettingsFor(AmazonS3FileProviderOptions options, IAmazonS3? client, AWSCredentials? credentials)
     {
+        var clientGiven = client is not null;
         if (string.IsNullOrWhiteSpace(options.BucketName))
             throw new ArgumentException("BucketName is required.", nameof(options));
         string? serviceUrl = null;
@@ -192,6 +204,10 @@ public sealed class WriteableAmazonS3FileProvider : WriteableFileProvider<Amazon
             StorageClass = options.StorageClassForNewFiles,
             // A requester-pays bucket on AWS needs every request to accept the charge; it costs nothing elsewhere.
             RequesterPays = serviceUrl is null,
+            // AWS checks conditions atomically; an S3-compatible server, ours or the given client's, may ignore some.
+            ChecksAtomically = serviceUrl is null && client?.Config.ServiceURL is null,
+            // Outside us-east-1, AWS needs the region as a new bucket's location; other servers use their own.
+            BucketLocation = serviceUrl is null && region is not null and not "us-east-1" ? region : null,
             CreateBucketIfMissing = options.CreateBucketIfMissing,
         };
     }

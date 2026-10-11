@@ -130,7 +130,7 @@ default, and the obsolete `S3Region` short names (`US`, `EU`, `SFO`…) are gone
 | `WriteableAmazonS3FileProvider` could be derived from | It is `sealed` (D25) | Derive a custom provider from `WriteableFileProvider<TOptions>`, or wrap this one. |
 | Missing file: `AmazonS3Exception` (NoSuchKey) | `FileNotFoundException`, with the SDK's error inside | Catch `FileNotFoundException`. |
 | A folder: `Exists` false, `IsDirectory` true; `PhysicalPath` the key | `Exists` and `IsDirectory` true; `PhysicalPath` null | Use `IWriteableFileInfo.Path`. |
-| Move overwrote an existing destination | `FileExistsException`; it deletes exactly the source key | Delete the destination first if you meant to replace it. |
+| Move overwrote an existing destination | `FileExistsException`; it deletes exactly the source key, with `If-Match` on the version it copied, and undoes the copy with `PreconditionFailedException` when the source changed meanwhile | Delete the destination first if you meant to replace it; retry on `PreconditionFailedException`. |
 | A missing bucket failed with the SDK's error | `InvalidOperationException` naming the bucket, unless `CreateBucketIfMissing` is set | Create the bucket, or set the option. |
 | One PUT per write, at most 5 GB, and the caller's stream was disposed | Multipart above 8 MiB (up to 5 TiB); the stream is left open | Dispose your stream yourself. |
 | A failed append could upload a half-appended file (F4) | An append is a rewrite with `If-Match`: it fails whole, and a concurrent write makes it throw `PreconditionFailedException` | Retry on `PreconditionFailedException`. |
@@ -155,7 +155,7 @@ to JSON only when set (D26), so a configuration that uses none of them keeps its
 | `ReadFileAsync` downloaded the whole file to a seekable temp file | A forward-only network stream | Use `OpenReadSeekableAsync` (ranged reads) or `CreateLocalFileStreamAsync` (a local copy) where you seek. |
 | Download URLs threw `NotSupportedException` | Presigned read, create and write URLs, up to 7 days | Nothing to do. |
 | Every file was stored as `application/octet-stream` | The `ContentType` you give is stored; without one, still `application/octet-stream` | Nothing to do. |
-| Move overwrote an existing destination | `FileExistsException`, checked before the copy (MinIO ignores `If-None-Match` on copies, so the check is not atomic) | Delete the destination first if you meant to replace it. |
+| Move overwrote an existing destination | `FileExistsException`, checked before the copy; the source's version is checked before its delete, and a change undoes the copy with `PreconditionFailedException` (MinIO ignores `If-None-Match` on copies and `If-Match` on deletes, so neither check is atomic) | Delete the destination first if you meant to replace it; retry on `PreconditionFailedException`. |
 | The Minio SDK asked the server for the bucket's region | The provider asks once (`GetBucketLocation`), or takes the new `Region` option | Set `Region` for a server with a site region whose bucket does not exist yet. |
 
 **Finding the configurations D7 breaks:** search your configuration files and stores for `WriteableMinioFileProvider`
@@ -163,8 +163,8 @@ entries whose `UseSSL` is `false` or absent and whose `HostAndPort` is not `loca
 Each needs `"UseSSL": true`, or `"AllowInsecureHttp": true` if plain HTTP is intended. `HostAndPort` still takes
 `host:port` only: a scheme, a path or a query is refused, as the Minio SDK refused it.
 
-`IfMatch`, `IfNotExists` and the protection of concurrent appends need a MinIO release with conditional writes; older
-servers ignore the headers. New: `AllowInsecureHttp`, `Region`, `CreateBucketIfMissing`, and a constructor that takes your
+`IfMatch` and `IfNotExists` are checked by the provider first, which is not atomic, and sent to the server, which
+enforces them where it has conditional writes; older MinIO releases ignore the headers. New: `AllowInsecureHttp`, `Region`, `CreateBucketIfMissing`, and a constructor that takes your
 own `IAmazonS3`. The new options are written to JSON only when set (D26).
 
 ## Stored configuration

@@ -69,43 +69,6 @@ public sealed class AmazonS3OptionsTests
     }
 
     [TestMethod]
-    [DataRow(null, null)]
-    [DataRow("", "us-east-1")]
-    [DataRow("US", "us-east-1")]
-    [DataRow("null", "us-east-1")]
-    [DataRow("EU", "eu-west-1")]
-    [DataRow(" eu-central-1 ", "eu-central-1")]
-    public void Regions_StoredUnderOldNamesReadAsSystemNames(string? stored, string? expected) =>
-        Assert.AreEqual(expected, S3Core.NormalizeRegion(stored));
-
-    [TestMethod]
-    public void ClientConfig_ForAws()
-    {
-        var config = S3Core.CreateConfig(new S3CoreSettings { Bucket = "b", Region = "eu-west-1" });
-        Assert.AreEqual(RegionEndpoint.EUWest1, config.RegionEndpoint);
-        Assert.IsNull(config.ServiceURL);
-        Assert.IsFalse(config.ForcePathStyle);
-        // AWS keeps the SDK's default integrity checks.
-        Assert.AreEqual(RequestChecksumCalculation.WHEN_SUPPORTED, config.RequestChecksumCalculation);
-        Assert.AreEqual(ResponseChecksumValidation.WHEN_SUPPORTED, config.ResponseChecksumValidation);
-        Assert.AreEqual(RegionEndpoint.USEast1, S3Core.CreateConfig(new S3CoreSettings { Bucket = "b" }).RegionEndpoint);
-    }
-
-    [TestMethod]
-    public void ClientConfig_ForAnS3CompatibleServer()
-    {
-        var config = S3Core.CreateConfig(new S3CoreSettings { Bucket = "b", ServiceUrl = "http://localhost:9000", ForcePathStyle = true });
-        StringAssert.StartsWith(config.ServiceURL, "http://localhost:9000");
-        Assert.IsNull(config.RegionEndpoint);
-        Assert.IsTrue(config.ForcePathStyle);
-        Assert.AreEqual("us-east-1", config.AuthenticationRegion);
-        Assert.AreEqual(RequestChecksumCalculation.WHEN_REQUIRED, config.RequestChecksumCalculation);
-        Assert.AreEqual(ResponseChecksumValidation.WHEN_REQUIRED, config.ResponseChecksumValidation);
-        Assert.AreEqual("eu-central-1", S3Core.CreateConfig(new S3CoreSettings { Bucket = "b", ServiceUrl = "https://s3.example", Region = "eu-central-1" }).AuthenticationRegion);
-        Assert.AreEqual("ap-south-1", S3Core.CreateConfig(new S3CoreSettings { Bucket = "b", ServiceUrl = "https://s3.example" }, "ap-south-1").AuthenticationRegion);
-    }
-
-    [TestMethod]
     public void NewOptions_AreWrittenOnlyWhenSet()
     {
         // D26: a configuration that uses none of the 2027 options keeps its 2026 shape.
@@ -131,17 +94,22 @@ public sealed class AmazonS3OptionsTests
     }
 
     [TestMethod]
+    public void Conditions_AreLeftToTheStoreOnlyOnAws()
+    {
+        using (var aws = new WriteableAmazonS3FileProvider(Valid()))
+            Assert.IsTrue(aws.Core.ChecksAtomically);
+        using (var endpoint = new WriteableAmazonS3FileProvider(new AmazonS3FileProviderOptions("r", "k", "s", "b", "us-east-1") { ServiceUrl = "http://localhost:9000" }))
+            Assert.IsFalse(endpoint.Core.ChecksAtomically, "An S3-compatible server may ignore a condition");
+        using var awsClient = new AmazonS3Client(new AnonymousAWSCredentials(), RegionEndpoint.EUWest1);
+        using (var given = new WriteableAmazonS3FileProvider(new AmazonS3FileProviderOptions { BucketName = "b" }, awsClient))
+            Assert.IsTrue(given.Core.ChecksAtomically);
+        using var endpointClient = new AmazonS3Client(new AnonymousAWSCredentials(), new AmazonS3Config { ServiceURL = "http://localhost:9000" });
+        using (var given = new WriteableAmazonS3FileProvider(new AmazonS3FileProviderOptions { BucketName = "b" }, endpointClient))
+            Assert.IsFalse(given.Core.ChecksAtomically);
+    }
+
+    [TestMethod]
     public void Provider_IsSealed() =>
         // D25: a custom provider derives from WriteableFileProvider<TOptions>, not from a provider.
         Assert.IsTrue(typeof(WriteableAmazonS3FileProvider).IsSealed);
-
-    [TestMethod]
-    public void AttachmentDisposition_EncodesTheNameBothWays()
-    {
-        var value = System.Net.Http.Headers.ContentDispositionHeaderValue.Parse(S3Core.AttachmentDisposition("rép\"ort;\r\nx.csv"));
-        Assert.AreEqual("attachment", value.DispositionType);
-        Assert.AreEqual("rép\"ort;\r\nx.csv", value.FileNameStar);
-        Assert.AreEqual("r_p_ort;__x.csv", value.FileName?.Trim('"'));
-        Assert.ThrowsExactly<ArgumentNullException>(() => S3Core.AttachmentDisposition(null!));
-    }
 }

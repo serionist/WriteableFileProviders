@@ -26,10 +26,11 @@
     <MinVerTagPrefix>v</MinVerTagPrefix>
     <MinVerMinimumMajorMinor>2027.0</MinVerMinimumMajorMinor>
     <MinVerDefaultPreReleaseIdentifiers>alpha.0</MinVerDefaultPreReleaseIdentifiers>
-    <!-- Package validation runs on every pack. With one target framework and no baseline it checks the package's own
-         consistency; once 2027.0.0 ships, PackageValidationBaselineVersion set to it also checks every later package
-         against what consumers have (docs/releasing.md, "After a major release"). -->
+    <!-- Package validation runs on every pack: it checks the package's own consistency, and compares it with the
+         baseline, the last major release on nuget.org, so a breaking change to the public API fails the pack. A new
+         major moves the baseline to itself (docs/releasing.md, "After a major release"). -->
     <EnablePackageValidation>true</EnablePackageValidation>
+    <PackageValidationBaselineVersion>2027.0.0</PackageValidationBaselineVersion>
   </PropertyGroup>
 
   <!-- Trimming and native AOT: the trim, AOT and single-file analyzers run on every package, and their warnings fail

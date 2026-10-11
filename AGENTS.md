@@ -45,10 +45,9 @@ Every project targets `net10.0` and builds strict: nullable analysis, warnings a
 analyzers (`IsAotCompatible`); a member that needs reflection says so with `RequiresUnreferencedCode` and
 `RequiresDynamicCode`. Code follows `.editorconfig`, and nothing reformats a file it does not otherwise change.
 
-Package validation (`EnablePackageValidation`, in `src/Directory.Build.props`) runs on every pack. Until 2027.0.0 is
-on nuget.org it checks each package's own consistency; then its baseline compares every later package with that
-release, and a breaking change to the public API fails the pack ([docs/releasing.md](docs/releasing.md), "After a
-major release").
+Package validation (`EnablePackageValidation`, in `src/Directory.Build.props`) runs on every pack: it compares every
+package with its baseline, 2027.0.0 on nuget.org, and a breaking change to the public API fails the pack
+([docs/releasing.md](docs/releasing.md), "After a major release").
 
 ## Build and test
 

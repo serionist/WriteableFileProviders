@@ -18,7 +18,7 @@ public sealed partial class WriteableAzureBlobFileProvider
     /// <summary>
     /// Writes a file. An overwrite stages the content as blocks while it reads the stream and commits them in one request;
     /// an append spools the content, then commits the file's block list with the new blocks after it, on the condition
-    /// that the file has not changed (D19). The conditions in <paramref name="options"/> are checked by the commit,
+    /// that the file has not changed. The conditions in <paramref name="options"/> are checked by the commit,
     /// atomically.
     /// </summary>
     /// <param name="path">The file.</param>

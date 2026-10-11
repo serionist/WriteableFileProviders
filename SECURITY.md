@@ -30,9 +30,12 @@ affected.
 
 | Version | Supported |
 |---------|-----------|
-| 2027.x | Yes |
+| The latest major (2027.x today) | Every fix, in its next minor or patch release |
+| The previous major | Security fixes for 6 months after the next major ships (none yet: 2027 is the first) |
 | 2026.10.10.x (.NET 8) | Security fixes only, until a date the maintainers will announce here |
 | Older | No: move to 2027.x, or to 2026.10.10.x on .NET 8 |
 
-From 2027.0.0, every package of a release has the same version. The packages in one application must all come from
-the same line: a 2026.10.10.x provider does not load against Common 2027.
+From 2027.0.0, every package of a release has the same version, and the major is a sequence number, not a date: the
+next breaking release is 2028.0.0, whenever it ships. The packages in one application must all come from the same
+major: a 2026.10.10.x provider does not load against Common 2027. The README's [Versioning](README.md#versioning)
+section has the whole policy.

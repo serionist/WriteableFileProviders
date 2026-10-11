@@ -3,7 +3,7 @@
 Writeable `IFileProvider` implementations for .NET: one interface, `IWriteableFileProvider`, over the local disk, Azure
 Blob Storage, Amazon S3, MinIO, Box, SharePoint and Google Cloud Storage, each shipped as its own NuGet package. This
 file is for anyone who changes the repo, person or agent: where things are, how to build and test, how a change lands,
-and what never to do.
+and what never to do. What the packages do for those who use them is in [README.md](README.md).
 
 ## Where things are
 
@@ -32,6 +32,7 @@ and what never to do.
 | `.github/workflows/` | `ci.yml`, CI on every PR and on `main`; `codeql.yml`, code scanning; `live.yml`, the live suites, by hand or nightly on `main`; `release.yml`, the release of a `v*` tag. |
 | `.github/dependabot.yml` | Weekly update PRs for the NuGet packages (grouped), the actions and the SDK. |
 | `.github/ISSUE_TEMPLATE/`, `.github/pull_request_template.md` | The bug and feature forms; the PR template. |
+| `README.md`, `src/*/README.md` | For the packages' users: the root README (what the library is, a quick start, the provider matrix, versioning) and one README per package, packed into its `.nupkg`. A change to what a package does updates its README, and the matrix when a cell changes. |
 | `CONTRIBUTING.md`, `SECURITY.md` | A first contribution's short path through this file; how to report a vulnerability, and the supported versions. |
 
 Every project targets `net10.0` and builds strict: nullable analysis, warnings as errors, the analyzers at
@@ -192,7 +193,9 @@ While you build:
 ## One-way doors
 
 Consumers depend on these. Change one only in a PR that says so in its title and description, after the maintainers
-agree in its issue.
+agree in its issue. Versions follow the policy in [README.md, Versioning](README.md#versioning): a change to a one-way
+door, a dropped target framework or a dependency change that breaks consumers' builds ships only in the next major; a
+feature or a new target framework in a minor; a fix in a patch.
 
 - **Names:** the `WriteableFileProviders.*` package ids and namespaces, published on nuget.org. The spelling
   "Writeable" stays.

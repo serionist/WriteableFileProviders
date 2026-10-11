@@ -2,7 +2,8 @@
 
   <PropertyGroup>
     <PackageId>WriteableFileProviders.SharePoint</PackageId>
-    <Description>WriteableFileProviders for SharePoint document libraries: a writeable IFileProvider over a library through Microsoft Graph, with ranged reads, upload sessions, server-side copy and pre-authenticated download URLs.</Description>
+    <Description>WriteableFileProviders for SharePoint document libraries: a writeable IFileProvider over a library through Microsoft Graph, with upload sessions, ranged reads, server-side copies and moves, and pre-authenticated download URLs.</Description>
+    <PackageTags>$(PackageTags);sharepoint;microsoft-graph;office365;m365</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 

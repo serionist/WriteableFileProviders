@@ -1,16 +1,18 @@
 # WriteableFileProviders.GoogleCloudStorage
 
 A writeable `IFileProvider` over a Google Cloud Storage bucket, part of
-[WriteableFileProviders](https://github.com/serionist/WriteableFileProviders): the same `IWriteableFileProvider` API, with
-the same meaning, as the local disk, Azure Blob Storage, Amazon S3, MinIO, Box and SharePoint providers. Built on
-`Google.Cloud.Storage.V1` 5.
+[WriteableFileProviders](https://github.com/serionist/WriteableFileProviders#readme): the same `IWriteableFileProvider`
+API, with the same meaning, as the local disk, Azure Blob Storage, Amazon S3, MinIO, Box and SharePoint providers.
+Built on `Google.Cloud.Storage.V1` 5.
+
+## Install
 
 ```
 dotnet add package WriteableFileProviders.GoogleCloudStorage
 ```
 
-Every `WriteableFileProviders.*` package must be on the same major version: a `2026.10.10.x` package does not load
-against `WriteableFileProviders.Common` 2027.
+It needs .NET 10 and brings `WriteableFileProviders.Common`. Every WriteableFileProviders package in an application
+must be on the same major version: a `2026.10.10.x` package does not load against `WriteableFileProviders.Common` 2027.
 
 ## Use
 
@@ -30,8 +32,8 @@ await using var slice = await files.ReadRangeAsync("reports/2026.csv", 0, 1024);
 var url = await files.GetSignedUrlAsync("reports/2026.csv", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(15) });
 ```
 
-From configuration (`WriteableFileProviderSerializer.FromConfiguration`, or `services.AddWriteableFileProvider(name,
-section)`):
+From configuration, with `WriteableFileProviderSerializer.FromConfiguration(section)` or
+`services.AddWriteableFileProvider("files", section)`:
 
 ```json
 {
@@ -46,53 +48,59 @@ section)`):
 }
 ```
 
-To bring your own client (custom credentials, retries, HTTP handling, a customer-supplied encryption key), pass a
-`StorageClient`; the provider never disposes it:
+With a client you build yourself (custom credentials, retries, HTTP handling, a customer-supplied encryption key),
+which the provider never disposes:
 
 ```csharp
 var client = await new StorageClientBuilder { /* ... */ }.BuildAsync();
-var files = new WriteableGoogleCloudStorageFileProvider(client, new GoogleCloudStorageFileProviderOptions { BucketName = "my-bucket" });
+var files = new WriteableGoogleCloudStorageFileProvider(new GoogleCloudStorageFileProviderOptions { BucketName = "my-bucket" }, client);
 ```
 
-The provider class is `sealed`: to change what it does, wrap it, or derive your own provider from
-`WriteableFileProvider<TOptions>`.
+With a client, only `BucketName`, the root, `CreateBucketIfMissing` and `ProjectId` are read from the options: the
+credentials and the endpoint are the client's. The provider class is sealed: to change what it does, wrap it, or
+derive your own provider from `WriteableFileProvider<TOptions>`.
 
-## Configuration keys
+## Configuration
 
 | Key | Meaning |
 |---|---|
 | `BucketName` | The bucket. Required. |
 | `RootDirectoryPath` / `RootDirectorySegments` | The folder inside the bucket the provider is confined to; empty for the whole bucket. |
-| `ClientEmail` | A service account's email (`client_email` of its key). Set with `PrivateKey`. |
+| `ClientEmail` | A service account's email (`client_email` of its key). Set with `PrivateKey`; either one alone is ignored. |
 | `PrivateKey` | The service account's PEM private key (`private_key`). A secret. Escaped newlines (`\n`) are accepted. |
-| `CredentialsJson` | The whole service account key file as one string, used when `ClientEmail` and `PrivateKey` are not both set. A secret. |
-| `ProjectId` | The project. Needed by `CreateBucketIfMissing` when the key does not name it. |
-| `Endpoint` | Since 2027.0.0. The root URL of another Cloud Storage endpoint, such as `http://localhost:4443` for [fake-gcs-server](https://github.com/fsouza/fake-gcs-server) or a Private Service Connect endpoint; empty for Google's. Plain `http` only toward a loopback host, unless `AllowInsecureHttp` is set. |
-| `AllowInsecureHttp` | Since 2027.0.0. `true` allows an `http` `Endpoint` toward a host that is not loopback, such as an emulator elsewhere on a private network; the credentials' tokens then travel in clear text. |
-| `CreateBucketIfMissing` | Since 2027.0.0. `true` creates the bucket on the first call when it does not exist, with Cloud Storage's defaults: the `US` multi-region, the Standard storage class and the project's default access settings (create it yourself for anything else). `false` (the default) makes every member that reaches the bucket throw `InvalidOperationException` naming it. |
+| `CredentialsJson` | The whole service account key file as one string, used when `ClientEmail` and `PrivateKey` are not both set. Another kind of credential file throws `ArgumentException`. A secret. |
+| `ProjectId` | The project. `CreateBucketIfMissing` needs it unless a service account key names its project: the key in `CredentialsJson`, or the key file Application Default Credentials point to. Application Default Credentials on GKE, Compute Engine or Cloud Run, `ClientEmail` with `PrivateKey`, and a client of yours always need it. |
+| `Endpoint` | New in 2027. The root URL of another Cloud Storage endpoint, such as `http://localhost:4443` for [fake-gcs-server](https://github.com/fsouza/fake-gcs-server) or a Private Service Connect endpoint; empty for Google's. Plain `http` only toward a loopback host, unless `AllowInsecureHttp` is set. |
+| `AllowInsecureHttp` | New in 2027. `true` allows an `http` `Endpoint` toward a host that is not loopback, such as an emulator elsewhere on a private network; the credentials' tokens then travel in clear text. |
+| `CreateBucketIfMissing` | New in 2027. `true` creates the bucket on the first call when it does not exist, with Cloud Storage's defaults: the `US` multi-region, the Standard storage class and the project's default access settings (create it yourself for anything else). `false` (the default) makes every member that reaches the bucket throw `InvalidOperationException` naming it. |
 
-The keys new in 2027.0.0 are written by `ToJson` only when they are set, so a configuration that uses none of them keeps
-its 2026 shape.
-
-With a `StorageClient` given to the constructor, only `BucketName`, the root, `CreateBucketIfMissing` and `ProjectId`
-are used: the credentials and the endpoint are the client's.
+The keys new in 2027 are written by `ToJson` only when they are set, so a configuration that uses none of them keeps
+its 2026 shape. The options hold secrets: never log them, nor the output of `ToJson`.
 
 ## Authentication
 
 The first credential that is set wins: `ClientEmail` with `PrivateKey`, then `CredentialsJson`, then Application
 Default Credentials. The provider's constructor does no network I/O: it reads a key, but the client is built, and
-Application Default Credentials are looked up, on the first call. A key that cannot be read, a missing bucket name, an
-`Endpoint` that is not a root URL, or a plain-`http` `Endpoint` toward another machine without `AllowInsecureHttp`
-throws `ArgumentException` from the constructor.
+Application Default Credentials are looked up, on the first call; a failure there is tried again by the next call. A
+key that cannot be read, a missing bucket name, an `Endpoint` that is not a root URL, or a plain-`http` `Endpoint`
+toward a host that is not loopback without `AllowInsecureHttp` throws `ArgumentException` from the constructor.
 
 The credentials go to the `Endpoint` as they go to Google, so use `https` except for a local emulator. Against
 fake-gcs-server, any service account key works: the client signs its own tokens and never asks Google for one.
 
-## What it does
+**Permissions:** the provider needs `storage.objects.list` besides reading and writing objects (the
+`roles/storage.objectViewer` and `roles/storage.objectAdmin` roles have it), because it lists objects to tell a folder,
+or a missing bucket, from a missing file. A credential without it gets a 403 `GoogleApiException` from every member
+that has to: `GetFileInfoAsync` of a path that is not a file, listings, deletes of a folder or a missing path,
+copies and moves, appends to a new file, and seekable reads, local streams and read URLs of a missing file. Only
+`ReadFileAsync` and `ReadRangeAsync` of a missing file still answer `FileNotFoundException`.
+
+## How it behaves
 
 - **Folders** are prefixes: a folder exists while an object is under it, and lists as missing once the last one goes.
-  An object named like a folder (`dir/`, as the console makes) is an empty folder. Objects whose names no path can
-  address (such as `a//b` or `x/../y`) are left out of listings.
+  An object named like a folder (`dir/`, as the console makes) is an empty folder. Names are case-sensitive.
+- **Listings** leave out objects whose names no path can address: an empty segment (`a//b`), one of only dots and
+  spaces (`x/../y`), a control character, a backslash, or a percent-encoded form of one of these.
 - **Versions:** a file's `ETag` is its generation. `UpdateFileOptions.IfMatch` and `IfNotExists` are generation
   preconditions Cloud Storage checks atomically.
 - **Writes** are resumable uploads: the object appears only when every byte arrived, so a write that fails leaves the
@@ -101,8 +109,9 @@ fake-gcs-server, any service account key works: the client signs its own tokens 
 - **Appends** rewrite the object (Cloud Storage has no append), conditional on the generation read, so an append never
   loses a concurrent write: it throws `PreconditionFailedException` instead.
 - **Reads** stream the object as it downloads, with the client's customer-supplied encryption key if it has one.
-  `ReadRangeAsync` and `OpenReadSeekableAsync` download only the bytes asked for, pinned to the generation they started
-  from. The download is not checked against the object's hash; TLS protects it in transit.
+  `ReadRangeAsync` downloads only the bytes asked for, pinned to a generation when `ReadOptions.IfMatch` names one;
+  `OpenReadSeekableAsync` fetches ranges as it is read, pinned to the generation it opened unless `AllowModifications`
+  is set. The download is not checked against the object's hash; TLS protects it in transit.
 - **Move and copy** copy on the server, only if the destination does not exist (`FileExistsException` otherwise). A
   move then deletes exactly the generation it copied; if the source was written in between, the newer content stays, the
   copy is removed, and the move throws `PreconditionFailedException`. The copy is never retried, because a retry after a
@@ -112,11 +121,6 @@ fake-gcs-server, any service account key works: the client signs its own tokens 
 - **Missing bucket:** every member that reaches the bucket throws `InvalidOperationException` naming it, unless
   `CreateBucketIfMissing` is set. Create and write signed URLs are signed without asking the bucket, so with a missing
   bucket they are issued, and fail only when used.
-- **Permissions:** the provider needs `storage.objects.list` besides reading and writing objects (the
-  `roles/storage.objectViewer` and `roles/storage.objectAdmin` roles have it). A credential without it gets a 403
-  `GoogleApiException` from `GetFileInfoAsync` of a path that is not a file, listings, copies and moves to a new name,
-  appends to a new file and folder deletes. Only a read of a missing file still answers `FileNotFoundException` under
-  such a credential, since the provider cannot then tell a missing bucket.
 
 ## Signed URLs
 
@@ -141,4 +145,11 @@ missing file throws `FileNotFoundException`; a download name on an upload URL th
 - No change notifications: `Watch` throws `NotSupportedException`.
 - No native move: a move is a copy and a delete, so a large object takes as long as its copy.
 - An append rewrites the whole object: its cost grows with the file.
-- Content type is the only metadata kept.
+- Content type is the only metadata the provider writes or reports.
+
+## More
+
+- [WriteableFileProviders](https://github.com/serionist/WriteableFileProviders#readme): every package, the provider
+  matrix, versioning.
+- [Moving from 2026](https://github.com/serionist/WriteableFileProviders/blob/main/docs/migration-2027.md#google-cloud-storage):
+  what 2027.0.0 changed for this provider.

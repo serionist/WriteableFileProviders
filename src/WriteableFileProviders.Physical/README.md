@@ -1,20 +1,23 @@
 # WriteableFileProviders.Physical
 
 A writeable `IFileProvider` over a folder on the local disk, part of
-[WriteableFileProviders](https://github.com/serionist/WriteableFileProviders): the same `IWriteableFileProvider` API as
-the Azure Blob, S3, MinIO, Google Cloud Storage, Box and SharePoint providers, with atomic writes, ranged reads and
-change notifications.
+[WriteableFileProviders](https://github.com/serionist/WriteableFileProviders#readme): the same `IWriteableFileProvider`
+API, with the same meaning, as the Azure Blob, S3, MinIO, Google Cloud Storage, Box and SharePoint providers, with
+atomic writes, ranged reads and change notifications.
+
+## Install
 
 ```
 dotnet add package WriteableFileProviders.Physical
 ```
 
-Every WriteableFileProviders package must be on the same major version: a `2026.10.10.x` provider does not load
-against `WriteableFileProviders.Common` 2027.
+It needs .NET 10 and brings `WriteableFileProviders.Common`. Every WriteableFileProviders package in an application
+must be on the same major version: a `2026.10.10.x` package does not load against `WriteableFileProviders.Common` 2027.
 
 ## Use
 
 ```csharp
+using Microsoft.Extensions.Primitives;
 using WriteableFileProviders;
 using WriteableFileProviders.Physical;
 
@@ -28,7 +31,7 @@ await files.UpdateFileAsync("reports/2026.csv", newer, new UpdateFileOptions { I
 IChangeToken token = files.Watch("reports/*.csv");                                // fires when a write lands
 ```
 
-## Configuration
+From configuration, with `WriteableFileProviderSerializer.FromConfiguration(section)` or dependency injection:
 
 ```json
 { "Files": { "Type": "WriteablePhysicalFileProvider", "RootDirectoryPath": "/srv/files" } }
@@ -37,6 +40,11 @@ IChangeToken token = files.Watch("reports/*.csv");                              
 ```csharp
 services.AddWriteableFileProvider("files", configuration.GetSection("Files"));
 ```
+
+The provider class is sealed: to change what it does, wrap it, or derive your own provider from
+`WriteableFileProvider<TOptions>`.
+
+## Configuration
 
 | Key | Meaning |
 |---|---|
@@ -51,28 +59,25 @@ Linux and macOS. Since 2027, `RootDirectoryPath` reads back as the real path on 
 
 None: the provider reads and writes with the permissions of the process that runs it.
 
-## Signed URLs
-
-None natively: `GetSignedUrlAsync` throws `NotSupportedException`. `WriteableFileProviders.AspNetCore` issues gateway
-URLs for this provider instead.
-
 ## How it behaves
 
 - **Writes are atomic.** An overwrite, an append, a copy and a local stream's commit write a temp file named
   `.wfp-<guid>.tmp` next to the target, then rename it over the target, so the file has its old content or its new
-  content, never a part. A failed write removes its temp file; listings never show one (a crash can leave one behind,
-  which you can delete). An append copies the file and the new bytes into the temp file, so it costs a copy of the file.
+  content, never a part. A failed write removes its temp file where it can; a crash, or a temp file that cannot be
+  deleted, leaves one behind, which you can delete. Listings never show a file named `.wfp-*.tmp`, yours included. An
+  append copies the file and the new bytes into the temp file, so it costs a copy of the file.
 - **Replacing by rename** puts a new file at the path, so a write is refused, with the file keeping its content:
   - with `UnauthorizedAccessException` when the process may not write the file (read-only, or another user's), on every
     system, as in 2026, or may not create files in its folder, since the new content is created there;
   - with `IOException` when another process holds the file open without sharing writes (Windows), when the path is not
     a regular file or a link to one (a FIFO, a socket, a device that cannot seek), or when the file is a mount point (a
-    single-file Docker bind mount, a Kubernetes `subPath`).
+    single-file Docker bind mount, a Kubernetes `subPath`), where the system refuses the rename.
 
   And the new file is a new file:
-  - on Linux and macOS it takes the permission bits of the file it replaces, and a copy those of its source, exactly,
-    whatever the umask, as .NET's `File.Copy` does; both are set as the file is created, before any content is written.
-    The setuid, setgid and sticky bits, access control lists and extended attributes are not carried over;
+  - on Linux and macOS it takes the permission bits of the file it replaces (of its target, for a symbolic link), and a
+    copy those of its source, exactly, whatever the umask, as .NET's `File.Copy` does; both are set as the file is
+    created, before any content is written. The setuid, setgid and sticky bits, access control lists and extended
+    attributes are not carried over;
   - on Windows it takes the permissions the folder gives a new file, not the replaced file's own;
   - other hard links to the file keep the old content, and a symbolic link at the path, a link to nothing included, is
     replaced by a file, its target left as it was.
@@ -81,6 +86,9 @@ URLs for this provider instead.
   (FAT, exFAT, HFS+), so it changes the ETag. Writes faster than that resolution step it further each time, so on such a
   file system a file's time can run ahead of the clock, without bound; bounding it would let an ETag repeat. A change by
   another program that keeps the length within the file system's time resolution may not change the ETag.
+- **Symbolic links to files** are described by their target, which reads open: its length, last-write time and ETag.
+  `PhysicalPath` stays the link's own path under the root. A link to nothing, or in a loop, is described as itself.
+  The target is found through the system's resolution of the link; listing a link never opens its target.
 - **Conditions.** `IfMatch` is checked just before the rename, which is not atomic: another process can change the file
   in between. An append checks the same way that the file is still the version it copied, and throws
   `PreconditionFailedException` if not.
@@ -93,10 +101,15 @@ URLs for this provider instead.
   that is open, a write to a file being read fails and the file keeps its content: with `UnauthorizedAccessException`
   when the reader shares writing, as this provider's readers do, and with `IOException` ("being used by another
   process") when it does not.
-- **Ranges.** `ReadRangeAsync` reads through `RandomAccess` on one handle, checking `IfMatch` on that handle;
-  `OpenReadSeekableAsync` re-checks the ETag on each fetch and throws `IOException` when the file changed.
+- **Ranges.** `ReadRangeAsync` reads through `RandomAccess` on one handle, checking `ReadOptions.IfMatch` on that
+  handle. `OpenReadSeekableAsync` reads ranges as it is read. Pinned, as by default, it checks the ETag on each fetch,
+  and a file that changed, a shorter one included, throws `PreconditionFailedException`; with `AllowModifications`,
+  only a file that got shorter throws, with `IOException`. A file deleted meanwhile throws `FileNotFoundException`.
 - **Names** are matched without regard to case on Windows and macOS (a move from `a.txt` to `A.txt` renames the file),
-  and with regard to case on Linux. A `:` in a name is refused. Content types are not kept.
+  and with regard to case on other systems; the choice follows the operating system, not the volume. A `:` in a name is
+  refused. Listings leave out names no path can address: on Linux and macOS a name holding `:` or `\`, a control
+  character, or only dots and spaces (`...`); on any system a name such as `%2e%2e` that decodes to one of these.
+- **Content types** are not kept: `UpdateFileOptions.ContentType` is ignored, and `ContentType` is null.
 - **The root.** Every path stays under the root folder, checked on the path: symbolic links and junctions inside the
   root are followed wherever they point. A recursive listing lists a linked folder but does not walk into it, since it
   can lead outside the root or back into it without end.
@@ -108,5 +121,21 @@ URLs for this provider instead.
   some network and container-mounted folders do not deliver; set `DOTNET_USE_POLLING_FILE_WATCHER` to `1` or `true` to
   poll instead.
 
-See [the migration guide](https://github.com/serionist/WriteableFileProviders/blob/main/docs/migration-2027.md) for
-what changed from 2026.
+## Signed URLs
+
+None natively: `GetSignedUrlAsync` throws `NotSupportedException`. `WriteableFileProviders.AspNetCore` issues gateway
+URLs for this provider instead, for reading, creating and writing files.
+
+## Limits
+
+- An append copies the whole file: files appended to very often, such as logs, pay a copy per append.
+- `IfMatch` and an append's version check are not atomic (see Conditions).
+- On Windows, a write to a file that another reader has open fails (see Reading while writing).
+- `Watch` needs file system events, or polling.
+
+## More
+
+- [WriteableFileProviders](https://github.com/serionist/WriteableFileProviders#readme): every package, the provider
+  matrix, versioning.
+- [Moving from 2026](https://github.com/serionist/WriteableFileProviders/blob/main/docs/migration-2027.md#physical):
+  what 2027.0.0 changed for this provider.

@@ -1,13 +1,18 @@
 # WriteableFileProviders.AzureBlob
 
 A writeable `IFileProvider` over an Azure Blob Storage container, part of
-[WriteableFileProviders](https://github.com/serionist/WriteableFileProviders): the same `IWriteableFileProvider` API as
-the local disk, Amazon S3, MinIO, Google Cloud Storage, Box and SharePoint, with one meaning on all of them. Every
-WriteableFileProviders package must be on the same major version.
+[WriteableFileProviders](https://github.com/serionist/WriteableFileProviders#readme): the same `IWriteableFileProvider`
+API, with the same meaning, as the local disk, Amazon S3, MinIO, Google Cloud Storage, Box and SharePoint providers.
+Built on `Azure.Storage.Blobs` 12, on block blobs.
+
+## Install
 
 ```
 dotnet add package WriteableFileProviders.AzureBlob
 ```
+
+It needs .NET 10 and brings `WriteableFileProviders.Common`. Every WriteableFileProviders package in an application
+must be on the same major version: a `2026.10.10.x` package does not load against `WriteableFileProviders.Common` 2027.
 
 ## Use
 
@@ -29,7 +34,7 @@ await using var slice = await files.ReadRangeAsync("reports/2026.csv", 0, 4096);
 var url = await files.GetSignedUrlAsync("reports/2026.csv", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(15) });
 ```
 
-From configuration, with dependency injection:
+From configuration, with `WriteableFileProviderSerializer.FromConfiguration(section)` or dependency injection:
 
 ```json
 { "Files": { "Type": "WriteableAzureBlobFileProvider", "AccountName": "contoso", "AccountKey": "...", "ContainerName": "files", "RootDirectoryPath": "tenants/acme" } }
@@ -43,9 +48,14 @@ With a client you build yourself (a managed identity, custom retries or transpor
 disposes:
 
 ```csharp
-var container = new BlobContainerClient(new Uri("https://contoso.blob.core.windows.net/files"), new ManagedIdentityCredential());
-await using var files = new WriteableAzureBlobFileProvider(container, new AzureFileProviderOptions { RootDirectoryPath = "tenants/acme" });
+var container = new BlobContainerClient(new Uri("https://contoso.blob.core.windows.net/files"), new ManagedIdentityCredential(ManagedIdentityId.SystemAssigned));
+await using var files = new WriteableAzureBlobFileProvider(new AzureFileProviderOptions { RootDirectoryPath = "tenants/acme" }, container);
 ```
+
+The options come first, as on every provider's client constructor. With a client, only the root and
+`CreateContainerIfMissing` are read from them, and they may be null (the container's root); a `ContainerName` that
+differs from the client's throws `ArgumentException`. The provider class is sealed: to change what it does, wrap it,
+or derive your own provider from `WriteableFileProvider<TOptions>`.
 
 ## Configuration
 
@@ -55,10 +65,10 @@ await using var files = new WriteableAzureBlobFileProvider(container, new AzureF
 | `AccountKey` | The account's shared key (base64). Required unless `UseDefaultAzureCredential`; refused together with it. A secret. |
 | `ContainerName` | The container. Required. |
 | `Protocol` | `http` or `https` (any case); empty means `https`. |
-| `Url` | The endpoint's host, port and path, such as `127.0.0.1:10000/devstoreaccount1` for Azurite; a full `https://...` URL is taken as it is. Empty means `{AccountName}.blob.core.windows.net`. |
+| `Url` | The endpoint's host, port and path, such as `127.0.0.1:10000/devstoreaccount1` for Azurite; a full `https://...` URL is taken as it is, and must then use the scheme `Protocol` names, if any. Empty means `{AccountName}.blob.core.windows.net`. |
 | `RootDirectoryPath` / `RootDirectorySegments` | The folder inside the container the provider is confined to. Empty is the container's root. |
-| `CreateContainerIfMissing` | `true` lets the first write create a missing container. Default `false`: a missing container makes every member throw `InvalidOperationException`. Reads never create it. |
-| `UseDefaultAzureCredential` | `true` signs in with Microsoft Entra ID through `DefaultAzureCredential` instead of the shared key. Needs `https`. |
+| `CreateContainerIfMissing` | `true` lets the first write create a missing container. Default `false`: a missing container makes every member throw `InvalidOperationException`. Reads never create it. New in 2027. |
+| `UseDefaultAzureCredential` | `true` signs in with Microsoft Entra ID through `DefaultAzureCredential` instead of the shared key. Needs `https`. New in 2027. |
 
 The two `bool` options are written to JSON only when they are `true`, so a configuration that uses neither is stored
 exactly as 2026.10.10.x stored it. `ToJson` output contains the account key: never log it.
@@ -73,30 +83,42 @@ exactly as 2026.10.10.x stored it. `ToJson` output contains the account key: nev
 - **A client from a SAS URL, or anonymous:** everything the SAS allows works, but the provider signs no URLs
   (`NotSupportedException`, so the WriteableFileProviders.AspNetCore gateway can issue them).
 
-## How it stores files
+## How it behaves
 
-- **Block blobs.** A write stages its content as blocks while it reads your stream, and commits them in one request: a
-  write that fails leaves the old content, and readers never see half of it. `IfMatch` and `IfNotExists` are checked by
-  that commit, atomically.
+- **Block blobs.** An overwrite stages its content as blocks while it reads your stream, and commits them in one
+  request: a write that fails leaves the old content, and readers never see half of it. `IfMatch` and `IfNotExists` are
+  checked by that commit, atomically. The commit sets the content type you give, or `application/octet-stream`; the
+  blob's other headers, its metadata and a tier set on it are not carried over.
 - **Two writers at once.** Azure keeps only the blocks a commit lists, so when another writer commits the same file
-  while your overwrite is being staged, your blocks are gone. Content that fits in one block (8 MiB) is staged again,
-  up to five attempts in all, and the last writer wins; a longer write throws `IOException` and stores nothing (with
-  `IfMatch` or `IfNotExists`, `PreconditionFailedException`). Write it again, or serialize the writers.
-- **Appends** commit the file's block list with the new blocks after it, on the condition that the file has not
-  changed since it was read. After a concurrent change the append reads the file again, up to five attempts in all,
-  then throws `PreconditionFailedException`: it never loses a concurrent write. A blob written in one request by
-  another tool has no block list; its first append copies its content into blocks on the server (no download), or
-  downloads and re-uploads it when the provider cannot sign a SAS for the copy.
-- **Content type:** stored when you give one, `application/octet-stream` otherwise; an append keeps the stored type,
-  cache control, language, disposition and metadata, and a tier set on the blob.
-- **Folders** are name prefixes: a folder exists while some blob is under it. Names are case-sensitive.
-- **Reads:** `ReadRangeAsync` asks Azure for the range; `OpenReadSeekableAsync` is the SDK's own seekable stream, pinned
-  to the version it opened unless modifications are allowed.
-- **Moves and copies** run on the server and refuse an existing destination atomically. A move deletes the source only
-  if it has not changed since it was copied; otherwise it removes the copy and throws `PreconditionFailedException`.
-  A copy still pending after 10 minutes is aborted, and throws `IOException`.
+  while your overwrite is being staged, your blocks are gone. An unconditional overwrite whose content fits in one block
+  (8 MiB) is staged again, up to five attempts in all, and the last writer wins; a longer one throws `IOException` and
+  stores nothing. An overwrite with `IfMatch` or `IfNotExists` throws `PreconditionFailedException` at once. Write it
+  again, or serialize the writers.
+- **Appends** copy the new content to a local temp file first, then commit the file's block list with the new blocks
+  after it, on the condition that the file has not changed since it was read. After a concurrent change the append
+  reads the file again, up to five attempts in all, then throws `PreconditionFailedException`: it never loses a
+  concurrent write. A blob without this provider's block list (written in one request, or in blocks by another tool)
+  is first copied into blocks on the server (no download), or downloaded and uploaded again when the provider cannot
+  sign a SAS for the copy or Azure refuses it.
+- **Content type:** stored when you give one, `application/octet-stream` otherwise, and reported by `GetFileInfoAsync`
+  and listings. An append keeps the stored type unless it gives one, and keeps the encoding, cache control, language,
+  disposition, metadata and a tier set on the blob.
+- **Folders** are name prefixes: a folder exists while some blob is under it (or a `dir/` marker blob another tool
+  made). Names are case-sensitive.
+- **Listings** leave out blob names no path can address (an empty or whitespace segment, one of only dots and spaces
+  such as `..`, a control character, a backslash, or a percent-encoded form of one of these) and every name starting
+  with `.wfp-`, the provider's own. A recursive listing is one flat listing of the prefix.
+- **Reads:** `ReadRangeAsync` asks Azure for the range, checking `ReadOptions.IfMatch` atomically.
+  `OpenReadSeekableAsync` is the SDK's own seekable stream, pinned to the version it opened unless modifications are
+  allowed: a change throws `PreconditionFailedException`, a delete `FileNotFoundException`.
+- **Moves and copies** run on the server and refuse an existing destination atomically (`FileExistsException`). A move
+  deletes the source only if it has not changed since it was copied; otherwise it removes the copy and throws
+  `PreconditionFailedException`. A copy still pending after 10 minutes is aborted, and throws `IOException`.
 - **Snapshots are never deleted.** Deleting or moving a blob that has snapshots throws `IOException` and leaves it as
-  it was; delete the snapshots first. The one exception is the conversion of a 2026 append blob, below.
+  it was; delete the snapshots first. A folder delete removes its blobs page by page, so it can stop there with some
+  already gone. The one exception is the conversion of a 2026 append blob, below.
+- **A missing container** makes every member that reaches it throw `InvalidOperationException`, naming it and
+  `CreateContainerIfMissing`.
 
 ### Append blobs written by 2026.10.10.x
 
@@ -114,10 +136,12 @@ writer of a shared file together. A copy of an append blob is an append blob too
 `c`) and `Write` (PUT, creating or replacing), for up to 7 days; a longer validity throws `NotSupportedException`.
 
 - The SAS starts 15 minutes in the past, so a clock that runs behind does not reject it (and a SAS expiration policy,
-  which requires a start time, accepts it). It ends exactly at the requested validity: `ExpiresOn` says when.
+  which requires a start time, accepts it). It ends exactly at the requested validity: `ExpiresOn` says when. On an
+  `https` endpoint it is valid over HTTPS only.
 - A user delegation SAS never outlives its key. If the key would expire first, the call throws `NotSupportedException`
   unless `AllowShorterValidity` is set, and then `ExpiresOn` is the key's expiry. Azure's keys last at most 7 days, so
-  the provider asks for one that ends 5 minutes sooner: a 7-day user delegation URL needs `AllowShorterValidity`.
+  the provider asks for one that ends 5 minutes sooner: a 7-day user delegation URL needs `AllowShorterValidity`. A key
+  Azure refuses (401, 403) is not asked for again for 10 minutes; meanwhile the call throws `NotSupportedException`.
 - A read URL carries `DownloadFileName` (as an RFC 6266 `Content-Disposition`) and `ContentType`. An upload URL takes
   neither, because a SAS cannot make the uploader send a content type: such a request throws `NotSupportedException`,
   and the gateway takes over.
@@ -129,12 +153,15 @@ writer of a shared file together. A copy of an append blob is an append blob too
 ## Limits
 
 - One write from a stream that cannot seek is at most 50,000 blocks of 8 MiB (about 390 GiB); a stream that can seek
-  sizes its blocks to fit, up to 256 MiB each.
-- An append to a file near Azure's 50,000-block limit first copies its content into fewer, larger blocks on the server.
-- Blob names the provider cannot address as paths (empty, `.` or `..` segments, control characters, backslashes) are
-  left out of listings.
+  sizes its blocks to fit, up to 256 MiB each. An overwrite holds up to five blocks in memory while it stages them.
+- An append to a file near Azure's 50,000-block limit first copies its content into fewer, larger blocks, on the
+  server where the provider can sign a SAS for it, else through the client.
 - Page blobs can be read, not written (`NotSupportedException`).
 - Change notifications (`Watch`) are not supported.
 
-See the [migration guide](https://github.com/serionist/WriteableFileProviders/blob/main/docs/migration-2027.md) to move
-from 2026.10.10.x.
+## More
+
+- [WriteableFileProviders](https://github.com/serionist/WriteableFileProviders#readme): every package, the provider
+  matrix, versioning.
+- [Moving from 2026](https://github.com/serionist/WriteableFileProviders/blob/main/docs/migration-2027.md#azure-blob-storage):
+  what 2027.0.0 changed for this provider.

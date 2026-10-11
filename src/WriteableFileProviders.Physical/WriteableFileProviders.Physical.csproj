@@ -2,7 +2,8 @@
 
   <PropertyGroup>
     <PackageId>WriteableFileProviders.Physical</PackageId>
-    <Description>WriteableFileProviders for the local file system: a writeable IFileProvider over a folder on disk, with atomic writes, ranged reads and change notifications.</Description>
+    <Description>WriteableFileProviders for the local file system: a writeable IFileProvider over a folder on disk, with atomic writes and appends, conditional writes, ranged reads and change notifications.</Description>
+    <PackageTags>$(PackageTags);filesystem;local;disk</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 

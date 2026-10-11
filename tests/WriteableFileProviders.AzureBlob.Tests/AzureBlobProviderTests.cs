@@ -254,6 +254,17 @@ public sealed partial class AzureBlobProviderTests
         Assert.AreEqual("base;one;", await ReadRaw("put.txt"));
         Assert.AreEqual("base;two;", await ReadRaw("put2.txt"));
         Assert.AreEqual(1, _handler.Log.Count(l => l.EndsWith("comp=block copy", StringComparison.Ordinal)), "Refused once, then not asked again");
+
+        // The refusal is remembered for a while only: a permission granted since is used.
+        var clock = new FixedClock(DateTimeOffset.UtcNow);
+        provider.Clock = clock;
+        provider.ServerCopyRefusedUntil = clock.GetUtcNow() + TimeSpan.FromMinutes(10);
+        clock.Advance(TimeSpan.FromMinutes(11));
+        _handler.Intercept = null;
+        await _raw.GetBlobClient(Name("put3.txt")).UploadAsync(BinaryData.FromString("base;"));
+        await Append(provider, "put3.txt", "three;");
+        Assert.AreEqual("base;three;", await ReadRaw("put3.txt"));
+        Assert.AreEqual(2, _handler.Log.Count(l => l.EndsWith("comp=block copy", StringComparison.Ordinal)), "Asked again after the refusal expired");
     }
 
     [TestMethod]
@@ -576,10 +587,30 @@ public sealed partial class AzureBlobProviderTests
                 _raw.GetBlockBlobClient(Name("src.txt")).Upload(new MemoryStream(Encoding.UTF8.GetBytes("v2")));
             return null;
         };
-        await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => provider.MoveAsync("src.txt", "dst.txt"));
+        var e = await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => provider.MoveAsync("src.txt", "dst.txt"));
         _handler.Intercept = null;
+        StringAssert.Contains(e.Message, "the copy at 'dst.txt' was removed");
         Assert.AreEqual("v2", await ReadRaw("src.txt"));
         Assert.IsFalse((await provider.GetFileInfoAsync("dst.txt")).Exists, "The copy was removed");
+    }
+
+    [TestMethod]
+    public async Task Move_RollbackThatFailsSaysTheCopyIsStillThere()
+    {
+        using var provider = Provider(retries: 0);
+        await Write(provider, "src.txt", "v1");
+        _handler.Intercept = r =>
+        {
+            if (r.Method != HttpMethod.Delete)
+                return null;
+            if (AzureHandler.BlobName(r) == Name("src.txt"))
+                _raw.GetBlockBlobClient(Name("src.txt")).Upload(new MemoryStream(Encoding.UTF8.GetBytes("v2")));
+            return AzureHandler.BlobName(r) == Name("dst.txt") ? AzureHandler.Error(HttpStatusCode.InternalServerError, "InternalError") : null;
+        };
+        var e = await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => provider.MoveAsync("src.txt", "dst.txt"));
+        _handler.Intercept = null;
+        StringAssert.Contains(e.Message, "could not be removed and is still there");
+        Assert.AreEqual("v1", await ReadRaw("dst.txt"));
     }
 
     [TestMethod]

@@ -202,12 +202,15 @@ unchanged; the two new options are written to JSON only when `true`.
 | `GetFileInfo` of a folder: not existing; of a missing path: `Length` 0; `PhysicalPath` is the blob name | A folder exists and is a directory; a missing path has `Length` -1; `PhysicalPath` is null; files carry `ETag` and `ContentType` (F20, F21) | Use `IWriteableFileInfo.Path` where you used `PhysicalPath`. |
 | A download URL starts now, and a validity over 7 days is cut to 7 days silently | It starts 15 minutes in the past (F40) and ends exactly at the validity; over 7 days throws `NotSupportedException` (F11); a URL for a missing file throws `FileNotFoundException` | Ask for at most 7 days, or use the gateway. |
 | Read URLs only, signed with the account key | Read, create and write URLs; with Microsoft Entra ID, user delegation SAS | See the README's "Signed URLs". |
-| Deleting a blob with snapshots fails | Delete, move and the append-blob conversion delete the blob's snapshots too | Copy snapshots you need elsewhere first. |
+| Deleting a blob with snapshots fails (`RequestFailedException`) | It still fails, now with `IOException`, and so does a move of such a blob; snapshots are never deleted, except by the append blob conversion below | Delete the snapshots first. |
+| `WriteableAzureBlobFileProvider` can be derived from | It is sealed (D25) | Wrap it instead, or derive from `WriteableFileProvider<AzureFileProviderOptions>`. |
+| Two overwrites of one file at once: both commit, one after the other | The one that commits second finds its blocks dropped by the first: one block's worth is staged again, so the last writer still wins; a longer one throws `IOException` and stores nothing | Write it again, or serialize the writers. |
 | Options: shared key only | `UseDefaultAzureCredential` (Entra ID) and a constructor that takes a `BlobContainerClient` (D17), which the provider never disposes. `AccountKey` must be base64, and setting it together with `UseDefaultAzureCredential` throws | Fix a key that is not base64; it never worked. |
 
 **Append blobs already stored (P22, P30).** They stay readable. The first write or append to one converts it to a
 block blob: the new content goes to a temporary blob under `.wfp-tmp/` in the provider root, the append blob is deleted
-if it has not changed, and the temporary blob is copied to its name. The file is missing for a moment in between; if
+if it has not changed, and the temporary blob is copied to its name. Meanwhile the file is missing, or empty while the
+server copy runs; if
 the copy fails, the exception names the temporary blob holding the content. A 2026.10.10.x provider cannot append to a
 block blob (`InvalidBlobType`), so a fleet that mixes the two lines must not append to shared files during the switch:
 upgrade every writer together. An upload SAS cannot replace an append blob either; write such a file once through the

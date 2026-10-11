@@ -29,12 +29,15 @@ public sealed class SignedUrlTests
         return new WriteableAzureBlobFileProvider(client) { Clock = clock ?? new FixedClock(_now) };
     }
 
-    // The blob service: a file exists, the container exists, and keys are issued for what was asked.
+    // The blob service: a file exists, the container exists, and keys are issued for what was asked, if it ends within 7
+    // days of the service's clock (the start asked plus the provider's 15 minutes back), as Azure requires.
     private static StubHandler Service(Func<DateTimeOffset, DateTimeOffset>? keyExpiry = null) => new((request, body) =>
     {
         if (StubHandler.IsDelegationKeyRequest(request))
         {
             var (start, expiry) = StubHandler.RequestedKeyTimes(body);
+            if (expiry > start + TimeSpan.FromMinutes(15) + TimeSpan.FromDays(7))
+                return AzureHandler.Error(HttpStatusCode.BadRequest, "InvalidQueryParameterValue");
             return StubHandler.DelegationKey(start, keyExpiry?.Invoke(expiry) ?? expiry);
         }
         return StubHandler.BlobProperties();
@@ -170,9 +173,27 @@ public sealed class SignedUrlTests
         await provider.GetSignedUrlAsync("b.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(30), Permission = SignedUrlAccess.Write });
         Assert.AreEqual(1, handler.Requests.Count(StubHandler.IsDelegationKeyRequest));
 
-        await provider.GetSignedUrlAsync("c.txt", new SignedUrlOptions { Validity = TimeSpan.FromDays(7) });
+        // Azure's keys end within 7 days: the provider asks for 7 days less 5 minutes, and a 7-day URL would outlive it (D18).
+        var week = new SignedUrlOptions { Validity = TimeSpan.FromDays(7) };
+        await Assert.ThrowsExactlyAsync<NotSupportedException>(() => provider.GetSignedUrlAsync("c.txt", week));
         Assert.AreEqual(2, handler.Requests.Count(StubHandler.IsDelegationKeyRequest), "A longer URL needs a longer key");
-        Assert.AreEqual(_now.AddDays(7), StubHandler.RequestedKeyTimes(handler.Body(handler.Requests.Last(StubHandler.IsDelegationKeyRequest))).Expiry);
+        Assert.AreEqual(_now.AddDays(7).AddMinutes(-5), StubHandler.RequestedKeyTimes(handler.Body(handler.Requests.Last(StubHandler.IsDelegationKeyRequest))).Expiry);
+        var url = await provider.GetSignedUrlAsync("c.txt", week with { AllowShorterValidity = true });
+        Assert.AreEqual(_now.AddDays(7).AddMinutes(-5), url.ExpiresOn);
+        Assert.AreEqual(2, handler.Requests.Count(StubHandler.IsDelegationKeyRequest), "The longest key is reused");
+    }
+
+    [TestMethod]
+    public async Task UserDelegationKey_BadRequestIsNotRemembered()
+    {
+        var handler = new StubHandler(request => StubHandler.IsDelegationKeyRequest(request)
+            ? AzureHandler.Error(HttpStatusCode.BadRequest, "InvalidQueryParameterValue")
+            : StubHandler.BlobProperties());
+        using var provider = TokenProvider(handler);
+        var options = new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5) };
+        await Assert.ThrowsExactlyAsync<NotSupportedException>(() => provider.GetSignedUrlAsync("a.txt", options));
+        await Assert.ThrowsExactlyAsync<NotSupportedException>(() => provider.GetSignedUrlAsync("a.txt", options));
+        Assert.AreEqual(2, handler.Requests.Count(StubHandler.IsDelegationKeyRequest), "Only a refused credential is remembered");
     }
 
     [TestMethod]

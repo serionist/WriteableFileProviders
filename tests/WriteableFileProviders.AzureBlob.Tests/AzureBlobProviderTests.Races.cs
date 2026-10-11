@@ -184,9 +184,14 @@ public sealed partial class AzureBlobProviderTests
         using var provider = Provider();
         provider.MaxCommittedBlocks = 1;
         var e = await Assert.ThrowsAsync<IOException>(() => Append(provider, "put.txt", "more"));
-        StringAssert.Contains(e.Message, "blocks");
+        StringAssert.Contains(e.Message, "The file and the content appended to it need more than 1 blocks");
         Assert.AreEqual("base;", await ReadRaw("put.txt"));
-        await Assert.ThrowsAsync<IOException>(() => provider.UpdateFileAsync("new.txt", new MemoryStream(TestStreams.Bytes(provider.BlockSize + 1)), UpdateFileOptions.Append));
+
+        // The content appended sizes its blocks to fit: more than one block's worth still makes one block.
+        var bytes = TestStreams.Bytes(provider.BlockSize + 1);
+        await provider.UpdateFileAsync("new.txt", new MemoryStream(bytes), UpdateFileOptions.Append);
+        Assert.AreEqual(1, (await CommittedBlocks("new.txt")).Count);
+        CollectionAssert.AreEqual(bytes, (await _raw.GetBlobClient(Name("new.txt")).DownloadContentAsync()).Value.Content.ToArray());
     }
 
     [TestMethod]
@@ -263,10 +268,10 @@ public sealed partial class AzureBlobProviderTests
     [TestMethod]
     public async Task DeleteFile_RemovesTheKeyAndNotTheFolder()
     {
-        using var provider = new KeyProbe(Azurite.Container(_containerName), new AzureFileProviderOptions { RootDirectoryPath = _root });
+        using var provider = Provider();
         await Write(provider, "k", "key");
         await Write(provider, "k/x.txt", "below");
-        await provider.DeleteKey("k");
+        await provider.DeleteFileForTestsAsync("k");
         Assert.IsTrue((await provider.GetFileInfoAsync("k")).IsDirectory, "The key is gone; the folder of the same name stays");
         Assert.AreEqual("below", await ReadRaw("k/x.txt"));
     }
@@ -277,11 +282,6 @@ public sealed partial class AzureBlobProviderTests
         using var provider = Provider();
         Assert.AreSame(TimeProvider.System, provider.Clock);
         await Assert.ThrowsExactlyAsync<ArgumentOutOfRangeException>(() => provider.GetSignedUrlAsync("a.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(1), Permission = (SignedUrlAccess)99 }));
-    }
-
-    private sealed class KeyProbe(BlobContainerClient client, AzureFileProviderOptions options) : WriteableAzureBlobFileProvider(client, options)
-    {
-        public Task DeleteKey(string path) => DeleteFileCoreAsync(Resolve(path), CancellationToken.None);
     }
 
     /// <summary>A stream that says it can seek but cannot tell its length.</summary>

@@ -46,7 +46,9 @@ Run everything from the repo root, with a .NET 10 SDK (`global.json`).
 - **Once per clone:**
   - Only for the live suites: copy `tests/WriteableFileProviders.Tests/testsettings.sample.json` to `testsettings.json`
     next to it and fill in the accounts you own. It is git-ignored: real credentials go there and nowhere else. Nothing
-    else needs it; without it the Physical suite works under a temp folder.
+    else needs it; without it the Physical suite works under a temp folder. The Azure Blob live suite reads its own,
+    `tests/WriteableFileProviders.AzureBlob.Tests/testsettings.json` (sample next to it), or the `WFP_AZURE_*`
+    variables.
   - With Claude Code: install the C# language server its plugin runs, `dotnet tool install --global csharp-ls`. Claude
     Code asks before it loads the docs servers in `.mcp.json`; to approve them once for this clone, copy
     `.claude/settings.local.json.example` to `.claude/settings.local.json`.

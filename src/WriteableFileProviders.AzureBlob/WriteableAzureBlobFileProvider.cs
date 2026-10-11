@@ -17,21 +17,26 @@ namespace WriteableFileProviders.AzureBlob;
 /// <para>
 /// <b>Writes</b> stage the content as blocks and commit them in one request, so a write that fails leaves the old content
 /// and readers never see half of it. <see cref="UpdateFileOptions.IfMatch"/> and <see cref="UpdateFileOptions.IfNotExists"/>
-/// are checked atomically by that commit. An append re-commits the file's block list with the new blocks after it, on
-/// the condition that the file has not changed since it was read; a concurrent change makes it read again and retry a
-/// few times, then throw <see cref="PreconditionFailedException"/>, so it never loses a concurrent write.
+/// are checked atomically by that commit. Azure keeps only the blocks a commit lists, so when another writer commits the
+/// same file while an unconditional overwrite is staged, the overwrite's blocks are gone: content that fits in one block
+/// (8 MiB) is staged again, up to five attempts in all; a longer write throws <see cref="IOException"/> and stores nothing
+/// (with a condition, <see cref="PreconditionFailedException"/>). An append re-commits the file's block list with the new
+/// blocks after it, on the condition that the file has not changed since it was read; after a concurrent change it reads
+/// the file again, up to five attempts in all, then throws <see cref="PreconditionFailedException"/>, so it never loses a
+/// concurrent write.
 /// </para>
 /// <para>
 /// <b>Append blobs</b> written by 2026.10.10.x stay readable. Azure cannot turn one into a block blob in place, so the first
 /// write or append to one goes through a hidden temporary blob under <c>.wfp-tmp/</c> in the provider root: the new content
 /// is committed there, the append blob is deleted (with its snapshots) if it has not changed, the temporary blob is copied
-/// to its name, and only then removed. The file is missing for a moment between the delete and the copy; if the copy
+/// to its name, and only then removed. Meanwhile the file is missing, or empty while the server copy runs; if the copy
 /// fails, the exception names the temporary blob that holds the content. Page blobs can be read, not written.
 /// </para>
 /// <para>
 /// <b>Moves and copies</b> copy on the server, refusing an existing destination atomically; a move then deletes the source
 /// only if it has not changed since it was copied, and otherwise removes the copy and throws
-/// <see cref="PreconditionFailedException"/>. Deleting or moving a blob also deletes its snapshots.
+/// <see cref="PreconditionFailedException"/>. A copy that does not finish within 10 minutes is aborted. Snapshots are
+/// never deleted: deleting or moving a blob that has snapshots throws <see cref="IOException"/> and leaves it as it was.
 /// </para>
 /// <para>
 /// <b>Signed URLs</b> are service SAS with a shared key, or user delegation SAS when the provider signs in with Microsoft
@@ -44,7 +49,7 @@ namespace WriteableFileProviders.AzureBlob;
 /// case-sensitive. The provider owns no disposable resources, and never disposes a client it was given.
 /// </para>
 /// </remarks>
-public partial class WriteableAzureBlobFileProvider : WriteableFileProvider<AzureFileProviderOptions>
+public sealed partial class WriteableAzureBlobFileProvider : WriteableFileProvider<AzureFileProviderOptions>
 {
     private const string TempFolder = ".wfp-tmp";
     private const string HiddenPrefix = ".wfp-";
@@ -52,6 +57,7 @@ public partial class WriteableAzureBlobFileProvider : WriteableFileProvider<Azur
     private const int DeleteParallelism = 8;
 
     private readonly BlobContainerClient _container;
+    private long _serverCopyRefusedUntil;
 
     /// <summary>Creates the provider from its options; it does no network I/O until it is used.</summary>
     /// <param name="options">The account, how to sign in, the container and the root folder.</param>
@@ -111,6 +117,16 @@ public partial class WriteableAzureBlobFileProvider : WriteableFileProvider<Azur
 
     /// <summary>How often a pending server-side copy is polled.</summary>
     internal TimeSpan CopyPollInterval { get; set; } = TimeSpan.FromMilliseconds(500);
+
+    /// <summary>How long a server-side copy may stay pending before it is aborted: 10 minutes, as in 2026.</summary>
+    internal TimeSpan CopyTimeout { get; set; } = TimeSpan.FromMinutes(10);
+
+    /// <summary>Until when the provider stages restaged content through the client, after the service refused to read it.</summary>
+    internal DateTimeOffset ServerCopyRefusedUntil
+    {
+        get => new(Interlocked.Read(ref _serverCopyRefusedUntil), TimeSpan.Zero);
+        set => Interlocked.Exchange(ref _serverCopyRefusedUntil, value.UtcTicks);
+    }
 
     /// <summary>The clock for signed URL times, for the tests.</summary>
     internal TimeProvider Clock
@@ -181,7 +197,7 @@ public partial class WriteableAzureBlobFileProvider : WriteableFileProvider<Azur
             {
                 return await DownloadRangeAsync(blob, offset, length, conditions, cancellationToken).ConfigureAwait(false);
             }
-            catch (RequestFailedException e) when (e.Status == 412)
+            catch (RequestFailedException e) when (IsConditionNotMet(e))
             {
                 throw new PreconditionFailedException($"The file '{path}' changed: its version is no longer '{ifMatch}'.", e);
             }
@@ -232,7 +248,12 @@ public partial class WriteableAzureBlobFileProvider : WriteableFileProvider<Azur
         }).ConfigureAwait(false);
     }
 
-    /// <inheritdoc />
+    /// <summary>
+    /// Deletes a blob, or every blob under a folder. A blob with snapshots is not deleted: it throws
+    /// <see cref="IOException"/>, as the provider never deletes snapshots.
+    /// </summary>
+    /// <param name="path">The file or folder.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
     protected override async Task<bool> DeleteCoreAsync(ResolvedPath path, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -410,8 +431,25 @@ public partial class WriteableAzureBlobFileProvider : WriteableFileProvider<Azur
         }
     }
 
-    private static async Task<bool> DeleteBlobAsync(BlobBaseClient blob, CancellationToken cancellationToken) =>
-        (await blob.DeleteIfExistsAsync(DeleteSnapshotsOption.IncludeSnapshots, cancellationToken: cancellationToken).ConfigureAwait(false)).Value;
+    // Deletes one blob, never its snapshots: a blob that has some stays, and the caller learns why.
+    private async Task<bool> DeleteBlobAsync(BlobBaseClient blob, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return (await blob.DeleteIfExistsAsync(DeleteSnapshotsOption.None, cancellationToken: cancellationToken).ConfigureAwait(false)).Value;
+        }
+        catch (RequestFailedException e) when (Is(e, BlobErrorCode.SnapshotsPresent))
+        {
+            throw new IOException($"The file '{ProviderPathOf(blob)}' has snapshots, which {nameof(WriteableAzureBlobFileProvider)} never deletes; delete them first.", e);
+        }
+    }
+
+    // A blob's name as a path of this provider, for messages.
+    private string ProviderPathOf(BlobBaseClient blob) =>
+        Options.RootDirectorySegments.Length == 0 ? blob.Name : blob.Name[(string.Join('/', Options.RootDirectorySegments).Length + 1)..];
+
+    /// <summary>Deletes exactly the one blob at <paramref name="path"/>, as a move does: a test's way in.</summary>
+    internal Task DeleteFileForTestsAsync(ProviderPath path) => DeleteFileCoreAsync(Resolve(path), CancellationToken.None);
 
     private WriteableFileInfo FileInfo(ProviderPath path, long length, DateTimeOffset lastModified, ETag etag, string? contentType) =>
         new(this, path, true, false, length, lastModified, etag: Tag(etag), contentType: contentType);
@@ -435,6 +473,12 @@ public partial class WriteableAzureBlobFileProvider : WriteableFileProvider<Azur
 
     private static bool Is(RequestFailedException exception, BlobErrorCode code) =>
         string.Equals(exception.ErrorCode, code.ToString(), StringComparison.Ordinal);
+
+    // A 412 that says a condition of the request did not hold; a lease's 412 (LeaseIdMissing and the like) is not one.
+    internal static bool IsConditionNotMet(RequestFailedException exception) =>
+        exception.Status == 412
+        && (string.IsNullOrEmpty(exception.ErrorCode) || Is(exception, BlobErrorCode.ConditionNotMet)
+            || Is(exception, BlobErrorCode.SourceConditionNotMet) || Is(exception, BlobErrorCode.TargetConditionNotMet));
 
     private InvalidOperationException ContainerMissing(Exception? innerException) =>
         new($"The blob container '{_container.Name}' does not exist. Create it, or set AzureFileProviderOptions.{nameof(AzureFileProviderOptions.CreateContainerIfMissing)} so the first write creates it.", innerException);

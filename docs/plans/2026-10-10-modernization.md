@@ -486,8 +486,8 @@ public class PreconditionFailedException : IOException      public class FileExi
 - **Stored configuration (P9):** 2027 `ToJson` output is not promised to read back on `2026.10.10.x`.
 - **Azure (P22):** files written by 2027 are block blobs. `2026.10.10.x` cannot append to them (`InvalidBlobType`), so a
   rolling upgrade, or a fleet mixing the two lines, must not append to shared files during the switch; the first 2027
-  append to an append blob converts it, after which writers using Append Block fail; above the Put Blob limit the
-  conversion leaves the file absent for a moment (P30).
+  append to an append blob converts it, after which writers using Append Block fail; during every conversion the file is
+  missing, or empty while the server copy runs, for a moment (P30).
 - **SDK majors (P24):** consumers who use these SDKs directly move with us: AWSSDK.S3 3 → 4, Box.V2.Core 5 → 10,
   Microsoft.Graph 5 → 6 and Graph.Core 3 → 4, Google.Cloud.Storage.V1 4 → 5. Common no longer brings in
   Microsoft.Extensions.Configuration. Each gets a section in the migration guide.
@@ -1085,9 +1085,9 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     tests stand unchanged; a later provider step adding options can do the same. The D17 constructor takes a
     `BlobContainerClient`. Azure.Identity stays at 1.21.0 (a facade over Azure.Core 1.60.0) as the line SharePoint
     shares; Azure.Storage.Blobs is 12.30.1.
-  - **Main-session decisions applied:** the SAS start (F40); `IncludeSnapshots` for the conversion, and also for delete
-    and move, so a blob with snapshots can be deleted at all; the `.wfp-tmp/` prefix and hidden `.wfp-` entries; the
-    move rollback; the test-only pipeline for Azure's limits with internal limit settings; the two options.
+  - **Main-session decisions applied:** the SAS start (F40); `IncludeSnapshots` for the append blob conversion only
+    (delete and move refuse a blob with snapshots, review round 1); the `.wfp-tmp/` prefix and hidden `.wfp-` entries;
+    the move rollback; the test-only pipeline for Azure's limits with internal limit settings; the two options.
   - **Deviation from the Azure row:** "service SAS with no start time" became a start 15 minutes back (the decision);
     the PublicAPI files are not added, as Common has none yet (S12).
   - **Tests:** `tests/WriteableFileProviders.AzureBlob.Tests`, 232 tests. The conformance suite runs twice on Azurite:
@@ -1100,6 +1100,25 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     Blob or Copy Blob onto an append blob, `BlockCountExceedsLimit`), Put Block From URL with the blob itself or an
     append blob as the source, Get Block List leaving out the ETag of a blob with no blocks, the user delegation key
     flow with a real Entra identity, and tags after a commit (not carried).
+  - **Review round 1 (PR #29):** needs-fixes, 2 majors, 4 minors, 8 nits, all fixed:
+    - F1: an unconditional overwrite whose staged blocks another writer's commit dropped (`InvalidBlockList`) stages one
+      block's worth again, up to five attempts in all, and otherwise throws `IOException` saying nothing was stored; with
+      a condition it throws `PreconditionFailedException`. Tested against a real competing commit on Azurite.
+    - F2: the user delegation key ends at most 7 days less 5 minutes from now; a URL that would outlive it follows D18.
+      Only 401/403 are remembered as refusals. The test service refuses a key past 7 days.
+    - F3: a copy onto an existing blob counts as destroying it: on failure the temp blob is kept and named, and an
+      aborted copy never deletes a blob it was overwriting.
+    - F4 (owner call, fail closed): delete and move never delete snapshots; `SnapshotsPresent` is an `IOException`.
+      `IncludeSnapshots` stays only in the P30 conversion.
+    - F5: the conversion's window is "missing, or empty while the server copy runs", here, in P22, the README, the XML
+      docs and the migration guide.
+    - F6: a server copy still pending after 10 minutes (as 2026) is aborted and handled as a failed copy.
+    - F7–F12, F14: appends size their blocks to fit and have their own limit message; "five attempts in all"; the
+      create-on-append path stages inside its try and treats a concurrent append blob or commit as a lost race; only a
+      412 whose code says a condition failed counts as one (a lease's 412 is reported as it is); the refusal of a
+      server copy is remembered for 10 minutes, not for good; the move rollback says whether the copy was removed;
+      AGENTS.md names the Azure live suite's settings.
+    - D25: `WriteableAzureBlobFileProvider` is sealed. D26: the two options keep `WhenWritingDefault`.
 
 ### For the maintainers
 

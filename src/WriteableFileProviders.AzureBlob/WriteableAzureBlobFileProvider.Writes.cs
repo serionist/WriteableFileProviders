@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using Azure;
 using Azure.Storage.Blobs;
@@ -7,7 +8,7 @@ using Azure.Storage.Blobs.Specialized;
 
 namespace WriteableFileProviders.AzureBlob;
 
-public partial class WriteableAzureBlobFileProvider
+public sealed partial class WriteableAzureBlobFileProvider
 {
     // Random ids of 48 bytes, 64 characters in base64: unique across concurrent writers, and one length for every block
     // of a blob, as Azure requires.
@@ -34,15 +35,18 @@ public partial class WriteableAzureBlobFileProvider
             : OverwriteAsync(path, contents, options, cancellationToken)).ConfigureAwait(false);
     }
 
+    // A commit by another writer drops the blocks this one staged and has not committed (Azure keeps only the blocks a
+    // commit lists), so this commit then fails with InvalidBlockList. Content that fits in one block is still in memory
+    // and is staged again; a longer stream was read once and cannot be.
     private async Task OverwriteAsync(ResolvedPath path, Stream contents, UpdateFileOptions options, CancellationToken cancellationToken)
     {
         var blob = BlockBlob(path);
         var blockSize = BlockSizeFor(contents);
-        var ids = new List<string>();
-        bool more;
-        using (var first = await Chunk.ReadAsync(contents, blockSize, cancellationToken).ConfigureAwait(false))
+        using var first = await Chunk.ReadAsync(contents, blockSize, cancellationToken).ConfigureAwait(false);
+        var more = first.IsFull;
+        for (var attempt = 1; ; attempt++)
         {
-            more = first.IsFull;
+            var ids = new List<string>();
             if (first.Count > 0)
             {
                 var id = NewBlockId();
@@ -58,26 +62,36 @@ public partial class WriteableAzureBlobFileProvider
                 }
                 ids.Add(id);
             }
-        }
-        if (more)
-            await StageRestAsync(blob, contents, blockSize, ids, cancellationToken).ConfigureAwait(false);
+            if (more)
+                await StageRestAsync(blob, contents, blockSize, ids, TooManyBlocks, cancellationToken).ConfigureAwait(false);
 
-        try
-        {
-            await WithContainerAsync(() => blob.CommitBlockListAsync(ids, new CommitBlockListOptions
+            try
             {
-                HttpHeaders = new BlobHttpHeaders { ContentType = options.ContentType ?? DefaultContentType },
-                Conditions = WriteConditions(options),
-            }, cancellationToken), cancellationToken).ConfigureAwait(false);
-        }
-        catch (RequestFailedException e) when (ids.Count == 0 && Is(e, BlobErrorCode.InvalidBlobType))
-        {
-            using var empty = Chunk.Empty();
-            await ReplaceThroughTempAsync(path, empty, null, blockSize, options, cancellationToken).ConfigureAwait(false);
-        }
-        catch (RequestFailedException e) when (IsConditionFailure(e, options))
-        {
-            throw PreconditionFailed(path, options, e);
+                await WithContainerAsync(() => blob.CommitBlockListAsync(ids, new CommitBlockListOptions
+                {
+                    HttpHeaders = new BlobHttpHeaders { ContentType = options.ContentType ?? DefaultContentType },
+                    Conditions = WriteConditions(options),
+                }, cancellationToken), cancellationToken).ConfigureAwait(false);
+                return;
+            }
+            catch (RequestFailedException e) when (ids.Count == 0 && Is(e, BlobErrorCode.InvalidBlobType))
+            {
+                using var empty = Chunk.Empty();
+                await ReplaceThroughTempAsync(path, empty, null, blockSize, options, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+            catch (RequestFailedException e) when (IsConditionFailure(e, options))
+            {
+                throw PreconditionFailed(path, options, e);
+            }
+            catch (RequestFailedException e) when (Is(e, BlobErrorCode.InvalidBlockList))
+            {
+                // Another writer committed after these blocks were staged: the file changed, and the blocks are gone.
+                if (options.IfMatch is not null || options.IfNotExists)
+                    throw PreconditionFailed(path, options, e);
+                if (more || attempt >= MaxAttempts)
+                    throw new IOException($"Another write to '{path}' was committed while this one was staged, which discarded its blocks; nothing of this write was stored. Write it again.", e);
+            }
         }
     }
 
@@ -97,7 +111,7 @@ public partial class WriteableAzureBlobFileProvider
                 ids.Add(id);
             }
             if (rest is not null)
-                await StageRestAsync(temp, rest, blockSize, ids, cancellationToken).ConfigureAwait(false);
+                await StageRestAsync(temp, rest, blockSize, ids, TooManyBlocks, cancellationToken).ConfigureAwait(false);
             await temp.CommitBlockListAsync(ids, new CommitBlockListOptions
             {
                 HttpHeaders = new BlobHttpHeaders { ContentType = options.ContentType ?? DefaultContentType },
@@ -114,12 +128,12 @@ public partial class WriteableAzureBlobFileProvider
 
     // Gives the temp blob's content the file's name, whatever type of blob holds it now: a block blob is replaced by a
     // copy; an append blob is deleted first, if unchanged, then the copy lands on the free name. The temp blob is
-    // deleted when it is no longer needed, and kept, named in the exception, when the file was deleted but the copy
-    // did not land.
+    // deleted when it is no longer needed, and kept, named in the exception, once the file's old content is gone (the
+    // append blob deleted, or a copy onto the block blob started) and the new content did not reach it.
     private async Task MoveTempIntoAsync(ResolvedPath path, BlockBlobClient temp, UpdateFileOptions options, CancellationToken cancellationToken)
     {
         var target = Blob(path);
-        var deleted = false;
+        var destroyed = false;
         var done = false;
         try
         {
@@ -133,28 +147,45 @@ public partial class WriteableAzureBlobFileProvider
                 }
                 else if (current.BlobType == BlobType.Block)
                 {
-                    done = await TryCopyAsync(temp, target, new BlobRequestConditions { IfMatch = current.ETag }, null, cancellationToken).ConfigureAwait(false) is not null;
+                    var started = new StrongBox<bool>();
+                    try
+                    {
+                        done = await TryCopyAsync(temp, target, new BlobRequestConditions { IfMatch = current.ETag }, null, cancellationToken, started).ConfigureAwait(false) is not null;
+                    }
+                    catch
+                    {
+                        // A copy that started overwrites the blob as it goes: a failure leaves it without its old content.
+                        destroyed |= started.Value;
+                        throw;
+                    }
                 }
-                else if (await TryDeleteAsync(target, current.ETag, cancellationToken).ConfigureAwait(false))
+                else if (await TryDeleteAppendBlobAsync(target, current.ETag, cancellationToken).ConfigureAwait(false))
                 {
-                    deleted = true;
+                    destroyed = true;
                     done = await TryCopyAsync(temp, target, new BlobRequestConditions { IfNoneMatch = ETag.All }, null, cancellationToken).ConfigureAwait(false) is not null;
                 }
             }
             if (!done)
                 throw new PreconditionFailedException($"The file '{path}' kept changing while it was replaced; it was not written after {MaxAttempts} attempts.");
         }
-        catch (Exception e) when (deleted && !done)
+        catch (Exception e) when (destroyed && !done)
         {
-            var kept = $"The file '{path}' was deleted to replace its append blob, but the new content did not reach it; it is kept at '{TempPath(temp)}'.";
-            throw e is PreconditionFailedException ? new PreconditionFailedException(kept, e) : new IOException(kept, e);
+            throw Kept(e, $"The old content of '{path}' is gone and the new content did not reach it; the new content is kept at '{TempPath(temp)}'.", cancellationToken);
         }
         finally
         {
-            if (done || !deleted)
+            if (done || !destroyed)
                 await TryDeleteQuietlyAsync(temp).ConfigureAwait(false);
         }
     }
+
+    // The failure of a write that lost the file's old content, saying where the content is kept, in the failure's kind.
+    private static Exception Kept(Exception failure, string message, CancellationToken cancellationToken) => failure switch
+    {
+        OperationCanceledException => new OperationCanceledException(message, failure, cancellationToken),
+        PreconditionFailedException => new PreconditionFailedException(message, failure),
+        _ => new IOException(message, failure),
+    };
 
     private static void CheckReplace(ResolvedPath path, BlobProperties? current, UpdateFileOptions options)
     {
@@ -173,9 +204,12 @@ public partial class WriteableAzureBlobFileProvider
         await using (spool.ConfigureAwait(false))
         {
             var blob = BlockBlob(path);
-            var newBlocks = (int)Math.Min(int.MaxValue, (spool.Length + BlockSize - 1) / BlockSize);
+            // The spool can seek: its blocks are sized to leave at least one block for the file's own content.
+            var room = Math.Max(1, MaxCommittedBlocks - 1);
+            var blockSize = (int)Math.Min(MaxBlockSize, Math.Max(BlockSize, (spool.Length + room - 1) / room));
+            var newBlocks = (int)Math.Min(int.MaxValue, (spool.Length + blockSize - 1) / blockSize);
             if (newBlocks > MaxCommittedBlocks)
-                throw TooManyBlocks(BlockSize);
+                throw TooManyBlocksToAppend(blockSize);
             for (var attempt = 0; attempt < MaxAttempts; attempt++)
             {
                 var current = await WithContainerAsync(() => GetPropertiesOrNullAsync(blob, cancellationToken), cancellationToken).ConfigureAwait(false);
@@ -183,7 +217,7 @@ public partial class WriteableAzureBlobFileProvider
                 {
                     if (options.IfMatch is not null)
                         throw PreconditionFailed(path, options, null);
-                    if (await TryCreateAsync(blob, spool, options, cancellationToken).ConfigureAwait(false))
+                    if (await TryCreateAsync(blob, spool, blockSize, options, cancellationToken).ConfigureAwait(false))
                         return;
                     if (options.IfNotExists)
                         throw PreconditionFailed(path, options, null);
@@ -191,8 +225,8 @@ public partial class WriteableAzureBlobFileProvider
                 }
                 CheckReplace(path, current, options);
                 var appended = current.BlobType == BlobType.Append
-                    ? await ConvertAndAppendAsync(path, current, spool, newBlocks, options, cancellationToken).ConfigureAwait(false)
-                    : await TryAppendBlocksAsync(blob, current, spool, newBlocks, options, cancellationToken).ConfigureAwait(false);
+                    ? await ConvertAndAppendAsync(path, current, spool, blockSize, newBlocks, options, cancellationToken).ConfigureAwait(false)
+                    : await TryAppendBlocksAsync(blob, current, spool, blockSize, newBlocks, options, cancellationToken).ConfigureAwait(false);
                 if (appended)
                     return;
                 // The file changed since it was read: a caller's condition no longer holds; otherwise read it again.
@@ -203,13 +237,14 @@ public partial class WriteableAzureBlobFileProvider
         }
     }
 
-    // Appending to a missing file creates it, unless someone else creates it first.
-    private async Task<bool> TryCreateAsync(BlockBlobClient blob, FileStream spool, UpdateFileOptions options, CancellationToken cancellationToken)
+    // Appending to a missing file creates it, unless someone else creates it first: then the staging fails (an append
+    // blob takes no blocks) or the commit does (the file exists, or its commit dropped these blocks).
+    private async Task<bool> TryCreateAsync(BlockBlobClient blob, FileStream spool, int blockSize, UpdateFileOptions options, CancellationToken cancellationToken)
     {
-        var ids = new List<string>();
-        await StageSpoolAsync(blob, spool, ids, cancellationToken).ConfigureAwait(false);
         try
         {
+            var ids = new List<string>();
+            await StageSpoolAsync(blob, spool, blockSize, ids, cancellationToken).ConfigureAwait(false);
             await blob.CommitBlockListAsync(ids, new CommitBlockListOptions
             {
                 HttpHeaders = new BlobHttpHeaders { ContentType = options.ContentType ?? DefaultContentType },
@@ -217,7 +252,7 @@ public partial class WriteableAzureBlobFileProvider
             }, cancellationToken).ConfigureAwait(false);
             return true;
         }
-        catch (RequestFailedException e) when (e.Status == 412 || Is(e, BlobErrorCode.BlobAlreadyExists) || Is(e, BlobErrorCode.InvalidBlobType))
+        catch (RequestFailedException e) when (IsConditionNotMet(e) || Is(e, BlobErrorCode.BlobAlreadyExists) || Is(e, BlobErrorCode.InvalidBlobType) || Is(e, BlobErrorCode.InvalidBlockList))
         {
             return false;
         }
@@ -226,7 +261,7 @@ public partial class WriteableAzureBlobFileProvider
     // Commits the block list read with the new blocks after it, if the blob is still the version read. A blob whose
     // blocks cannot be reused as they are (written in one Put Blob, block ids of another length, or too many blocks for
     // the new ones) has its content staged again as new blocks first.
-    private async Task<bool> TryAppendBlocksAsync(BlockBlobClient blob, BlobProperties current, FileStream spool, int newBlocks, UpdateFileOptions options, CancellationToken cancellationToken)
+    private async Task<bool> TryAppendBlocksAsync(BlockBlobClient blob, BlobProperties current, FileStream spool, int blockSize, int newBlocks, UpdateFileOptions options, CancellationToken cancellationToken)
     {
         BlockList list;
         try
@@ -250,7 +285,7 @@ public partial class WriteableAzureBlobFileProvider
                 return false;
             ids = restaged;
         }
-        await StageSpoolAsync(blob, spool, ids, cancellationToken).ConfigureAwait(false);
+        await StageSpoolAsync(blob, spool, blockSize, ids, cancellationToken).ConfigureAwait(false);
         try
         {
             await blob.CommitBlockListAsync(ids, new CommitBlockListOptions
@@ -262,7 +297,7 @@ public partial class WriteableAzureBlobFileProvider
             }, cancellationToken).ConfigureAwait(false);
             return true;
         }
-        catch (RequestFailedException e) when (e.Status == 412 || Is(e, BlobErrorCode.BlobNotFound))
+        catch (RequestFailedException e) when (IsConditionNotMet(e) || Is(e, BlobErrorCode.BlobNotFound) || Is(e, BlobErrorCode.InvalidBlockList))
         {
             return false;
         }
@@ -270,7 +305,7 @@ public partial class WriteableAzureBlobFileProvider
 
     // P30: an append blob cannot become a block blob in place. Its content and the new bytes are committed to a temp
     // blob, the append blob is deleted if it is still the version read, and the temp blob is copied to its name.
-    private async Task<bool> ConvertAndAppendAsync(ResolvedPath path, BlobProperties current, FileStream spool, int newBlocks, UpdateFileOptions options, CancellationToken cancellationToken)
+    private async Task<bool> ConvertAndAppendAsync(ResolvedPath path, BlobProperties current, FileStream spool, int blockSize, int newBlocks, UpdateFileOptions options, CancellationToken cancellationToken)
     {
         var target = Blob(path);
         var temp = TempBlob();
@@ -280,7 +315,7 @@ public partial class WriteableAzureBlobFileProvider
         {
             if (await RestageAsync(temp, target, current, MaxCommittedBlocks - newBlocks, cancellationToken).ConfigureAwait(false) is not { } ids)
                 return false;
-            await StageSpoolAsync(temp, spool, ids, cancellationToken).ConfigureAwait(false);
+            await StageSpoolAsync(temp, spool, blockSize, ids, cancellationToken).ConfigureAwait(false);
             await temp.CommitBlockListAsync(ids, new CommitBlockListOptions
             {
                 HttpHeaders = CarriedHeaders(current, options.ContentType),
@@ -288,7 +323,7 @@ public partial class WriteableAzureBlobFileProvider
                 AccessTier = CarriedTier(current),
                 Conditions = new BlobRequestConditions { IfNoneMatch = ETag.All },
             }, cancellationToken).ConfigureAwait(false);
-            if (!await TryDeleteAsync(target, current.ETag, cancellationToken).ConfigureAwait(false))
+            if (!await TryDeleteAppendBlobAsync(target, current.ETag, cancellationToken).ConfigureAwait(false))
                 return false;
             deleted = true;
             if (await TryCopyAsync(temp, target, new BlobRequestConditions { IfNoneMatch = ETag.All }, null, cancellationToken).ConfigureAwait(false) is null)
@@ -298,8 +333,7 @@ public partial class WriteableAzureBlobFileProvider
         }
         catch (Exception e) when (deleted && !done)
         {
-            var kept = $"The file '{path}' was deleted to convert its append blob, but the appended content did not reach it; the old and the new content are kept at '{TempPath(temp)}'.";
-            throw e is PreconditionFailedException ? new PreconditionFailedException(kept, e) : new IOException(kept, e);
+            throw Kept(e, $"The file '{path}' was deleted to convert its append blob, but the appended content did not reach it; the old and the new content are kept at '{TempPath(temp)}'.", cancellationToken);
         }
         finally
         {
@@ -319,8 +353,8 @@ public partial class WriteableAzureBlobFileProvider
         if (length == 0)
             return [];
         if (maxBlocks <= 0)
-            throw TooManyBlocks(BlockSize);
-        if (!_serverCopyRefused)
+            throw TooManyBlocksToAppend(BlockSize);
+        if (TimeProvider.GetUtcNow() >= ServerCopyRefusedUntil)
         {
             try
             {
@@ -329,8 +363,9 @@ public partial class WriteableAzureBlobFileProvider
             }
             catch (RequestFailedException e) when (e.Status is 401 or 403)
             {
-                // The service cannot read the source with the signature it was given: download the ranges instead.
-                _serverCopyRefused = true;
+                // The service cannot read the source with the signature it was given: download the ranges instead, and
+                // do not ask the service again for a while.
+                ServerCopyRefusedUntil = TimeProvider.GetUtcNow() + _refusalMemory;
             }
         }
         return await RestageThroughClientAsync(target, source, current, maxBlocks, cancellationToken).ConfigureAwait(false);
@@ -355,7 +390,7 @@ public partial class WriteableAzureBlobFileProvider
                     SourceConditions = new RequestConditions { IfMatch = current.ETag },
                 }, cancellationToken).ConfigureAwait(false);
             }
-            catch (RequestFailedException e) when (e.Status == 412 || Is(e, BlobErrorCode.BlobNotFound))
+            catch (RequestFailedException e) when (IsConditionNotMet(e) || Is(e, BlobErrorCode.BlobNotFound))
             {
                 return [];
             }
@@ -369,7 +404,7 @@ public partial class WriteableAzureBlobFileProvider
         var length = current.ContentLength;
         var range = (int)Math.Min(MaxBlockSize, Math.Max(BlockSize, (length + maxBlocks - 1) / maxBlocks));
         if ((long)range * maxBlocks < length)
-            throw TooManyBlocks(range);
+            throw TooManyBlocksToAppend(range);
         var ids = new List<string>();
         for (var offset = 0L; offset < length; offset += range)
         {
@@ -385,7 +420,7 @@ public partial class WriteableAzureBlobFileProvider
                 using var content = download.Value.Content;
                 chunk = await Chunk.ReadAsync(content, size, cancellationToken).ConfigureAwait(false);
             }
-            catch (RequestFailedException e) when (e.Status is 412 or 416 || Is(e, BlobErrorCode.BlobNotFound))
+            catch (RequestFailedException e) when (IsConditionNotMet(e) || e.Status == 416 || Is(e, BlobErrorCode.BlobNotFound))
             {
                 return null;
             }
@@ -401,14 +436,15 @@ public partial class WriteableAzureBlobFileProvider
         return ids;
     }
 
-    private Task StageSpoolAsync(BlockBlobClient blob, FileStream spool, List<string> ids, CancellationToken cancellationToken)
+    private Task StageSpoolAsync(BlockBlobClient blob, FileStream spool, int blockSize, List<string> ids, CancellationToken cancellationToken)
     {
         spool.Position = 0;
-        return StageRestAsync(blob, spool, BlockSize, ids, cancellationToken);
+        return StageRestAsync(blob, spool, blockSize, ids, TooManyBlocksToAppend, cancellationToken);
     }
 
-    // Reads the source to its end in blocks and stages them, a few at a time; adds their ids, in order, to ids.
-    private async Task StageRestAsync(BlockBlobClient blob, Stream source, int blockSize, List<string> ids, CancellationToken cancellationToken)
+    // Reads the source to its end in blocks and stages them, a few at a time; adds their ids, in order, to ids. Past
+    // Azure's block limit it throws what tooMany makes of the block size.
+    private async Task StageRestAsync(BlockBlobClient blob, Stream source, int blockSize, List<string> ids, Func<int, IOException> tooMany, CancellationToken cancellationToken)
     {
         using var failed = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var pending = new List<Task>();
@@ -431,7 +467,7 @@ public partial class WriteableAzureBlobFileProvider
                 if (ids.Count >= MaxCommittedBlocks)
                 {
                     chunk.Dispose();
-                    throw TooManyBlocks(blockSize);
+                    throw tooMany(blockSize);
                 }
                 var id = NewBlockId();
                 ids.Add(id);
@@ -481,6 +517,9 @@ public partial class WriteableAzureBlobFileProvider
     private IOException TooManyBlocks(int blockSize) =>
         new($"The content needs more than {MaxCommittedBlocks} blocks of {blockSize} bytes, Azure's limit for one blob. Write it from a stream that can seek, so the blocks are sized to fit.");
 
+    private IOException TooManyBlocksToAppend(int blockSize) =>
+        new($"The file and the content appended to it need more than {MaxCommittedBlocks} blocks of up to {blockSize} bytes, Azure's limit for one blob.");
+
     private static string NewBlockId() => Convert.ToBase64String(RandomNumberGenerator.GetBytes(BlockIdBytes));
 
     private BlockBlobClient TempBlob() =>
@@ -495,7 +534,7 @@ public partial class WriteableAzureBlobFileProvider
         : null;
 
     private static bool IsConditionFailure(RequestFailedException exception, UpdateFileOptions options) =>
-        exception.Status == 412
+        IsConditionNotMet(exception)
         || (options.IfNotExists && Is(exception, BlobErrorCode.BlobAlreadyExists))
         || (options.IfMatch is not null && Is(exception, BlobErrorCode.BlobNotFound));
 
@@ -523,30 +562,34 @@ public partial class WriteableAzureBlobFileProvider
         return new AccessTier(tier);
     }
 
-    // Deletes the blob if it is still the version read. False when it changed or is gone.
-    private static async Task<bool> TryDeleteAsync(BlobBaseClient blob, ETag etag, CancellationToken cancellationToken)
+    // P30: deletes the append blob, with its snapshots (an append blob cannot become a block blob otherwise), if it is
+    // still the version read. False when it changed or is gone.
+    private static async Task<bool> TryDeleteAppendBlobAsync(BlobBaseClient blob, ETag etag, CancellationToken cancellationToken)
     {
         try
         {
             await blob.DeleteAsync(DeleteSnapshotsOption.IncludeSnapshots, new BlobRequestConditions { IfMatch = etag }, cancellationToken).ConfigureAwait(false);
             return true;
         }
-        catch (RequestFailedException e) when (e.Status == 412 || Is(e, BlobErrorCode.BlobNotFound))
+        catch (RequestFailedException e) when (IsConditionNotMet(e) || Is(e, BlobErrorCode.BlobNotFound))
         {
             return false;
         }
     }
 
-    private static async Task TryDeleteQuietlyAsync(BlobBaseClient blob, ETag? ifMatch = null)
+    // Deletes a blob the provider made (a temp blob, a copy), which has no snapshots: whether it is gone.
+    private static async Task<bool> TryDeleteQuietlyAsync(BlobBaseClient blob, ETag? ifMatch = null)
     {
         try
         {
-            await blob.DeleteIfExistsAsync(DeleteSnapshotsOption.IncludeSnapshots, ifMatch is { } etag ? new BlobRequestConditions { IfMatch = etag } : null, CancellationToken.None).ConfigureAwait(false);
+            await blob.DeleteIfExistsAsync(DeleteSnapshotsOption.None, ifMatch is { } etag ? new BlobRequestConditions { IfMatch = etag } : null, CancellationToken.None).ConfigureAwait(false);
+            return true;
         }
 #pragma warning disable CA1031 // Best effort: the caller is already done, or already reporting the failure that matters.
         catch (Exception)
 #pragma warning restore CA1031
         {
+            return false;
         }
     }
 

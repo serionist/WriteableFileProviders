@@ -7,12 +7,16 @@ using Azure.Storage.Sas;
 
 namespace WriteableFileProviders.AzureBlob;
 
-public partial class WriteableAzureBlobFileProvider
+public sealed partial class WriteableAzureBlobFileProvider
 {
     // F40: a SAS starts 15 minutes in the past, Microsoft's advice for clock skew; the start time also satisfies a SAS
     // expiration policy, which refuses a SAS without one.
     private static readonly TimeSpan _clockSkew = TimeSpan.FromMinutes(15);
     private static readonly TimeSpan _refusalMemory = TimeSpan.FromMinutes(10);
+
+    // Azure takes a user delegation key that ends within 7 days of its own clock; a margin keeps a clock that runs ahead
+    // from asking past that.
+    private static readonly TimeSpan _maxKeyLifetime = TimeSpan.FromDays(7) - TimeSpan.FromMinutes(5);
     private static readonly IReadOnlyDictionary<string, string> _noHeaders = new Dictionary<string, string>();
     private static readonly IReadOnlyDictionary<string, string> _uploadHeaders = new Dictionary<string, string> { ["x-ms-blob-type"] = "BlockBlob" };
 
@@ -20,7 +24,6 @@ public partial class WriteableAzureBlobFileProvider
     private UserDelegationKey? _delegationKey;
     private DateTimeOffset _delegationRefusedUntil;
     private RequestFailedException? _delegationRefusal;
-    private volatile bool _serverCopyRefused;
     private volatile bool _containerExists;
 
     /// <summary>Read, create and write URLs are signed natively, as a service SAS or a user delegation SAS.</summary>
@@ -37,7 +40,9 @@ public partial class WriteableAzureBlobFileProvider
 
     /// <summary>
     /// Signs a SAS for the blob: a service SAS when the client has the shared key, else a user delegation SAS, which never
-    /// outlives its key. It starts 15 minutes in the past and ends at the requested validity. An upload URL is for a PUT
+    /// outlives its key (Azure's keys last at most 7 days, so a 7-day user delegation URL needs
+    /// <see cref="SignedUrlOptions.AllowShorterValidity"/>). It starts 15 minutes in the past and ends at the requested
+    /// validity. An upload URL is for a PUT
     /// that sends <c>x-ms-blob-type: BlockBlob</c>; a create URL refuses a blob that exists.
     /// </summary>
     /// <param name="path">The file.</param>
@@ -126,22 +131,24 @@ public partial class WriteableAzureBlobFileProvider
     }
 
     /// <summary>
-    /// A user delegation key that lasts at least until <paramref name="expiresOn"/>, kept and reused while it does; null
-    /// when the client's credential cannot get one (no token credential, or no <c>generateUserDelegationKey</c> right),
-    /// which is remembered for a few minutes.
+    /// A user delegation key that lasts until <paramref name="expiresOn"/>, or as long as Azure allows (7 days, less a
+    /// margin) when that is sooner, kept and reused while it does; the caller checks a URL against the key's expiry (D18).
+    /// Null when the client cannot get one: a refusal of its credential (401, 403: no token credential, or no
+    /// <c>generateUserDelegationKey</c> right) is remembered for a few minutes; any other answer only fails this call.
     /// </summary>
     private async Task<UserDelegationKey?> UserDelegationKeyAsync(DateTimeOffset now, DateTimeOffset expiresOn, CancellationToken cancellationToken)
     {
+        var latest = now + _maxKeyLifetime;
+        var wanted = expiresOn < latest ? expiresOn : latest;
         lock (_keyLock)
         {
-            if (_delegationKey is { } cached && cached.SignedExpiresOn >= expiresOn && cached.SignedStartsOn <= now)
+            if (_delegationKey is { } cached && cached.SignedExpiresOn >= wanted && cached.SignedStartsOn <= now)
                 return cached;
             if (now < _delegationRefusedUntil)
                 return null;
         }
-        // One key serves the URLs of the next hour or more. Azure takes a key that ends within 7 days, which the 7-day
-        // limit on validities keeps.
-        var keyExpiresOn = expiresOn > now + TimeSpan.FromHours(1) ? expiresOn : now + TimeSpan.FromHours(1);
+        // One key serves the URLs of the next hour or more.
+        var keyExpiresOn = wanted > now + TimeSpan.FromHours(1) ? wanted : now + TimeSpan.FromHours(1);
         try
         {
             var key = (await _container.GetParentBlobServiceClient().GetUserDelegationKeyAsync(
@@ -155,7 +162,8 @@ public partial class WriteableAzureBlobFileProvider
             lock (_keyLock)
             {
                 _delegationRefusal = e;
-                _delegationRefusedUntil = now + _refusalMemory;
+                if (e.Status is 401 or 403)
+                    _delegationRefusedUntil = now + _refusalMemory;
             }
             return null;
         }

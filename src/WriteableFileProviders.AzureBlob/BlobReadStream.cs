@@ -33,7 +33,7 @@ internal sealed class BlobReadStream(Stream inner, string path) : Stream
         {
             return inner.Read(buffer);
         }
-        catch (RequestFailedException e) when (e.Status is 404 or 412)
+        catch (RequestFailedException e) when (e.Status == 404 || WriteableAzureBlobFileProvider.IsConditionNotMet(e))
         {
             throw Translate(e);
         }
@@ -48,7 +48,7 @@ internal sealed class BlobReadStream(Stream inner, string path) : Stream
         {
             return await inner.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
         }
-        catch (RequestFailedException e) when (e.Status is 404 or 412)
+        catch (RequestFailedException e) when (e.Status == 404 || WriteableAzureBlobFileProvider.IsConditionNotMet(e))
         {
             throw Translate(e);
         }

@@ -1,10 +1,11 @@
+using System.Runtime.CompilerServices;
 using Azure;
 using Azure.Storage.Blobs.Models;
 using Azure.Storage.Blobs.Specialized;
 
 namespace WriteableFileProviders.AzureBlob;
 
-public partial class WriteableAzureBlobFileProvider
+public sealed partial class WriteableAzureBlobFileProvider
 {
     /// <summary>
     /// Copies on the server, on the condition that the destination does not exist (atomic), from the version of the
@@ -21,7 +22,8 @@ public partial class WriteableAzureBlobFileProvider
 
     /// <summary>
     /// Copies on the server, then deletes the source only if it is still the version copied. A source that changed in
-    /// between is kept, the copy is removed, and <see cref="PreconditionFailedException"/> is thrown.
+    /// between is kept, the copy is removed, and <see cref="PreconditionFailedException"/> is thrown. A source with
+    /// snapshots is kept too, and <see cref="IOException"/> is thrown: snapshots are never deleted.
     /// </summary>
     /// <param name="source">The file to move.</param>
     /// <param name="destination">Where it goes.</param>
@@ -33,13 +35,32 @@ public partial class WriteableAzureBlobFileProvider
         {
             var (version, copy) = await CopyBlobAsync(source, destination, cancellationToken).ConfigureAwait(false);
             var from = Blob(source);
-            if (await TryDeleteAsync(from, version, cancellationToken).ConfigureAwait(false))
+            RequestFailedException failure;
+            try
+            {
+                await from.DeleteAsync(DeleteSnapshotsOption.None, new BlobRequestConditions { IfMatch = version }, cancellationToken).ConfigureAwait(false);
                 return;
-            // Gone: someone deleted the source after the copy, so the move is complete. Changed: undo the copy.
-            if (await GetPropertiesOrNullAsync(from, cancellationToken).ConfigureAwait(false) is null)
+            }
+            catch (RequestFailedException e) when (Is(e, BlobErrorCode.BlobNotFound))
+            {
                 return;
-            await TryDeleteQuietlyAsync(Blob(destination), copy.ETag).ConfigureAwait(false);
-            throw new PreconditionFailedException($"The file '{source}' changed while it was moved: it keeps its new content, and the copy at '{destination}' was removed.");
+            }
+            catch (RequestFailedException e) when (IsConditionNotMet(e))
+            {
+                // Gone: someone deleted the source after the copy, so the move is complete. Changed: undo the copy.
+                if (await GetPropertiesOrNullAsync(from, cancellationToken).ConfigureAwait(false) is null)
+                    return;
+                failure = e;
+            }
+            catch (RequestFailedException e) when (Is(e, BlobErrorCode.SnapshotsPresent))
+            {
+                failure = e;
+            }
+            var removed = await TryDeleteQuietlyAsync(Blob(destination), copy.ETag).ConfigureAwait(false);
+            var copyFate = removed ? $"the copy at '{destination}' was removed" : $"the copy at '{destination}' could not be removed and is still there";
+            throw Is(failure, BlobErrorCode.SnapshotsPresent)
+                ? new IOException($"The file '{source}' has snapshots, which {nameof(WriteableAzureBlobFileProvider)} never deletes: it was not moved, and {copyFate}.", failure)
+                : new PreconditionFailedException($"The file '{source}' changed while it was moved: it keeps its new content, and {copyFate}.", failure);
         }).ConfigureAwait(false);
     }
 
@@ -69,12 +90,20 @@ public partial class WriteableAzureBlobFileProvider
     }
 
     /// <summary>
-    /// Copies a blob on the server and waits until the copy is done. Null when a condition failed (the destination exists
-    /// or is not the version given, or the source changed); throws <see cref="IOException"/> when the copy itself failed,
-    /// after removing what it left at the destination.
+    /// Copies a blob on the server and waits until the copy is done, at most <see cref="CopyTimeout"/>. Null when a
+    /// condition failed (the destination exists or is not the version given, or the source changed): nothing was
+    /// copied. Throws <see cref="IOException"/> when the copy failed or timed out; a copy that was making a new blob is
+    /// then aborted and what it left removed, but a blob it was overwriting is never deleted.
     /// </summary>
-    private async Task<BlobProperties?> TryCopyAsync(BlobBaseClient source, BlobBaseClient destination, BlobRequestConditions destinationConditions, ETag? sourceVersion, CancellationToken cancellationToken)
+    /// <param name="source">The blob to copy.</param>
+    /// <param name="destination">The blob to copy to.</param>
+    /// <param name="destinationConditions"><c>IfNoneMatch = *</c> for a new blob, or <c>IfMatch</c> on the blob it replaces.</param>
+    /// <param name="sourceVersion">The source's version to copy, or null for whatever it holds.</param>
+    /// <param name="cancellationToken">Cancels the call, aborting a copy that started.</param>
+    /// <param name="started">Set once the copy started, from when it may have overwritten the destination.</param>
+    private async Task<BlobProperties?> TryCopyAsync(BlobBaseClient source, BlobBaseClient destination, BlobRequestConditions destinationConditions, ETag? sourceVersion, CancellationToken cancellationToken, StrongBox<bool>? started = null)
     {
+        var createsDestination = destinationConditions.IfNoneMatch == ETag.All;
         CopyFromUriOperation operation;
         try
         {
@@ -84,37 +113,47 @@ public partial class WriteableAzureBlobFileProvider
                 SourceConditions = sourceVersion is { } version ? new BlobRequestConditions { IfMatch = version } : null,
             }, cancellationToken).ConfigureAwait(false);
         }
-        catch (RequestFailedException e) when (e.Status == 412 || Is(e, BlobErrorCode.BlobAlreadyExists) || Is(e, BlobErrorCode.InvalidBlobType))
+        catch (RequestFailedException e) when (IsConditionNotMet(e) || Is(e, BlobErrorCode.BlobAlreadyExists) || Is(e, BlobErrorCode.InvalidBlobType))
         {
             return null;
         }
+        started?.Value = true;
 
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(CopyTimeout);
         try
         {
-            await operation.WaitForCompletionAsync(CopyPollInterval, cancellationToken).ConfigureAwait(false);
+            await operation.WaitForCompletionAsync(CopyPollInterval, timeout.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException e) when (!cancellationToken.IsCancellationRequested)
+        {
+            await TryAbortCopyAsync(destination, operation.Id, createsDestination).ConfigureAwait(false);
+            throw new IOException($"Copying '{source.Name}' to '{destination.Name}' did not complete within {CopyTimeout}; it was aborted.", e);
         }
         catch (OperationCanceledException)
         {
-            await TryAbortCopyAsync(destination, operation.Id).ConfigureAwait(false);
+            await TryAbortCopyAsync(destination, operation.Id, createsDestination).ConfigureAwait(false);
             throw;
         }
         // Waiting ends without an error when the copy failed or was aborted: the destination says how it ended.
         var copied = (await destination.GetPropertiesAsync(cancellationToken: cancellationToken).ConfigureAwait(false)).Value;
         if (copied.CopyId == operation.Id && copied.BlobCopyStatus == CopyStatus.Success)
             return copied;
-        if (copied.CopyId == operation.Id)
+        if (createsDestination && copied.CopyId == operation.Id)
             await TryDeleteQuietlyAsync(destination, copied.ETag).ConfigureAwait(false);
         throw new IOException($"Copying '{source.Name}' to '{destination.Name}' did not complete: {copied.BlobCopyStatus} {copied.CopyStatusDescription}".TrimEnd());
     }
 
-    private static async Task TryAbortCopyAsync(BlobBaseClient destination, string copyId)
+    private static async Task TryAbortCopyAsync(BlobBaseClient destination, string copyId, bool deleteDestination)
     {
         try
         {
             await destination.AbortCopyFromUriAsync(copyId, cancellationToken: CancellationToken.None).ConfigureAwait(false);
-            await destination.DeleteIfExistsAsync(DeleteSnapshotsOption.IncludeSnapshots, cancellationToken: CancellationToken.None).ConfigureAwait(false);
+            // An aborted copy leaves an empty blob: removed when the copy was making it, kept when it is the caller's file.
+            if (deleteDestination)
+                await destination.DeleteIfExistsAsync(DeleteSnapshotsOption.None, cancellationToken: CancellationToken.None).ConfigureAwait(false);
         }
-#pragma warning disable CA1031 // Best effort: the copy may have finished already; the cancellation is what the caller sees.
+#pragma warning disable CA1031 // Best effort: the copy may have finished already; the failure is what the caller sees.
         catch (Exception)
 #pragma warning restore CA1031
         {

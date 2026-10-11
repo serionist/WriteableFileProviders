@@ -78,8 +78,12 @@ exactly as 2026.10.10.x stored it. `ToJson` output contains the account key: nev
 - **Block blobs.** A write stages its content as blocks while it reads your stream, and commits them in one request: a
   write that fails leaves the old content, and readers never see half of it. `IfMatch` and `IfNotExists` are checked by
   that commit, atomically.
+- **Two writers at once.** Azure keeps only the blocks a commit lists, so when another writer commits the same file
+  while your overwrite is being staged, your blocks are gone. Content that fits in one block (8 MiB) is staged again,
+  up to five attempts in all, and the last writer wins; a longer write throws `IOException` and stores nothing (with
+  `IfMatch` or `IfNotExists`, `PreconditionFailedException`). Write it again, or serialize the writers.
 - **Appends** commit the file's block list with the new blocks after it, on the condition that the file has not
-  changed since it was read. After a concurrent change the append reads the file again and retries, up to five times,
+  changed since it was read. After a concurrent change the append reads the file again, up to five attempts in all,
   then throws `PreconditionFailedException`: it never loses a concurrent write. A blob written in one request by
   another tool has no block list; its first append copies its content into blocks on the server (no download), or
   downloads and re-uploads it when the provider cannot sign a SAS for the copy.
@@ -90,14 +94,16 @@ exactly as 2026.10.10.x stored it. `ToJson` output contains the account key: nev
   to the version it opened unless modifications are allowed.
 - **Moves and copies** run on the server and refuse an existing destination atomically. A move deletes the source only
   if it has not changed since it was copied; otherwise it removes the copy and throws `PreconditionFailedException`.
-  Deleting or moving a blob deletes its snapshots too.
+  A copy still pending after 10 minutes is aborted, and throws `IOException`.
+- **Snapshots are never deleted.** Deleting or moving a blob that has snapshots throws `IOException` and leaves it as
+  it was; delete the snapshots first. The one exception is the conversion of a 2026 append blob, below.
 
 ### Append blobs written by 2026.10.10.x
 
 They stay readable. Azure cannot turn an append blob into a block blob in place, so the first write or append to one
 goes through a temporary blob under `.wfp-tmp/` in the provider root: the new content is committed there, the append
 blob is deleted (with its snapshots) if it has not changed, the temporary blob is copied to its name, and then removed.
-The file is missing for a moment between the delete and the copy. If the copy fails, the exception names the temporary
+Meanwhile the file is missing, or empty while the server copy runs. If the copy fails, the exception names the temporary
 blob, which holds the content and which the provider can read at that path. Listings hide `.wfp-` entries. From then
 on the file is a block blob, and a 2026.10.10.x provider can no longer append to it (`InvalidBlobType`): upgrade every
 writer of a shared file together. A copy of an append blob is an append blob too, converted on its first write.
@@ -110,7 +116,8 @@ writer of a shared file together. A copy of an append blob is an append blob too
 - The SAS starts 15 minutes in the past, so a clock that runs behind does not reject it (and a SAS expiration policy,
   which requires a start time, accepts it). It ends exactly at the requested validity: `ExpiresOn` says when.
 - A user delegation SAS never outlives its key. If the key would expire first, the call throws `NotSupportedException`
-  unless `AllowShorterValidity` is set, and then `ExpiresOn` is the key's expiry.
+  unless `AllowShorterValidity` is set, and then `ExpiresOn` is the key's expiry. Azure's keys last at most 7 days, so
+  the provider asks for one that ends 5 minutes sooner: a 7-day user delegation URL needs `AllowShorterValidity`.
 - A read URL carries `DownloadFileName` (as an RFC 6266 `Content-Disposition`) and `ContentType`. An upload URL takes
   neither, because a SAS cannot make the uploader send a content type: such a request throws `NotSupportedException`,
   and the gateway takes over.

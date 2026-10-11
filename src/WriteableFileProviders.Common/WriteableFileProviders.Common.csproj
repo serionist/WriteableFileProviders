@@ -3,8 +3,8 @@
   <PropertyGroup>
     <RootNamespace>WriteableFileProviders</RootNamespace>
     <PackageId>WriteableFileProviders.Common</PackageId>
-    <Description>The core of WriteableFileProviders: IWriteableFileProvider, a writeable IFileProvider that means the same thing on every storage backend; the base class providers build on; byte-range and seekable reads, conditional writes, signed URLs; construction from configuration or JSON, and dependency injection.</Description>
-    <PackageTags>$(PackageTags);abstractions</PackageTags>
+    <Description>One writeable IFileProvider for .NET that means the same on the local disk, Azure Blob Storage, Amazon S3, MinIO, Google Cloud Storage, Box and SharePoint: IWriteableFileProvider (async reads, writes, appends, byte ranges, conditional writes, copies, moves, listings and signed URLs), the base class providers build on, configuration and dependency injection. Install a provider package, which brings this one.</Description>
+    <PackageTags>$(PackageTags);abstractions;dependency-injection</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 

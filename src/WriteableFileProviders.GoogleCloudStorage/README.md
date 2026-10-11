@@ -92,19 +92,21 @@ fake-gcs-server, any service account key works: the client signs its own tokens 
 **Permissions:** the provider needs `storage.objects.list` besides reading and writing objects (the
 `roles/storage.objectViewer` and `roles/storage.objectAdmin` roles have it), because it lists objects to tell a folder,
 or a missing bucket, from a missing file. A credential without it gets `UnauthorizedAccessException` (Cloud Storage's
-403, with the `GoogleApiException` inside) from every member that has to: `GetFileInfoAsync` of a path that is not a file, listings, deletes of a folder or a missing path,
-copies and moves, appends to a new file, and seekable reads, local streams and read URLs of a missing file. Only
-`ReadFileAsync` and `ReadRangeAsync` of a missing file still answer `FileNotFoundException`.
+403, with the `GoogleApiException` inside) from every member that has to: `GetFileInfoAsync` of a path that is not a
+file, listings, deletes of a folder or a missing path, copies and moves, appends to a new file, and seekable reads,
+local streams and read URLs of a missing file. Only `ReadFileAsync` and `ReadRangeAsync` of a missing file still answer
+`FileNotFoundException`.
 
 ## How it behaves
 
-- **Folders** are prefixes: a folder exists while an object is under it, and lists as missing once the last one goes.
-  An object named like a folder (`dir/`, as the console makes) is an empty folder. Names are case-sensitive. So a file
-  and a folder may share a name: an object written at a folder's path, or under an object's path, is stored, reads back
-  by path, and a listing shows both. `GetFileInfoAsync` of such a name describes the file. Deleting it removes the
-  file first, and a second delete the folder; a writeable local stream of a folder's path still throws `IOException`.
-- **Listings** leave out objects whose names no path can address: an empty segment (`a//b`), one of only dots and
-  spaces (`x/../y`), a control character, a backslash, or a percent-encoded form of one of these.
+The rules every provider shares (prefix folders, a file and a folder sharing a name, the names a listing leaves out, a
+missing bucket, the exceptions) are in the guide:
+[paths](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/paths-and-listings.md), [reading and
+writing](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/reading-and-writing.md), and
+[errors](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/errors.md#google-cloud-storage) with
+this provider's own mapping. What follows is this provider's own.
+
+- **Folders:** an object named like a folder (`dir/`, as the console makes) is an empty folder.
 - **Versions:** a file's `ETag` is its generation. `UpdateFileOptions.IfMatch` and `IfNotExists` are generation
   preconditions Cloud Storage checks atomically.
 - **Writes** are resumable uploads: the object appears only when every byte arrived, so a write that fails leaves the
@@ -122,34 +124,13 @@ copies and moves, appends to a new file, and seekable reads, local streams and r
   lost answer would find its own copy and report the destination as taken. So when a copy or a move fails with a server
   error or a timeout, the copy may still have landed: check the destination before you try again (after a move, the
   source is still there).
-- **Missing bucket:** every member that reaches the bucket throws `InvalidOperationException` naming it, unless
-  `CreateBucketIfMissing` is set. Create and write signed URLs are signed without asking the bucket, so with a missing
-  bucket they are issued, and fail only when used.
-- **Errors** are the contract's types: Cloud Storage's 401 and 403, and Google's token endpoint refusing the credential
-  (`TokenResponseException`), throw `UnauthorizedAccessException`; no Application Default Credentials to find,
-  `InvalidOperationException`; any other failure of Cloud Storage or the network, `IOException`, timeouts included; the
-  SDK's `GoogleApiException`, or what it threw, is the `InnerException`.
 
 ## Signed URLs
 
-`GetSignedUrlAsync` issues V4 signed URLs, which need a credential that can sign: a service account key, or an identity
-that holds `iam.serviceAccounts.signBlob` on its service account (Workload Identity, Compute Engine, Cloud Run). With a
-credential that cannot sign (a user, an access token), or when IAM's `signBlob` refuses the signing (403, an identity
-without the permission), answers another error than 401, or cannot be reached, it throws `NotSupportedException` with
-the cause inside, and the WriteableFileProviders.AspNetCore gateway can take over. A refused credential (401, a token
-error) and a timeout are not this: they fail as on every other member, with `UnauthorizedAccessException` and
-`IOException`.
-
-| Access | URL | The request must send |
-|---|---|---|
-| `Read` | GET; `DownloadFileName` and `ContentType` become `response-content-disposition` and `response-content-type` | nothing |
-| `Create` | PUT, only if the file does not exist | `x-goog-if-generation-match: 0`, and `Content-Type` when one was given |
-| `Write` | PUT, creating or replacing | `Content-Type` when one was given |
-
-`SignedUrl.Headers` lists the headers to send; they are signed. A URL lives the validity asked, rounded down to whole
-seconds: at least one second, at most seven days. A longer or shorter one throws `NotSupportedException`, and a validity
-that is not positive throws `ArgumentOutOfRangeException`. `ExpiresOn` is read from the URL itself. A read URL for a
-missing file throws `FileNotFoundException`; a download name on an upload URL throws `NotSupportedException`.
+V4 signed URLs for reading, creating and writing, from one second to seven days, which need a credential that can
+sign: a service account key, or an identity that holds `iam.serviceAccounts.signBlob` on its service account. With one
+that cannot, or whose signing IAM refuses or cannot be reached, the gateway takes over. An upload must send the headers in `SignedUrl.Headers`. The details are in
+[Signed URLs](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/signed-urls.md#google-cloud-storage).
 
 ## Limits
 
@@ -158,9 +139,12 @@ missing file throws `FileNotFoundException`; a download name on an upload URL th
 - An append rewrites the whole object: its cost grows with the file.
 - Content type is the only metadata the provider writes or reports.
 
-## More
+## Learn more
 
-- [WriteableFileProviders](https://github.com/serionist/WriteableFileProviders#readme): every package, the provider
-  matrix, versioning.
+- [Providers compared](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/providers.md): what
+  every store can do, side by side.
+- The guide's [reading and writing](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/reading-and-writing.md),
+  [paths and listings](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/paths-and-listings.md)
+  and [dependency injection](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/dependency-injection.md).
 - [Moving from 2026](https://github.com/serionist/WriteableFileProviders/blob/main/docs/migration-2027.md#google-cloud-storage):
   what 2027.0.0 changed for this provider.

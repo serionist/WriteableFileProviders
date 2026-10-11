@@ -2,8 +2,8 @@
 
   <PropertyGroup>
     <PackageId>WriteableFileProviders.Minio</PackageId>
-    <Description>WriteableFileProviders for MinIO: a writeable IFileProvider over a MinIO bucket, on the AWS SDK for .NET v4 (no Minio SDK), with multipart uploads, ranged reads, server-side copies and presigned URLs.</Description>
-    <PackageTags>$(PackageTags);minio;s3;object-storage</PackageTags>
+    <Description>MinIO as a writeable IFileProvider: read, write, append, list, copy and move objects in a bucket through IWriteableFileProvider, on the AWS SDK for .NET v4 (no Minio SDK), with multipart uploads, byte ranges and presigned URLs. The same API as the local disk, Azure Blob, Amazon S3, Google Cloud Storage, Box and SharePoint providers.</Description>
+    <PackageTags>$(PackageTags);minio;s3;s3-compatible;presigned-url;object-storage</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 

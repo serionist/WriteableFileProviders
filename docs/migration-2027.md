@@ -63,7 +63,7 @@ Every section has the same shape: what changed, then a table of each change with
 The packages move from date versions (`2026.10.10.4`) to semantic versions that continue above them, so NuGet orders
 every 2027 release after every earlier one. The major is a sequence number, not a date: `2027.0.0` is the first,
 compatible releases are `2027.x.y`, and the next breaking release is `2028.0.0`, whenever it ships. All packages share
-one version. The [README](../README.md#versioning) has the whole policy.
+one version. The [versioning policy](guide/versioning.md) has the whole of it.
 
 ## Common: the API
 
@@ -210,7 +210,8 @@ commit. A failure of the stream you give `UpdateFileAsync` reaches you as it is 
 | A timeout as `TaskCanceledException` or `OperationCanceledException`, or inside an `AggregateException` | `IOException`, the timeout inside; `OperationCanceledException` only for your token | Handle `IOException` as you handled timeouts (retry, report). |
 | A credential or a permission refused, each SDK its own way | `UnauthorizedAccessException`, on every provider | Catch `UnauthorizedAccessException`. |
 
-Each provider's README says which of its store's answers become which type (its "Errors" item).
+The guide's [Errors](guide/errors.md#provider-by-provider) page says, provider by provider, which of its store's
+answers become which type.
 
 ## Stored configuration
 
@@ -280,7 +281,7 @@ unchanged; the two new options are written to JSON only when `true`.
 | `MoveAsync` onto an existing file replaces it | `FileExistsException`, destination unchanged. A source that changes while it is moved is kept, the copy removed, and `PreconditionFailedException` thrown | Delete the destination first if you meant to replace it. |
 | `GetFileInfo` of a folder: not existing; of a missing path: `Length` 0; `PhysicalPath` is the blob name | A folder exists and is a directory; a missing path has `Length` -1; `PhysicalPath` is null; files carry `ETag` and `ContentType` | Use `IWriteableFileInfo.Path` where you used `PhysicalPath`. |
 | A download URL starts now, and a validity over 7 days is cut to 7 days silently | It starts 15 minutes in the past and ends exactly at the validity; over 7 days throws `NotSupportedException`; a URL for a missing file throws `FileNotFoundException` | Ask for at most 7 days, or use the gateway. |
-| Read URLs only, signed with the account key | Read, create and write URLs; with Microsoft Entra ID, user delegation SAS | See the README's "Signed URLs". |
+| Read URLs only, signed with the account key | Read, create and write URLs; with Microsoft Entra ID, user delegation SAS | See [Signed URLs](guide/signed-urls.md#azure-blob-storage). |
 | Deleting a blob with snapshots fails (`RequestFailedException`) | It still fails, now with `IOException`, and so does a move of such a blob; snapshots are never deleted, except by the append blob conversion below | Delete the snapshots first. |
 | Listings showed every blob | Blobs whose names no path can address (an empty, `.` or `..` segment, a control character, a backslash) and the provider's own temporary folder, `.wfp-tmp` at the provider root, are left out. Every other name, one of yours that starts with `.wfp-` included, is listed | Rename such blobs with another tool if you need them. |
 | `WriteableAzureBlobFileProvider` can be derived from | It is sealed | Wrap it instead, or derive from `WriteableFileProvider<AzureBlobFileProviderOptions>`. |
@@ -387,7 +388,7 @@ client on the first call, and follows the contract. If you use that SDK directly
 | An append whose source stream failed uploaded a half-appended file; a concurrent write could be lost | An append leaves the file unchanged when it fails, and throws `PreconditionFailedException` instead of losing a concurrent write | Retry the append on `PreconditionFailedException`. |
 | The caller's stream was disposed after a write | It is left open | Dispose it yourself. |
 | Every object was listed | Objects whose names no path can address, such as `a//b` or `x/../y`, are left out | Rename such objects with another tool if you need them. |
-| Read URLs only, with the stored name and type | Read, create (only if absent) and write URLs; a read URL can carry `DownloadFileName` and `ContentType` | See the package README for the headers an upload must send. |
+| Read URLs only, with the stored name and type | Read, create (only if absent) and write URLs; a read URL can carry `DownloadFileName` and `ContentType` | See [Signed URLs](guide/signed-urls.md#google-cloud-storage) for the headers an upload must send. |
 | A validity over seven days threw the SDK's `ArgumentOutOfRangeException`; a credential that could not sign threw `PlatformNotSupportedException`; a URL was signed for a missing file | Over seven days, or under one second, throws `NotSupportedException` (so the gateway can take over), and the validity is rounded down to whole seconds; a credential that cannot sign, or an identity whose signing through IAM's `signBlob` is refused (403), answers another error than 401 or cannot be reached, throws `NotSupportedException` with the cause inside (a refused credential and a timeout fail as on every other member, with `UnauthorizedAccessException` and `IOException`); a read URL for a missing file throws `FileNotFoundException` | Catch `NotSupportedException`. |
 
 New: `ETag` is the object's generation, and `IfMatch` and `IfNotExists` are atomic; `ContentType` is stored
@@ -507,5 +508,5 @@ changed:
   provider's native upload URL can be reused until it expires and lives up to the provider's maximum, so an app that
   needs the same rules everywhere sets `PreferGateway`.
 
-The [package README](../src/WriteableFileProviders.AspNetCore/README.md) covers the options, the endpoints' status
-codes and headers, and how to keep tokens out of logs.
+The [package README](../src/WriteableFileProviders.AspNetCore/README.md) covers the options, and the guide's
+[Signed URLs](guide/signed-urls.md) the endpoints' status codes and headers, and how to keep tokens out of logs.

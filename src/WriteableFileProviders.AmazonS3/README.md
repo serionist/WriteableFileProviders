@@ -86,15 +86,18 @@ anything else, pass your own `IAmazonS3` (see Use).
 
 ## How it behaves
 
-- **Folders** are key prefixes: a folder exists while a key is under it (or a `dir/` marker key another tool made), and
-  an empty one does not. Names are case-sensitive. So a file and a folder may share a name: a file written at a
-  folder's path, or a folder under a file's path, is stored, reads back by path, and a listing shows both (where the
-  server is MinIO, which lists only the file and hides what is under the folder while the file exists, see the MinIO
-  package). `GetFileInfoAsync` of such a name describes the file. Deleting it removes the file first, and a second
-  delete the folder; a writeable local stream of a folder's path still throws `IOException`.
-- **Listings** leave out keys a path cannot name: an empty or whitespace segment, one of only dots and spaces such as
-  `..`, a backslash, a control character, or a percent-encoded form of one of these. They carry no content type;
-  `GetFileInfoAsync` does. A recursive listing is one flat, paged listing of the prefix.
+The rules every provider shares (prefix folders, a file and a folder sharing a name, the names a listing leaves out, a
+missing bucket, the exceptions) are in the guide:
+[paths](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/paths-and-listings.md), [reading and
+writing](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/reading-and-writing.md), and
+[errors](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/errors.md#amazon-s3) with this
+provider's own mapping. What follows is this provider's own.
+
+- **Folders:** a `dir/` marker key another tool made counts as a folder. Toward a MinIO server, a file and a folder that
+  share a name list as the file only, and what is under the folder is hidden while the file exists (see the MinIO
+  package).
+- **Listings** carry no content type; `GetFileInfoAsync` does. A recursive listing is one flat, paged listing of the
+  prefix.
 - **Writes** up to 8 MiB go in one request, larger ones in a multipart upload of 8 MiB parts. Parts grow past
   10,000 × 8 MiB (about 78 GiB) for a stream that knows its length, and past the first 1,000 parts (about 7.8 GiB) for
   one that does not. S3 replaces a file only once all of it arrived, so a failed write leaves the old content. The
@@ -120,41 +123,20 @@ anything else, pass your own `IAmazonS3` (see Use).
   it.
 - **Versions:** `ReadFileVersionAsync(versionId, path)` reads a version in a bucket with versioning.
 - Nothing touches the network before the first call, which resolves the credentials (if asked) and checks the bucket.
-- **Errors** are the contract's types: S3's 401 and 403, whatever the code (`AccessDenied`, `InvalidAccessKeyId`,
-  `SignatureDoesNotMatch`, `InvalidPayer` and the like, or none, as a HEAD answers), and a session token that expired or
-  is not valid (`ExpiredToken`, `InvalidToken`, a 400), throw `UnauthorizedAccessException`, for a file delete as for a
-  folder's, except an archived object (`InvalidObjectState`, `ObjectNotInActiveTierError`) and a skewed clock
-  (`RequestTimeTooSkewed`); a bucket name another account owns, with `CreateBucketIfMissing`, or no credentials for
-  `UseDefaultCredentials` to find, `InvalidOperationException`; any other failure of S3 or the network, after the SDK's
-  retries, `IOException`: timeouts, the archived object and the skewed clock included. The SDK's `AmazonS3Exception`, or
-  what it threw, is the `InnerException`.
 
 ## Signed URLs
 
-`GetSignedUrlAsync` presigns read (GET), create (PUT with a signed `If-None-Match: *`) and write (PUT) URLs, SigV4,
-for at most 7 days. A longer validity throws `NotSupportedException`, so WriteableFileProviders.AspNetCore can issue a
-gateway URL instead.
-
-- A create URL is issued only on AWS (no `ServiceUrl`, no client with its own `ServiceURL`, and no endpoint in the
-  SDK's configuration), which enforces the `If-None-Match: *` it signs. Toward a named endpoint, a server may ignore
-  that header and let the URL overwrite a file, so a create URL throws `NotSupportedException` there, and the gateway
-  issues one, which checks the condition before the write (as `IfNotExists` does toward that endpoint). Read and write
-  URLs stay native.
-- A read URL can carry a download file name and a content type (`response-content-disposition`, `-type`), and needs
-  the file to exist (`FileNotFoundException`). An upload URL with a download file name throws
-  `NotSupportedException`.
-- An upload URL with a `ContentType` signs it. The upload must send every header in `SignedUrl.Headers`.
-- A URL never outlives the credential that signs it. Long-term keys live as asked. A credential that expires sooner (STS,
-  instance metadata), or whose expiry cannot be known (a session token, a client you passed in), makes the URL shorter
-  than asked: it is issued only with `AllowShorterValidity`, with `ExpiresOn` set when the expiry is known.
-- Anonymous providers cannot presign.
+Presigned (SigV4) URLs for reading and writing, for up to 7 days, and for creating on AWS only: toward a named
+endpoint, which may ignore the condition that guards a create URL, the gateway issues those. A URL never outlives the
+credential that signs it, so a credential that expires sooner, or whose expiry cannot be known, needs
+`AllowShorterValidity`; anonymous providers cannot presign. The details are in
+[Signed URLs](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/signed-urls.md#amazon-s3).
 
 ## Limits
 
 - 10,000 parts per file: up to 5 TiB from a stream that knows its length, about 430 GiB from one that does not.
 - Copies over 5 GiB take one request per part, plus two.
-- A missing bucket throws `InvalidOperationException` naming the bucket and `CreateBucketIfMissing`. The bucket is
-  checked once, on first use; a bucket deleted later is reported by the next call that finds it gone.
+- The bucket is checked once, on first use; a bucket deleted later is reported by the next call that finds it gone.
 - Toward an endpoint named by `ServiceUrl` or a client's `ServiceURL`, conditions are checked first and then sent,
   atomic only where the server enforces them, and create URLs come from the gateway; this holds for S3's own host
   names too, since a name under `amazonaws.com` may front another server. Unless the endpoint is one of S3's own host
@@ -172,9 +154,12 @@ gateway URL instead.
   SDK ignore it.
 - Change notifications (`Watch`) are not supported.
 
-## More
+## Learn more
 
-- [WriteableFileProviders](https://github.com/serionist/WriteableFileProviders#readme): every package, the provider
-  matrix, versioning.
+- [Providers compared](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/providers.md): what
+  every store can do, side by side.
+- The guide's [reading and writing](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/reading-and-writing.md),
+  [paths and listings](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/paths-and-listings.md)
+  and [dependency injection](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/dependency-injection.md).
 - [Moving from 2026](https://github.com/serionist/WriteableFileProviders/blob/main/docs/migration-2027.md#amazon-s3):
   what 2027.0.0 changed for this provider.

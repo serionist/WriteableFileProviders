@@ -2,8 +2,8 @@
 
   <PropertyGroup>
     <PackageId>WriteableFileProviders.Physical</PackageId>
-    <Description>WriteableFileProviders for the local file system: a writeable IFileProvider over a folder on disk, with atomic writes and appends, conditional writes, ranged reads and change notifications.</Description>
-    <PackageTags>$(PackageTags);filesystem;local;disk</PackageTags>
+    <Description>Read, write, list and watch files in a folder on the local disk through IWriteableFileProvider: atomic writes and appends, conditional writes, byte-range and seekable reads, change notifications. The same API as the Azure Blob, Amazon S3, MinIO, Google Cloud Storage, Box and SharePoint providers.</Description>
+    <PackageTags>$(PackageTags);local;disk;local-storage;physical</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 

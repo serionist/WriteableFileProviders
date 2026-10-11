@@ -2,8 +2,8 @@
 
   <PropertyGroup>
     <PackageId>WriteableFileProviders.AzureBlob</PackageId>
-    <Description>WriteableFileProviders for Azure Blob Storage: a writeable IFileProvider over a blob container, on block blobs, with atomic and conditional writes, appends that never lose a concurrent write, ranged reads, server-side copies and SAS URLs (service or user delegation).</Description>
-    <PackageTags>$(PackageTags);azure;azure-storage;blob;blob-storage</PackageTags>
+    <Description>Azure Blob Storage as a writeable IFileProvider: read, write, append, list, copy and move blobs in a container through IWriteableFileProvider, on block blobs, with conditional writes, byte ranges, Microsoft Entra ID sign-in and SAS URLs (service or user delegation). The same API as the local disk, Amazon S3, MinIO, Google Cloud Storage, Box and SharePoint providers.</Description>
+    <PackageTags>$(PackageTags);azure;azure-blob;azure-storage;blob-storage;sas</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 

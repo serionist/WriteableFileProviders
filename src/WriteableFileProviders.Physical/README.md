@@ -24,7 +24,7 @@ using WriteableFileProviders.Physical;
 await using IWriteableFileProvider files = new WriteablePhysicalFileProvider("/srv/files");
 
 await files.UpdateFileAsync("reports/2026.csv", stream);                         // atomic, parent folders created
-await files.UpdateFileAsync("log.txt", more, UpdateFileOptions.Append);           // atomic append
+await files.UpdateFileAsync("log.txt", more, UpdateFileOptions.Append);          // atomic append
 await using var slice = await files.ReadRangeAsync("big.bin", 1_000_000, 4096);   // only those bytes are read
 var info = await files.GetFileInfoAsync("reports/2026.csv");                      // info.PhysicalPath is the disk path
 await files.UpdateFileAsync("reports/2026.csv", newer, new UpdateFileOptions { IfMatch = info.ETag });
@@ -41,7 +41,9 @@ From configuration, with `WriteableFileProviderSerializer.FromConfiguration(sect
 services.AddWriteableFileProvider(configuration.GetSection("Files"));
 ```
 
-The provider class is sealed: to change what it does, wrap it, or derive your own provider from
+Download and upload links for its files come from the gateway in `WriteableFileProviders.AspNetCore`: the root
+README's [tutorial](https://github.com/serionist/WriteableFileProviders#2-download-links-for-local-files) sets it up in
+a few lines. The provider class is sealed: to change what it does, wrap it, or derive your own provider from
 `WriteableFileProvider<TOptions>`.
 
 ## Configuration
@@ -60,6 +62,12 @@ Linux and macOS. Since 2027, `RootDirectoryPath` reads back as the real path on 
 None: the provider reads and writes with the permissions of the process that runs it.
 
 ## How it behaves
+
+The rules every provider shares (the paths, a file and a folder never sharing a name, the exceptions) are in the guide:
+[paths](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/paths-and-listings.md), [reading and
+writing](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/reading-and-writing.md), and
+[errors](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/errors.md#physical) with this
+provider's own mapping. What follows is this provider's own.
 
 - **Writes are atomic.** An overwrite, an append, a copy and a local stream's commit write a temp file named
   `.wfp-<guid>.tmp` next to the target, then rename it over the target, so the file has its old content or its new
@@ -116,8 +124,6 @@ None: the provider reads and writes with the permissions of the process that run
   keeps them. Listings leave out names no path can address: those names on Windows; on Linux and macOS a name holding
   `:` or `\`, a control character, or only dots and spaces (`...`); on any system a name such as `%2e%2e` that decodes
   to one of these.
-- **A file and a folder** cannot share a name: writing a file at a folder's path, or under a file's path, throws
-  `IOException`.
 - **Access.** Where the operating system refuses the process access to a file or a folder that a member opens, lists,
   writes, moves or deletes, the member throws `UnauthorizedAccessException`, a read or a listing as well as a write. A
   path the system will not look up at all, such as one inside a folder the process may not enter, reads as missing:
@@ -125,7 +131,8 @@ None: the provider reads and writes with the permissions of the process that run
 - **Content types** are not kept: `UpdateFileOptions.ContentType` is ignored, and `ContentType` is null.
 - **The root.** Every path stays under the root folder, checked on the path: symbolic links and junctions inside the
   root are followed wherever they point. A recursive listing lists a linked folder but does not walk into it, since it
-  can lead outside the root or back into it without end.
+  can lead outside the root or back into it without end. The root folder itself is an operating system path, which the
+  system resolves, dot segments included, rather than a path the provider checks.
 - **Watch** works as ASP.NET Core's `PhysicalFileProvider` does, through `PhysicalFilesWatcher`: the filter is a glob
   relative to the root, and leading `/` and `\` are ignored (so `/a.txt` is `a.txt`). A filter never fires when it is
   null, names a drive, leads above the root, or holds a character that no file name can hold. Dot-prefixed, hidden and
@@ -133,16 +140,12 @@ None: the provider reads and writes with the permissions of the process that run
   content in place. The first `Watch` creates the root folder if it is missing. It relies on file system events, which
   some network and container-mounted folders do not deliver; set `DOTNET_USE_POLLING_FILE_WATCHER` to `1` or `true` to
   poll instead.
-- **Errors** are the contract's types, and here they are the file system's own: `UnauthorizedAccessException` and
-  `IOException` (a sharing violation, a full disk, a missing folder) pass through as .NET raises them, with no SDK in
-  between; a missing file is `FileNotFoundException` naming the path under the root, with the system's exception
-  inside; anything else that escapes is `IOException`, with it inside. The root folder is an operating system path,
-  which the system resolves, dot segments included, rather than a path the provider checks.
 
 ## Signed URLs
 
-None natively: `GetSignedUrlAsync` throws `NotSupportedException`. `WriteableFileProviders.AspNetCore` issues gateway
-URLs for this provider instead, for reading, creating and writing files.
+None natively: `GetSignedUrlAsync` throws `NotSupportedException`, and the gateway of `WriteableFileProviders.AspNetCore`
+issues URLs for this provider instead, for reading, creating and writing files
+([Signed URLs](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/signed-urls.md)).
 
 ## Limits
 
@@ -151,9 +154,12 @@ URLs for this provider instead, for reading, creating and writing files.
 - On Windows, a write to a file that another reader has open fails (see Reading while writing).
 - `Watch` needs file system events, or polling.
 
-## More
+## Learn more
 
-- [WriteableFileProviders](https://github.com/serionist/WriteableFileProviders#readme): every package, the provider
-  matrix, versioning.
+- [Providers compared](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/providers.md): what
+  every store can do, side by side.
+- The guide's [reading and writing](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/reading-and-writing.md),
+  [paths and listings](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/paths-and-listings.md)
+  and [dependency injection](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/dependency-injection.md).
 - [Moving from 2026](https://github.com/serionist/WriteableFileProviders/blob/main/docs/migration-2027.md#physical):
   what 2027.0.0 changed for this provider.

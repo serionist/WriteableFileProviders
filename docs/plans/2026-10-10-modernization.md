@@ -52,7 +52,6 @@ When this is done, `2027.0.0` of every package is ready to publish:
 **Out of scope** (recorded under Later):
 - **Publishing:** pushing any package to nuget.org, and the GitHub security advisory. These are the maintainers'
   actions; see "For the maintainers" in the progress log.
-- **The licence file:** pending D8's agreement.
 - **The P3 features:**
   - change notifications on the object stores;
   - `IProgress`;
@@ -76,7 +75,7 @@ agreement for a one-way door. D20 records how the two maintainers agree for this
 | D5 | Azure on block blobs | Writes go through staged blocks. Append stages a block and recommits the list. Existing append blobs stay readable; appending to one rewrites it as a block blob. |
 | D6 | MinIO on the S3 code | `WriteableMinioFileProvider` and `MinioFileProviderOptions` keep their names and properties. They run on AWSSDK.S3 through an internal core shared with the S3 provider. The Minio SDK dependency goes. |
 | D7 | Safer defaults | MinIO (F10), amended in round 2 (P36): `UseSSL` stays a `bool`, because every configuration saved with `ToJson` holds `"UseSSL": false` and an unset value cannot be told apart. `UseSSL = false` toward a host that is not loopback throws, unless the new `AllowInsecureHttp` option is `true`. Stored configurations that point at plain-HTTP MinIO on another host add that option; the migration guide says how to find them. SharePoint (F7): the effective root is `WorkFolderPath` followed by `RootDirectorySegments`, after removing one leading copy of the work folder from `RootDirectorySegments`, so a configuration that sets both to the same folder keeps working. Caller paths are never stripped, and the options are never mutated, so `ToJson` round-trips. Round 2 (P37): S9 pins every overlap shape the old `StripWorkFolder` handled (a full copy, a partial prefix, a caller path that starts with the work folder, case differences) in a table test, and a strict-prefix shape that would relocate files throws at construction; the relocated shapes are listed in the migration guide. |
-| D8 | MIT licence | Once László Nemes and Starschema (a co-owner of the nuget.org ids) agree. Until then no `LICENSE` file and no `PackageLicenseExpression`. |
+| D8 | MIT licence | MIT, "Copyright (c) 2018-2026 the WriteableFileProviders contributors", chosen by @serionist on 2026-10-11. The agreement of László Nemes and Starschema that D8 asked for is for the maintainer to confirm before 2027.0.0 is tagged. Built in S12's launch half (`16-launch`): `LICENSE` at the root; `PackageLicenseExpression` MIT and that copyright line in `src/Directory.Build.props`; contributions under MIT (CONTRIBUTING.md); the README's Licence section. Before: once László Nemes and Starschema (a co-owner of the nuget.org ids) agree, with no `LICENSE` file until then. |
 | D9 | No Newtonsoft anywhere | Not in our code, our packages or our tests, and no bridge package; System.Text.Json only. GCS's own SDK (`Google.Apis`) still depends on it transitively, which we cannot change. |
 | D10 | Build files | `Directory.Build.props` for shared properties, `Directory.Packages.props` for central package management, with lock files. |
 | D11 | Testcontainers | Emulator tests start their containers through Testcontainers; no manual `docker run`. |
@@ -454,8 +453,13 @@ public class PreconditionFailedException : IOException      public class FileExi
 ### Docs
 
 - **Repo docs:**
-  - a root README: what it is, packages, a quick start, the provider matrix, links;
+  - a root README: what it is, packages, a quick start, the provider matrix, links; since S12's launch half, a short
+    README (install, a four-step tutorial, the packages, links) with the detail in a guide under `docs/guide/`, one
+    topic a page (the provider matrix, paths and listings, reading and writing, signed URLs, dependency injection,
+    errors, writing a provider, versioning);
   - a README per package: install, configuration keys, auth, example, limits;
+  - `CHANGELOG.md`, whose version section `release.yml` publishes as the GitHub release's notes; `LICENSE` (D8);
+    `docs/releasing.md`, the release runbook;
   - `docs/migration-2027.md`, the breaking-changes ledger and how to move over;
   - CONTRIBUTING (pointing at AGENTS.md), SECURITY (private vulnerability reporting).
 - **Harness docs:** AGENTS.md and REVIEW.md updated for the new layout and commands.
@@ -558,7 +562,7 @@ Each step is an issue under #3, a branch `<issue>-<slug>`, and a PR that builds 
 | S9 SharePoint | #13 | #28 | The SharePoint row, with the Graph fake; its live run is outstanding for the maintainers (D21). | F4 F6 F7 F8 F11 F13 F17–F21 F26 F39 F43 F49 F53 F62 F66 F70 F74 F77 | done (#28, 70e3f74); live suite not run (D21) |
 | S10 Box | #14 | #25 | The Box row, with the Box fake; its live run is outstanding for the maintainers (D21). | F4 F6 F11 F13 F17–F21 F25 F32 F53 F63 F67 F74 F77, Box's part of F56 | done (#25, 3ce3b89); live suites not run (D21) |
 | S11 AspNetCore gateway | #15 | #24 | The new package, the URL service, endpoints, the gateway tests and defaults (D22, P13, P27); its README, migration entry and AGENTS.md entry; whether the token purpose string and URL shape are a one-way door (they are: tokens issued by one version must redeem on the next minor; recorded under One-way doors in AGENTS.md). | F11 | done (#24, bce935c) |
-| S12 Docs, CI, launch prep | #16 | #31; part 2: #41 (`16-harmonize`) and the PR of `16-docs` | The root README, the migration guide's final pass, CONTRIBUTING, SECURITY, AGENTS.md and REVIEW.md, codeql, dependabot, `live.yml`, the release workflow, every floor at 90% or more, a check that no project sets `WfpLegacy`, the removal of the `[Obsolete]` 2026 helpers in Common (`GetRelativeSegments`, `IsRootPath`, `NormalizePem`, which Box and GCS take over), the PublicAPI files, and a final deep `review-code` of the whole repo. | F12 F76 | part 1 done (#31, 65cfd40: codeql, dependabot, `live.yml`, the release workflow, CONTRIBUTING, SECURITY, the issue forms). Part 2 in two halves built in parallel: `16-harmonize` done (#41, 581e050: D27 on Box and Physical, the live-class rule, D25 and D26 checked, the `[Obsolete]` helpers removed, no `WfpLegacy`, the old test project retired, the PublicAPI files, the floors, the options first in every client constructor, `IsAddressable`) and `16-docs` in review (the root README and its provider matrix, the package READMEs and metadata, the migration guide's final pass, D28, REVIEW.md, this plan's statuses). The final deep `review-code` of the whole repo is done (`docs/reviews/2026-10-11-2027-final.md`: 20 findings, D29 to D32), and its fixes are built in two halves: `16-final-common` (Common, the harness, the shared read stream, the error policy) and `16-final-providers` (the provider-specific findings). The packed upper bound on Common (Compatibility, P21) is done in #41 |
+| S12 Docs, CI, launch prep | #16 | #31; part 2: #41 (`16-harmonize`) and the PR of `16-docs` | The root README, the migration guide's final pass, CONTRIBUTING, SECURITY, AGENTS.md and REVIEW.md, codeql, dependabot, `live.yml`, the release workflow, every floor at 90% or more, a check that no project sets `WfpLegacy`, the removal of the `[Obsolete]` 2026 helpers in Common (`GetRelativeSegments`, `IsRootPath`, `NormalizePem`, which Box and GCS take over), the PublicAPI files, and a final deep `review-code` of the whole repo. | F12 F76 | part 1 done (#31, 65cfd40: codeql, dependabot, `live.yml`, the release workflow, CONTRIBUTING, SECURITY, the issue forms). Part 2 in two halves built in parallel: `16-harmonize` done (#41, 581e050: D27 on Box and Physical, the live-class rule, D25 and D26 checked, the `[Obsolete]` helpers removed, no `WfpLegacy`, the old test project retired, the PublicAPI files, the floors, the options first in every client constructor, `IsAddressable`) and `16-docs` in review (the root README and its provider matrix, the package READMEs and metadata, the migration guide's final pass, D28, REVIEW.md, this plan's statuses). The final deep `review-code` of the whole repo is done (`docs/reviews/2026-10-11-2027-final.md`: 20 findings, D29 to D32), and its fixes are built in two halves: `16-final-common` (Common, the harness, the shared read stream, the error policy) and `16-final-providers` (the provider-specific findings). The packed upper bound on Common (Compatibility, P21) is done in #41. The launch half, `16-launch`, built beside `16-simplify`: the short README and the guide under `docs/guide/`, `LICENSE` (D8), the package metadata and icon, `CHANGELOG.md` and the release notes it gives `release.yml`, and `docs/releasing.md` |
 
 The provider steps S5–S10 are independent once S4 is merged. They may run in parallel agents, each in its own worktree,
 touching only their provider's folders, but they merge one at a time (P41): each rebases onto main before its PR and
@@ -627,8 +631,9 @@ Covered under Design, Docs. AGENTS.md changes in S2 (layout, commands), in S3 (t
 - **A Box path-to-id cache**, for latency on deep paths (D23).
 - **Convenience extensions** such as `ReadAllBytes`, `WriteAllText` and a sync `Copy` (D23).
 - **Scanning loaded assemblies** for provider types (D23).
-- **Package validation baselines:** set them to `2027.0.0` after it ships, and keep the PublicAPI files from then on.
-  Package validation itself runs on every pack since the final review (F17).
+- **Package validation baselines:** set them to `2027.0.0` after it ships, and keep the PublicAPI files from then on
+  ([docs/releasing.md](../releasing.md), Afterwards). Package validation itself runs on every pack since the final
+  review (F17).
 - **One reader of the live settings** (final review F19, the owner's call: no, for now): the six live classes keep
   their own readers of `WFP_*` variables and `testsettings.json`. A shared helper in WriteableFileProviders.Testing would
   remove five copies, but only live accounts can check a refactor of how test credentials are read.
@@ -2341,6 +2346,81 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     guide say every provider the gateway serves, default or keyed, must be a singleton or resolve to the same store in
     every scope.
 
+- **2026-10-11, S12 launch (`16-launch`, #16):** the maintainer's requests of the day for the launch: simple docs, a
+  short README with the detail branching off it, MIT, a repo others find, and automated NuGet releases
+  (`.local/briefs/simplify-launch.md`, launch items 1–6). Built beside `16-simplify`, against the API it agreed on #3,
+  and rebased onto #43 and then `16-simplify` before the push, carrying their README and migration-guide facts into the
+  new structure.
+  - **The README** (about 160 lines, most of them code): badges, what the library is, install, a four-step tutorial
+    (the local disk; download links for local files through the gateway, the `16-simplify` snippet; the same code on a
+    cloud store by its configuration; one provider by interface or several), the packages, links to the guide, and
+    Versioning, Contributing, Security and Licence in a few lines each.
+  - **The guide**, `docs/guide/`, one topic a page: `providers.md` (the matrix and its notes, moved), `paths-and-listings.md`,
+    `reading-and-writing.md`, `signed-urls.md` (native URLs provider by provider, the URL service, the gateway's
+    endpoints, headers, tokens, one-time uploads and logs, moved from the AspNetCore README), `dependency-injection.md`,
+    `errors.md` (the contract and each provider's mapping, moved from the package READMEs' "Errors" items),
+    `writing-a-provider.md` (from Common's README and the migration guide) and `versioning.md` (D28, moved from the
+    README). Text was moved, not rewritten, and each new sentence checked against the code.
+  - **Package READMEs** keep install, a short use, their own options, authentication, behaviour and limits; their
+    signed URL and error details moved to the guide, with a summary and a link. Every sample uses the final API:
+    `AddWriteableFileProvider(configuration)`, `UpdateFileOptions.Append`, `AzureBlobFileProviderOptions`, `Access`.
+  - **Licence (D8):** `LICENSE`, `PackageLicenseExpression` MIT and the copyright line, the README's Licence section,
+    CONTRIBUTING's line that contributions are MIT. MIT is the maintainer's choice; the agreement of László Nemes and
+    Starschema that D8 asked for is for the maintainer to confirm before the tag, the first item under the release in
+    the list for the maintainers.
+  - **Findability:** the shared tags (`ifileprovider`, `fileprovider`, `filesystem`, `file-storage`, `storage`,
+    `cloud-storage`, `upload`, `download`, `signed-url`, `writeable`) and each package's own; descriptions that lead with
+    what the package does and name the other stores; `PackageReleaseNotes` linking the changelog and the migration
+    guide; `CHANGELOG.md` with the 2027.0.0 section, which `release.yml`'s GitHub release now uses as its notes (the
+    version's section, a prerelease taking its release's, generated notes and a warning without one); the logo, the
+    mark and a social preview as SVG under `docs/assets/`, with `icon.png` (128×128, packed as every package's
+    `PackageIcon`) and `social-preview.png` (1280×640) rendered by `eng/render-assets.sh` in an Alpine container
+    (librsvg, Inter).
+  - **`docs/releasing.md`:** the one-time setup in order (the `nuget` environment, the tag ruleset, `NUGET_USER`,
+    trusted publishing, the prefix reservation), each release (CHANGELOG, optional rc, tag, approve), what to check on
+    nuget.org, moving PublicAPI Unshipped to Shipped (a script, run on this branch and built), and the package
+    validation baseline. AGENTS.md's Release line, `release.yml`'s header and this plan link it.
+  - **AGENTS.md, REVIEW.md, CONTRIBUTING.md, SECURITY.md:** the guide, the runbook, the assets and the changelog in
+    "Where things are"; a change consumers notice adds a line to `CHANGELOG.md`; the versioning links point to
+    `docs/guide/versioning.md`.
+  - **Verified** (rebased onto `a435930`, #43 and #44 merged): the solution builds strict in Release; `dotnet pack` and
+    `eng/package-check.cs` pass for the untagged prerelease (`2027.0.0-alpha.0.116`) and for a stable pack
+    (`2027.0.0`, through `MinVerVersionOverride`), every package with its README, `icon.png`, the MIT expression, the
+    copyright and the new tags; every non-Live test on Windows with `WFP_REQUIRE_DOCKER=1`: 2609, none failed, 15 skipped.
+    Every C# block of the README, the guide and the package READMEs (41) compiles against this branch in a scratch
+    project, the blocks with their own `using`s with nothing else imported; the release-notes extraction was run on
+    the changelog with gawk and mawk; the move-to-shipped script was run on this branch and the packages built with it.
+    No code changed, so the coverage gate was not re-run.
+  - **Review round 1 (PR #45, read at `04c06a6`):** no blocker or major; every finding fixed:
+    - F1: step 3 says Azure's link is a user delegation SAS when the identity holds a Storage Blob Data role at the
+      account (or Storage Blob Delegator), else the gateway's.
+    - F2 and F15: one project carries the tutorial (`dotnet new web`, then each step's package). Step 2 registers with
+      `AddWriteableFileProvider(_ => ...)`, so step 3 changes only the registration; the disposal bullet, step 3's aside
+      and step 4's endpoint went; `TutorialTests` follows.
+    - F3: links are handed out as `Url.AbsoluteUri`, since `Uri.ToString()` unescapes.
+    - F4: an append's condition on MinIO, and on S3 toward a named endpoint, is checked and then sent.
+    - F5 to F7: links inside the root are followed (README); Common's README names the dot-segment root; the changelog
+      lists S3's plain-http refusal.
+    - F8 and F9 (decided): the tag ruleset's bypass takes roles (Repository admin and Write); the prefix reservation
+      comes first; the trusted publishing policy is owned by `serionist`, scoped to new packages and new versions on
+      `WriteableFileProviders.*`; `NUGET_USER` is `serionist`.
+    - F10 (decided): `release.yml`'s build job fails a stable tag whose CHANGELOG section is missing or still says
+      unreleased, before the approval; prereleases keep the generated-notes fallback. actionlint passes.
+    - F11 to F14: the props file names the runbook's section; "the job's OIDC token"; the baseline is a
+      `PackageDownload` at restore, and a package first released later sets its own or none; `release.yml`'s setup
+      header points to the runbook.
+    - F16 (decided: one copy): the signed URL page links the tutorial's step 2 instead of repeating it; the gateway's
+      limits live in the AspNetCore README, the singleton rule in the signed URL page.
+    - F17 (decided: trim): the package READMEs drop the bullets that restated the guide's rules (prefix folders,
+      unaddressable names, a missing container or bucket, the error contract) for one line that links the guide; every
+      provider-specific fact stays.
+    - Q1: D8 records MIT as the maintainer's choice; the agreement of László Nemes and Starschema is the first item
+      under the release in the list for the maintainers.
+    - Verified: the solution builds in Release; pack and the package check pass at `2027.0.0-alpha.0.118` and
+      `2027.0.0`; the 40 C# blocks of the docs compile; the AspNetCore tests pass (233, `TutorialTests` included);
+      actionlint 1.7.7 is clean; the 25 docs have no broken link or anchor; the changelog gate was run on a dated, an
+      undated and a missing section and on a prerelease.
+
 ### For the maintainers
 
 What this session cannot do, in the order to do it: first what closes a security exposure, then the review of what
@@ -2394,18 +2474,25 @@ merged, the repository's settings, the live runs, and the release. Kept current 
   `codeql.yml` is the advanced setup, and the two conflict.
 - [ ] Make CI a required check in the `main` ruleset: "Build, test, coverage, pack (Linux)" and "Build and test
   (Windows)", and CodeQL's "Analyze (csharp)" if you want code scanning to gate merges too.
+- [ ] Set the social preview (Settings, General, Social preview): upload `docs/assets/social-preview.png`, 1280×640.
+- [ ] Turn on Discussions, if you want questions kept apart from issues (Settings, General, Features); the issue forms'
+  `config.yml` can then link them.
 
 **Environments** (a workflow that names an environment creates it unprotected on its first run, so protect each one
 before it holds a secret or nuget.org trusts it):
 
-- [ ] Configure the release (`release.yml`, whose header says the same), in this order:
-  1. The `nuget` environment: required reviewers, the maintainers; deployment tags `v*` only.
-  2. A tag ruleset on `v*`, so only the maintainers create, move or delete release tags.
-  3. The `nuget` environment's secret `NUGET_USER`: the nuget.org profile name (not the email) of the account that
-     owns the packages.
-  4. On nuget.org, as that account, a trusted publishing policy: owner `serionist`, repository
-     `WriteableFileProviders`, workflow `release.yml`, environment `nuget`; and reserve the `WriteableFileProviders.`
-     id prefix.
+- [ ] Configure the release ([docs/releasing.md](../releasing.md), "Once: set it up", has each step), in this
+  order, before the first tag:
+  1. Reserve the `WriteableFileProviders.` id prefix on nuget.org: an email from the owning account, `serionist`, to
+     `account@nuget.org`, naming the prefix `WriteableFileProviders.*`.
+  2. The `nuget` environment: required reviewers, the maintainers; deployment tags `v*` only.
+  3. A tag ruleset on `v*` restricting creations, updates and deletions. Its bypass takes roles, not users: Repository
+     admin and Write (today exactly the two maintainers; anyone given write later can tag).
+  4. The `nuget` environment's secret `NUGET_USER`: `serionist`, the nuget.org profile name (not the email) of the
+     account that owns the packages.
+  5. On nuget.org, as `serionist`, a trusted publishing policy owned by `serionist`: repository owner `serionist`,
+     repository `WriteableFileProviders`, workflow `release.yml`, environment `nuget`, with the scopes for new
+     packages and new versions on the glob `WriteableFileProviders.*` (`WriteableFileProviders.AspNetCore` is a new id).
 - [ ] Create the `live-cloud` environment for `live.yml`, protected first: deployment branches `main` only, and no
   required reviewers (the nightly run would wait). Then one secret per `WFP_*` variable the workflow maps, for
   accounts you own and keep for it: Box's app configuration JSON as the one secret `WFP_BOX_CONFIG_JSON`; Google Cloud
@@ -2502,20 +2589,19 @@ is missing when `WFP_LIVE=1` is set without them.
 
 **Decisions only the maintainers can take:**
 
-- [ ] Agree the licence with László Nemes and Starschema (D8), then add `LICENSE` and `PackageLicenseExpression` (and
-  a copyright line, if you want one, in `src/Directory.Build.props`); the root README's Licence section then links it.
 - [ ] Fill in the date in SECURITY.md until which 2026.10.10.x gets security fixes (D28); it now says the maintainers
   will announce it there.
-- [ ] Add a package icon, if you want one: a `PackageIcon` in `src/Directory.Build.props` and the image packed beside
-  each README (final review F17).
 
 **The release (D28):**
 
-- [ ] Once everything above that blocks it is done, and the final review of S12 has merged: optionally tag
-  `v2027.0.0-rc.1` on `main` for a prerelease, then `v2027.0.0`. `release.yml` asks the `nuget` environment's reviewers
-  before it pushes.
-- [ ] After 2027.0.0 ships: move each package's `PublicAPI.Unshipped.txt` into `PublicAPI.Shipped.txt`, and set the
-  package validation baselines to `2027.0.0` (Later).
+- [ ] Confirm László Nemes and Starschema agree to MIT (D8) before tagging v2027.0.0.
+- [ ] Once everything above that blocks it is done, and the final review of S12 has merged: date the `2027.0.0`
+  heading of `CHANGELOG.md` in a PR, optionally tag `v2027.0.0-rc.1` on `main` for a prerelease, then `v2027.0.0`.
+  `release.yml` asks the `nuget` environment's reviewers before it pushes ([docs/releasing.md](../releasing.md),
+  "Every release").
+- [ ] After 2027.0.0 ships: check the packages on nuget.org, move each package's `PublicAPI.Unshipped.txt` into
+  `PublicAPI.Shipped.txt`, and set the package validation baselines to `2027.0.0` (Later); docs/releasing.md,
+  "Afterwards", has each.
 - [ ] Unlist every version before the 2026.10.10 line on nuget.org, keeping `2026.10.10.x` listed for .NET 8
   consumers. What nuget.org has (its flat-container index, 2026-10-11):
   - `WriteableFileProviders.Common`: 1.0.0, 1.0.1, 1.0.2, and 2018.11.26.2 to 2024.2.7.1 (27 versions in all);

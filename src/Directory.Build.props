@@ -4,18 +4,21 @@
 
   <!-- Packaging, for every package under src/. Versions come from git tags (MinVer): tag v2027.0.0 to release
        2027.0.0; an untagged build is 2027.0.0-alpha.0.<height>. All packages release together at one version, under the
-       policy in the root README's Versioning section. Each .csproj adds its Description, its own tags after these, and
-       its README. No licence or copyright line until the maintainers agree the licence, and no icon until they add
-       one. -->
+       policy in docs/guide/versioning.md; docs/releasing.md is the release runbook. Each .csproj adds its Description,
+       its own tags after these, and its README. -->
 
   <PropertyGroup Label="Package">
     <IsPackable>true</IsPackable>
     <Authors>Soma Osvay</Authors>
+    <Copyright>Copyright (c) 2018-2026 the WriteableFileProviders contributors</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageIcon>icon.png</PackageIcon>
     <PackageProjectUrl>https://github.com/serionist/WriteableFileProviders</PackageProjectUrl>
     <RepositoryUrl>https://github.com/serionist/WriteableFileProviders.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <PackageTags>IFileProvider;fileprovider;file-storage;storage;writeable</PackageTags>
-    <PackageReleaseNotes>https://github.com/serionist/WriteableFileProviders/releases</PackageReleaseNotes>
+    <!-- What every package is found by on nuget.org; each .csproj adds its own after these. -->
+    <PackageTags>ifileprovider;fileprovider;filesystem;file-storage;storage;cloud-storage;upload;download;signed-url;writeable</PackageTags>
+    <PackageReleaseNotes>What each release changed: https://github.com/serionist/WriteableFileProviders/blob/main/CHANGELOG.md. Moving from 2026.x: https://github.com/serionist/WriteableFileProviders/blob/main/docs/migration-2027.md</PackageReleaseNotes>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
@@ -25,12 +28,17 @@
     <MinVerDefaultPreReleaseIdentifiers>alpha.0</MinVerDefaultPreReleaseIdentifiers>
     <!-- Package validation runs on every pack. With one target framework and no baseline it checks the package's own
          consistency; once 2027.0.0 ships, PackageValidationBaselineVersion set to it also checks every later package
-         against what consumers have (the plan's Later). -->
+         against what consumers have (docs/releasing.md, "Afterwards: turn on the package validation baseline"). -->
     <EnablePackageValidation>true</EnablePackageValidation>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="MinVer" PrivateAssets="all" />
+  </ItemGroup>
+
+  <!-- The package icon, rendered from docs/assets/icon.svg by eng/render-assets.sh. -->
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)..\docs\assets\icon.png" Pack="true" PackagePath="/" Visible="false" />
   </ItemGroup>
 
   <!-- Each package's public API is declared next to its project: PublicAPI.Shipped.txt holds what released versions

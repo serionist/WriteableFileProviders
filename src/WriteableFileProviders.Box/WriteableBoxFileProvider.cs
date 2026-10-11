@@ -22,7 +22,9 @@ namespace WriteableFileProviders.Box;
 /// <para>
 /// <b>Paths.</b> Box has real folders, which exist while empty, and compares names without regard to case: a folder cannot
 /// hold <c>a.txt</c> and <c>A.txt</c>, and moving <c>a.txt</c> to <c>A.txt</c> renames it. Every call resolves its path
-/// from the root folder down, listing each folder with marker paging: nothing is cached between calls.
+/// from the root folder down, listing each folder with marker paging: nothing is cached between calls. Box allows some
+/// names that a path cannot name, such as <c>...</c> (only dots) or <c>%2e%2e</c> (a percent-encoded <c>..</c>):
+/// listings leave those files and folders out, and never walk into such a folder, so everything listed can be read back.
 /// </para>
 /// <para>
 /// <b>Writes.</b> The caller's stream is copied to a local temp file from its position first, so a failing stream leaves
@@ -177,7 +179,10 @@ public sealed partial class WriteableBoxFileProvider : WriteableFileProvider<Box
         if (folder is not { IsFolder: true })
             yield break;
         await foreach (var entry in ListAsync(folder.Id, cancellationToken).ConfigureAwait(false))
-            yield return EntryInfo(path.Child(entry.Name), entry);
+        {
+            if (IsAddressable(entry.Name))
+                yield return EntryInfo(path.Child(entry.Name), entry);
+        }
     }
 
     /// <inheritdoc />
@@ -194,6 +199,8 @@ public sealed partial class WriteableBoxFileProvider : WriteableFileProvider<Box
         {
             await foreach (var entry in ListAsync(folder.Id, cancellationToken).ConfigureAwait(false))
             {
+                if (!IsAddressable(entry.Name))
+                    continue;
                 var child = folder.Path.Child(entry.Name);
                 yield return EntryInfo(child, entry);
                 if (entry.IsFolder)
@@ -371,6 +378,20 @@ public sealed partial class WriteableBoxFileProvider : WriteableFileProvider<Box
 
     private IWriteableFileInfo EntryInfo(ResolvedPath path, Entry entry) =>
         entry.IsFolder ? WriteableFileInfo.Folder(this, path.Path) : Info(path.Path, entry);
+
+    // A listed name a path can name again: one segment that passes the same checks as a caller's path. Box allows names
+    // the path rules refuse (only dots such as '...', a literal '%2e%2e'); listings leave them out and never walk into them.
+    private bool IsAddressable(string name)
+    {
+        try
+        {
+            return Resolve(new ProviderPath(name)).RelativeSegments.Length == 1;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
 
     private WriteableFileInfo Info(ProviderPath path, Entry file) =>
         new(this, path, true, false, file.Length, file.LastModified ?? DateTimeOffset.UnixEpoch, etag: file.ETag);

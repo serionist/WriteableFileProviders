@@ -103,6 +103,18 @@ internal static class FakeGcs
     /// <summary>A bucket name that exists nowhere.</summary>
     public static string MissingBucketName() => $"wfp-missing-{Guid.NewGuid():N}"[..30];
 
+    /// <summary>Uploads an object named by the names joined with '/', past the provider, under a name it may refuse.</summary>
+    /// <param name="bucket">The bucket.</param>
+    /// <param name="names">The object's names, one per level.</param>
+    /// <param name="text">The content.</param>
+    /// <returns>True.</returns>
+    public static async Task<bool> StoreRawAsync(string bucket, IReadOnlyList<string> names, string text)
+    {
+        using var client = CreateClient();
+        await client.UploadObjectAsync(bucket, string.Join('/', names), "text/plain", new MemoryStream(System.Text.Encoding.UTF8.GetBytes(text)));
+        return true;
+    }
+
     /// <summary>Options for the emulator through the production path: the made-up key and the endpoint.</summary>
     /// <param name="bucket">The bucket.</param>
     /// <param name="root">The root folder, or null.</param>

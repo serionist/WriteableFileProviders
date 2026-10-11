@@ -82,6 +82,18 @@ public abstract class ProviderConformanceTests
     /// <summary>A provider whose bucket or container does not exist, or null where that cannot happen.</summary>
     protected virtual IWriteableFileProvider? CreateProviderWithMissingContainer() => null;
 
+    /// <summary>
+    /// Stores a file straight in the store, past the provider and its path rules, as another client of the store could:
+    /// how a test stages a name the provider refuses. The default stores nothing.
+    /// </summary>
+    /// <param name="names">
+    /// The file's path under the fixture's base, one store name per level, starting with <see cref="RootName"/>; no name
+    /// holds a <c>/</c>. The folders on the way are created as the store creates them.
+    /// </param>
+    /// <param name="text">The file's content, as UTF-8.</param>
+    /// <returns>False where the store cannot hold one of the names, or the fixture cannot reach the store.</returns>
+    protected virtual Task<bool> StoreRawFileAsync(IReadOnlyList<string> names, string text) => Task.FromResult(false);
+
     /// <summary>Creates the test's root folder and its provider.</summary>
     [TestInitialize]
     public void StartTest()
@@ -369,6 +381,56 @@ public abstract class ProviderConformanceTests
         CollectionAssert.AreEquivalent(new[] { "a.txt", "dir", "dir/b.txt", "dir/sub", "dir/sub/c.txt" }, paths);
         Assert.IsTrue(paths.IndexOf("dir") < paths.IndexOf("dir/b.txt"));
         Assert.IsTrue(paths.IndexOf("dir/sub") < paths.IndexOf("dir/sub/c.txt"));
+    }
+
+    [TestMethod]
+    public async Task List_LeavesOutNamesThePathRulesRefuse()
+    {
+        // Names another client of the store could create, which the common path rules refuse (only dots, a percent-encoded
+        // dot-dot, a backslash, a control character, only a space) or some providers refuse (a colon). Each is staged as a
+        // file at the top and as a folder holding a file one level down; whatever a listing shows must read back.
+        await Write("ok.txt", "ok");
+        await Write("dir/ok.txt", "ok");
+        var staged = new List<string>();
+        foreach (var name in new[] { "...", "%2e%2e", "%252e%252e", "a\\b.txt", "x\u0001y.txt", "a:b.txt", " " })
+        {
+            var asFile = await StoreRawFileAsync([RootName, name], "staged");
+            var asFolder = await StoreRawFileAsync([RootName, "dir", name, "inner.txt"], "staged");
+            if (asFile || asFolder)
+                staged.Add(name);
+        }
+        if (staged.Count == 0)
+            Assert.Inconclusive("The fixture cannot store a file past the provider (StoreRawFileAsync).");
+
+        var listed = new List<IWriteableFileInfo>();
+        listed.AddRange((await Provider.GetDirectoryContentsAsync("")).Cast<IWriteableFileInfo>());
+        listed.AddRange((await Provider.GetDirectoryContentsAsync("dir")).Cast<IWriteableFileInfo>());
+        await foreach (var entry in Provider.EnumerateAsync("", recursive: true))
+            listed.Add(entry);
+        var paths = listed.Select(e => e.Path.ToString()).ToList();
+        CollectionAssert.IsSubsetOf(new[] { "ok.txt", "dir", "dir/ok.txt" }, paths, string.Join(", ", paths));
+        foreach (var entry in listed)
+        {
+            var label = $"'{entry.Path}' is listed (staged: {string.Join(", ", staged)})";
+            IWriteableFileInfo info;
+            try
+            {
+                info = await Provider.GetFileInfoAsync(entry.Path);
+            }
+            catch (ArgumentException e)
+            {
+                throw new AssertFailedException($"{label}, but its path is refused: {e.Message}", e);
+            }
+            Assert.IsTrue(info.Exists, label);
+            Assert.AreEqual(entry.IsDirectory, info.IsDirectory, label);
+            if (!entry.IsDirectory)
+                await (await Provider.ReadFileAsync(entry.Path)).DisposeAsync();
+        }
+
+        // A folder delete takes what its listing leaves out, so nothing keeps the folder.
+        Assert.IsTrue(await Provider.DeleteAsync("dir"));
+        Assert.IsFalse((await Provider.GetFileInfoAsync("dir")).Exists, "The deleted folder still exists");
+        Assert.IsFalse((await Provider.GetDirectoryContentsAsync("dir")).Exists, "The deleted folder still lists");
     }
 
     // ----- Reads -----

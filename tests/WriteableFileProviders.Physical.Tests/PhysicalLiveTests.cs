@@ -41,6 +41,9 @@ public sealed class PhysicalLiveTests : ProviderConformanceTests
         return new WriteablePhysicalFileProvider(root is null ? folder : Path.Combine(folder, root));
     }
 
+    protected override Task<bool> StoreRawFileAsync(IReadOnlyList<string> names, string text) =>
+        Task.FromResult(_base.Value is { } folder && RawFiles.Store(folder, names, text));
+
     private static string? FindBase()
     {
         if (Environment.GetEnvironmentVariable("WFP_PHYSICAL_ROOT") is { Length: > 0 } fromEnvironment)

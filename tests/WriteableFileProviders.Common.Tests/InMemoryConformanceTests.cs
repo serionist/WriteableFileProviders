@@ -1,3 +1,4 @@
+using System.Text;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using WriteableFileProviders.Testing;
 
@@ -22,4 +23,11 @@ public sealed class InMemoryConformanceTests : ProviderConformanceTests
 
     protected override IWriteableFileProvider CreateProvider(string? root) =>
         new InMemoryFileProvider(new InMemoryFileProviderOptions { StoreName = _store, RootDirectoryPath = root });
+
+    protected override Task<bool> StoreRawFileAsync(IReadOnlyList<string> names, string text)
+    {
+        using var store = (InMemoryFileProvider)CreateProvider(null);
+        store.StoreRaw(names, Encoding.UTF8.GetBytes(text));
+        return Task.FromResult(true);
+    }
 }

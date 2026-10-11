@@ -55,9 +55,12 @@ namespace WriteableFileProviders.Physical;
 /// </para>
 /// <para>
 /// <b>Names</b> are matched without regard to case on Windows and macOS, so a move between names that differ only in
-/// case renames the file, and with regard to case elsewhere. A <c>:</c> is not allowed in a name. Containment in the
-/// root is checked on the path: symbolic links and junctions inside the root are followed, except that a recursive
-/// listing lists a linked folder without walking into it.
+/// case renames the file, and with regard to case elsewhere. A <c>:</c> is not allowed in a name. Listings leave out
+/// the files and folders whose names a path cannot name (on Linux and macOS, a name holding <c>:</c>, <c>\</c> or a
+/// control character, or only dots and spaces; on any system, a percent-encoded form of those, such as
+/// <c>%2e%2e</c>), and never walk into such a folder, so everything listed can be read back. Containment in the root is
+/// checked on the path: symbolic links and junctions inside the root are followed, except that a recursive listing lists
+/// a linked folder without walking into it.
 /// </para>
 /// <para>
 /// <b>Not native:</b> signed URLs (WriteableFileProviders.AspNetCore issues gateway URLs) and content types (a given
@@ -382,6 +385,10 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
         foreach (var entry in folder.EnumerateFileSystemInfos("*", _listing))
         {
             cancellationToken.ThrowIfCancellationRequested();
+            // A name a path cannot name again (on Linux, one with ':' or '\', a control character or only dots; anywhere,
+            // a percent-encoded form of those) is left out, and never walked into: everything listed can be read back.
+            if (!IsAddressable(entry.Name))
+                continue;
             if (entry is FileInfo file)
             {
                 if (!IsTempFile(file.Name))
@@ -391,6 +398,19 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
             {
                 yield return (FolderEntry(path.Child(entry.Name).Path, entry), entry);
             }
+        }
+    }
+
+    // A listed name a path can name again: one segment that passes the same checks as a caller's path.
+    private bool IsAddressable(string name)
+    {
+        try
+        {
+            return Resolve(new ProviderPath(name)).RelativeSegments.Length == 1;
+        }
+        catch (ArgumentException)
+        {
+            return false;
         }
     }
 

@@ -29,6 +29,8 @@ public sealed class AzuriteConformanceTests : ProviderConformanceTests
 
     protected override IWriteableFileProvider? CreateProviderWithMissingContainer() =>
         new WriteableAzureBlobFileProvider(Azurite.Options(Azurite.NewContainerName()));
+
+    protected override Task<bool> StoreRawFileAsync(IReadOnlyList<string> names, string text) => Azurite.StoreRawAsync(_containerName, names, text);
 }
 
 /// <summary>
@@ -65,4 +67,6 @@ public sealed class AzuriteStrictConformanceTests : ProviderConformanceTests
 
     protected override IWriteableFileProvider? CreateProviderWithMissingContainer() =>
         new WriteableAzureBlobFileProvider(Azurite.Container(Azurite.NewContainerName(), new AzureHandler()));
+
+    protected override Task<bool> StoreRawFileAsync(IReadOnlyList<string> names, string text) => Azurite.StoreRawAsync(_containerName, names, text);
 }

@@ -28,6 +28,8 @@ public sealed class BoxConformanceTests : ProviderConformanceTests
 
     protected override IWriteableFileProvider? CreateProviderWithMissingContainer() =>
         TestCredentials.Default.Provider(_box, rootFolderId: "404404");
+
+    protected override Task<bool> StoreRawFileAsync(IReadOnlyList<string> names, string text) => Task.FromResult(BoxFixture.StoreRaw(_box, names, text));
 }
 
 /// <summary>
@@ -62,6 +64,8 @@ public sealed class BoxAtomicConformanceTests : ProviderConformanceTests
 
     protected override IWriteableFileProvider? CreateProviderWithMissingContainer() =>
         new WriteableBoxFileProvider(new BoxFileProviderOptions { RootFolderId = "404404" }, TestCredentials.Default.Client(_box));
+
+    protected override Task<bool> StoreRawFileAsync(IReadOnlyList<string> names, string text) => Task.FromResult(BoxFixture.StoreRaw(_box, names, text));
 }
 
 /// <summary>What the offline fixtures share.</summary>
@@ -77,5 +81,23 @@ internal static class BoxFixture
     {
         provider.ChunkedUploadThreshold = ChunkedUploadThreshold;
         return provider;
+    }
+
+    /// <summary>Stores a file in the fake under any names, past the provider and Box's name rules, with its folders.</summary>
+    /// <param name="box">The fake.</param>
+    /// <param name="names">The file's names under the account root, one per level.</param>
+    /// <param name="text">The content.</param>
+    /// <returns>True.</returns>
+    public static bool StoreRaw(FakeBox box, IReadOnlyList<string> names, string text)
+    {
+        var parent = FakeBox.RootId;
+        var path = "";
+        foreach (var name in names.Take(names.Count - 1))
+        {
+            path += "/" + name;
+            parent = box.IdOf(path) ?? box.AddFolder(parent, name);
+        }
+        box.AddFile(parent, names[^1], text);
+        return true;
     }
 }

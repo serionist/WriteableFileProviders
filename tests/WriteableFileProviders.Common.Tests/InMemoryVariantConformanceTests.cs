@@ -1,3 +1,4 @@
+using System.Text;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using WriteableFileProviders.Testing;
 
@@ -35,4 +36,11 @@ public sealed class InMemoryVariantConformanceTests : ProviderConformanceTests
             CaseInsensitive = true,
             FixedSignedUrlLifetime = TimeSpan.FromMinutes(15),
         });
+
+    protected override Task<bool> StoreRawFileAsync(IReadOnlyList<string> names, string text)
+    {
+        using var store = (InMemoryFileProvider)CreateProvider(null);
+        store.StoreRaw(names, Encoding.UTF8.GetBytes(text));
+        return Task.FromResult(true);
+    }
 }

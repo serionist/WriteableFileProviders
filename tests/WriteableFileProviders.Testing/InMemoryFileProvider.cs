@@ -38,6 +38,24 @@ public sealed class InMemoryFileProvider(InMemoryFileProviderOptions options) : 
     /// <param name="storeName">The store.</param>
     public static void ClearStore(string storeName) => _stores.TryRemove(storeName, out _);
 
+    /// <summary>
+    /// Stores a file under the provider's root without the path rules, with its folders, as another client of a real
+    /// store could: names the provider refuses, which its listings must leave out.
+    /// </summary>
+    /// <param name="names">The file's names under the root, one per level; none holds a <c>/</c>.</param>
+    /// <param name="content">The content.</param>
+    public void StoreRaw(IReadOnlyList<string> names, byte[] content)
+    {
+        ArgumentNullException.ThrowIfNull(names);
+        string[] segments = [.. Options.RootDirectorySegments, .. names];
+        lock (Files)
+        {
+            for (var i = 1; i < segments.Length; i++)
+                Files.Folders.Add(string.Join('/', segments[..i]));
+            Files.Entries[string.Join('/', segments)] = new Entry(content, TimeProvider.GetUtcNow(), Guid.NewGuid().ToString("N"), null);
+        }
+    }
+
     /// <inheritdoc />
     protected override bool IsCaseInsensitive => Files.Comparison == StringComparison.OrdinalIgnoreCase;
 
@@ -79,7 +97,9 @@ public sealed class InMemoryFileProvider(InMemoryFileProviderOptions options) : 
         foreach (var entry in entries)
         {
             await Task.Yield();
-            yield return entry;
+            // A name the path rules refuse cannot be read back, so it is never listed or walked into.
+            if (IsAddressable(entry.Name))
+                yield return entry;
         }
     }
 
@@ -169,6 +189,19 @@ public sealed class InMemoryFileProvider(InMemoryFileProviderOptions options) : 
     }
 
     private static string Key(ResolvedPath path) => string.Join('/', path.AbsoluteSegments);
+
+    // A listed name a path can name again: one segment that passes the same checks as a caller's path.
+    private bool IsAddressable(string name)
+    {
+        try
+        {
+            return Resolve(new ProviderPath(name)).RelativeSegments.Length == 1;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
 
     private static string Name(string key) => key[(key.LastIndexOf('/') + 1)..];
 

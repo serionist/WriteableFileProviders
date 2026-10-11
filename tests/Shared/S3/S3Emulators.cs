@@ -35,6 +35,29 @@ internal sealed record S3Endpoint(string Name, string HostAndPort, string Access
         HttpClientFactory = factory,
     });
 
+    /// <summary>
+    /// Puts an object in the bucket past the providers, under a key they may refuse. Not a key with a control character,
+    /// which an XML listing cannot carry back, nor one the server refuses (MinIO refuses a few that S3 takes).
+    /// </summary>
+    /// <param name="key">The key.</param>
+    /// <param name="text">The content.</param>
+    /// <returns>False for a key with a control character, or one the server refuses.</returns>
+    public async Task<bool> StoreRawAsync(string key, string text)
+    {
+        if (key.Any(char.IsControl))
+            return false;
+        using var client = CreateClient();
+        try
+        {
+            await client.PutObjectAsync(new PutObjectRequest { BucketName = Bucket, Key = key, ContentBody = text });
+            return true;
+        }
+        catch (AmazonS3Exception e) when (e.StatusCode == System.Net.HttpStatusCode.BadRequest)
+        {
+            return false;
+        }
+    }
+
     /// <summary>Creates a bucket of its own for a test, which <see cref="DeleteBucketAsync"/> removes.</summary>
     public async Task<string> CreateBucketAsync()
     {

@@ -1,3 +1,4 @@
+using System.Text;
 using Microsoft.Graph;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using WriteableFileProviders.Testing;
@@ -37,6 +38,12 @@ public sealed class SharePointConformanceTests : ProviderConformanceTests
 
     protected override IWriteableFileProvider? CreateProviderWithMissingContainer() =>
         TestGraph.Provider(_client, TestGraph.Options(library: "No Such Library"));
+
+    protected override Task<bool> StoreRawFileAsync(IReadOnlyList<string> names, string text)
+    {
+        _fake.SetFile(string.Join('/', names), Encoding.UTF8.GetBytes(text));
+        return Task.FromResult(true);
+    }
 
     [ClassCleanup]
     public static void DisposeClient() => _client.Dispose();
@@ -82,6 +89,12 @@ public sealed class SharePointWorkFolderConformanceTests : ProviderConformanceTe
     // The root repeats the work folder in another case: one copy is dropped, so the base is the work folder itself.
     protected override IWriteableFileProvider CreateProvider(string? root) =>
         TestGraph.OwnProvider(_fake, TestGraph.Options(root is null ? "shared/work folder" : $"Shared/Work Folder/{root}", WorkFolder));
+
+    protected override Task<bool> StoreRawFileAsync(IReadOnlyList<string> names, string text)
+    {
+        _fake.SetFile($"{WorkFolder}/{string.Join('/', names)}", Encoding.UTF8.GetBytes(text));
+        return Task.FromResult(true);
+    }
 
     [TestCleanup]
     public void NothingLeaked()

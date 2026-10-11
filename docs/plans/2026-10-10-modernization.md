@@ -2466,6 +2466,8 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
 
 - **2026-10-11, the first release attempt refused (v2027.0.0-rc.1):** the build, the tests, the package check and CI passed, and the `nuget` deployment was approved, but nuget.org refused the first package pushed: "invalid Version: '2028.0.0-0'". Its ManifestValidator takes a version that is not SemVer 2 (no dotted prerelease label, no metadata) only if NuGet 2.x clients can read it, and their prerelease label starts with a letter. Nothing was published (the push stops at its first failure; nuget.org lists no 2027 version of any package). The bound between our packages is now `[V, NextMajor.0.0-alpha)`, which still sorts below every prerelease we make, and `eng/package-check.cs` applies nuget.org's rule to every package version and dependency bound, so CI catches it before a push. The next attempt is v2027.0.0-rc.2: the rc.1 tag stays, on the commit that failed.
 
+- **2026-10-11, 2027.0.0 released:** v2027.0.0-rc.2 (35cb6f4) published all nine packages to nuget.org and a GitHub prerelease, and installed from nuget.org into a fresh app that built and ran. v2027.0.0 followed on the same commit: nine packages at 2027.0.0, each provider on Common `[2027.0.0, 2028.0.0-alpha)`, and the GitHub release with the CHANGELOG section as its notes and the 18 package files. Both were approved in the `nuget` environment on @serionist's go. Package validation's baseline is now 2027.0.0 (`src/Directory.Build.props`), the runbook's last step.
+
 ### For the maintainers
 
 What this session cannot do, in the order to do it: first what closes a security exposure, then the review of what

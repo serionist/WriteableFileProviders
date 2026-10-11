@@ -49,12 +49,13 @@ disposes:
 
 ```csharp
 var container = new BlobContainerClient(new Uri("https://contoso.blob.core.windows.net/files"), new ManagedIdentityCredential());
-await using var files = new WriteableAzureBlobFileProvider(container, new AzureFileProviderOptions { RootDirectoryPath = "tenants/acme" });
+await using var files = new WriteableAzureBlobFileProvider(new AzureFileProviderOptions { RootDirectoryPath = "tenants/acme" }, container);
 ```
 
-With a client, only the root and `CreateContainerIfMissing` are read from the options; a `ContainerName` that differs
-from the client's throws `ArgumentException`. The provider class is sealed: to change what it does, wrap it, or derive
-your own provider from `WriteableFileProvider<TOptions>`.
+The options come first, as on every provider's client constructor. With a client, only the root and
+`CreateContainerIfMissing` are read from them, and they may be null (the container's root); a `ContainerName` that
+differs from the client's throws `ArgumentException`. The provider class is sealed: to change what it does, wrap it,
+or derive your own provider from `WriteableFileProvider<TOptions>`.
 
 ## Configuration
 

@@ -74,9 +74,10 @@ None: the provider reads and writes with the permissions of the process that run
     single-file Docker bind mount, a Kubernetes `subPath`), where the system refuses the rename.
 
   And the new file is a new file:
-  - on Linux and macOS it takes the permission bits of the file it replaces, and a copy those of its source, exactly,
-    whatever the umask, as .NET's `File.Copy` does; both are set as the file is created, before any content is written.
-    The setuid, setgid and sticky bits, access control lists and extended attributes are not carried over;
+  - on Linux and macOS it takes the permission bits of the file it replaces (of its target, for a symbolic link), and a
+    copy those of its source, exactly, whatever the umask, as .NET's `File.Copy` does; both are set as the file is
+    created, before any content is written. The setuid, setgid and sticky bits, access control lists and extended
+    attributes are not carried over;
   - on Windows it takes the permissions the folder gives a new file, not the replaced file's own;
   - other hard links to the file keep the old content, and a symbolic link at the path, a link to nothing included, is
     replaced by a file, its target left as it was.
@@ -85,6 +86,8 @@ None: the provider reads and writes with the permissions of the process that run
   (FAT, exFAT, HFS+), so it changes the ETag. Writes faster than that resolution step it further each time, so on such a
   file system a file's time can run ahead of the clock, without bound; bounding it would let an ETag repeat. A change by
   another program that keeps the length within the file system's time resolution may not change the ETag.
+- **Symbolic links to files** are described by their target, which reads open: its length, last-write time and ETag.
+  `PhysicalPath` stays the link's own path under the root. A link to nothing, or in a loop, is described as itself.
 - **Conditions.** `IfMatch` is checked just before the rename, which is not atomic: another process can change the file
   in between. An append checks the same way that the file is still the version it copied, and throws
   `PreconditionFailedException` if not.

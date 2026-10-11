@@ -530,7 +530,7 @@ Each step is an issue under #3, a branch `<issue>-<slug>`, and a PR that builds 
 | S9 SharePoint | #13 | #28 | The SharePoint row, with the Graph fake; its live run is outstanding for the maintainers (D21). | F4 F6 F7 F8 F11 F13 F17–F21 F26 F39 F43 F49 F53 F62 F66 F70 F74 F77 | done (#28, 70e3f74); live suite not run (D21) |
 | S10 Box | #14 | #25 | The Box row, with the Box fake; its live run is outstanding for the maintainers (D21). | F4 F6 F11 F13 F17–F21 F25 F32 F53 F63 F67 F74 F77, Box's part of F56 | done (#25, 3ce3b89); live suites not run (D21) |
 | S11 AspNetCore gateway | #15 | #24 | The new package, the URL service, endpoints, the gateway tests and defaults (D22, P13, P27); its README, migration entry and AGENTS.md entry; whether the token purpose string and URL shape are a one-way door (they are: tokens issued by one version must redeem on the next minor; recorded under One-way doors in AGENTS.md). | F11 | done (#24, bce935c) |
-| S12 Docs, CI, launch prep | #16 | #31; part 2: the PRs of `16-harmonize` and `16-docs` | The root README, the migration guide's final pass, CONTRIBUTING, SECURITY, AGENTS.md and REVIEW.md, codeql, dependabot, `live.yml`, the release workflow, every floor at 90% or more, a check that no project sets `WfpLegacy`, the removal of the `[Obsolete]` 2026 helpers in Common (`GetRelativeSegments`, `IsRootPath`, `NormalizePem`, which Box and GCS take over), the PublicAPI files, and a final deep `review-code` of the whole repo. | F12 F76 | part 1 done (#31, 65cfd40: codeql, dependabot, `live.yml`, the release workflow, CONTRIBUTING, SECURITY, the issue forms). Part 2 in review, in two halves built in parallel: `16-harmonize` (D27 on Box and Physical, the live-class rule, D25 and D26 checked, the `[Obsolete]` helpers removed, no `WfpLegacy`, the old test project retired, the PublicAPI files, the floors) and `16-docs` (the root README and its provider matrix, the package READMEs and metadata, the migration guide's final pass, D28, REVIEW.md, this plan's statuses). Then the final deep `review-code` of the whole repo: todo. Not done: the packed upper bound on Common (Compatibility, P21), see the progress log (S12 part 2, docs) |
+| S12 Docs, CI, launch prep | #16 | #31; part 2: #41 (`16-harmonize`) and the PR of `16-docs` | The root README, the migration guide's final pass, CONTRIBUTING, SECURITY, AGENTS.md and REVIEW.md, codeql, dependabot, `live.yml`, the release workflow, every floor at 90% or more, a check that no project sets `WfpLegacy`, the removal of the `[Obsolete]` 2026 helpers in Common (`GetRelativeSegments`, `IsRootPath`, `NormalizePem`, which Box and GCS take over), the PublicAPI files, and a final deep `review-code` of the whole repo. | F12 F76 | part 1 done (#31, 65cfd40: codeql, dependabot, `live.yml`, the release workflow, CONTRIBUTING, SECURITY, the issue forms). Part 2 in review, in two halves built in parallel: `16-harmonize` (D27 on Box and Physical, the live-class rule, D25 and D26 checked, the `[Obsolete]` helpers removed, no `WfpLegacy`, the old test project retired, the PublicAPI files, the floors) and `16-docs` (the root README and its provider matrix, the package READMEs and metadata, the migration guide's final pass, D28, REVIEW.md, this plan's statuses). Then the final deep `review-code` of the whole repo: todo. The packed upper bound on Common (Compatibility, P21) is done in #41 |
 
 The provider steps S5–S10 are independent once S4 is merged. They may run in parallel agents, each in its own worktree,
 touching only their provider's folders, but they merge one at a time (P41): each rebases onto main before its PR and
@@ -1850,19 +1850,15 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
   - **This plan:** every step row and finding row has its final status, the feature tracker says done for each item,
     and "For the maintainers" is complete and in order (security, the review of what merged, the repository's settings,
     the environments, the live runs with Box first, the decisions, the release).
-  - **Not done, for the main session:** the packed upper bound on Common (Compatibility, P21): the nuspecs still say
-    `>= <version>`; NuGet has no setting for a range on a `ProjectReference`, and the known workaround rewrites pack's
-    internal items in a target, which is a build change outside this half.
-  - **For the final review** (code this half does not touch; found by the README passes):
-    - the `(options, IAmazonS3)` constructor's XML docs say the region and endpoint are not used, but `ServiceUrl` and
-      `BucketRegion` are;
-    - `UpdateFileCoreAsync`'s `options` docs in Common say the conditions reach it only with
-      `SupportsAtomicPreconditions`; they always do, and SharePoint relies on it;
-    - `StorageClassForNewFiles` in its 2026 object form is ignored without an error by `FromConfiguration` (as in 2026);
-    - Physical on Windows, unverified: a file symbolic link's `FileInfo` describes the link, while reads open its
-      target, so an `IfMatch` read or an append through such a link may always fail;
-    - the client constructors take the client first on Azure and GCS (`(client, options)`) and last on S3, MinIO, Box
-      and SharePoint (`(options, client)`), now a public surface.
+  - **The packed upper bound on Common** (Compatibility, P21) is done in #41, the harmonize half: providers depend on
+    Common as `[V, NextMajor.0.0)`. The root README's Versioning section and the migration guide's "Start here" say so.
+  - **Found by the README passes in code this half does not touch**, and settled in #41: the `(options, IAmazonS3)`
+    constructor's XML docs (the region and endpoint are used) and `UpdateFileCoreAsync`'s (the conditions always reach
+    it); a symbolic link to a file on Physical, now described by its target (length, time, ETag; the new file takes the
+    target's bits), which the Physical README and its migration section say; and the client constructors, which all
+    take the options first now (Azure and GCS took the client first), as every sample and the migration guide show.
+    Left for the final review: `StorageClassForNewFiles` in its 2026 object form is ignored without an error by
+    `FromConfiguration` (as in 2026).
 
 ### For the maintainers
 

@@ -250,7 +250,8 @@ application takes, then lists each change with what to do. Applications on .NET 
 
 - **SemVer, from git tags, every package in lockstep.** Each release tags `v<version>` on `main`, and MinVer gives
   every package that version. Use the same version of every WriteableFileProviders package: a provider of one major
-  does not load against the Common of another.
+  does not load against the Common of another. Each provider's package depends on Common of its own major
+  (`[2027.0.0, 2028.0.0)` for 2027.0.0), so NuGet warns (NU1608) when an application mixes majors.
 - **The major is a sequence number, not a date.** It continues above the 2018–2026 date-stamped versions
   (`yyyy.M.d.n`, such as `2026.10.10.4`), so NuGet orders every new release after them. `2027.0.0` is the first
   SemVer release; `2027.1.0` adds features and `2027.0.1` fixes bugs; the next breaking release is `2028.0.0`, whenever

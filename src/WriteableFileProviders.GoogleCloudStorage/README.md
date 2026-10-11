@@ -53,7 +53,7 @@ which the provider never disposes:
 
 ```csharp
 var client = await new StorageClientBuilder { /* ... */ }.BuildAsync();
-var files = new WriteableGoogleCloudStorageFileProvider(client, new GoogleCloudStorageFileProviderOptions { BucketName = "my-bucket" });
+var files = new WriteableGoogleCloudStorageFileProvider(new GoogleCloudStorageFileProviderOptions { BucketName = "my-bucket" }, client);
 ```
 
 With a client, only `BucketName`, the root, `CreateBucketIfMissing` and `ProjectId` are read from the options: the

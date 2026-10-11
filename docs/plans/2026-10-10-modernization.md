@@ -1827,9 +1827,9 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
       `PreconditionFailedException` only with `ReadOptions.IfMatch`; the download URL's own request is not wrapped like
       the download; delete goes to the trash unless the enterprise's settings purge it.
     - SharePoint: a signed URL over 7 days throws, and exactly an hour needs `AllowShorterValidity` too; the errors
-      carry Graph's error in their message, with the SDK's or the network's exception inside where there is one; a move is one
-      `PATCH` after the base checks and the destination's folders; an escaped `:` is refused too; the conditions'
-      window includes copying the stream.
+      carry Graph's error in their message, with the SDK's or the network's exception inside where there is one; a
+      move is one `PATCH` after the base checks and the destination's folders; an escaped `:` is refused too; the
+      conditions' window includes copying the stream.
     - AspNetCore: the provider name is not inside the encrypted payload (it travels in the clear and in the purpose); a
       second 415 (an untyped token with a `Content-Type` that does not parse); `MaxUploadBytes` sets the server's limit
       where it can, which may lower it; the upload `Content-Type` compares without case; the security headers are on
@@ -1851,7 +1851,9 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
     and "For the maintainers" is complete and in order (security, the review of what merged, the repository's settings,
     the environments, the live runs with Box first, the decisions, the release).
   - **The packed upper bound on Common** (Compatibility, P21) is done in #41, the harmonize half: providers depend on
-    Common as `[V, NextMajor.0.0)`. The root README's Versioning section and the migration guide's "Start here" say so.
+    Common as `[V, NextMajor.0.0-0)`, which keeps out the next major's prereleases. The root README's Versioning
+    section and the migration guide's "Start here" say so, and the migration guide and Common's README list #41's new
+    protected helper, `IsAddressable`.
   - **Found by the README passes in code this half does not touch**, and settled in #41: the `(options, IAmazonS3)`
     constructor's XML docs (the region and endpoint are used) and `UpdateFileCoreAsync`'s (the conditions always reach
     it); a symbolic link to a file on Physical, now described by its target (length, time, ETag; the new file takes the

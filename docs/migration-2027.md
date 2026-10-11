@@ -15,7 +15,8 @@ Every section has the same shape: what changed, then a table of each change with
 2. **Move every package together.** All WriteableFileProviders packages of an application must be on the same major
    version: a `2026.10.10.x` provider does not load against `WriteableFileProviders.Common` 2027. Update them all to
    `2027.0.0` in one change. From 2027, each provider's package depends on Common of its own major
-   (`[2027.0.0, 2028.0.0)`), so NuGet warns (NU1608) when another major of Common is restored with it.
+   (`[2027.0.0, 2028.0.0-0)`, which also keeps out 2028's prereleases), so NuGet warns (NU1608) when another major of
+   Common is restored with it.
 3. **Paths are one `ProviderPath`.** Every member takes a `ProviderPath`, which a string (`"reports/2026.csv"`) or a
    string array converts to, so most calls compile unchanged; calls with several string arguments compile through
    `[Obsolete]` shims that name the new call (see [Common: the API](#common-the-api)). Every path is relative to the
@@ -117,7 +118,8 @@ the move and copy checks, preconditions, signed URL validity).
 Optional overrides with shared defaults: `ReadRangeCoreAsync`, `OpenReadSeekableCoreAsync`, `CopyCoreAsync`,
 `MoveCoreAsync`, `DeleteFileCoreAsync`, `FolderExistsCoreAsync`, `EnumerateRecursiveCoreAsync`,
 `CreateLocalFileStreamCoreAsync`, `IsNotFound`, `Dispose(bool)`, `DisposeAsyncCore`. Helpers: `AppendByRewriteAsync`,
-`SpoolToTempFileAsync`, `NotFound`.
+`SpoolToTempFileAsync`, `NotFound`, and `IsAddressable(name)`, true when the provider's own path validation
+(`IsSegmentAllowed` included) would accept the name as one path segment.
 
 What the store can do is declared through these members, and each default makes the base class refuse or weaken an
 operation until the provider says otherwise:
@@ -134,7 +136,7 @@ operation until the provider says otherwise:
 Every file needs an `ETag`: the default seekable read pins it, and `AppendByRewriteAsync` writes with `IfMatch` on it.
 Without one, a pinned seekable read and an append by rewrite throw `NotSupportedException`. Listings should leave out
 names the provider's own path validation would refuse, as every built-in provider does, so that everything listed can
-be read back.
+be read back: skip an entry whose name `IsAddressable` refuses, and do not walk into such a folder.
 
 New: run your provider against `ProviderConformanceTests` (`tests/WriteableFileProviders.Testing` in the repository) to
 check it meets the contract, and register it with `WriteableFileProviderSerializer.Register<TProvider>()` so the

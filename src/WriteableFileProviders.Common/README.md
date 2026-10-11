@@ -81,8 +81,12 @@ Every provider runs the same conformance suite, the written contract, declaring 
 ## Writing a provider
 
 Derive from `WriteableFileProvider<TOptions>`: it validates and resolves every path, protects the root, checks moves,
-copies and conditions, and calls the protected `...CoreAsync` members you implement. Run your provider against
-`ProviderConformanceTests` (in the repository's `tests/WriteableFileProviders.Testing`) to check it meets the contract.
+copies and conditions, and calls the protected `...CoreAsync` members you implement. Its protected helpers:
+`AppendByRewriteAsync` (an append for a store without one, conditional on the version read), `SpoolToTempFileAsync`,
+`NotFound`, and `IsAddressable(name)`, true when the provider's own path validation (`IsSegmentAllowed` included) would
+accept the name as one path segment: leave the names it refuses out of your listings, so everything listed can be read
+back. Run your provider against `ProviderConformanceTests` (in the repository's `tests/WriteableFileProviders.Testing`)
+to check it meets the contract.
 
 ## More
 

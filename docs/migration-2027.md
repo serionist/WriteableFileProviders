@@ -138,7 +138,7 @@ default, and the obsolete `S3Region` short names (`US`, `EU`, `SFO`…) are gone
 | Download URLs forced `Content-Type: application/octet-stream` | Read URLs serve the stored type unless `SignedUrlOptions.ContentType` says otherwise; create and write URLs are new | Set `ContentType` on the URL to keep the old header. |
 | A presigned URL lived as asked, whatever the credential | A credential that expires sooner, or a session token, needs `AllowShorterValidity` | Use long-term keys, or accept the shorter URL. |
 | The S3Region constructors stored `""` for us-east-1 and `"EU"` for eu-west-1 | They store `us-east-1` and `eu-west-1`, and the old values read as those regions | Nothing to do. |
-| A key with an empty segment, `..` or a backslash was listed | Left out of listings, since no path can name it | Rename such keys with another tool. |
+| A key with an empty segment, `..`, a backslash or a control character was listed | Left out of listings, since no path can name it | Rename such keys with another tool. |
 
 New: `ServiceUrl` and `ForcePathStyle` for S3-compatible servers, `UseDefaultCredentials` for the SDK's default
 credential chain, `CreateBucketIfMissing`, and a constructor that takes your own `IAmazonS3`. The new options are written

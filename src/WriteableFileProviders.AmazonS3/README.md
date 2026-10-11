@@ -72,7 +72,8 @@ and `CreateBucketIfMissing`.
 ## Behaviour
 
 - **Folders** are key prefixes: a folder exists while a key is under it, and an empty one does not. Names are
-  case-sensitive. Keys a path cannot name (an empty segment, `..`, a backslash) are left out of listings.
+  case-sensitive. Keys a path cannot name (an empty segment, `..`, a backslash, a control character) are left out of
+  listings.
 - **Writes** up to 8 MiB go in one request, larger ones in a multipart upload of 8 MiB parts (larger for files over
   80 GiB). S3 replaces a file only once all of it arrived, so a failed write leaves the old content. The caller's stream
   is read from its position and never seeked, rewound or disposed.

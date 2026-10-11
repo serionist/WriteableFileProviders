@@ -1373,7 +1373,8 @@ Newest last. Each entry: date, what was done (PRs), what is next, anything a lat
       this since S8, so the provider keeps no helper of its own.
     - HeadBucket answering 403 or a redirect counts as "exists, or cannot be asked", so tight IAM policies keep working;
       a missing bucket is still reported by the first `NoSuchBucket`, and the check runs again after one.
-    - Listings skip keys a path cannot name: an empty segment, `..`, a backslash, or a segment the provider refuses.
+    - Listings skip keys a path cannot name (D27): a blank segment, one of only dots and spaces such as `..`, a
+      backslash, a control character, or a percent-encoded form of one of these.
     - The SDK throws `DeleteObjectsException` for a batch with failures: it maps to `IOException`. A 409
       `ConditionalRequestConflict` maps to `PreconditionFailedException`.
   - **Conformance suite** (Testing): two capability flags for emulator bugs, `FailedLargeWriteKeepsOldContent` and

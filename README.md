@@ -23,104 +23,60 @@ where a store cannot do something, it says so with the same exception as the oth
 ## Install
 
 ```
-dotnet add package WriteableFileProviders.Physical
+dotnet add package WriteableFileProviders.AzureBlob
 ```
 
 Each store is a package of its own (see [Providers](#providers)), and each brings `WriteableFileProviders.Common`.
 `WriteableFileProviders.AspNetCore` adds signed links for every store. The packages target .NET 10; on .NET 8, stay on
 `2026.10.10.x`.
 
-## Tutorial
+## The interface
 
-One project carries the four steps: `dotnet new web -o Files`, then, in `Files`,
-`dotnet add package WriteableFileProviders.Physical`. Each step's code is its `Program.cs`, run with `dotnet run`.
-
-### 1. Files on the local disk
+Every provider is an `IWriteableFileProvider`, an `IFileProvider` that can also write. Each member also takes a
+`CancellationToken`, and a path is a `ProviderPath` (a string converts to one), relative to the provider's root:
 
 ```csharp
-using WriteableFileProviders;
-using WriteableFileProviders.Physical;
+public interface IWriteableFileProvider : IFileProvider, IDisposable, IAsyncDisposable
+{
+    // Look and list
+    Task<IWriteableFileInfo> GetFileInfoAsync(ProviderPath path);
+    Task<IDirectoryContents> GetDirectoryContentsAsync(ProviderPath path);
+    IAsyncEnumerable<IWriteableFileInfo> EnumerateAsync(ProviderPath path, bool recursive = false);
 
-await using var files = new WriteablePhysicalFileProvider("files");
+    // Read: the whole file, a byte range, or a stream you can seek
+    Task<Stream> ReadFileAsync(ProviderPath path);
+    Task<Stream> ReadRangeAsync(ProviderPath path, long offset, long? length, ReadOptions? options = null);
+    Task<Stream> OpenReadSeekableAsync(ProviderPath path, SeekableReadOptions? options = null);
 
-await files.UpdateFileAsync("reports/2026.csv", new MemoryStream("year,total\n2026,42\n"u8.ToArray()));
+    // Write (overwrite or append; only if unchanged, IfMatch, or absent, IfNotExists), delete, move, copy
+    Task UpdateFileAsync(ProviderPath path, Stream contents, UpdateFileOptions? options = null);
+    Task<bool> DeleteAsync(ProviderPath path);
+    Task MoveAsync(ProviderPath source, ProviderPath destination);
+    Task CopyAsync(ProviderPath source, ProviderPath destination);
 
-await using (var csv = await files.ReadFileAsync("reports/2026.csv"))
-using (var reader = new StreamReader(csv))
-    Console.WriteLine(await reader.ReadToEndAsync());
+    // Edit through a local copy that is written back when it is disposed
+    Task<LocalFileStream> CreateLocalFileStreamAsync(ProviderPath path, bool readOnly);
 
-await foreach (var entry in files.EnumerateAsync("reports"))
-    Console.WriteLine($"{entry.Name}: {entry.Length} bytes");
+    // A signed link to download or upload the file
+    Task<SignedUrl> GetSignedUrlAsync(ProviderPath path, SignedUrlOptions options);
+}
 ```
 
-Paths are relative to the provider's root, the `files` folder, and never reach outside it (symbolic links inside it
-are followed: [Paths](docs/guide/paths-and-listings.md#paths)). A write is atomic, so a write that fails leaves the old
-content, and it creates the folders above the file.
+Every provider means the same thing by every member: a write is all or nothing, nothing outside the root can be
+reached (on the local disk, symbolic links inside the root are followed), and each failure is one of a short list of
+exceptions, the same on every store ([errors](docs/guide/errors.md)).
 
-### 2. Download links for local files
-
-The gateway in `WriteableFileProviders.AspNetCore` serves signed links for any store, the local disk included. In the
-same project, where step 1 wrote `files/reports/2026.csv`, `dotnet add package WriteableFileProviders.AspNetCore`, and
-`Program.cs` becomes:
-
-```csharp
-using WriteableFileProviders;
-using WriteableFileProviders.AspNetCore;
-using WriteableFileProviders.Physical;
-
-var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddWriteableFileProvider(_ => new WriteablePhysicalFileProvider("files"));
-builder.Services.AddWriteableFileProviderGateway(new Uri("http://localhost:5000"));
-var app = builder.Build();
-app.MapWriteableFileProviderGateway();
-app.MapGet("/link/{**path}", async (string path, IWriteableFileUrlService urls) =>
-    (await urls.GetSignedUrlAsync(path, new SignedUrlOptions { Validity = TimeSpan.FromHours(1) })).Url.AbsoluteUri);
-app.Run();
-```
-
-Run it with `dotnet run --urls http://localhost:5000` and open `/link/reports/2026.csv`: the answer is a link that
-downloads the file for an hour.
-
-- The `Uri` is the gateway's public address, the URL the app is reached at and every link is built from: `https`, or
-  plain `http` to a loopback host such as `localhost`, as here.
-- `/link` hands a working link to anyone who asks. A real app checks that the caller may read the file first.
-
-### 3. The same code on a cloud store
-
-Only the registration changes. Register the provider from configuration:
+Register a provider and inject `IWriteableFileProvider` wherever files are needed. Changing store is a change of
+configuration, not of code:
 
 ```csharp
 builder.Services.AddWriteableFileProvider(builder.Configuration.GetSection("Files"));
 ```
 
 ```json
-{
-  "Files": {
-    "Type": "WriteableAzureBlobFileProvider",
-    "AccountName": "contoso",
-    "ContainerName": "files",
-    "UseDefaultAzureCredential": true
-  }
-}
+{ "Files": { "Type": "WriteableAzureBlobFileProvider", "AccountName": "contoso", "ContainerName": "files",
+             "UseDefaultAzureCredential": true } }
 ```
-
-With `WriteableFileProviders.AzureBlob` added, `/link` now answers with a user delegation SAS, which downloads
-straight from the store, when the identity holds a Storage Blob Data role at the account (or Storage Blob Delegator);
-otherwise with the gateway's link ([Authentication](src/WriteableFileProviders.AzureBlob/README.md#authentication)).
-Another store is another `Type` and its keys, listed in its package's README.
-
-### 4. One provider, or several
-
-`IWriteableFileProvider` is all most apps need: register one, inject it anywhere. With several stores, tell them apart
-your own way, with keyed services, `GetServices<IWriteableFileProvider>()` or a type of your own:
-
-```csharp
-builder.Services.AddKeyedSingleton<IWriteableFileProvider>("archive",
-    (_, _) => WriteableFileProviderSerializer.FromConfiguration(builder.Configuration.GetSection("Archive")));
-```
-
-Links for it name the key: `urls.GetSignedUrlAsync(path, options, providerKey: "archive")`. Every provider the gateway
-serves is a [singleton](docs/guide/signed-urls.md#the-url-service).
 
 ## Providers
 
@@ -136,8 +92,17 @@ serves is a [singleton](docs/guide/signed-urls.md#the-url-service).
 | [WriteableFileProviders.AspNetCore](src/WriteableFileProviders.AspNetCore/README.md) | Signed links for every store, through your app's gateway where the store cannot sign |
 | [WriteableFileProviders.Common](src/WriteableFileProviders.Common/README.md) | The interface, the base class, configuration and dependency injection |
 
+## Signed links
+
+`GetSignedUrlAsync` returns a store's own signed link where it has one: a SAS on Azure, a presigned URL on S3 and
+MinIO, a V4 signed URL on Google Cloud Storage. For everything else (the local disk, uploads to Box and SharePoint, a
+lifetime a store cannot give), the gateway in `WriteableFileProviders.AspNetCore` serves the link from your app, and
+`IWriteableFileUrlService` picks the right one. [Signed URLs](docs/guide/signed-urls.md) has the details.
+
 ## Learn more
 
+- [Getting started](docs/guide/getting-started.md): four short steps, from files on the local disk to download links
+  and a cloud store.
 - [Providers compared](docs/guide/providers.md): what each store can do, side by side.
 - [Paths and listings](docs/guide/paths-and-listings.md): the root, folders, case, and what a listing shows.
 - [Reading and writing](docs/guide/reading-and-writing.md): conditions, appends, ranges, seekable reads, local streams.

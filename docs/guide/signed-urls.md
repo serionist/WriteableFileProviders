@@ -35,8 +35,8 @@ A signed URL is a bearer credential: issue one only to a caller who may read or 
 
 ## Download links for local files
 
-The gateway gives every provider URLs, the local disk included. The README tutorial's
-[step 2](../../README.md#2-download-links-for-local-files) is the minimal app: a Physical provider, the gateway at
+The gateway gives every provider URLs, the local disk included. [Getting started](getting-started.md#2-download-links-for-local-files), step 2, is
+the minimal app: a Physical provider, the gateway at
 `http://localhost:5000`, and a `/link/{**path}` endpoint that returns `GetSignedUrlAsync(path, ...).Url.AbsoluteUri`.
 `GET /link/reports/2026.csv` answers with a URL such as `http://localhost:5000/files/<token>/2026.csv`, which downloads
 `files/reports/2026.csv` for an hour.

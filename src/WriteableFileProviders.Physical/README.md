@@ -41,9 +41,9 @@ From configuration, with `WriteableFileProviderSerializer.FromConfiguration(sect
 services.AddWriteableFileProvider(configuration.GetSection("Files"));
 ```
 
-Download and upload links for its files come from the gateway in `WriteableFileProviders.AspNetCore`: the root
-README's [tutorial](https://github.com/serionist/WriteableFileProviders#2-download-links-for-local-files) sets it up in
-a few lines. The provider class is sealed: to change what it does, wrap it, or derive your own provider from
+Download and upload links for its files come from the gateway in `WriteableFileProviders.AspNetCore`: step 2 of
+[Getting started](https://github.com/serionist/WriteableFileProviders/blob/main/docs/guide/getting-started.md#2-download-links-for-local-files)
+sets it up in a few lines. The provider class is sealed: to change what it does, wrap it, or derive your own provider from
 `WriteableFileProvider<TOptions>`.
 
 ## Configuration

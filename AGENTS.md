@@ -36,7 +36,7 @@ links, `docs/guide/`.
 | `.github/workflows/` | `ci.yml`, CI on every PR and on `main`; `codeql.yml`, code scanning; `live.yml`, the live suites, by hand or nightly on `main`; `release.yml`, the release of a `v*` tag. |
 | `.github/dependabot.yml` | Weekly update PRs for the NuGet packages (grouped), the actions and the SDK. |
 | `.github/ISSUE_TEMPLATE/`, `.github/pull_request_template.md` | The bug and feature forms; the PR template. |
-| `README.md`, `src/*/README.md` | For the packages' users: the root README (what the library is, install, a four-step tutorial, the packages, links to the guide) and one README per package (install, a short use, the provider's own options, behaviour and limits), packed into its `.nupkg`. A change to what a package does updates its README, the guide page that explains it, and the matrix in `docs/guide/providers.md` when a cell changes. |
+| `README.md`, `src/*/README.md` | For the packages' users: the root README (what the library is, install, the interface, the packages, links to the guide, whose `getting-started.md` holds the tutorial) and one README per package (install, a short use, the provider's own options, behaviour and limits), packed into its `.nupkg`. A change to what a package does updates its README, the guide page that explains it, and the matrix in `docs/guide/providers.md` when a cell changes. |
 | `CHANGELOG.md`, `LICENSE` | What each release changed: a change consumers notice adds its line under the next version, and `release.yml` publishes that version's section as the GitHub release's notes. The MIT licence. |
 | `CONTRIBUTING.md`, `SECURITY.md` | A first contribution's short path through this file; how to report a vulnerability, and the supported versions. |
 
@@ -118,7 +118,7 @@ Each package has a test project of its own, `tests/WriteableFileProviders.<Packa
   of uploads, the URL service's choice between native and gateway URLs, the options, and the app pipeline (HTTP logging,
   output caching, a fallback authorization policy). `GatewayTokenGoldenTests` pins the gateway's one-way door with
   tokens issued by a test-only key, for a keyed provider and for the default one: they are never regenerated.
-  `TutorialTests` runs the root README's tutorial (download URLs for local files) over the Physical provider.
+  `TutorialTests` runs step 2 of `docs/guide/getting-started.md` (download URLs for local files) over the Physical provider.
 - **Physical:** the suite on the local disk, under a temp folder of its own that the class deletes when it ends;
   `PhysicalProviderTests` and `PhysicalOptionsTests` cover the temp files, the races, links, the rules that differ by OS
   and the stored root forms. CI runs it on Linux and Windows.

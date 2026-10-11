@@ -70,7 +70,7 @@ Within an hour or so of the push (validation and indexing take a while):
 - The symbols: open a package in NuGet Package Explorer (its nuget.org page links it), whose Health section shows
   Source Link, a deterministic build and the compiler flags as valid.
 - The GitHub release has the notes and the packages.
-- A new project restores the packages from nuget.org and runs the root README's tutorial.
+- A new project restores the packages from nuget.org and runs the getting-started guide (`docs/guide/getting-started.md`).
 
 Then, for the first 2027 release only, unlist the versions before the 2026.10.10 line (each package's Manage page on
 nuget.org; the modernization plan's list for the maintainers names them), keeping `2026.10.10.x` listed for .NET 8

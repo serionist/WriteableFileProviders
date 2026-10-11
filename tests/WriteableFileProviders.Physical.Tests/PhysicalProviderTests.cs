@@ -332,6 +332,54 @@ public sealed class PhysicalProviderTests
     }
 
     [TestMethod]
+    public async Task ALinkToAFile_IsDescribedPinnedAndWrittenAsItsTarget()
+    {
+        // A file reached through a symbolic link: its info, its listing entry and its ETag describe the target, which reads
+        // open, so a pinned read and an append through the link see one version. A write replaces the link with a file
+        // that takes the target's permission bits, and leaves the target as it was.
+        await Write("target.txt", "0123456789");
+        if (!OperatingSystem.IsWindows())
+            File.SetUnixFileMode(Disk("target.txt"), UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        try
+        {
+            File.CreateSymbolicLink(Disk("link.txt"), Disk("target.txt"));
+        }
+        catch (Exception e) when (OperatingSystem.IsWindows() && e is IOException or UnauthorizedAccessException)
+        {
+            Assert.Inconclusive($"Creating a symbolic link on Windows needs Developer Mode or elevation: {e.Message}");
+        }
+
+        var info = await _provider.GetFileInfoAsync("link.txt");
+        Assert.AreEqual(10, info.Length);
+        Assert.AreEqual((await _provider.GetFileInfoAsync("target.txt")).ETag, info.ETag);
+        Assert.AreEqual(Disk("link.txt"), info.PhysicalPath, "The path is the link's, inside the root");
+        Assert.AreEqual(10, (await _provider.GetDirectoryContentsAsync("")).Single(e => e.Name == "link.txt").Length);
+        await using (var range = await _provider.ReadRangeAsync("link.txt", 2, 3, new ReadOptions { IfMatch = info.ETag }))
+            Assert.AreEqual("234", await new StreamReader(range).ReadToEndAsync());
+        await using (var seekable = await _provider.OpenReadSeekableAsync("link.txt"))
+            Assert.AreEqual("0123456789", await new StreamReader(seekable).ReadToEndAsync());
+
+        await Write("link.txt", "ab", UpdateFileOptions.Append with { IfMatch = info.ETag });
+        Assert.AreEqual("0123456789ab", await Read("link.txt"));
+        Assert.IsNull(new FileInfo(Disk("link.txt")).LinkTarget, "The link is replaced by a file");
+        Assert.AreEqual("0123456789", await Read("target.txt"), "Its target is left as it was");
+        if (!OperatingSystem.IsWindows())
+            Assert.AreEqual(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(Disk("link.txt")), "The target's mode, not the link's");
+
+        File.Delete(Disk("link.txt"));
+        File.CreateSymbolicLink(Disk("link.txt"), Disk("target.txt"));
+        await Write("link.txt", "new", new UpdateFileOptions { IfMatch = (await _provider.GetFileInfoAsync("link.txt")).ETag });
+        Assert.AreEqual("new", await Read("link.txt"));
+        Assert.AreEqual("0123456789", await Read("target.txt"));
+
+        // Links in a loop lead to no file: they are described as themselves, and a listing still works.
+        File.CreateSymbolicLink(Disk("loop1.txt"), Disk("loop2.txt"));
+        File.CreateSymbolicLink(Disk("loop2.txt"), Disk("loop1.txt"));
+        Assert.IsNotNull((await _provider.GetFileInfoAsync("loop1.txt")).ETag);
+        CollectionAssert.IsSubsetOf(new[] { "loop1.txt", "loop2.txt" }, Names());
+    }
+
+    [TestMethod]
     public async Task Write_OverAnEmptyFileReplacesIt()
     {
         // An empty file is checked to be a regular file before it is replaced.

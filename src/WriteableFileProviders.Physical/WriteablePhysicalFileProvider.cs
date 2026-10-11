@@ -27,10 +27,12 @@ namespace WriteableFileProviders.Physical;
 /// its source's bits exactly, whatever the umask, as <see cref="File.Copy(string, string)"/> does; both are set as the
 /// file is created, before any content is written. Access control lists and extended attributes are not carried over,
 /// nor, on Windows, the replaced file's own permissions. Other hard links to the file keep the old content, and a
-/// symbolic link at the path, a link to nothing included, is replaced by a file, its target left as it was.
+/// symbolic link at the path, a link to nothing included, is replaced by a file, its target left as it was; the new file
+/// takes the bits of the link's target, not the link's own.
 /// </para>
 /// <para>
-/// <b>Versions.</b> A file's <see cref="IWriteableFileInfo.ETag"/> is made from its last-write time and its length.
+/// <b>Versions.</b> A file's <see cref="IWriteableFileInfo.ETag"/> is made from its last-write time and its length; for a
+/// symbolic link to a file, those of its target, which reads open, as its <see cref="IFileInfo.Length"/> is.
 /// Each write through the provider stamps a last-write time later than the one it replaces, read back from the file
 /// system and stepped forward where it stores times coarsely (exFAT, HFS+, FAT), so it changes the ETag. Writes faster
 /// than that resolution step it further each time, so the time can run ahead of the clock without bound; bounding it
@@ -217,7 +219,7 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
             throw AlreadyExists(path);
         // Before anything else opens it: a file the write must not replace is refused, and the new file takes the mode of
         // the one it replaces.
-        var like = replaced.Exists && IsReplaceable(path, target, replaced) ? replaced : null;
+        var like = replaced.Exists && IsReplaceable(path, target, replaced) ? Followed(replaced) : null;
         if (options.Mode == UpdateFileMode.Append && like is not null)
         {
             // A file deleted since the probe is reported as missing.
@@ -296,7 +298,7 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
         {
             try
             {
-                await CommitAsync(destination, FullPath(destination), expected: null, mustBeNew: true, new FileInfo(from), input.CopyToAsync, cancellationToken).ConfigureAwait(false);
+                await CommitAsync(destination, FullPath(destination), expected: null, mustBeNew: true, Followed(new FileInfo(from)), input.CopyToAsync, cancellationToken).ConfigureAwait(false);
             }
             catch (PreconditionFailedException e)
             {
@@ -477,7 +479,7 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
             var current = new FileInfo(target);
             if (expected is not null && VersionOf(current) != expected)
                 throw Changed(path, expected);
-            Stamp(current.LastWriteTimeUtc, TimeProvider.GetUtcNow().UtcDateTime, time =>
+            Stamp(Followed(current).LastWriteTimeUtc, TimeProvider.GetUtcNow().UtcDateTime, time =>
             {
                 File.SetLastWriteTimeUtc(temp, time);
                 return File.GetLastWriteTimeUtc(temp);
@@ -507,7 +509,7 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
     {
         try
         {
-            var access = replaced.Length == 0 ? FileAccess.ReadWrite : FileAccess.Write;
+            var access = Followed(replaced).Length == 0 ? FileAccess.ReadWrite : FileAccess.Write;
             using var probe = new FileStream(target, FileMode.Open, access, ReadShare, bufferSize: 0);
             return probe.CanSeek ? true : throw new IOException($"The path '{path}' is not a regular file: a FIFO, a socket or a device.");
         }
@@ -552,15 +554,41 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
     private static string ETag(DateTime lastWriteTimeUtc, long length) =>
         string.Create(CultureInfo.InvariantCulture, $"{lastWriteTimeUtc.Ticks:x}-{length:x}");
 
-    private static string? VersionOf(FileInfo file) => file.Exists ? ETag(file.LastWriteTimeUtc, file.Length) : null;
+    private static string? VersionOf(FileInfo file)
+    {
+        if (!file.Exists)
+            return null;
+        var data = Followed(file);
+        return ETag(data.LastWriteTimeUtc, data.Length);
+    }
+
+    // What a path names as a file: for a symbolic link to a file, its final target, which reads open, so the length, the
+    // time, the ETag and the mode come from what is read; otherwise (a file, a link to nothing or in a loop) the entry.
+    private static FileInfo Followed(FileInfo file)
+    {
+        if (file.LinkTarget is null)
+            return file;
+        try
+        {
+            return file.ResolveLinkTarget(returnFinalTarget: true) is FileInfo { Exists: true } target ? target : file;
+        }
+        catch (IOException)
+        {
+            return file;
+        }
+    }
 
     private static string VersionOf(SafeFileHandle handle) => ETag(File.GetLastWriteTimeUtc(handle), RandomAccess.GetLength(handle));
 
     private static bool IsTempFile(string name) =>
         name.StartsWith(TempPrefix, StringComparison.Ordinal) && name.EndsWith(TempSuffix, StringComparison.Ordinal);
 
-    private WriteableFileInfo FileEntry(ProviderPath path, FileInfo file) =>
-        new(this, path, true, false, file.Length, file.LastWriteTimeUtc, file.FullName, ETag(file.LastWriteTimeUtc, file.Length));
+    // The physical path is the entry's own, under the root, even when it is a link to a file elsewhere.
+    private WriteableFileInfo FileEntry(ProviderPath path, FileInfo file)
+    {
+        var data = Followed(file);
+        return new(this, path, true, false, data.Length, data.LastWriteTimeUtc, file.FullName, ETag(data.LastWriteTimeUtc, data.Length));
+    }
 
     private WriteableFileInfo FolderEntry(ProviderPath path, FileSystemInfo folder) =>
         new(this, path, true, true, -1, folder.LastWriteTimeUtc, folder.FullName);

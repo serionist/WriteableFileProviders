@@ -132,7 +132,7 @@ public sealed partial class WriteableAzureBlobFileProvider
 
     /// <summary>
     /// A user delegation key that lasts until <paramref name="expiresOn"/>, or as long as Azure allows (7 days, less a
-    /// margin) when that is sooner, kept and reused while it does; the caller checks a URL against the key's expiry (D18).
+    /// margin) when that is sooner, kept and reused while it does; the caller checks a URL against the key's expiry.
     /// Null when the client cannot get one: a refusal of its credential (401, 403: no token credential, or no
     /// <c>generateUserDelegationKey</c> right) is remembered for a few minutes; any other answer only fails this call.
     /// </summary>

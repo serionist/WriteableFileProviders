@@ -718,6 +718,22 @@ public sealed class PhysicalProviderTests
     }
 
     [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task IfNotExists_WhenAFolderTakesTheNameDuringTheWrite_IsAFolder(bool byRenameWithoutReplacing)
+    {
+        // Only a file counts as existing: a folder made meanwhile is what a write without conditions would find there.
+        if (!byRenameWithoutReplacing && OperatingSystem.IsWindows())
+            Assert.Inconclusive("Windows refuses an exclusive create over a folder as access denied; Linux and macOS, which take names this way, answer that the name exists.");
+        TakeNewNames(byRenameWithoutReplacing);
+        var contents = new InterceptingStream(Encoding.UTF8.GetBytes("mine"), () => Directory.CreateDirectory(Disk("f.txt")));
+        var e = await Assert.ThrowsExactlyAsync<IOException>(() => _provider.UpdateFileAsync("f.txt", contents, new UpdateFileOptions { IfNotExists = true }));
+        StringAssert.Contains(e.Message, "is a folder");
+        Assert.IsTrue(Directory.Exists(Disk("f.txt")), "The folder is left as it was");
+        Assert.IsEmpty(TempFiles());
+    }
+
+    [TestMethod]
     public async Task Append_FailsWhenTheFileChangesWhileItCopies()
     {
         // On Physical, the check before the rename catches a change made while the append reads, but is not atomic.

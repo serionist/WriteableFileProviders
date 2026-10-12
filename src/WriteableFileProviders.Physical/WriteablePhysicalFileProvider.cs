@@ -47,10 +47,10 @@ namespace WriteableFileProviders.Physical;
 /// <para>
 /// <b>New names are taken atomically:</b> <see cref="UpdateFileOptions.IfNotExists"/>, an append to a missing file, and
 /// the destination of a move or a copy never replace a file that is there; a write that finds one throws
-/// <see cref="FileAlreadyExistsException"/>, a move or a copy <see cref="FileExistsException"/>. Windows renames without
-/// replacing. Linux and macOS, where .NET checks the name and then renames, take the name with an exclusive create and
-/// rename onto it, so the file exists empty for that moment: a watcher sees it, and a process that dies there leaves an
-/// empty file.
+/// <see cref="FileAlreadyExistsException"/>, a move or a copy <see cref="FileExistsException"/>. Windows renames
+/// without replacing. Linux and macOS, where .NET checks the name and then renames, take the name with an exclusive
+/// create and rename onto it, so the file exists empty for that moment: a watcher sees it, and a process that dies
+/// there leaves an empty file.
 /// </para>
 /// <para>
 /// <b>Reads</b> share the file with writers and deleters, and keep the content they opened. A delete goes ahead while a
@@ -593,7 +593,7 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
                 return File.GetLastWriteTimeUtc(temp);
             });
             if (mustBeNew)
-                RenameToNew(temp, target, e => AlreadyExists(path, e));
+                RenameToNew(temp, target, e => Directory.Exists(target) ? IsAFolder(path, e) : AlreadyExists(path, e));
             else
                 File.Move(temp, target, overwrite: true);
         }
@@ -795,6 +795,10 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
             // The failure that brought us here is the one to report; a temp file left behind stays out of listings.
         }
     }
+
+    // A folder that took the name during the write is what a write without conditions finds there, not a file.
+    private static IOException IsAFolder(ResolvedPath path, Exception innerException) =>
+        new($"The path '{path}' is a folder.", innerException);
 
     private static FileAlreadyExistsException AlreadyExists(ResolvedPath path, Exception? innerException = null) =>
         new($"The file '{path}' already exists.", innerException);

@@ -145,9 +145,12 @@ public abstract partial class WriteableFileProvider<TOptions>
     /// <param name="path">The file.</param>
     /// <param name="contents">The content.</param>
     /// <param name="options">
-    /// How to write, conditions included. They always reach here: when <see cref="SupportsAtomicPreconditions"/> is true
-    /// the store must check them as it writes; when it is false the base class has already checked them, just before this
-    /// call (not atomic), and the provider may still send them for the store to enforce where it can.
+    /// How to write, conditions included. They always reach here: when <see cref="SupportsAtomicPreconditions"/> is
+    /// true the store must check them as it writes; when it is false the base class has already checked them, just
+    /// before this call (not atomic), and the provider may still send them for the store to enforce where it can. A
+    /// store that refuses an <see cref="UpdateFileOptions.IfNotExists"/> write because a file is there throws
+    /// <see cref="FileAlreadyExistsException"/>; any other failed condition, <see cref="PreconditionFailedException"/>.
+    /// A folder at the path is not a file: it gets the answer a write without conditions gets.
     /// </param>
     /// <param name="cancellationToken">Cancels the call.</param>
     protected abstract Task UpdateFileCoreAsync(ResolvedPath path, Stream contents, UpdateFileOptions options, CancellationToken cancellationToken);
@@ -334,11 +337,14 @@ public abstract partial class WriteableFileProvider<TOptions>
     }
 
     /// <summary>
-    /// Appends by rewriting, for a store with no native append: the existing content and <paramref name="contents"/> are
-    /// spooled to a temp file, which then replaces the file with <see cref="UpdateFileOptions.IfMatch"/> on the version
-    /// that was read, so a concurrent change throws <see cref="PreconditionFailedException"/> instead of being lost. It
-    /// keeps the file's content type unless the caller gives one. It needs the file's
-    /// <see cref="IWriteableFileInfo.ETag"/>: an existing file without one throws <see cref="NotSupportedException"/>.
+    /// Appends by rewriting, for a store with no native append: the existing content and <paramref name="contents"/>
+    /// are spooled to a temp file, which then replaces the file with <see cref="UpdateFileOptions.IfMatch"/> on the
+    /// version that was read, so a concurrent change throws <see cref="PreconditionFailedException"/> instead of being
+    /// lost. Where no file was read (a missing path, or a folder), it writes with
+    /// <see cref="UpdateFileOptions.IfNotExists"/>, so a file created meanwhile throws
+    /// <see cref="FileAlreadyExistsException"/>, and a folder gets the store's answer. It keeps the file's content type
+    /// unless the caller gives one. It needs the file's <see cref="IWriteableFileInfo.ETag"/>: an existing file without
+    /// one throws <see cref="NotSupportedException"/>.
     /// </summary>
     /// <param name="path">The file.</param>
     /// <param name="contents">The content to add.</param>

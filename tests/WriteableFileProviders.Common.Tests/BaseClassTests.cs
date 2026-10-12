@@ -11,6 +11,12 @@ public sealed class BaseClassTests
 {
     private static StubProvider Stub(string? root = null) => new(new StubOptions { RootDirectoryPath = root });
 
+    private static async Task<string> ReadText(IWriteableFileProvider provider, string path)
+    {
+        await using var stream = await provider.ReadFileAsync(path);
+        return await new StreamReader(stream).ReadToEndAsync();
+    }
+
     [TestMethod]
     public async Task StoreNotFoundErrors_BecomeFileNotFound()
     {
@@ -71,7 +77,7 @@ public sealed class BaseClassTests
     }
 
     [TestMethod]
-    public async Task InMemoryStore_SettlesACreateTheBaseCheckMissed()
+    public async Task InMemoryStore_SettlesConditionsTheBaseCheckMissed()
     {
         // The reference provider's conditions are checked before the write, not atomically; its store checks them
         // again under its lock, so a file written between the two refuses the create and keeps its content.
@@ -82,8 +88,14 @@ public sealed class BaseClassTests
             var racing = new InterceptingStream("mine"u8.ToArray(),
                 () => provider.UpdateFileAsync("f.txt", TestStreams.Text("theirs")).GetAwaiter().GetResult());
             await Assert.ThrowsExactlyAsync<FileAlreadyExistsException>(() => provider.UpdateFileAsync("f.txt", racing, new UpdateFileOptions { IfNotExists = true }));
-            await using var read = await provider.ReadFileAsync("f.txt");
-            Assert.AreEqual("theirs", await new StreamReader(read).ReadToEndAsync());
+            Assert.AreEqual("theirs", await ReadText(provider, "f.txt"));
+
+            // The same for a version: a write between the base check and the lock changes the ETag the caller gave.
+            var etag = (await provider.GetFileInfoAsync("f.txt")).ETag;
+            racing = new InterceptingStream("mine"u8.ToArray(),
+                () => provider.UpdateFileAsync("f.txt", TestStreams.Text("newer")).GetAwaiter().GetResult());
+            await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => provider.UpdateFileAsync("f.txt", racing, new UpdateFileOptions { IfMatch = etag }));
+            Assert.AreEqual("newer", await ReadText(provider, "f.txt"));
         }
         finally
         {

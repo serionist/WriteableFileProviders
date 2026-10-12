@@ -18,9 +18,12 @@ version's section as its GitHub release notes.
 
 - **`IfNotExists` where a folder has the name** gets the answer a write without conditions gets there, on every
   provider, instead of "already exists" on some:
-  - Box and SharePoint throw `IOException` instead of `PreconditionFailedException`;
+  - Box (as it ships, without `If-Match`) and SharePoint throw `IOException` instead of
+    `PreconditionFailedException`;
   - MinIO and S3 toward a named endpoint write the file beside the folder, as AWS, Azure and Google Cloud Storage do;
-  - an append with `IfNotExists` there does the same.
+  - an append with `IfNotExists` there does the same;
+  - WriteableFileProviders.AspNetCore: a gateway create URL whose path is a folder answers 201 (the file beside it) or
+    500 (a real folder), where it answered 412.
 - **A plain append to a folder path stays create-only** on S3, MinIO and Google Cloud Storage. It could replace a file
   another writer created there at the same moment.
 - **The default `CopyCoreAsync` and `MoveCoreAsync`** (third-party providers that keep them) throw

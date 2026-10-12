@@ -375,14 +375,19 @@ public abstract class S3OfflineTests
         var conflicted = new HashSet<string>(StringComparer.Ordinal);
         var (provider, _) = Offline(r =>
         {
-            if (r.Method == HttpMethod.Put && (IsKey(r, "taken.txt") || IsKey(r, "gone.txt")))
+            if (r.Method == HttpMethod.Put && (IsKey(r, "taken.txt") || IsKey(r, "gone.txt") || IsKey(r, "unknown.txt")))
             {
                 conflicted.Add(r.RequestUri!.AbsolutePath);
                 return Task.FromResult<HttpResponseMessage?>(Error(HttpStatusCode.Conflict, "ConditionalRequestConflict"));
             }
-            if (r.Method == HttpMethod.Head && IsKey(r, "taken.txt") && conflicted.Contains(r.RequestUri!.AbsolutePath))
-                return Task.FromResult<HttpResponseMessage?>(Existing(r));
-            return Task.FromResult(Missing(r, "taken.txt") ?? Missing(r, "gone.txt"));
+            if (r.Method == HttpMethod.Head && conflicted.Contains(r.RequestUri!.AbsolutePath))
+            {
+                // After the conflict: the file is there, gone, or the HEAD itself is refused.
+                return Task.FromResult<HttpResponseMessage?>(IsKey(r, "taken.txt") ? Existing(r)
+                    : IsKey(r, "unknown.txt") ? Error(HttpStatusCode.Forbidden, "AccessDenied")
+                    : Empty(HttpStatusCode.NotFound));
+            }
+            return Task.FromResult(Missing(r, "taken.txt") ?? Missing(r, "gone.txt") ?? Missing(r, "unknown.txt"));
         });
         using (provider)
         {
@@ -391,6 +396,9 @@ public abstract class S3OfflineTests
             var gone = await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() =>
                 provider.UpdateFileAsync("gone.txt", new MemoryStream([1]), new UpdateFileOptions { IfNotExists = true }));
             StringAssert.Contains(gone.Message, "retried");
+            // A HEAD that can't say reports the conflict, not a refusal of the HEAD.
+            await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() =>
+                provider.UpdateFileAsync("unknown.txt", new MemoryStream([1]), new UpdateFileOptions { IfNotExists = true }));
         }
     }
 

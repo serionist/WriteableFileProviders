@@ -190,8 +190,8 @@ public sealed partial class WriteableSharePointFileProvider
     }
 
     // A 409 under the "fail" conflict behaviour says only that the name is taken: a file there is the create-only
-    // failure; a folder gets what a write without conditions gets there; nothing there (deleted meanwhile), or no answer
-    // to the lookup, is a conflict the caller can retry.
+    // failure; a folder gets what a write without conditions gets there; nothing there (deleted meanwhile), or no
+    // answer to the lookup, is a conflict the caller can retry.
     private async Task<Exception> CreateConflictAsync(ResolvedPath path, Exception conflict)
     {
         IWriteableFileInfo? info;

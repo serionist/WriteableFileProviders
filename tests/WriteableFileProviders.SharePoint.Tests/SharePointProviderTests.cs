@@ -327,6 +327,33 @@ public sealed class SharePointProviderTests
         Assert.AreEqual("below", Text(fake.GetFile("r/dir/x.txt")));
     }
 
+    [TestMethod]
+    public async Task IfNotExists_ConflictWhoseLookupFails_CanBeRetried()
+    {
+        // The lookup after the 409 only picks the exception's type: when it fails, the write reports the conflict.
+        var (provider, fake) = Create();
+        fake.Intercept = r =>
+        {
+            if (r.Method != "PUT" || !r.Path.EndsWith("/f.bin:/content", StringComparison.Ordinal))
+                return null;
+            fake.FailNext(1, HttpStatusCode.Forbidden, g => g.Method == "GET" && g.Path.Contains("/root:/", StringComparison.Ordinal), GraphFake.ErrorJson("accessDenied", "No."));
+            return NameAlreadyExists();
+        };
+        var e = await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() =>
+            provider.UpdateFileAsync("f.bin", new MemoryStream(TestStreams.Bytes(4)), new UpdateFileOptions { IfNotExists = true }));
+        StringAssert.Contains(e.Message, "retried");
+    }
+
+    [TestMethod]
+    public async Task IfNotExists_ConflictAtTheSessionsCommitWithNothingThere_CanBeRetried()
+    {
+        var (provider, fake) = Create(configure: f => f.Intercept = r => IsFragment(r) ? NameAlreadyExists() : null);
+        var e = await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() =>
+            provider.UpdateFileAsync("big.bin", new MemoryStream(TestStreams.Bytes(400_000)), new UpdateFileOptions { IfNotExists = true }));
+        StringAssert.Contains(e.Message, "retried");
+        Assert.AreEqual(0, fake.OpenSessions, "The session is cancelled");
+    }
+
     private static HttpResponseMessage NameAlreadyExists() =>
         new(HttpStatusCode.Conflict) { Content = new StringContent(GraphFake.ErrorJson("nameAlreadyExists", "Name already exists"), Encoding.UTF8, "application/json") };
 

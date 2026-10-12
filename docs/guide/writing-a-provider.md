@@ -93,6 +93,10 @@ Declare what the store can do. Until you do, the base refuses or weakens the ope
   `UnauthorizedAccessException` when `IsAccessDenied` does, and `IOException` otherwise, timeouts included.
 - Override `IsNotFound` and `IsAccessDenied` for your SDK. Where you know better, throw a contract type yourself: it
   passes through.
+- **Conditions.** When your store refuses an `IfNotExists` write because a file is there, throw
+  `FileAlreadyExistsException`; any other failed condition throws `PreconditionFailedException`. A folder at the path
+  isn't a file: answer as you would without conditions (`IOException` where folders are real, the file beside it where
+  they are name prefixes). The conformance suite checks the exact types.
 - **The root** is checked when the provider is built, like a path, and kept. Read it as `Resolve(ProviderPath.Root)`,
   not from the options, which a caller can still change. If your root isn't a path in the store (a folder on disk),
   override `ValidatesRootDirectory` to return false and check it yourself.

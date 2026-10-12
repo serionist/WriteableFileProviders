@@ -26,9 +26,9 @@ public sealed record UpdateFileOptions
 
     /// <summary>
     /// Write only if the file does not exist yet; otherwise throw <see cref="FileAlreadyExistsException"/>, a
-    /// <see cref="PreconditionFailedException"/>. Only a file counts: a folder at the path gets the answer a write without
-    /// conditions gets there (an <see cref="IOException"/> where folders are real, the file stored beside it where folders
-    /// are name prefixes).
+    /// <see cref="PreconditionFailedException"/>. Only a file counts: a folder at the path gets the answer a write
+    /// without conditions gets there (an <see cref="IOException"/> where folders are real, the file stored beside it
+    /// where folders are name prefixes).
     /// </summary>
     public bool IfNotExists { get; init; }
 }

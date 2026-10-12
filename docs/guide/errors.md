@@ -8,8 +8,8 @@ for when you need its status or error code.
 | `ArgumentException` (and `ArgumentNullException`, `ArgumentOutOfRangeException`) | A path or an option the provider refuses. |
 | `FileNotFoundException` | The file doesn't exist, or is a folder. |
 | `FileExistsException` | The destination of a copy or a move exists. |
-| `FileAlreadyExistsException` | A write with `IfNotExists` found a file at its path. It is a `PreconditionFailedException`. |
-| `PreconditionFailedException` | `IfMatch` didn't hold, a pinned read's file changed, or a write conflicted with a concurrent change; and, as its subtype above, `IfNotExists` didn't hold. |
+| `FileAlreadyExistsException` | A write with `IfNotExists` found a file at its path; or, where the provider refuses it, an append to a missing file that another writer created meanwhile ([providers compared](providers.md#reads-and-writes)). It is a `PreconditionFailedException`. |
+| `PreconditionFailedException` | `IfMatch` didn't hold, a pinned read's file changed, an append found its file changed, or the store reported a conflict with a concurrent operation (the write can be retried); and, as its subtype above, `IfNotExists` didn't hold. |
 | `NotSupportedException` | The provider or its store can't do it. |
 | `InvalidOperationException` | The store isn't set up as configured (a missing container, bucket, library or root folder, or no credentials to find), or you tried to modify the root. |
 | `UnauthorizedAccessException` | The store refused the credential or the permission: HTTP 401 or 403, or a refused sign-in. |

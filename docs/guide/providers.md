@@ -40,12 +40,13 @@ whose condition fails. **Checked** means the provider compares just before writi
    configuration), checked, then sent for the server to enforce.
 2. Atomic where the MinIO release enforces conditional writes.
 
-`IfNotExists` that finds a file throws `FileAlreadyExistsException` on every provider. Only a file counts: where a folder
-has the name, the write gets the answer it gets without conditions.
+`IfNotExists` that finds a file throws `FileAlreadyExistsException` on every provider. Only a file counts: where a
+folder has the name, the write gets the answer it gets without conditions.
 
 An append to a missing file that another writer creates at the same moment ends differently: Azure Blob appends after
-the new content, and every other provider refuses with `FileAlreadyExistsException`. Either way the other writer's
-content is kept.
+the new content, and every other provider refuses with `FileAlreadyExistsException`. Where the store enforces the
+condition (**Atomic** in the `IfNotExists` column), the other writer's content is kept either way; where it is only
+checked, a file created in between can be replaced.
 
 Every provider reads byte ranges natively; Box and SharePoint read them from the file's download URL.
 

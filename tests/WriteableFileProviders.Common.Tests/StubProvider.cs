@@ -72,8 +72,8 @@ public sealed class StubProvider(StubOptions options) : WriteableFileProvider<St
     public bool AtomicPreconditions { get; set; }
 
     /// <summary>
-    /// What the store throws for a create-only write, as a store does when a file appeared after the base class's check;
-    /// null to write.
+    /// What the store throws for a create-only write, as a store does when a file appeared after the base class's
+    /// check; null to write.
     /// </summary>
     public Exception? CreateFailure { get; set; }
 

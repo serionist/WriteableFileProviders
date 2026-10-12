@@ -43,7 +43,7 @@ internal sealed partial class S3Core
         }
         catch (AmazonS3Exception e) when (IsConditionFailure(e) || (options.IfMatch is not null && IsNotFound(e)))
         {
-            // 412: the condition failed; 409: a concurrent operation on the key won; 404 with If-Match: no file to match.
+            // 412: the condition failed; 409: a concurrent operation on the key won; 404 with If-Match: none to match.
             if (!options.IfNotExists)
                 throw Changed(path, options.IfMatch, e);
             // A 409 also answers a write that a concurrent delete overtook, so the file need not be there.

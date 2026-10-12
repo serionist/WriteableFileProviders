@@ -5,7 +5,11 @@ Every package releases together, at one version
 that changes something consumers notice adds a line under the next version's heading. `release.yml` publishes a
 version's section as its GitHub release notes.
 
-## 2027.1.0 (unreleased)
+## 2027.1.0 (2026-10-12)
+
+Additions and fixes, nothing that breaks: a create-only write's own exception, an injectable clock, Physical's link
+refusal and leftover sweep, and a configurable gateway purpose. The conformance suite now races writers creating one
+file, which found the Physical fix below.
 
 ### Added
 
@@ -13,8 +17,8 @@ version's section as its GitHub release notes.
   every provider. It derives from `PreconditionFailedException`, so existing catches still catch it; catch it first to
   tell "created meanwhile" from "changed meanwhile". Code that checks for exactly `PreconditionFailedException` (its
   `GetType()`, or a test's `ThrowsExactly`) now sees the subtype there.
-- **`Clock`** (every provider): a public `TimeProvider`, set as the provider is built (`new X(options) { Clock = clock
-  }`), which every time a provider computes comes from: signed URL times and `ExpiresOn`, Azure Blob's user delegation
+- **`Clock`** (every provider): a public `TimeProvider`, set as the provider is built
+  (`new X(options) { Clock = clock }`), which every time a provider computes comes from: signed URL times and `ExpiresOn`, Azure Blob's user delegation
   key cache, Box's and SharePoint's waits, Physical's write stamps and its sweep. Azure Blob signs its URL's times on
   it; Amazon S3, MinIO and Google Cloud Storage sign with their SDK's clock, so there only `ExpiresOn` follows it. A
   provider built from configuration keeps the system clock. A third-party provider with a member named `Clock` of its
@@ -49,6 +53,8 @@ version's section as its GitHub release notes.
   `FileAlreadyExistsException` only when a file is then there. When a concurrent delete overtook the write and nothing
   is there, it throws `PreconditionFailedException`, and the write can be retried.
 - **SharePoint:** likewise for a 409 under `IfNotExists` whose name holds nothing when the provider looks.
+- **The gateway** (AspNetCore) answers 404, not 500, when its provider refuses a download's path between reading its
+  info and its bytes (Physical's `RefuseLinks`, once a link is put on the path).
 - **Physical on Linux and macOS:** a write or a copy that takes a new name (`IfNotExists`, an append to a missing file,
   a copy) gives it the content with a hard link, so the name never holds an empty file meanwhile. An append that
   landed in that moment could report success and then be replaced. A move's destination, and a file system that

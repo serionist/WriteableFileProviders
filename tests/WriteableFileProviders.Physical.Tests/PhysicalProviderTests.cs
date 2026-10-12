@@ -709,12 +709,28 @@ public sealed class PhysicalProviderTests
     {
         TakeNewNames(byRenameWithoutReplacing);
         var contents = new InterceptingStream(Encoding.UTF8.GetBytes("mine"), () => File.WriteAllText(Disk("f.txt"), "theirs"));
-        var e = await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => _provider.UpdateFileAsync("f.txt", contents, new UpdateFileOptions { IfNotExists = true }));
+        var e = await Assert.ThrowsExactlyAsync<FileAlreadyExistsException>(() => _provider.UpdateFileAsync("f.txt", contents, new UpdateFileOptions { IfNotExists = true }));
         Assert.IsInstanceOfType<IOException>(e.InnerException);
         Assert.AreEqual("theirs", await Read("f.txt"));
         Assert.IsEmpty(TempFiles());
         await Write("g.txt", "new", new UpdateFileOptions { IfNotExists = true });
         Assert.AreEqual("new", await Read("g.txt"));
+    }
+
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task IfNotExists_WhenAFolderTakesTheNameDuringTheWrite_IsAFolder(bool byRenameWithoutReplacing)
+    {
+        // Only a file counts as existing: a folder made meanwhile is what a write without conditions would find there.
+        if (!byRenameWithoutReplacing && OperatingSystem.IsWindows())
+            Assert.Inconclusive("Windows refuses an exclusive create over a folder as access denied; Linux and macOS, which take names this way, answer that the name exists.");
+        TakeNewNames(byRenameWithoutReplacing);
+        var contents = new InterceptingStream(Encoding.UTF8.GetBytes("mine"), () => Directory.CreateDirectory(Disk("f.txt")));
+        var e = await Assert.ThrowsExactlyAsync<IOException>(() => _provider.UpdateFileAsync("f.txt", contents, new UpdateFileOptions { IfNotExists = true }));
+        StringAssert.Contains(e.Message, "is a folder");
+        Assert.IsTrue(Directory.Exists(Disk("f.txt")), "The folder is left as it was");
+        Assert.IsEmpty(TempFiles());
     }
 
     [TestMethod]
@@ -735,7 +751,7 @@ public sealed class PhysicalProviderTests
     {
         TakeNewNames(byRenameWithoutReplacing);
         var contents = new InterceptingStream(Encoding.UTF8.GetBytes("mine"), () => File.WriteAllText(Disk("f.txt"), "theirs"));
-        await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => _provider.UpdateFileAsync("f.txt", contents, UpdateFileOptions.Append));
+        await Assert.ThrowsExactlyAsync<FileAlreadyExistsException>(() => _provider.UpdateFileAsync("f.txt", contents, UpdateFileOptions.Append));
         Assert.AreEqual("theirs", await Read("f.txt"));
         Assert.IsEmpty(TempFiles());
     }
@@ -748,7 +764,7 @@ public sealed class PhysicalProviderTests
         await Write("f.txt", "b", UpdateFileOptions.Append with { IfMatch = etag });
         Assert.AreEqual("ab", await Read("f.txt"));
         await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => Write("f.txt", "c", UpdateFileOptions.Append with { IfMatch = etag }));
-        await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => Write("f.txt", "c", UpdateFileOptions.Append with { IfNotExists = true }));
+        await Assert.ThrowsExactlyAsync<FileAlreadyExistsException>(() => Write("f.txt", "c", UpdateFileOptions.Append with { IfNotExists = true }));
         await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => Write("missing.txt", "c", UpdateFileOptions.Append with { IfMatch = etag }));
         Assert.AreEqual("ab", await Read("f.txt"));
         Assert.IsFalse(File.Exists(Disk("missing.txt")));
@@ -962,9 +978,20 @@ public sealed class PhysicalProviderTests
         var move = await Assert.ThrowsExactlyAsync<FileExistsException>(() => _provider.MoveCore("a.txt", "b.txt"));
         Assert.IsInstanceOfType<IOException>(move.InnerException);
         var copy = await Assert.ThrowsExactlyAsync<FileExistsException>(() => _provider.CopyCore("a.txt", "b.txt"));
-        Assert.IsInstanceOfType<PreconditionFailedException>(copy.InnerException);
+        Assert.IsInstanceOfType<IOException>(copy.InnerException);
         Assert.AreEqual("a", await Read("a.txt"));
         Assert.AreEqual("b", await Read("b.txt"));
+
+        // A folder that took the destination is a destination that exists, for a copy as for a move. (Windows refuses an
+        // exclusive create over a folder as access denied; only Linux and macOS take names that way in production.)
+        if (byRenameWithoutReplacing || !OperatingSystem.IsWindows())
+        {
+            Directory.CreateDirectory(Disk("d"));
+            await Assert.ThrowsExactlyAsync<FileExistsException>(() => _provider.CopyCore("a.txt", "d"));
+            await Assert.ThrowsExactlyAsync<FileExistsException>(() => _provider.MoveCore("a.txt", "d"));
+            Assert.IsTrue(Directory.Exists(Disk("d")));
+            Assert.AreEqual("a", await Read("a.txt"));
+        }
         Assert.IsEmpty(TempFiles());
     }
 

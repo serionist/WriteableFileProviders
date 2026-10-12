@@ -254,13 +254,13 @@ public sealed class BoxWriteTests
     }
 
     [TestMethod]
-    public async Task ConcurrentCreate_WithIfNotExists_IsPreconditionFailed()
+    public async Task ConcurrentCreate_WithIfNotExists_IsAFileThatAlreadyExists()
     {
         var box = new FakeBox();
         box.Intercept = CreateFirst(box, "f.txt", "theirs");
         using var provider = _credentials.Provider(box);
 
-        await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() =>
+        await Assert.ThrowsExactlyAsync<FileAlreadyExistsException>(() =>
             provider.UpdateFileAsync("f.txt", TestStreams.Text("mine"), new UpdateFileOptions { IfNotExists = true }));
 
         Assert.AreEqual("theirs", box.ContentOf("f.txt"));

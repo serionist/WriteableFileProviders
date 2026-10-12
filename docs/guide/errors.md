@@ -8,7 +8,8 @@ for when you need its status or error code.
 | `ArgumentException` (and `ArgumentNullException`, `ArgumentOutOfRangeException`) | A path or an option the provider refuses. |
 | `FileNotFoundException` | The file doesn't exist, or is a folder. |
 | `FileExistsException` | The destination of a copy or a move exists. |
-| `PreconditionFailedException` | `IfMatch` or `IfNotExists` didn't hold, or a pinned read's file changed. |
+| `FileAlreadyExistsException` | A write with `IfNotExists` found a file at its path; or, where the provider refuses it, an append to a missing file that another writer created meanwhile ([providers compared](providers.md#reads-and-writes)). It is a `PreconditionFailedException`. |
+| `PreconditionFailedException` | `IfMatch` didn't hold, a pinned read's file changed, an append found its file changed, a copy's or a move's source changed while it was copied, or the store reported a conflict with a concurrent operation (the write can be retried); and, as its subtype above, `IfNotExists` didn't hold. |
 | `NotSupportedException` | The provider or its store can't do it. |
 | `InvalidOperationException` | The store isn't set up as configured (a missing container, bucket, library or root folder, or no credentials to find), or you tried to modify the root. |
 | `UnauthorizedAccessException` | The store refused the credential or the permission: HTTP 401 or 403, or a refused sign-in. |
@@ -16,7 +17,14 @@ for when you need its status or error code.
 | `ObjectDisposedException` | The provider is disposed. |
 | `OperationCanceledException` | Only when your cancellation token cancelled the call. |
 
-- `FileExistsException` and `PreconditionFailedException` derive from `IOException`.
+- `FileExistsException` and `PreconditionFailedException` derive from `IOException`, and `FileAlreadyExistsException`
+  from `PreconditionFailedException`, so a `catch (PreconditionFailedException)` catches it too. Catch it first to
+  tell "someone created it" from "someone changed it".
+- `FileExistsException` (a copy's or a move's destination) and `FileAlreadyExistsException` (an `IfNotExists` write)
+  are different types: neither catches the other.
+- A write with `IfNotExists` where a folder is at the path gets what a write without conditions gets there:
+  `IOException` where folders are real (Physical, Box, SharePoint), the file stored beside the folder where folders are
+  name prefixes (the object stores).
 - An exception that already is one of these types passes as it is. `OutOfMemoryException` passes unmapped.
 - The same holds for reads of a stream a member returned, each step of `EnumerateAsync`, and a local stream's commit.
 - If the stream you give `UpdateFileAsync` fails, its exception reaches you as it is when it is one of these types (an

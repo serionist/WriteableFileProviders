@@ -181,12 +181,36 @@ public sealed partial class WriteableSharePointFileProvider
         }
         catch (Exception e) when (options.IfNotExists && GraphErrors.Status(e) == 409)
         {
-            throw new PreconditionFailedException($"The file '{path}' already exists.", e);
+            throw await CreateConflictAsync(path, e).ConfigureAwait(false);
         }
         catch (Exception e) when (GraphErrors.IsFailure(e))
         {
             throw Failure(e, what);
         }
+    }
+
+    // A 409 under the "fail" conflict behaviour says only that the name is taken: a file there is the create-only
+    // failure; a folder gets what a write without conditions gets there; nothing there (deleted meanwhile), or no
+    // answer to the lookup, is a conflict the caller can retry.
+    private async Task<Exception> CreateConflictAsync(ResolvedPath path, Exception conflict)
+    {
+        IWriteableFileInfo? info;
+        try
+        {
+            info = await GetFileInfoCoreAsync(path, CancellationToken.None).ConfigureAwait(false);
+        }
+#pragma warning disable CA1031 // The write's own failure is the one to report; the lookup only picks its type.
+        catch (Exception)
+#pragma warning restore CA1031
+        {
+            info = null;
+        }
+        return info switch
+        {
+            { Exists: true, IsDirectory: true } => new IOException($"The path '{path}' is a folder.", conflict),
+            { Exists: true } => new FileAlreadyExistsException($"The file '{path}' already exists.", conflict),
+            _ => new PreconditionFailedException($"Writing '{path}' conflicted with a concurrent operation on it, and nothing was written; the write can be retried.", conflict),
+        };
     }
 
     /// <summary>
@@ -217,7 +241,7 @@ public sealed partial class WriteableSharePointFileProvider
         }
         catch (Exception e) when (options.IfNotExists && GraphErrors.Status(e) == 409)
         {
-            throw new PreconditionFailedException($"The file '{path}' already exists.", e);
+            throw await CreateConflictAsync(path, e).ConfigureAwait(false);
         }
         catch (Exception e) when (GraphErrors.IsFailure(e))
         {
@@ -266,7 +290,7 @@ public sealed partial class WriteableSharePointFileProvider
                         offset = next;
                         continue;
                     case HttpStatusCode.Conflict when options.IfNotExists:
-                        throw new PreconditionFailedException($"The file '{path}' already exists.");
+                        throw await CreateConflictAsync(path, GraphErrors.FromResponse((int)status, answer, what)).ConfigureAwait(false);
                     default:
                         throw GraphErrors.FromResponse((int)status, answer, what);
                 }

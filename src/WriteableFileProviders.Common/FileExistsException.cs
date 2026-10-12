@@ -1,6 +1,10 @@
 namespace WriteableFileProviders;
 
-/// <summary>The destination of a move or a copy already exists; it was left unchanged.</summary>
+/// <summary>
+/// The destination of a move or a copy already exists; it was left unchanged. A write with
+/// <see cref="UpdateFileOptions.IfNotExists"/> that finds its file throws <see cref="FileAlreadyExistsException"/>
+/// instead.
+/// </summary>
 public class FileExistsException : IOException
 {
     /// <summary>Creates the exception.</summary>

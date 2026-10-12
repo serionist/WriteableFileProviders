@@ -5,6 +5,35 @@ Every package releases together, at one version
 that changes something consumers notice adds a line under the next version's heading. `release.yml` publishes a
 version's section as its GitHub release notes.
 
+## 2027.1.0 (unreleased)
+
+### Added
+
+- **`FileAlreadyExistsException`** (Common): a write with `IfNotExists` that finds a file at its path throws it, on
+  every provider. It derives from `PreconditionFailedException`, so existing catches still catch it; catch it first to
+  tell "created meanwhile" from "changed meanwhile". Code that checks for exactly `PreconditionFailedException` (its
+  `GetType()`, or a test's `ThrowsExactly`) now sees the subtype there.
+
+### Fixed
+
+- **`IfNotExists` where a folder has the name** gets the answer a write without conditions gets there, on every
+  provider, instead of "already exists" on some:
+  - Box (as it ships, without `If-Match`) and SharePoint throw `IOException` instead of
+    `PreconditionFailedException`, and so does Physical when a folder takes the name during the write;
+  - MinIO and S3 toward a named endpoint write the file beside the folder, as AWS, Azure and Google Cloud Storage do;
+  - an append with `IfNotExists` there does the same;
+  - WriteableFileProviders.AspNetCore: a gateway create URL whose path is a folder answers 201 (the file beside it) or
+    500 (a real folder), where it answered 412.
+- **A plain append to a folder path stays create-only** on S3, MinIO and Google Cloud Storage. It could replace a file
+  another writer created there at the same moment.
+- **The default `CopyCoreAsync` and `MoveCoreAsync`** (third-party providers that keep them) throw
+  `FileExistsException` when the destination appears during the copy, as `CopyAsync` documents, instead of
+  `PreconditionFailedException`.
+- **S3 and MinIO:** a create-only write that S3 answers with 409 `ConditionalRequestConflict` throws
+  `FileAlreadyExistsException` only when a file is then there. When a concurrent delete overtook the write and nothing
+  is there, it throws `PreconditionFailedException`, and the write can be retried.
+- **SharePoint:** likewise for a 409 under `IfNotExists` whose name holds nothing when the provider looks.
+
 ## 2027.0.0 (2026-10-11)
 
 The first SemVer release, and a major one: rebuilt on .NET 10 around one async API that means the same on every store.

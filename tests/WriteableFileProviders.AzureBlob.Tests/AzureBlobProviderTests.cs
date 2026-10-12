@@ -180,7 +180,7 @@ public sealed partial class AzureBlobProviderTests
         await provider.UpdateFileAsync("new.txt", TestStreams.Text("a"), new UpdateFileOptions { Mode = UpdateFileMode.Append, IfNotExists = true });
         Assert.AreEqual("a", await ReadRaw("new.txt"));
         Assert.AreEqual("application/octet-stream", (await provider.GetFileInfoAsync("new.txt")).ContentType);
-        await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => provider.UpdateFileAsync("new.txt", TestStreams.Text("b"), new UpdateFileOptions { Mode = UpdateFileMode.Append, IfNotExists = true }));
+        await Assert.ThrowsExactlyAsync<FileAlreadyExistsException>(() => provider.UpdateFileAsync("new.txt", TestStreams.Text("b"), new UpdateFileOptions { Mode = UpdateFileMode.Append, IfNotExists = true }));
         await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => provider.UpdateFileAsync("missing.txt", TestStreams.Text("b"), new UpdateFileOptions { Mode = UpdateFileMode.Append, IfMatch = "\"0x1\"" }));
         var etag = (await provider.GetFileInfoAsync("new.txt")).ETag;
         await provider.UpdateFileAsync("new.txt", TestStreams.Text("b"), new UpdateFileOptions { Mode = UpdateFileMode.Append, IfMatch = etag });
@@ -389,7 +389,7 @@ public sealed partial class AzureBlobProviderTests
         var legacy = await LegacyAppendBlob("legacy.txt", "old");
         var etag = (await legacy.GetPropertiesAsync()).Value.ETag;
         using var provider = Provider();
-        await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => Write(provider, "legacy.txt", "x", new UpdateFileOptions { IfNotExists = true }));
+        await Assert.ThrowsExactlyAsync<FileAlreadyExistsException>(() => Write(provider, "legacy.txt", "x", new UpdateFileOptions { IfNotExists = true }));
         await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => Write(provider, "legacy.txt", "x", new UpdateFileOptions { IfMatch = "\"0x8D000000000000\"" }));
         await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => provider.UpdateFileAsync("legacy.txt", TestStreams.Text("x"), new UpdateFileOptions { Mode = UpdateFileMode.Append, IfMatch = "\"0x8D000000000000\"" }));
         Assert.AreEqual("old", await ReadRaw("legacy.txt"));

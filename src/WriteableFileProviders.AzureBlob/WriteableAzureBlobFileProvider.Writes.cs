@@ -197,7 +197,7 @@ public sealed partial class WriteableAzureBlobFileProvider
         if (current?.BlobType == BlobType.Page)
             throw new NotSupportedException($"The file '{path}' is a page blob, which {nameof(WriteableAzureBlobFileProvider)} reads but does not write.");
         if (options.IfNotExists && current is not null)
-            throw new PreconditionFailedException($"The file '{path}' already exists.");
+            throw new FileAlreadyExistsException($"The file '{path}' already exists.");
         if (options.IfMatch is { } ifMatch && (current is null || !SameTag(current.ETag, ifMatch)))
             throw new PreconditionFailedException($"The file '{path}' changed: its version is no longer '{ifMatch}'.");
     }
@@ -545,8 +545,8 @@ public sealed partial class WriteableAzureBlobFileProvider
 
     private static PreconditionFailedException PreconditionFailed(ResolvedPath path, UpdateFileOptions options, Exception? innerException) =>
         options.IfNotExists
-            ? new($"The file '{path}' already exists.", innerException)
-            : new($"The file '{path}' changed: its version is no longer '{options.IfMatch}'.", innerException);
+            ? new FileAlreadyExistsException($"The file '{path}' already exists.", innerException)
+            : new PreconditionFailedException($"The file '{path}' changed: its version is no longer '{options.IfMatch}'.", innerException);
 
     // An append keeps what describes the file; a stored hash would describe the old content, so it goes.
     private static BlobHttpHeaders CarriedHeaders(BlobProperties current, string? contentType) => new()

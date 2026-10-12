@@ -283,7 +283,7 @@ public abstract class S3BehaviourTests
         using (provider)
         {
             await provider.UpdateFileAsync("f.bin", TestStreams.Text("old"));
-            await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() =>
+            await Assert.ThrowsExactlyAsync<FileAlreadyExistsException>(() =>
                 provider.UpdateFileAsync("f.bin", new MemoryStream(TestStreams.Bytes(6 * MiB)), new UpdateFileOptions { IfNotExists = true }));
             if (KeepsContentOnAbort)
                 Assert.AreEqual("old", await ReadAsync(provider, "f.bin"));

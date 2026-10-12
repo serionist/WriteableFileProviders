@@ -49,7 +49,7 @@ public sealed partial class WriteableBoxFileProvider
             if (options.IfMatch is not null && !string.Equals(existing?.ETag, options.IfMatch, StringComparison.Ordinal))
                 throw Changed(path, options.IfMatch);
             if (existing is not null && options.IfNotExists)
-                throw new PreconditionFailedException($"The file '{path}' already exists.");
+                throw new FileAlreadyExistsException($"The file '{path}' already exists.");
             try
             {
                 if (existing is null)

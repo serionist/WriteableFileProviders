@@ -145,6 +145,13 @@ public sealed class InMemoryFileProvider(InMemoryFileProviderOptions options) : 
         {
             if (Files.Folders.Contains(key))
                 throw new IOException($"The path '{path}' is a folder.");
+            // The store checks the conditions again under its lock, as a real store does on the write: the base class's
+            // check before this call is not atomic, so writers racing past it are settled here.
+            Files.Entries.TryGetValue(key, out var current);
+            if (options.IfNotExists && current is not null)
+                throw new FileAlreadyExistsException($"The file '{path}' already exists.");
+            if (options.IfMatch is { } ifMatch && current?.ETag != ifMatch)
+                throw new PreconditionFailedException($"The file '{path}' changed: its version is no longer '{ifMatch}'.");
             var segments = path.AbsoluteSegments;
             // Folders are real here, as on a disk: a file cannot hold one.
             for (var i = 1; i < segments.Length; i++)

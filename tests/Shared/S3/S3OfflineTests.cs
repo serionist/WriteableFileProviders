@@ -368,6 +368,41 @@ public abstract class S3OfflineTests
     }
 
     [TestMethod]
+    public async Task Write_ConflictIsAFileThatExistsOnlyWhenOneIsThere()
+    {
+        // S3 answers 409 to a create that a concurrent write won, and to one that a concurrent delete overtook: a HEAD
+        // after the conflict tells them apart.
+        var conflicted = new HashSet<string>(StringComparer.Ordinal);
+        var (provider, _) = Offline(r =>
+        {
+            if (r.Method == HttpMethod.Put && (IsKey(r, "taken.txt") || IsKey(r, "gone.txt") || IsKey(r, "unknown.txt")))
+            {
+                conflicted.Add(r.RequestUri!.AbsolutePath);
+                return Task.FromResult<HttpResponseMessage?>(Error(HttpStatusCode.Conflict, "ConditionalRequestConflict"));
+            }
+            if (r.Method == HttpMethod.Head && conflicted.Contains(r.RequestUri!.AbsolutePath))
+            {
+                // After the conflict: the file is there, gone, or the HEAD itself is refused.
+                return Task.FromResult<HttpResponseMessage?>(IsKey(r, "taken.txt") ? Existing(r)
+                    : IsKey(r, "unknown.txt") ? Error(HttpStatusCode.Forbidden, "AccessDenied")
+                    : Empty(HttpStatusCode.NotFound));
+            }
+            return Task.FromResult(Missing(r, "taken.txt") ?? Missing(r, "gone.txt") ?? Missing(r, "unknown.txt"));
+        });
+        using (provider)
+        {
+            await Assert.ThrowsExactlyAsync<FileAlreadyExistsException>(() =>
+                provider.UpdateFileAsync("taken.txt", new MemoryStream([1]), new UpdateFileOptions { IfNotExists = true }));
+            var gone = await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() =>
+                provider.UpdateFileAsync("gone.txt", new MemoryStream([1]), new UpdateFileOptions { IfNotExists = true }));
+            StringAssert.Contains(gone.Message, "retried");
+            // A HEAD that can't say reports the conflict, not a refusal of the HEAD.
+            await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() =>
+                provider.UpdateFileAsync("unknown.txt", new MemoryStream([1]), new UpdateFileOptions { IfNotExists = true }));
+        }
+    }
+
+    [TestMethod]
     public async Task Write_RefusedByTheStoreIsAPreconditionFailure()
     {
         // The check before the write passes; the store refuses it anyway, as when another writer got there in between.
@@ -377,7 +412,7 @@ public abstract class S3OfflineTests
             : Missing(r, "new.txt")));
         using (provider)
         {
-            var exists = await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() =>
+            var exists = await Assert.ThrowsExactlyAsync<FileAlreadyExistsException>(() =>
                 provider.UpdateFileAsync("new.txt", new MemoryStream([1]), new UpdateFileOptions { IfNotExists = true }));
             StringAssert.Contains(exists.Message, "already exists");
             var gone = await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() =>

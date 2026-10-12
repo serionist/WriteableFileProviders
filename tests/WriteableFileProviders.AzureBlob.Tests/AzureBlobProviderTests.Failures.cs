@@ -239,7 +239,7 @@ public sealed partial class AzureBlobProviderTests
     {
         using var provider = Provider();
         _handler.Intercept = r => IsCommit(r) && AzureHandler.BlobName(r) == Name("f.txt") ? AzureHandler.Error(HttpStatusCode.BadRequest, "InvalidBlockList") : null;
-        await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => Write(provider, "f.txt", "mine", new UpdateFileOptions { IfNotExists = true }));
+        await Assert.ThrowsExactlyAsync<FileAlreadyExistsException>(() => Write(provider, "f.txt", "mine", new UpdateFileOptions { IfNotExists = true }));
     }
 
     [TestMethod]
@@ -273,7 +273,7 @@ public sealed partial class AzureBlobProviderTests
     {
         using var provider = Provider();
         Before(r => IsCommit(r) && AzureHandler.BlobName(r) == Name("f.txt"), () => RawUpload("f.txt", "theirs;"));
-        await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() =>
+        await Assert.ThrowsExactlyAsync<FileAlreadyExistsException>(() =>
             provider.UpdateFileAsync("f.txt", Testing.TestStreams.Text("mine;"), new UpdateFileOptions { Mode = UpdateFileMode.Append, IfNotExists = true }));
         Assert.AreEqual("theirs;", await ReadRaw("f.txt"));
     }

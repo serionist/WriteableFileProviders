@@ -220,7 +220,7 @@ public sealed class SharePointProviderTests
                 fake.SetFile("r/f.txt", Encoding.UTF8.GetBytes("theirs"));
             }
         };
-        await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => Write(provider, "f.txt", "mine", new UpdateFileOptions { IfNotExists = true }));
+        await Assert.ThrowsExactlyAsync<FileAlreadyExistsException>(() => Write(provider, "f.txt", "mine", new UpdateFileOptions { IfNotExists = true }));
         Assert.AreEqual("theirs", Text(fake.GetFile("r/f.txt")));
         Assert.AreEqual("fail", Sent(fake, "PUT").Last().Query["@microsoft.graph.conflictBehavior"]);
     }
@@ -274,7 +274,7 @@ public sealed class SharePointProviderTests
                 fake.SetFile("r/big.bin", Encoding.UTF8.GetBytes("theirs"));
             }
         };
-        await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() =>
+        await Assert.ThrowsExactlyAsync<FileAlreadyExistsException>(() =>
             provider.UpdateFileAsync("big.bin", new MemoryStream(TestStreams.Bytes(400_000)), new UpdateFileOptions { IfNotExists = true }));
         Assert.AreEqual("theirs", Text(fake.GetFile("r/big.bin")));
         Assert.AreEqual(0, fake.OpenSessions, "The session is cancelled");
@@ -284,12 +284,83 @@ public sealed class SharePointProviderTests
     [TestMethod]
     public async Task IfNotExists_RefusedWhenTheSessionIsCreated()
     {
-        var (provider, fake) = Create(configure: f => f.Intercept = r => r.Path.EndsWith("/createUploadSession", StringComparison.Ordinal)
-            ? new HttpResponseMessage(HttpStatusCode.Conflict) { Content = new StringContent(GraphFake.ErrorJson("nameAlreadyExists", "Name already exists"), Encoding.UTF8, "application/json") }
-            : null);
-        await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() =>
+        // The name is taken once the provider has checked it, and the session's creation answers 409.
+        var (provider, fake) = Create(configure: f => f.Intercept = r =>
+        {
+            if (!r.Path.EndsWith("/createUploadSession", StringComparison.Ordinal))
+                return null;
+            f.SetFile("r/big.bin", Encoding.UTF8.GetBytes("theirs"));
+            return NameAlreadyExists();
+        });
+        await Assert.ThrowsExactlyAsync<FileAlreadyExistsException>(() =>
             provider.UpdateFileAsync("big.bin", new MemoryStream(TestStreams.Bytes(400_000)), new UpdateFileOptions { IfNotExists = true }));
+        Assert.AreEqual("theirs", Text(fake.GetFile("r/big.bin")));
     }
+
+    [TestMethod]
+    [DataRow(4)]
+    [DataRow(400_000)]
+    public async Task IfNotExists_ConflictWithNothingThereCanBeRetried(int size)
+    {
+        // A 409 whose name holds nothing by the time the provider looks (a concurrent delete overtook the write) is a
+        // conflict, not a file that exists.
+        var (provider, _) = Create(configure: f => f.Intercept = r =>
+            (r.Method == "PUT" && r.Path.EndsWith("/f.bin:/content", StringComparison.Ordinal)) || r.Path.EndsWith("/createUploadSession", StringComparison.Ordinal)
+                ? NameAlreadyExists()
+                : null);
+        var e = await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() =>
+            provider.UpdateFileAsync("f.bin", new MemoryStream(TestStreams.Bytes(size)), new UpdateFileOptions { IfNotExists = true }));
+        StringAssert.Contains(e.Message, "retried");
+    }
+
+    [TestMethod]
+    [DataRow(4)]
+    [DataRow(400_000)]
+    public async Task IfNotExists_AtAFolderPath_IsAFolder(int size)
+    {
+        // Only a file counts as existing: a folder at the path is what a write without conditions finds there.
+        var (provider, fake) = Create();
+        await Write(provider, "dir/x.txt", "below");
+        var e = await Assert.ThrowsExactlyAsync<IOException>(() =>
+            provider.UpdateFileAsync("dir", new MemoryStream(TestStreams.Bytes(size)), new UpdateFileOptions { IfNotExists = true }));
+        StringAssert.Contains(e.Message, "is a folder");
+        Assert.AreEqual("below", Text(fake.GetFile("r/dir/x.txt")));
+    }
+
+    [TestMethod]
+    public async Task IfNotExists_ConflictWhoseLookupFails_CanBeRetried()
+    {
+        // The lookup after the 409 only picks the exception's type: when it fails, the write reports the conflict.
+        var (provider, fake) = Create();
+        fake.Intercept = r =>
+        {
+            if (r.Method != "PUT" || !r.Path.EndsWith("/f.bin:/content", StringComparison.Ordinal))
+                return null;
+            fake.FailNext(1, HttpStatusCode.Forbidden, g => g.Method == "GET" && g.Path.Contains("/root:/", StringComparison.Ordinal), GraphFake.ErrorJson("accessDenied", "No."));
+            return NameAlreadyExists();
+        };
+        var e = await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() =>
+            provider.UpdateFileAsync("f.bin", new MemoryStream(TestStreams.Bytes(4)), new UpdateFileOptions { IfNotExists = true }));
+        StringAssert.Contains(e.Message, "retried");
+    }
+
+    [TestMethod]
+    public async Task IfNotExists_ConflictAtTheSessionsCommitWithNothingThere_CanBeRetried()
+    {
+        // The last fragment, which commits the file, answers 409; nothing is at the name when the provider looks.
+        var (provider, fake) = Create(configure: f => f.Intercept = r =>
+            IsFragment(r) && r.Header("Content-Range")!.EndsWith("-399999/400000", StringComparison.Ordinal)
+                ? NameAlreadyExists()
+                : null);
+        var e = await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() =>
+            provider.UpdateFileAsync("big.bin", new MemoryStream(TestStreams.Bytes(400_000)), new UpdateFileOptions { IfNotExists = true }));
+        StringAssert.Contains(e.Message, "retried");
+        Assert.AreEqual(0, fake.OpenSessions, "The session is cancelled");
+        Assert.IsTrue(fake.Requests.Count(IsFragment) > 1, "The conflict came at the last fragment, not the first");
+    }
+
+    private static HttpResponseMessage NameAlreadyExists() =>
+        new(HttpStatusCode.Conflict) { Content = new StringContent(GraphFake.ErrorJson("nameAlreadyExists", "Name already exists"), Encoding.UTF8, "application/json") };
 
     [TestMethod]
     public async Task UploadSession_SendsFragmentsOf320KiB_FromTheStreamPosition()

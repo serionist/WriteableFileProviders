@@ -683,8 +683,30 @@ public abstract class ProviderConformanceTests
     public async Task Write_IfNotExists()
     {
         await Write("f.txt", "first", new UpdateFileOptions { IfNotExists = true });
-        await Assert.ThrowsAsync<PreconditionFailedException>(() => Write("f.txt", "second", new UpdateFileOptions { IfNotExists = true }));
+        await Assert.ThrowsExactlyAsync<FileAlreadyExistsException>(() => Write("f.txt", "second", new UpdateFileOptions { IfNotExists = true }));
         Assert.AreEqual("first", await Read("f.txt"));
+    }
+
+    [TestMethod]
+    [DataRow(UpdateFileMode.Overwrite, true)]
+    [DataRow(UpdateFileMode.Append, true)]
+    [DataRow(UpdateFileMode.Append, false)]
+    public async Task Write_IfNotExistsAtAFolderPath(UpdateFileMode mode, bool ifNotExists)
+    {
+        // Only a file counts as existing: a folder at the path gets the answer a write without conditions gets there
+        // (Write_AFileAtAFolderPath), and an append there still creates the file only if none appears meanwhile.
+        await Write("dir/x.txt", "below");
+        var options = new UpdateFileOptions { Mode = mode, IfNotExists = ifNotExists };
+        if (!FileAndFolderMayShareAName)
+        {
+            await Assert.ThrowsExactlyAsync<IOException>(() => Write("dir", "file", options));
+            Assert.IsTrue((await Provider.GetFileInfoAsync("dir")).IsDirectory, "The folder is left as it was");
+            Assert.AreEqual("below", await Read("dir/x.txt"));
+            return;
+        }
+        await Write("dir", "file", options);
+        Assert.AreEqual("file", await Read("dir"));
+        Assert.AreEqual("below", await Read("dir/x.txt"));
     }
 
     [TestMethod]
@@ -694,7 +716,8 @@ public abstract class ProviderConformanceTests
         var etag = (await Provider.GetFileInfoAsync("f.txt")).ETag;
         await Write("f.txt", "second", new UpdateFileOptions { IfMatch = etag });
         Assert.AreEqual("second", await Read("f.txt"));
-        await Assert.ThrowsAsync<PreconditionFailedException>(() => Write("f.txt", "third", new UpdateFileOptions { IfMatch = etag }));
+        var changed = await Assert.ThrowsAsync<PreconditionFailedException>(() => Write("f.txt", "third", new UpdateFileOptions { IfMatch = etag }));
+        Assert.IsNotInstanceOfType<FileAlreadyExistsException>(changed, "A version that changed is not a file that already exists");
         Assert.AreEqual("second", await Read("f.txt"));
         await Assert.ThrowsExactlyAsync<ArgumentException>(() => Write("f.txt", "x", new UpdateFileOptions { IfMatch = etag, IfNotExists = true }));
     }

@@ -11,6 +11,12 @@ public sealed class BaseClassTests
 {
     private static StubProvider Stub(string? root = null) => new(new StubOptions { RootDirectoryPath = root });
 
+    private static async Task<string> ReadText(IWriteableFileProvider provider, string path)
+    {
+        await using var stream = await provider.ReadFileAsync(path);
+        return await new StreamReader(stream).ReadToEndAsync();
+    }
+
     [TestMethod]
     public async Task StoreNotFoundErrors_BecomeFileNotFound()
     {
@@ -35,6 +41,66 @@ public sealed class BaseClassTests
         provider.AtomicPreconditions = false;
         await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => provider.UpdateFileAsync("file.txt", TestStreams.Text("x"), new UpdateFileOptions { IfMatch = "anything" }));
         await Assert.ThrowsExactlyAsync<ArgumentNullException>(() => provider.UpdateFileAsync("file.txt", null!));
+    }
+
+    [TestMethod]
+    public async Task IfNotExists_FindsOnlyAFile()
+    {
+        using var provider = Stub();
+        var options = new UpdateFileOptions { IfNotExists = true };
+        await Assert.ThrowsExactlyAsync<FileAlreadyExistsException>(() => provider.UpdateFileAsync("file.txt", TestStreams.Text("x"), options));
+        await Assert.ThrowsExactlyAsync<FileAlreadyExistsException>(() => provider.AppendByRewrite("file.txt", TestStreams.Text("x"), UpdateFileOptions.Append with { IfNotExists = true }));
+
+        // A folder at the path: the write reaches the store, whose own answer there is the one a caller gets.
+        await provider.UpdateFileAsync("folder", TestStreams.Text("x"), options);
+        Assert.IsTrue(provider.LastUpdate!.IfNotExists);
+        await provider.AppendByRewrite("folder", TestStreams.Text("x"), UpdateFileOptions.Append with { IfNotExists = true });
+        Assert.IsTrue(provider.LastUpdate!.IfNotExists);
+        // An append there creates the file only if none appears meanwhile, as an append to a missing path does.
+        await provider.AppendByRewrite("folder", TestStreams.Text("x"));
+        Assert.IsTrue(provider.LastUpdate!.IfNotExists);
+        Assert.IsNull(provider.LastUpdate.IfMatch);
+    }
+
+    [TestMethod]
+    public async Task DefaultCopyAndMove_ReportADestinationCreatedMeanwhileAsExisting()
+    {
+        using var provider = Stub();
+        provider.CreateFailure = new FileAlreadyExistsException("The store already has it.");
+        var copy = await Assert.ThrowsExactlyAsync<FileExistsException>(() => provider.CopyAsync("file.txt", "new.txt"));
+        Assert.AreSame(provider.CreateFailure, copy.InnerException);
+        await Assert.ThrowsExactlyAsync<FileExistsException>(() => provider.MoveAsync("file.txt", "new.txt"));
+
+        // Any other precondition failure, such as one from the source's own stream, passes as it is.
+        provider.CreateFailure = new PreconditionFailedException("The source changed while it was read.");
+        Assert.AreSame(provider.CreateFailure, await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => provider.CopyAsync("file.txt", "new.txt")));
+    }
+
+    [TestMethod]
+    public async Task InMemoryStore_SettlesConditionsTheBaseCheckMissed()
+    {
+        // The reference provider's conditions are checked before the write, not atomically; its store checks them
+        // again under its lock, so a file written between the two refuses the create and keeps its content.
+        var store = "create-" + Guid.NewGuid().ToString("N");
+        using var provider = new InMemoryFileProvider(new InMemoryFileProviderOptions { StoreName = store });
+        try
+        {
+            var racing = new InterceptingStream("mine"u8.ToArray(),
+                () => provider.UpdateFileAsync("f.txt", TestStreams.Text("theirs")).GetAwaiter().GetResult());
+            await Assert.ThrowsExactlyAsync<FileAlreadyExistsException>(() => provider.UpdateFileAsync("f.txt", racing, new UpdateFileOptions { IfNotExists = true }));
+            Assert.AreEqual("theirs", await ReadText(provider, "f.txt"));
+
+            // The same for a version: a write between the base check and the lock changes the ETag the caller gave.
+            var etag = (await provider.GetFileInfoAsync("f.txt")).ETag;
+            racing = new InterceptingStream("mine"u8.ToArray(),
+                () => provider.UpdateFileAsync("f.txt", TestStreams.Text("newer")).GetAwaiter().GetResult());
+            await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => provider.UpdateFileAsync("f.txt", racing, new UpdateFileOptions { IfMatch = etag }));
+            Assert.AreEqual("newer", await ReadText(provider, "f.txt"));
+        }
+        finally
+        {
+            InMemoryFileProvider.ClearStore(store);
+        }
     }
 
     [TestMethod]

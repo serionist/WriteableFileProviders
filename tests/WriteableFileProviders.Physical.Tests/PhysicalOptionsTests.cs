@@ -126,6 +126,31 @@ public sealed class PhysicalOptionsTests
         Assert.DoesNotContain("root:/", JsonNode.Parse(text)!["RootDirectoryPath"]!.GetValue<string>());
     }
 
+    [TestMethod]
+    public void RefuseLinks_BindsAndIsWrittenOnlyWhenSet()
+    {
+        // Off, as 2026 behaved, and left out of the JSON, so a provider that does not use it keeps the three keys.
+        var root = Path.Combine(Path.GetTempPath(), "wfp-links");
+        using (var plain = new WriteablePhysicalFileProvider(root))
+        {
+            Assert.IsFalse(plain.Options.RefuseLinks);
+            Assert.IsNull(WriteableFileProviderSerializer.ToJson(plain)["RefuseLinks"]);
+        }
+
+        using var refusing = new WriteablePhysicalFileProvider(new PhysicalFileProviderOptions { RootDirectoryPath = root, RefuseLinks = true });
+        var json = WriteableFileProviderSerializer.ToJson(refusing);
+        Assert.IsTrue(json["RefuseLinks"]!.GetValue<bool>());
+        using var fromJson = WriteableFileProviderSerializer.FromJson(json);
+        Assert.IsTrue(((PhysicalFileProviderOptions)fromJson.Options).RefuseLinks);
+        using var fromConfiguration = WriteableFileProviderSerializer.FromConfiguration(Configuration(new()
+        {
+            ["Type"] = "WriteablePhysicalFileProvider",
+            ["RootDirectoryPath"] = root,
+            ["RefuseLinks"] = "true",
+        }));
+        Assert.IsTrue(((PhysicalFileProviderOptions)fromConfiguration.Options).RefuseLinks);
+    }
+
     private static IConfiguration Configuration(Dictionary<string, string?> values) =>
         new ConfigurationBuilder().AddInMemoryCollection(values).Build();
 }

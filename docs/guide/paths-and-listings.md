@@ -14,7 +14,8 @@ bool isRoot = ProviderPath.Root.IsRoot;          // true; "" and null are the ro
 - A string splits on `/` and `\`, and empty parts are dropped. An array is taken as segments:
   `new[] { "reports", "2026.csv" }` is the same path.
 - Paths are relative to the provider's root. No path reaches outside it. On Physical, symbolic links and junctions
-  inside the root are followed, wherever they point.
+  inside the root are followed, wherever they point, unless `RefuseLinks` is set: then a path that names or goes
+  through one throws `ArgumentException`, and listings leave links out.
 - A path is checked when you use it, not when you build it. These segments throw `ArgumentException` (parameter
   `path`): empty, only dots and spaces (`..`), holding a control character, or any of those once percent-decoded
   (`%2e%2e`).
@@ -102,7 +103,8 @@ IDirectoryContents contents = await files.GetDirectoryContentsAsync("reports"); 
   `\` or a control character, or a percent-encoded form of these is skipped, and such a folder is not walked.
 - A provider hides its own temporary names, and only those: Physical's write files (`.wfp-`, 32 lowercase hex digits,
   `.tmp`) and Azure Blob's `.wfp-tmp` folder at the root. Your own `.wfp-` names are listed, and so is the
-  `.wfp-rename-<guid>.tmp` copy that a case-only rename holds for a moment.
+  `.wfp-rename-<guid>.tmp` copy that a case-only rename holds for a moment. Physical's
+  `DeleteTempFilesAsync(olderThan)` deletes the write files a crash left behind.
 - On Physical, a recursive listing lists a linked folder (symbolic link or junction) but doesn't walk into it.
 
 ## Watch for changes

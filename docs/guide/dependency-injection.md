@@ -117,6 +117,8 @@ WriteableFileProviderSerializer.Register<MyOwnProvider>();           // a provid
   default, so a configuration that doesn't use them keeps its 2026 shape.
 - Configurations stored by 2026 versions read unchanged, except a root with a dot segment (`tenants/../other`), which
   now throws. JSON written by 2027 isn't promised to read on 2026.
+- A reader ignores keys it doesn't know, so an option newer than the version that reads it is dropped without an
+  error: Physical's `RefuseLinks`, read by 2027.0.0, leaves links followed.
 - Building does no network I/O. A provider signs in and finds its bucket, container or library on its first call, so
   those settings fail there, not at startup.
 - It finds types and reads options through reflection, so its members, and `AddWriteableFileProvider(section)`, warn

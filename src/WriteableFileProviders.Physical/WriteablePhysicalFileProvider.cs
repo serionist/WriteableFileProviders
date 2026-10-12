@@ -75,12 +75,14 @@ namespace WriteableFileProviders.Physical;
 /// <c>PRN</c>, <c>AUX</c>, <c>NUL</c>, <c>COM1</c> to <c>COM9</c>, <c>LPT1</c> to <c>LPT9</c>, and <c>COM</c> or
 /// <c>LPT</c> followed by <c>¹</c>, <c>²</c> or <c>³</c>), in any case, alone or with an extension, such as
 /// <c>con.txt</c>; and an 8.3 short name (<c>REPORT~1.TXT</c>) of a file or folder whose long name differs, on a volume
-/// that keeps them. Listings leave out the files and folders whose names a path cannot name
-/// (those names on Windows; on Linux and macOS, a name holding <c>:</c>, <c>\</c> or a control character, or only dots
-/// and spaces; on any system, a percent-encoded form of those, such as <c>%2e%2e</c>), and never walk into such a
-/// folder, so everything listed can be read back. Containment in the root is checked on the path: symbolic links and
-/// junctions inside the root are followed, except that a recursive listing lists a linked folder without walking into
-/// it.
+/// that keeps them. Listings leave out the files and folders whose names a path cannot name (those names on Windows; on
+/// Linux and macOS, a name holding <c>:</c>, <c>\</c> or a control character, or only dots and spaces; on any system, a
+/// percent-encoded form of those, such as <c>%2e%2e</c>), and never walk into such a folder, so everything listed can
+/// be read back. Containment in the root is checked on the path: symbolic links and junctions inside the root are
+/// followed, except that a recursive listing lists a linked folder without walking into it. With
+/// <see cref="PhysicalFileProviderOptions.RefuseLinks"/>, a path that names or goes through a link inside the root is
+/// refused instead, and listings leave links out. <see cref="DeleteTempFilesAsync"/> deletes the temp files a process
+/// that died during a write left behind.
 /// </para>
 /// <para>
 /// <b>Access.</b> Where the operating system refuses the process access to a file or a folder that a member opens,
@@ -134,6 +136,7 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
 
     private readonly string _root;
     private readonly string _rootPrefix;
+    private readonly bool _refuseLinks;
     private readonly Lock _watchLock = new();
     private PhysicalFileProvider? _watcher;
     private bool _disposed;
@@ -175,6 +178,7 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
         _root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
         Options.RootDirectoryPath = _root;
         _rootPrefix = Path.EndsInDirectorySeparator(_root) ? _root : _root + Path.DirectorySeparatorChar;
+        _refuseLinks = Options.RefuseLinks;
     }
 
     // The choices that differ by system, settable so the tests run both on each.
@@ -384,13 +388,15 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
     }
 
     /// <summary>
-    /// Watches the root as ASP.NET Core's <see cref="PhysicalFileProvider"/> does, through <see cref="PhysicalFilesWatcher"/>:
-    /// the filter is a glob relative to the root, and leading <c>/</c> and <c>\</c> are ignored, so <c>/a.txt</c> is
-    /// <c>a.txt</c>. A filter that is null, holds a character no file name can, names a drive or leaves the root never
-    /// fires. Dot-prefixed, hidden and system files are not watched, which keeps the provider's own temp files out; a
-    /// write fires when its rename puts the new content in place. <c>DOTNET_USE_POLLING_FILE_WATCHER</c> set to
-    /// <c>1</c> or <c>true</c> polls instead of relying on file system events. The first call creates the root folder if
-    /// it is missing.
+    /// Watches the root as ASP.NET Core's <see cref="PhysicalFileProvider"/> does, through
+    /// <see cref="PhysicalFilesWatcher"/>: the filter is a glob relative to the root, and leading <c>/</c> and <c>\</c>
+    /// are ignored, so <c>/a.txt</c> is <c>a.txt</c>. A filter that is null, holds a character no file name can, names
+    /// a drive or leaves the root never fires. The polling watcher walks into linked folders, so a change behind a link
+    /// can fire a token, even with <see cref="PhysicalFileProviderOptions.RefuseLinks"/>; the event-based one does not.
+    /// Dot-prefixed, hidden and system files are not watched, which keeps the provider's own temp files out; a write
+    /// fires when its rename puts the new content in place. <c>DOTNET_USE_POLLING_FILE_WATCHER</c> set to <c>1</c> or
+    /// <c>true</c> polls instead of relying on file system events. The first call creates the root folder if it is
+    /// missing.
     /// </summary>
     /// <inheritdoc />
     protected override IChangeToken WatchCore(string filter)
@@ -406,6 +412,79 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
             // PhysicalFileProvider ignores only this system's separators; a backslash separates on every system here.
             return _watcher.Watch(filter?.TrimStart(_separators)!);
         }
+    }
+
+    /// <summary>
+    /// Deletes the temp files that writes left behind under the root: a write names its temp file <c>.wfp-</c>, 32
+    /// lowercase hex digits and <c>.tmp</c>, and removes it when it ends, but a process that dies during a write leaves
+    /// it. Listings never show those files; they only take space. Only exactly that name is deleted, so
+    /// <c>.wfp-notes.tmp</c>, or a <c>.wfp-rename-…</c> copy that holds a file's content, never is.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A temp file is deleted when its last write is older than <paramref name="olderThan"/> on the provider's clock,
+    /// the system clock unless a test sets another. A write in progress moves its temp file's last write only when it
+    /// writes, so choose an age longer than your longest write: on Linux and macOS a write whose temp file goes anyway
+    /// fails with <see cref="IOException"/> and leaves the file as it was; on Windows the open write refuses the
+    /// delete, and the file is skipped.
+    /// </para>
+    /// <para>
+    /// Every folder under the root is walked; a linked folder (a symbolic link or a junction) is not, whatever
+    /// <see cref="PhysicalFileProviderOptions.RefuseLinks"/> says. Like a recursive listing's, that check comes just before
+    /// each folder is walked, not atomically with it: a process that can create links inside the root could swap one in
+    /// and steer the sweep into a folder elsewhere, where it still deletes only files named exactly like a write's temp
+    /// file and older than the age. A temp file it cannot delete is skipped. A folder the process may not list throws
+    /// <see cref="UnauthorizedAccessException"/>, as a listing does; the files deleted before it stay deleted.
+    /// </para>
+    /// </remarks>
+    /// <param name="olderThan">How old a temp file's last write must be; zero deletes every one.</param>
+    /// <param name="cancellationToken">Cancels the sweep between files.</param>
+    /// <returns>How many temp files were deleted; 0 when the root does not exist yet.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="olderThan"/> is negative.</exception>
+    /// <exception cref="ObjectDisposedException">The provider is disposed.</exception>
+    public Task<int> DeleteTempFilesAsync(TimeSpan olderThan, CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(olderThan, TimeSpan.Zero);
+        Resolve(ProviderPath.Root);
+        var cutoff = TimeProvider.GetUtcNow().UtcDateTime - olderThan;
+        var deleted = 0;
+        var folders = new Queue<DirectoryInfo>();
+        folders.Enqueue(new DirectoryInfo(_root));
+        while (folders.TryDequeue(out var folder))
+        {
+            IEnumerable<FileSystemInfo> entries;
+            try
+            {
+                entries = folder.EnumerateFileSystemInfos("*", _listing);
+            }
+            catch (DirectoryNotFoundException)
+            {
+                // The root not created yet, or a folder deleted since it was found.
+                continue;
+            }
+            foreach (var entry in entries)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (entry is DirectoryInfo subfolder)
+                {
+                    if (!IsLink(subfolder))
+                        folders.Enqueue(subfolder);
+                    continue;
+                }
+                if (!IsTempFile(entry.Name) || entry.LastWriteTimeUtc > cutoff)
+                    continue;
+                try
+                {
+                    entry.Delete();
+                    deleted++;
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                {
+                    // In use by a write (Windows), or the system refuses: left for a later sweep.
+                }
+            }
+        }
+        return Task.FromResult(deleted);
     }
 
     /// <summary>
@@ -512,7 +591,28 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
         // is the short name of another name would reach that name: refused, as a trailing dot is.
         if (RefusesWindowsNames && !fullPath.AsSpan(_rootPrefix.Length).Equals(relative, StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException($"The path '{path}' is the short name of another file or folder.", nameof(path));
+        if (_refuseLinks)
+            RefuseLinksOn(path);
         return fullPath;
+    }
+
+    // With RefuseLinks, refuses a path any of whose entries under the root is a link: one stat per entry, from the root
+    // down, stopping at the first that does not exist, since nothing below it can.
+    private void RefuseLinksOn(ResolvedPath path)
+    {
+        var current = _root;
+        var walked = new List<string>();
+        foreach (var segment in path.RelativeSegments)
+        {
+            current = Path.Join(current, segment);
+            walked.Add(segment);
+            var entry = new FileInfo(current);
+            // Attributes are -1 when nothing is there; a link reports itself, whatever it leads to.
+            if ((int)entry.Attributes == -1)
+                return;
+            if (IsLink(entry))
+                throw new ArgumentException($"The path '{path}' goes through '{string.Join('/', walked)}', a link, which this provider refuses (RefuseLinks).", nameof(path));
+        }
     }
 
     private IEnumerable<(IWriteableFileInfo Entry, FileSystemInfo Info)> Entries(ResolvedPath path, CancellationToken cancellationToken)
@@ -528,6 +628,9 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
             // Windows, a trailing dot or space, a reserved character or a device name; anywhere, a percent-encoded form
             // of those) is left out, and never walked into: everything listed can be read back.
             if (!IsAddressable(entry.Name))
+                continue;
+            // With RefuseLinks a link cannot be read back, so it is not listed either.
+            if (_refuseLinks && IsLink(entry))
                 continue;
             if (entry is FileInfo file)
             {
@@ -583,6 +686,7 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
         // file. The umask can only narrow the mode given here; the exact bits follow on the open handle.
         if (like is not null && !OperatingSystem.IsWindows())
             create.UnixCreateMode = like.UnixFileMode & Permissions;
+        var written = false;
         try
         {
             FileStream output;
@@ -602,6 +706,7 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
                     File.SetUnixFileMode(output.SafeFileHandle, like.UnixFileMode & Permissions);
                 await write(output, cancellationToken).ConfigureAwait(false);
             }
+            written = true;
             var current = new FileInfo(target);
             if (expected is not null && VersionOf(current) != expected)
                 throw Changed(path, expected);
@@ -614,6 +719,13 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
                 TakeNewName(temp, target, taken);
             else
                 File.Move(temp, target, overwrite: true);
+        }
+        catch (FileNotFoundException e) when (written && !File.Exists(temp))
+        {
+            // Something removed the temp file once its content was written, as a sweep of old temp files can on Linux and
+            // macOS, where a file being written can be deleted: the target is as it was. The exception would name the
+            // temp file, and read as "the file does not exist".
+            throw new IOException($"The file '{path}' was not written, and is as it was: its temp file was deleted before the write finished, as {nameof(DeleteTempFilesAsync)} does to one older than its age.", e);
         }
         catch
         {

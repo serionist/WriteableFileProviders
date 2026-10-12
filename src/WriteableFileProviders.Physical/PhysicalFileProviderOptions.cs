@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace WriteableFileProviders.Physical;
 
 /// <summary>The options of <see cref="WriteablePhysicalFileProvider"/>: the folder on the local disk it is confined to.</summary>
@@ -28,6 +30,25 @@ public class PhysicalFileProviderOptions : FileProviderOptions
         get => ToPath(RootDirectorySegments);
         set => RootDirectorySegments = ToSegments(value);
     }
+
+    /// <summary>
+    /// Whether to refuse a path that names, or goes through, a link inside the root: a symbolic link, a junction or a
+    /// mount point (an entry the system reports a link target for). False by default, which follows them, as 2026 did.
+    /// When true, every member refuses such a path with <see cref="ArgumentException"/>, and listings leave links out.
+    /// The root itself, and the folders above it, may still be links. Other reparse points (cloud placeholders,
+    /// deduplicated files, the layers of a Windows container) hold the entry's own content and are not links; hard links
+    /// and bind mounts are not visible as links and are not refused. The check looks at the path just before each member
+    /// acts, not atomically with it: a process that can create links inside the root can still swap one in between.
+    /// <c>Watch</c> is unchanged: with the polling watcher, a change behind a linked folder can fire a token, which says
+    /// only that something changed. New in 2027.1.0.
+    /// </summary>
+    /// <remarks>
+    /// Written to JSON only when set, so a configuration that does not use it keeps the 2026 shape. A reader older than
+    /// 2027.1.0 builds the provider without it, and no error says so: going back to an older version, or deploying the
+    /// configuration ahead of 2027.1.0, follows links again.
+    /// </remarks>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool RefuseLinks { get; set; }
 
     // The segments as 2026 parsed them: a leading "\\" is a network share, a leading "/" the file system root.
     private static string[] ToSegments(string? path)

@@ -72,11 +72,12 @@ public sealed class WriteableFileProviderGatewayOptions
     public bool PreferGateway { get; set; }
 
     /// <summary>
-    /// The root ASP.NET Core Data Protection purpose of every gateway token; <c>WriteableFileProviders.Gateway.v1</c> by
-    /// default. A token's purpose chain is this value, then the provider's key (left out for the app's default provider),
-    /// then the access. Set it to keep the gateway's tokens under the app's own purpose names, such as
-    /// <c>Contoso.Files.Gateway.v1</c>. It is read once, when the app starts, and must not be empty. Changing it ends
-    /// every URL issued under the old value: those tokens no longer unprotect, and the gateway answers 404.
+    /// The root ASP.NET Core Data Protection purpose of every gateway token; <c>WriteableFileProviders.Gateway.v1</c>
+    /// by default. A token's purpose chain is this value, then the provider's key (left out for the app's default
+    /// provider), then the access. Set it to keep the gateway's tokens under the app's own purpose names, such as
+    /// <c>Contoso.Files.Gateway.v1</c>: one that nothing else in the app protects under, and the same on every
+    /// instance. It is read once, when the app starts, and must not be empty. Changing it ends every URL issued under
+    /// the old value: those tokens no longer unprotect, and the gateway answers 404.
     /// </summary>
     public string DataProtectionPurpose { get; set; } = GatewayTokenCodec.DefaultPurpose;
 

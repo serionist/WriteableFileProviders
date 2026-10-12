@@ -53,9 +53,9 @@ internal sealed record GatewayToken(string? ProviderName, GatewayTokenPayload Pa
 /// Writes and reads gateway tokens. A token is <c>{access}.{provider}.{payload}</c>: a letter for the access (r, c, w),
 /// the provider's key in base64url, empty for the app's default provider, and the payload, protected by a time-limited
 /// Data Protection protector whose purpose chain is the root purpose
-/// (<see cref="WriteableFileProviderGatewayOptions.DataProtectionPurpose"/>, <see cref="DefaultPurpose"/> unless the app
-/// sets it), the provider's key (left out for the default provider) and the access. The first two parts are in the clear only to pick that protector: changing either one
-/// changes the purpose, so the payload no longer unprotects.
+/// (<see cref="WriteableFileProviderGatewayOptions.DataProtectionPurpose"/>, <see cref="DefaultPurpose"/> unless the
+/// app sets it), the provider's key (left out for the default provider) and the access. The first two parts are in the
+/// clear only to pick that protector: changing either one changes the purpose, so the payload no longer unprotects.
 /// </summary>
 /// <remarks>
 /// The format, the payload's JSON and the purpose chain are a one-way door: tokens issued by one version redeem on the

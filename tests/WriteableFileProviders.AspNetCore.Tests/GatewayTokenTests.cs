@@ -94,13 +94,15 @@ public sealed class GatewayTokenTests
     [TestMethod]
     public async Task Purpose_SetByTheApp_RedeemsOnlyUnderThatPurpose()
     {
-        // Two apps on one key ring, one with a root purpose of its own: each app's URLs redeem on it and not on the other,
-        // for a keyed provider and for the default one, so the purpose, not the keys, tells them apart.
+        // Two apps on one key ring, one with a root purpose of its own: each app's URLs redeem on it and not on the
+        // other, for a keyed provider and for the default one, so the purpose, not the keys, tells them apart.
         var keys = new EphemeralDataProtectionProvider();
         await using var custom = await GatewayHost.StartAsync(
             options => options.DataProtectionPurpose = "Contoso.Files.Gateway.v1",
             builder => builder.Services.AddSingleton<IDataProtectionProvider>(keys));
         await using var standard = await GatewayHost.StartAsync(configureBuilder: builder => builder.Services.AddSingleton<IDataProtectionProvider>(keys));
+        Assert.AreSame(keys, custom.Services.GetRequiredService<IDataProtectionProvider>(), "The apps share keys");
+        Assert.AreSame(keys, standard.Services.GetRequiredService<IDataProtectionProvider>(), "The apps share keys");
         foreach (var provider in new[] { "files", null })
         {
             await custom.WriteAsync("doc.txt", "custom", provider);
@@ -117,6 +119,24 @@ public sealed class GatewayTokenTests
             using (var response = await custom.Client.GetAsync(standardUrl))
                 Assert.AreEqual(HttpStatusCode.NotFound, response.StatusCode, "A token under the default purpose is refused under the app's");
         }
+    }
+
+    [TestMethod]
+    public async Task Purpose_SetByTheApp_IsTheRootOfTheChain()
+    {
+        // The chain an app's own purpose gives is part of the format: that purpose, the provider's key unless it is the
+        // default provider, the access. A URL issued under it keeps redeeming on a later version only if this holds.
+        await using var host = await GatewayHost.StartAsync(options => options.DataProtectionPurpose = "Contoso.Files.Gateway.v1");
+        var codec = host.Services.GetRequiredService<GatewayTokenCodec>();
+        var dataProtection = host.Services.GetRequiredService<IDataProtectionProvider>();
+        var expires = DateTimeOffset.UtcNow.AddMinutes(1);
+        var keyed = codec.Protect("files", Payload(SignedUrlAccess.Write, "doc.txt"), expires);
+        var byDefault = codec.Protect(null, Payload(SignedUrlAccess.Write, "doc.txt"), expires);
+
+        dataProtection.CreateProtector("Contoso.Files.Gateway.v1", "files", "Write").ToTimeLimitedDataProtector()
+            .Unprotect(WebEncoders.Base64UrlDecode(keyed.Split('.')[2]), out _);
+        dataProtection.CreateProtector("Contoso.Files.Gateway.v1", "Write").ToTimeLimitedDataProtector()
+            .Unprotect(WebEncoders.Base64UrlDecode(byDefault.Split('.')[2]), out _);
     }
 
     [TestMethod]

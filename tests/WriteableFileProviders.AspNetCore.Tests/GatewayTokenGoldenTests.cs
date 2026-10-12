@@ -212,7 +212,8 @@ public sealed class GatewayTokenGoldenTests
         Assert.AreEqual("""{"p":["golden","doc.txt"],"a":"Write","t":"text/plain","f":"Golden.txt","j":"id"}""", Encoding.UTF8.GetString(json));
     }
 
-    // The codec with the gateway's default options, so the default root purpose: the one these tokens were issued under.
+    // The codec with the gateway's default options, so the default root purpose: the one these tokens were issued
+    // under.
     private static GatewayTokenCodec Codec(IDataProtectionProvider dataProtection) =>
         new(dataProtection, Options.Create(new WriteableFileProviderGatewayOptions()));
 

@@ -645,7 +645,7 @@ public abstract class S3BehaviourTests
         var path = (ResolvedPath)typeof(ResolvedPath).GetConstructors(BindingFlags.NonPublic | BindingFlags.Instance).Single()
             .Invoke([new[] { Root }, new[] { "c.txt" }]);
         var create = await CoreOf(provider).PresignAsync(path, new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5), Access = SignedUrlAccess.Create },
-            DateTimeOffset.UtcNow, CancellationToken.None);
+            TimeProvider.System, CancellationToken.None);
         Assert.AreEqual("*", create.Headers["If-None-Match"]);
         StringAssert.Contains(HttpUtility.ParseQueryString(create.Url.Query)["X-Amz-SignedHeaders"], "if-none-match");
         using (var withoutHeader = new HttpRequestMessage(HttpMethod.Put, create.Url) { Content = new StringContent("x") })

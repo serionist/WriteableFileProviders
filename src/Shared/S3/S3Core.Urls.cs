@@ -20,12 +20,21 @@ internal sealed partial class S3Core
     /// </summary>
     /// <param name="path">The file.</param>
     /// <param name="options">What the URL allows and how long it lives.</param>
-    /// <param name="now">The current time.</param>
+    /// <param name="clock">The provider's clock, which <see cref="SignedUrl.ExpiresOn"/> is given on.</param>
     /// <param name="cancellationToken">Cancels the call.</param>
-    public async Task<SignedUrl> PresignAsync(ResolvedPath path, SignedUrlOptions options, DateTimeOffset now, CancellationToken cancellationToken)
+    /// <remarks>
+    /// The SDK signs with its own clock, the system's corrected for the server's skew, so the URL's end, and the
+    /// credential's expiry it is checked against, are on the system clock: read once, before anything is awaited, so the
+    /// URL ends exactly when <see cref="SignedUrl.ExpiresOn"/> says. <see cref="SignedUrl.ExpiresOn"/> is that end on
+    /// <paramref name="clock"/>; the same instant on the system clock.
+    /// </remarks>
+    public async Task<SignedUrl> PresignAsync(ResolvedPath path, SignedUrlOptions options, TimeProvider clock, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(path);
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(clock);
+        var now = TimeProvider.System.GetUtcNow();
+        var clockNow = ReferenceEquals(clock, TimeProvider.System) ? now : clock.GetUtcNow();
         if (options.Access != SignedUrlAccess.Read && options.DownloadFileName is not null)
             throw new NotSupportedException("A download file name applies to read URLs only.");
         var connection = await ConnectedAsync(cancellationToken).ConfigureAwait(false);
@@ -48,10 +57,9 @@ internal sealed partial class S3Core
             BucketName = Bucket,
             Key = Key(path),
             Verb = options.Access == SignedUrlAccess.Read ? HttpVerb.GET : HttpVerb.PUT,
-            // The SDK signs X-Amz-Date from its own clock, and X-Amz-Expires as Expires less that: given the system's
-            // now plus the validity, the URL lives the validity whatever the provider's clock says, which gives
-            // ExpiresOn.
-            Expires = TimeProvider.System.GetUtcNow().UtcDateTime + options.Validity,
+            // The SDK signs X-Amz-Date from its own clock, and X-Amz-Expires as Expires less that: the URL ends at
+            // Expires, on the system clock, whatever the provider's clock says.
+            Expires = expires.UtcDateTime,
             // The SDK signs https unless told otherwise, whatever the endpoint's scheme.
             Protocol = connection.UseHttp ? Protocol.HTTP : Protocol.HTTPS,
         };
@@ -96,7 +104,7 @@ internal sealed partial class S3Core
         {
             Url = new Uri(url),
             Method = options.Access == SignedUrlAccess.Read ? "GET" : "PUT",
-            ExpiresOn = expiresOn,
+            ExpiresOn = expiresOn is { } end ? clockNow + (end - now) : null,
             Headers = headers,
             Kind = SignedUrlKind.Presigned,
         };

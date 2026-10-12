@@ -259,8 +259,8 @@ public sealed class GcsOptionsTests
     [TestMethod]
     public async Task SignedUrl_LivesTheValidityWhateverTheProvidersClock()
     {
-        // The SDK signs with its own clock: a provider clock years off gives ExpiresOn, through either constructor, and
-        // changes nothing Cloud Storage checks.
+        // The SDK signs with its own clock: a provider clock years off gives ExpiresOn, and changes nothing Cloud Storage
+        // checks.
         var clock = new StandingClock(new DateTimeOffset(2020, 1, 1, 0, 0, 0, TimeSpan.Zero));
         using var client = Offline();
         using var provider = new WriteableGoogleCloudStorageFileProvider(Options(null, "base"), client) { Clock = clock };

@@ -71,11 +71,14 @@ public abstract partial class WriteableFileProvider<TOptions> : IWriteableFilePr
     /// A clock away from the real time changes what the stores see. Azure Blob signs the times it gives into its URLs,
     /// so a clock set back makes URLs Azure refuses as expired, which is how a test checks expiry without waiting.
     /// Amazon S3, MinIO and Google Cloud Storage sign with their SDK's own clock, so their URLs live as long as asked
-    /// whatever this clock says, and only <see cref="SignedUrl.ExpiresOn"/> comes from it. Box and SharePoint wait on
+    /// whatever this clock says, and S3 and MinIO check the signing credential's expiry on that clock too: only
+    /// <see cref="SignedUrl.ExpiresOn"/> comes from this one. Box and SharePoint wait on
     /// it: a test that gives them a clock it moves by hand must move it, or a wait never ends.
     /// </para>
     /// </remarks>
     /// <exception cref="ArgumentNullException">The value is null.</exception>
+    // Init-only until the next major: init and set compile to different setters, so changing it breaks compiled callers,
+    // and package validation, whose baseline predates the property, would not catch it.
     public TimeProvider Clock
     {
         get => TimeProvider;

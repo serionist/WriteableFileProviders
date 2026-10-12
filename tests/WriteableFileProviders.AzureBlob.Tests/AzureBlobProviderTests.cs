@@ -35,8 +35,11 @@ public sealed partial class AzureBlobProviderTests
     public static Task DeleteContainer() => Azurite.DeleteContainerAsync(_containerName);
 
     // A provider rooted at the test's own folder, over a client whose requests go through the handler.
-    private WriteableAzureBlobFileProvider Provider(int retries = 2, AzureBlobFileProviderOptions? options = null) =>
-        new(options ?? new AzureBlobFileProviderOptions { RootDirectoryPath = _root }, Azurite.Container(_containerName, _handler, retries));
+    private WriteableAzureBlobFileProvider Provider(int retries = 2, AzureBlobFileProviderOptions? options = null, TimeProvider? clock = null) =>
+        new(options ?? new AzureBlobFileProviderOptions { RootDirectoryPath = _root }, Azurite.Container(_containerName, _handler, retries))
+        {
+            Clock = clock ?? TimeProvider.System,
+        };
 
     private string Name(string path) => $"{_root}/{path}";
 
@@ -247,7 +250,8 @@ public sealed partial class AzureBlobProviderTests
     public async Task Append_WhenTheServiceRefusesTheCopySourceRestagesThroughTheClient()
     {
         await _raw.GetBlobClient(Name("put.txt")).UploadAsync(BinaryData.FromString("base;"));
-        using var provider = Provider();
+        var clock = new FixedClock(DateTimeOffset.UtcNow);
+        using var provider = Provider(clock: clock);
         _handler.Intercept = r => AzureHandler.Comp(r) == "block" && AzureHandler.IsCopy(r) ? AzureHandler.Error(HttpStatusCode.Forbidden, "CannotVerifyCopySource") : null;
         await Append(provider, "put.txt", "one;");
         await _raw.GetBlobClient(Name("put2.txt")).UploadAsync(BinaryData.FromString("base;"));
@@ -257,8 +261,6 @@ public sealed partial class AzureBlobProviderTests
         Assert.AreEqual(1, _handler.Log.Count(l => l.EndsWith("comp=block copy", StringComparison.Ordinal)), "Refused once, then not asked again");
 
         // The refusal is remembered for a while only: a permission granted since is used.
-        var clock = new FixedClock(DateTimeOffset.UtcNow);
-        provider.Clock = clock;
         provider.ServerCopyRefusedUntil = clock.GetUtcNow() + TimeSpan.FromMinutes(10);
         clock.Advance(TimeSpan.FromMinutes(11));
         _handler.Intercept = null;

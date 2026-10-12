@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Web;
@@ -36,9 +37,12 @@ public sealed class AmazonS3OfflineTests
     }
 
     private static (WriteableAmazonS3FileProvider Provider, InterceptingHttpClientFactory Factory) Offline(
-        AmazonS3FileProviderOptions options, AWSCredentials? credentials = null, Func<HttpRequestMessage, HttpResponseMessage?>? answer = null)
+        AmazonS3FileProviderOptions options, AWSCredentials? credentials = null, Func<HttpRequestMessage, HttpResponseMessage?>? answer = null,
+        TimeProvider? clock = null)
     {
-        var provider = credentials is null ? new WriteableAmazonS3FileProvider(options) : new WriteableAmazonS3FileProvider(options, credentials);
+        var provider = credentials is null
+            ? new WriteableAmazonS3FileProvider(options) { Clock = clock ?? TimeProvider.System }
+            : new WriteableAmazonS3FileProvider(options, credentials) { Clock = clock ?? TimeProvider.System };
         var factory = new InterceptingHttpClientFactory { Intercept = r => Task.FromResult<HttpResponseMessage?>(answer?.Invoke(r) ?? Exists(r)) };
         provider.Core.HttpClientFactory = factory;
         return (provider, factory);
@@ -46,6 +50,25 @@ public sealed class AmazonS3OfflineTests
 
     private static SignedUrlOptions For(TimeSpan validity, bool allowShorter = false, SignedUrlAccess access = SignedUrlAccess.Read) =>
         new() { Validity = validity, AllowShorterValidity = allowShorter, Access = access };
+
+    [TestMethod]
+    public async Task Presign_LivesTheValidityWhateverTheProvidersClock()
+    {
+        // The SDK signs with its own clock: a provider clock years off gives ExpiresOn, and changes nothing S3 checks.
+        var clock = new StandingClock(new DateTimeOffset(2020, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        var (provider, _) = Offline(Aws(), clock: clock);
+        using (provider)
+        {
+            var url = await provider.GetSignedUrlAsync("f.txt", For(TimeSpan.FromHours(1)));
+            Assert.AreEqual("3600", HttpUtility.ParseQueryString(url.Url.Query)["X-Amz-Expires"]);
+            Assert.AreEqual(clock.GetUtcNow().AddHours(1), url.ExpiresOn);
+        }
+    }
+
+    private sealed class StandingClock(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+    }
 
     [TestMethod]
     public async Task Presign_LongTermKeysLiveAsAskedOnAwsOverHttps()
@@ -95,6 +118,31 @@ public sealed class AmazonS3OfflineTests
             Assert.IsTrue(cut.ExpiresOn <= new DateTimeOffset(expiry) && cut.ExpiresOn > DateTimeOffset.UtcNow.AddMinutes(30), $"{cut.ExpiresOn}");
             var full = await provider.GetSignedUrlAsync("f.txt", For(TimeSpan.FromMinutes(10)));
             Assert.IsTrue(full.ExpiresOn <= DateTimeOffset.UtcNow.AddMinutes(10), $"{full.ExpiresOn}");
+        }
+    }
+
+    [TestMethod]
+    [DataRow(-3650)]
+    [DataRow(3650)]
+    public async Task Presign_ChecksTheCredentialOnTheSystemClock_WhateverTheProvidersClock(int clockOffsetDays)
+    {
+        // A credential that expires in an hour of real time: a provider clock ten years back or ahead changes neither the
+        // check nor how long S3 lets the URL live, only the clock ExpiresOn is given on.
+        var expiry = DateTime.UtcNow.AddHours(1);
+        var clock = new StandingClock(DateTimeOffset.UtcNow.AddDays(clockOffsetDays));
+        var (provider, _) = Offline(Aws(), new ExpiringCredentials(expiry), clock: clock);
+        using (provider)
+        {
+            await Assert.ThrowsExactlyAsync<NotSupportedException>(() => provider.GetSignedUrlAsync("f.txt", For(TimeSpan.FromHours(2))));
+
+            var full = await provider.GetSignedUrlAsync("f.txt", For(TimeSpan.FromMinutes(10)));
+            Assert.IsTrue(int.Parse(HttpUtility.ParseQueryString(full.Url.Query)["X-Amz-Expires"]!, CultureInfo.InvariantCulture) is >= 599 and <= 600);
+            Assert.AreEqual(clock.GetUtcNow().AddMinutes(10), full.ExpiresOn);
+
+            var cut = await provider.GetSignedUrlAsync("f.txt", For(TimeSpan.FromHours(2), allowShorter: true));
+            var left = new DateTimeOffset(expiry) - DateTimeOffset.UtcNow;
+            Assert.IsTrue(cut.ExpiresOn > clock.GetUtcNow() + left - TimeSpan.FromMinutes(1) && cut.ExpiresOn <= clock.GetUtcNow() + left + TimeSpan.FromMinutes(1),
+                $"{cut.ExpiresOn} on a clock at {clock.GetUtcNow()}");
         }
     }
 

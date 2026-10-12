@@ -257,6 +257,24 @@ public sealed class GcsOptionsTests
     // ----- Signed URLs (their expiry is checked offline, where the key signs locally) -----
 
     [TestMethod]
+    public async Task SignedUrl_LivesTheValidityWhateverTheProvidersClock()
+    {
+        // The SDK signs with its own clock: a provider clock years off gives ExpiresOn, and changes nothing Cloud Storage
+        // checks.
+        var clock = new StandingClock(new DateTimeOffset(2020, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        using var client = Offline();
+        using var provider = new WriteableGoogleCloudStorageFileProvider(Options(null, "base"), client) { Clock = clock };
+        var url = await provider.GetSignedUrlAsync("dir/file.txt", new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5) });
+        Assert.AreEqual("300", HttpUtility.ParseQueryString(url.Url.Query)["X-Goog-Expires"]);
+        Assert.AreEqual(clock.GetUtcNow().AddMinutes(5), url.ExpiresOn);
+    }
+
+    private sealed class StandingClock(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+    }
+
+    [TestMethod]
     public async Task SignedUrl_ReadLivesExactlyAsLongAsAsked()
     {
         using var client = Offline();

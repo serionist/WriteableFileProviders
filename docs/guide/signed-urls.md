@@ -108,6 +108,11 @@ Tokens travel in the URL path, so anything that records paths records them. The 
 
 The gateway issues what a provider can't. Physical signs nothing, and no upload URL takes a `DownloadFileName`.
 
+A provider computes `ExpiresOn` on its `Clock`, the system clock unless you set it. Azure Blob also signs its URL's
+times on that clock, so a clock set back gives a URL Azure refuses as expired: how a test checks expiry without waiting.
+Amazon S3, MinIO and Google Cloud Storage sign with their SDK's own clock, so their URLs live as long as asked whatever
+the provider's clock says. The gateway's clock is your app's `TimeProvider` service.
+
 ### Azure Blob Storage
 
 - `Read`, `Create` and `Write`, up to 7 days: a service SAS with a shared key, a user delegation SAS with Microsoft

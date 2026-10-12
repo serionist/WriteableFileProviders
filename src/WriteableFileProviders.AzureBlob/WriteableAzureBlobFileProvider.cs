@@ -143,13 +143,6 @@ public sealed partial class WriteableAzureBlobFileProvider : WriteableFileProvid
         set => Interlocked.Exchange(ref _serverCopyRefusedUntil, value.UtcTicks);
     }
 
-    /// <summary>The clock for signed URL times and for how long a refusal is remembered, for the tests.</summary>
-    internal TimeProvider Clock
-    {
-        get => TimeProvider;
-        set => TimeProvider = value;
-    }
-
     /// <summary>The container client the provider works through.</summary>
     internal BlobContainerClient Container => _container;
 

@@ -143,7 +143,7 @@ public sealed class WriteableMinioFileProvider : WriteableFileProvider<MinioFile
 
     /// <inheritdoc />
     protected override Task<SignedUrl> GetSignedUrlCoreAsync(ResolvedPath path, SignedUrlOptions options, CancellationToken cancellationToken) =>
-        _core.PresignAsync(path, options, TimeProvider.GetUtcNow(), cancellationToken);
+        _core.PresignAsync(path, options, TimeProvider, cancellationToken);
 
     /// <inheritdoc />
     protected override bool IsNotFound(Exception exception) => S3Core.IsNotFound(exception);

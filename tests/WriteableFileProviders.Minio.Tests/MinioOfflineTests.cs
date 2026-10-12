@@ -23,9 +23,9 @@ public sealed class MinioOfflineTests
 
     // Every bucket and object exists, and is empty; the bucket's location is `location`.
     private static (WriteableMinioFileProvider Provider, InterceptingHttpClientFactory Factory, List<string> Signatures) Offline(
-        MinioFileProviderOptions options, Func<HttpRequestMessage, HttpResponseMessage?>? answer = null)
+        MinioFileProviderOptions options, Func<HttpRequestMessage, HttpResponseMessage?>? answer = null, TimeProvider? clock = null)
     {
-        var provider = new WriteableMinioFileProvider(options);
+        var provider = new WriteableMinioFileProvider(options) { Clock = clock ?? TimeProvider.System };
         var signatures = new List<string>();
         var factory = new InterceptingHttpClientFactory
         {
@@ -68,6 +68,26 @@ public sealed class MinioOfflineTests
         Assert.AreEqual("us-east-1", Scope(signatures.Single(IsLocationLine)));
         foreach (var signature in signatures.Where(s => !IsLocationLine(s)))
             Assert.AreEqual(expected, Scope(signature), signature);
+    }
+
+    [TestMethod]
+    public async Task Presign_LivesTheValidityWhateverTheProvidersClock()
+    {
+        // The SDK signs with its own clock: a provider clock years off gives ExpiresOn, and changes nothing MinIO
+        // checks.
+        var clock = new StandingClock(new DateTimeOffset(2020, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        var (provider, _, _) = Offline(Options("us-east-1"), clock: clock);
+        using (provider)
+        {
+            var url = await provider.GetSignedUrlAsync("f.txt", new SignedUrlOptions { Validity = TimeSpan.FromHours(1) });
+            Assert.AreEqual("3600", System.Web.HttpUtility.ParseQueryString(url.Url.Query)["X-Amz-Expires"]);
+            Assert.AreEqual(clock.GetUtcNow().AddHours(1), url.ExpiresOn);
+        }
+    }
+
+    private sealed class StandingClock(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
     }
 
     [TestMethod]

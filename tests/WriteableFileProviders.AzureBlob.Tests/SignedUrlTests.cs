@@ -186,6 +186,25 @@ public sealed class SignedUrlTests
     }
 
     [TestMethod]
+    public async Task UserDelegationKey_IsFetchedAgainOnceTheClockPassesIt()
+    {
+        var handler = Service();
+        var clock = new FixedClock(_now);
+        using var provider = TokenProvider(handler, clock);
+        var options = new SignedUrlOptions { Validity = TimeSpan.FromMinutes(5) };
+        await provider.GetSignedUrlAsync("a.txt", options);
+        clock.Advance(TimeSpan.FromMinutes(50));
+        await provider.GetSignedUrlAsync("b.txt", options);
+        Assert.AreEqual(1, handler.Requests.Count(StubHandler.IsDelegationKeyRequest), "The key, good for an hour, serves a URL 50 minutes on");
+
+        clock.Advance(TimeSpan.FromMinutes(20));
+        var url = await provider.GetSignedUrlAsync("c.txt", options);
+        Assert.AreEqual(2, handler.Requests.Count(StubHandler.IsDelegationKeyRequest), "Past the key's end, the provider's clock asks for a new one");
+        Assert.AreEqual(_now.AddMinutes(70).AddHours(1), StubHandler.RequestedKeyTimes(handler.Body(handler.Requests.Last(StubHandler.IsDelegationKeyRequest))).Expiry);
+        Assert.AreEqual(_now.AddMinutes(75), url.ExpiresOn, "The URL's times come from the provider's clock");
+    }
+
+    [TestMethod]
     public async Task UserDelegationKey_BadRequestIsNotRemembered()
     {
         var handler = new StubHandler(request => StubHandler.IsDelegationKeyRequest(request)

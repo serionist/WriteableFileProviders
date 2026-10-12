@@ -191,7 +191,7 @@ public sealed class WriteableAmazonS3FileProvider : WriteableFileProvider<Amazon
 
     /// <inheritdoc />
     protected override Task<SignedUrl> GetSignedUrlCoreAsync(ResolvedPath path, SignedUrlOptions options, CancellationToken cancellationToken) =>
-        _core.PresignAsync(path, options, TimeProvider.GetUtcNow(), cancellationToken);
+        _core.PresignAsync(path, options, TimeProvider, cancellationToken);
 
     /// <inheritdoc />
     protected override bool IsNotFound(Exception exception) => S3Core.IsNotFound(exception);

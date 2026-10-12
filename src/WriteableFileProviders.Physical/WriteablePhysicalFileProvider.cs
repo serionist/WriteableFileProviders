@@ -206,11 +206,6 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
     // for the final target (Windows).
     internal bool ResolvesLinksAsTheKernel { get; init; } = !OperatingSystem.IsWindows();
 
-    internal TimeProvider Clock
-    {
-        init => TimeProvider = value;
-    }
-
     // Called with the temp file's path as soon as it is created, before anything else touches it: the tests read its mode.
     internal Action<string>? TempCreated { get; init; }
 

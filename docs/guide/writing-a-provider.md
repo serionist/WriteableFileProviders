@@ -72,7 +72,7 @@ Declare what the store can do. Until you do, the base refuses or weakens the ope
 | `SupportsSignedUrl(access)` | false | `GetSignedUrlAsync` throws `NotSupportedException`. |
 | `SupportsSignedUrlContentHeaders(access)` | false | A URL with `DownloadFileName` or `ContentType` throws `NotSupportedException`. |
 | `MaxSignedUrlValidity` | 7 days | A longer validity throws `NotSupportedException`. |
-| `TimeProvider` | `TimeProvider.System` | The clock for expiry times; a test can set another. |
+| `TimeProvider` | `TimeProvider.System` | The clock to read every time you need the time: the `Clock` a caller sets as they build the provider. Read it when you need it, never once in your constructor, which runs before `Clock` is set. |
 
 ## Use the helpers
 

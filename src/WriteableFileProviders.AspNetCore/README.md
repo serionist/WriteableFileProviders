@@ -63,6 +63,7 @@ sends `PUT` to `url.Url` with `url.Headers`. For a keyed provider, pass its key:
 | `MaxUploadBytes` | 100 MiB | The largest upload; more answers 413. The gateway raises the server's body limit to match, but not a proxy's. |
 | `PreferGateway` | `false` | Always issue gateway URLs, even where the store signs its own. |
 | `AllowInsecureHttp` | `false` | Accept an `http` `PublicBaseUri` on a host that isn't loopback. Don't. |
+| `DataProtectionPurpose` | `WriteableFileProviders.Gateway.v1` | The root Data Protection purpose of every token, for an app that names its purposes its own way. Unique in the app, the same on every instance. Changing it ends every URL issued under the old one. |
 
 Set them with `AddWriteableFileProviderGateway(options => ...)`; they're validated when the app starts. A validity over
 the maximum throws `NotSupportedException`, or with `AllowShorterValidity` gets the maximum.

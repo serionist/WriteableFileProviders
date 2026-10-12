@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using Microsoft.AspNetCore.DataProtection.Repositories;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace WriteableFileProviders.AspNetCore.Tests;
@@ -31,7 +32,7 @@ public sealed class GatewayTokenGoldenTests
     [TestMethod]
     public void GoldenTokens_ReadBackWhatTheyWereIssuedWith()
     {
-        var codec = new GatewayTokenCodec(GoldenDataProtection());
+        var codec = Codec(GoldenDataProtection());
 
         foreach (var (token, access, id) in new[] { (GoldenRead, SignedUrlAccess.Read, "1"), (GoldenCreate, SignedUrlAccess.Create, "2"), (GoldenWrite, SignedUrlAccess.Write, "3") })
         {
@@ -97,7 +98,7 @@ public sealed class GatewayTokenGoldenTests
     public void TheCodec_WritesTheLiteralFormat()
     {
         var dataProtection = new EphemeralDataProtectionProvider();
-        var token = new GatewayTokenCodec(dataProtection).Protect("files", new GatewayTokenPayload
+        var token = Codec(dataProtection).Protect("files", new GatewayTokenPayload
         {
             Path = ["golden", "doc.txt"],
             Access = SignedUrlAccess.Write,
@@ -125,7 +126,7 @@ public sealed class GatewayTokenGoldenTests
     [TestMethod]
     public void GoldenDefaultProviderTokens_ReadBackWhatTheyWereIssuedWith()
     {
-        var codec = new GatewayTokenCodec(GoldenDataProtection());
+        var codec = Codec(GoldenDataProtection());
 
         foreach (var (token, access, id) in new[] { (GoldenDefaultRead, SignedUrlAccess.Read, "4"), (GoldenDefaultCreate, SignedUrlAccess.Create, "5"), (GoldenDefaultWrite, SignedUrlAccess.Write, "6") })
         {
@@ -193,7 +194,7 @@ public sealed class GatewayTokenGoldenTests
     public void TheCodec_WritesTheLiteralFormat_ForTheDefaultProvider()
     {
         var dataProtection = new EphemeralDataProtectionProvider();
-        var token = new GatewayTokenCodec(dataProtection).Protect(null, new GatewayTokenPayload
+        var token = Codec(dataProtection).Protect(null, new GatewayTokenPayload
         {
             Path = ["golden", "doc.txt"],
             Access = SignedUrlAccess.Write,
@@ -210,6 +211,11 @@ public sealed class GatewayTokenGoldenTests
             .Unprotect(WebEncoders.Base64UrlDecode(parts[2]), out _);
         Assert.AreEqual("""{"p":["golden","doc.txt"],"a":"Write","t":"text/plain","f":"Golden.txt","j":"id"}""", Encoding.UTF8.GetString(json));
     }
+
+    // The codec with the gateway's default options, so the default root purpose: the one these tokens were issued
+    // under.
+    private static GatewayTokenCodec Codec(IDataProtectionProvider dataProtection) =>
+        new(dataProtection, Options.Create(new WriteableFileProviderGatewayOptions()));
 
     private static IDataProtectionProvider GoldenDataProtection()
     {

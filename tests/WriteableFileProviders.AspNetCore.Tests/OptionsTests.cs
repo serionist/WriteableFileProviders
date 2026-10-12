@@ -28,6 +28,8 @@ public sealed class OptionsTests
         Assert.AreEqual(100L * 1024 * 1024, options.MaxUploadBytes);
         Assert.IsFalse(options.PreferGateway);
         Assert.IsFalse(options.AllowInsecureHttp);
+        // The purpose every URL issued so far was protected under: a token from an earlier version redeems.
+        Assert.AreEqual("WriteableFileProviders.Gateway.v1", options.DataProtectionPurpose);
         Assert.AreEqual(TimeSpan.FromDays(7), WriteableFileProviderGatewayOptions.MaxValidityLimit);
     }
 
@@ -144,6 +146,16 @@ public sealed class OptionsTests
         return builder;
     }
 
+    [TestMethod]
+    [DataRow("")]
+    [DataRow(" ")]
+    [DataRow(null)]
+    public void DataProtectionPurpose_Empty_IsInvalid(string? purpose) =>
+        AssertInvalid(Valid() with { DataProtectionPurpose = purpose! }, "DataProtectionPurpose");
+
+    [TestMethod]
+    public void DataProtectionPurpose_OfTheApp_IsValid() => AssertValid(Valid() with { DataProtectionPurpose = "Contoso.Files.Gateway.v1" });
+
     private static Settings Valid() => new() { PublicBaseUri = new Uri("https://files.example.com/") };
 
     private static void AssertValid(Settings settings)
@@ -175,6 +187,8 @@ public sealed class OptionsTests
 
         public bool AllowInsecureHttp { get; init; }
 
+        public string DataProtectionPurpose { get; init; } = "WriteableFileProviders.Gateway.v1";
+
         public WriteableFileProviderGatewayOptions ToOptions() => new()
         {
             PublicBaseUri = PublicBaseUri,
@@ -183,6 +197,7 @@ public sealed class OptionsTests
             MaxUploadValidity = MaxUploadValidity,
             MaxUploadBytes = MaxUploadBytes,
             AllowInsecureHttp = AllowInsecureHttp,
+            DataProtectionPurpose = DataProtectionPurpose,
         };
     }
 }

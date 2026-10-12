@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.Extensions.Options;
 
 namespace WriteableFileProviders.AspNetCore;
 
@@ -51,9 +52,10 @@ internal sealed record GatewayToken(string? ProviderName, GatewayTokenPayload Pa
 /// <summary>
 /// Writes and reads gateway tokens. A token is <c>{access}.{provider}.{payload}</c>: a letter for the access (r, c, w),
 /// the provider's key in base64url, empty for the app's default provider, and the payload, protected by a time-limited
-/// Data Protection protector whose purpose chain is <see cref="Purpose"/>, the provider's key (left out for the default
-/// provider) and the access. The first two parts are in the clear only to pick that protector: changing either one
-/// changes the purpose, so the payload no longer unprotects.
+/// Data Protection protector whose purpose chain is the root purpose
+/// (<see cref="WriteableFileProviderGatewayOptions.DataProtectionPurpose"/>, <see cref="DefaultPurpose"/> unless the
+/// app sets it), the provider's key (left out for the default provider) and the access. The first two parts are in the
+/// clear only to pick that protector: changing either one changes the purpose, so the payload no longer unprotects.
 /// </summary>
 /// <remarks>
 /// The format, the payload's JSON and the purpose chain are a one-way door: tokens issued by one version redeem on the
@@ -64,10 +66,13 @@ internal sealed record GatewayToken(string? ProviderName, GatewayTokenPayload Pa
 /// empty purpose, which Data Protection allows but advises against.
 /// </remarks>
 /// <param name="dataProtectionProvider">The app's Data Protection.</param>
-internal sealed class GatewayTokenCodec(IDataProtectionProvider dataProtectionProvider)
+/// <param name="options">The gateway's options, whose root purpose is read once.</param>
+internal sealed class GatewayTokenCodec(IDataProtectionProvider dataProtectionProvider, IOptions<WriteableFileProviderGatewayOptions> options)
 {
-    /// <summary>The root purpose of every gateway token.</summary>
-    internal const string Purpose = "WriteableFileProviders.Gateway.v1";
+    /// <summary>The root purpose of every gateway token unless the app sets another.</summary>
+    internal const string DefaultPurpose = "WriteableFileProviders.Gateway.v1";
+
+    private readonly string _purpose = options.Value.DataProtectionPurpose;
 
     private static readonly UTF8Encoding _strictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
@@ -161,8 +166,8 @@ internal sealed class GatewayTokenCodec(IDataProtectionProvider dataProtectionPr
 
     private ITimeLimitedDataProtector Protector(string? providerName, SignedUrlAccess access) =>
         (providerName is null
-            ? dataProtectionProvider.CreateProtector(Purpose, AccessName(access))
-            : dataProtectionProvider.CreateProtector(Purpose, providerName, AccessName(access))).ToTimeLimitedDataProtector();
+            ? dataProtectionProvider.CreateProtector(_purpose, AccessName(access))
+            : dataProtectionProvider.CreateProtector(_purpose, providerName, AccessName(access))).ToTimeLimitedDataProtector();
 
     private static string AccessCode(SignedUrlAccess access) => access switch
     {

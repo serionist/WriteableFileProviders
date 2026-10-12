@@ -418,27 +418,33 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
     /// Deletes the temp files that writes left behind under the root: a write names its temp file <c>.wfp-</c>, 32
     /// lowercase hex digits and <c>.tmp</c>, and removes it when it ends, but a process that dies during a write leaves
     /// it. Listings never show those files; they only take space. Only exactly that name is deleted, so
-    /// <c>.wfp-notes.tmp</c>, or a <c>.wfp-rename-…</c> copy that holds a file's content, never is.
+    /// <c>.wfp-notes.tmp</c>, or a <c>.wfp-rename-…</c> copy that holds a file's content, never is; a file of the
+    /// caller's with exactly that name, which listings hide too, is taken for a leftover.
     /// </summary>
     /// <remarks>
     /// <para>
     /// A temp file is deleted when its last write is older than <paramref name="olderThan"/> on the provider's clock,
     /// the system clock unless a test sets another. A write in progress moves its temp file's last write only when it
-    /// writes, so choose an age longer than your longest write: on Linux and macOS a write whose temp file goes anyway
-    /// fails with <see cref="IOException"/> and leaves the file as it was; on Windows the open write refuses the
-    /// delete, and the file is skipped.
+    /// writes, so choose an age longer than your longest write, plus any lag of a file server's clock behind this
+    /// machine's. On Linux and macOS a write whose temp file goes anyway fails with <see cref="IOException"/> and
+    /// leaves the file as it was; on Windows the write refuses the delete while it holds the file open, and between
+    /// closing it and the rename only an age near zero can take it.
     /// </para>
     /// <para>
-    /// Every folder under the root is walked; a linked folder (a symbolic link or a junction) is not, whatever
-    /// <see cref="PhysicalFileProviderOptions.RefuseLinks"/> says. Like a recursive listing's, that check comes just before
-    /// each folder is walked, not atomically with it: a process that can create links inside the root could swap one in
-    /// and steer the sweep into a folder elsewhere, where it still deletes only files named exactly like a write's temp
-    /// file and older than the age. A temp file it cannot delete is skipped. A folder the process may not list throws
-    /// <see cref="UnauthorizedAccessException"/>, as a listing does; the files deleted before it stay deleted.
+    /// Every folder under the root is walked, except a linked folder (a symbolic link or a junction), whatever
+    /// <see cref="PhysicalFileProviderOptions.RefuseLinks"/> says, and a folder whose name no path can name, where no
+    /// write puts a temp file. Just before each folder is walked, its path from the root is checked for a link, but not
+    /// atomically with the walk: a process that can create links inside the root could swap one in and steer the sweep
+    /// into a folder elsewhere, where it still deletes only files named exactly like a write's temp file and older than
+    /// the age. A folder the process may not list, and a temp file it cannot delete, are skipped, and the sweep goes
+    /// on.
     /// </para>
     /// </remarks>
-    /// <param name="olderThan">How old a temp file's last write must be; zero deletes every one.</param>
-    /// <param name="cancellationToken">Cancels the sweep between files.</param>
+    /// <param name="olderThan">
+    /// How old a temp file's last write must be; zero takes every one stamped at or before now (a write may stamp its
+    /// file ahead of the clock).
+    /// </param>
+    /// <param name="cancellationToken">Cancels the sweep between folders and between files.</param>
     /// <returns>How many temp files were deleted; 0 when the root does not exist yet.</returns>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="olderThan"/> is negative.</exception>
     /// <exception cref="ObjectDisposedException">The provider is disposed.</exception>
@@ -446,35 +452,48 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(olderThan, TimeSpan.Zero);
         Resolve(ProviderPath.Root);
-        var cutoff = TimeProvider.GetUtcNow().UtcDateTime - olderThan;
+        var now = TimeProvider.GetUtcNow().UtcDateTime;
+        // An age longer than the clock has run takes nothing.
+        var cutoff = olderThan.Ticks > now.Ticks ? DateTime.MinValue : now - olderThan;
         var deleted = 0;
-        var folders = new Queue<DirectoryInfo>();
-        folders.Enqueue(new DirectoryInfo(_root));
-        while (folders.TryDequeue(out var folder))
+        var folders = new Queue<string[]>();
+        folders.Enqueue([]);
+        while (folders.TryDequeue(out var relative))
         {
-            IEnumerable<FileSystemInfo> entries;
+            cancellationToken.ThrowIfCancellationRequested();
+            List<FileSystemInfo> entries;
             try
             {
-                entries = folder.EnumerateFileSystemInfos("*", _listing);
+                // Checked just before the folder is walked, the whole way from the root: a folder that was found plain
+                // and has become a link since, or sits under one, is not walked.
+                if (LinkOnTheWay(relative) is not null)
+                    continue;
+                entries = [.. new DirectoryInfo(Path.Join([_root, .. relative])).EnumerateFileSystemInfos("*", _listing)];
             }
-            catch (DirectoryNotFoundException)
+            catch (Exception e) when (e is DirectoryNotFoundException or UnauthorizedAccessException)
             {
-                // The root not created yet, or a folder deleted since it was found.
+                // The root not created yet, a folder deleted since it was found, or one the process may not list: there
+                // is nothing there the sweep can reach.
                 continue;
             }
             foreach (var entry in entries)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (entry is DirectoryInfo subfolder)
+                if (entry is DirectoryInfo)
                 {
-                    if (!IsLink(subfolder))
-                        folders.Enqueue(subfolder);
+                    // A folder no path can name holds nothing the provider wrote.
+                    if (IsAddressable(entry.Name))
+                        folders.Enqueue([.. relative, entry.Name]);
                     continue;
                 }
                 if (!IsTempFile(entry.Name) || entry.LastWriteTimeUtc > cutoff)
                     continue;
                 try
                 {
+                    // Counted only when it was there to delete: deleting a missing file throws nothing.
+                    entry.Refresh();
+                    if (!entry.Exists)
+                        continue;
                     entry.Delete();
                     deleted++;
                 }
@@ -600,19 +619,36 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
     // down, stopping at the first that does not exist, since nothing below it can.
     private void RefuseLinksOn(ResolvedPath path)
     {
+        if (LinkOnTheWay(path.RelativeSegments) is { } link)
+            throw new ArgumentException($"The path '{path}' goes through '{link}', a link, which this provider refuses (RefuseLinks).", nameof(path));
+    }
+
+    // The first entry on the way to these segments under the root that is a link, as its path under the root, or null.
+    // One stat per entry, from the root down, stopping at the first that is not there, since nothing below it can be.
+    // On Linux and macOS it also stops at an entry the process may not look up: the system won't go past it for the
+    // member either, which then reads it as missing. On Windows a process can be let through a folder it may not read,
+    // so there that refusal is thrown.
+    private string? LinkOnTheWay(IReadOnlyList<string> segments)
+    {
         var current = _root;
-        var walked = new List<string>();
-        foreach (var segment in path.RelativeSegments)
+        for (var i = 0; i < segments.Count; i++)
         {
-            current = Path.Join(current, segment);
-            walked.Add(segment);
+            current = Path.Join(current, segments[i]);
             var entry = new FileInfo(current);
-            // Attributes are -1 when nothing is there; a link reports itself, whatever it leads to.
-            if ((int)entry.Attributes == -1)
-                return;
-            if (IsLink(entry))
-                throw new ArgumentException($"The path '{path}' goes through '{string.Join('/', walked)}', a link, which this provider refuses (RefuseLinks).", nameof(path));
+            try
+            {
+                // Attributes are -1 when nothing is there; a link reports itself, whatever it leads to.
+                if ((int)entry.Attributes == -1)
+                    return null;
+                if (IsLink(entry))
+                    return string.Join('/', segments.Take(i + 1));
+            }
+            catch (UnauthorizedAccessException) when (!OperatingSystem.IsWindows())
+            {
+                return null;
+            }
         }
+        return null;
     }
 
     private IEnumerable<(IWriteableFileInfo Entry, FileSystemInfo Info)> Entries(ResolvedPath path, CancellationToken cancellationToken)
@@ -722,10 +758,10 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
         }
         catch (FileNotFoundException e) when (written && !File.Exists(temp))
         {
-            // Something removed the temp file once its content was written, as a sweep of old temp files can on Linux and
-            // macOS, where a file being written can be deleted: the target is as it was. The exception would name the
-            // temp file, and read as "the file does not exist".
-            throw new IOException($"The file '{path}' was not written, and is as it was: its temp file was deleted before the write finished, as {nameof(DeleteTempFilesAsync)} does to one older than its age.", e);
+            // Something removed the temp file once its content was written, as a sweep of old temp files can on Linux
+            // and macOS, where a file being written can be deleted: the target is as it was. The exception would name
+            // the temp file, and read as "the file does not exist".
+            throw new IOException($"The file '{path}' was not written, and is as it was: its temp file was deleted before the write finished (as {nameof(DeleteTempFilesAsync)} does to one older than its age).", e);
         }
         catch
         {
@@ -775,6 +811,9 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
             }
             if (error == NativeMethods.AlreadyExists && Path.Exists(target))
                 throw taken(new IOException("The name is already taken."));
+            // The temp file is gone: taking the name as RenameToNew does would put an empty file there for nothing.
+            if (error == NativeMethods.NoSuchFile && !File.Exists(temp))
+                throw new FileNotFoundException("The write's temp file is gone.", temp);
         }
         RenameToNew(temp, target, taken);
     }

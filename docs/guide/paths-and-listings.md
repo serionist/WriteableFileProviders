@@ -105,7 +105,8 @@ IDirectoryContents contents = await files.GetDirectoryContentsAsync("reports"); 
   `.tmp`) and Azure Blob's `.wfp-tmp` folder at the root. Your own `.wfp-` names are listed, and so is the
   `.wfp-rename-<guid>.tmp` copy that a case-only rename holds for a moment. Physical's
   `DeleteTempFilesAsync(olderThan)` deletes the write files a crash left behind.
-- On Physical, a recursive listing lists a linked folder (symbolic link or junction) but doesn't walk into it.
+- On Physical, a recursive listing lists a linked folder (symbolic link or junction) but doesn't walk into it; with
+  `RefuseLinks`, it leaves the link out.
 
 ## Watch for changes
 

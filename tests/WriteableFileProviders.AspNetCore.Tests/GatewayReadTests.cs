@@ -387,6 +387,25 @@ public sealed class GatewayReadTests
     }
 
     [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task Get_PathRefusedBeforeItIsRead_Answers404(bool canPin)
+    {
+        // A provider that comes to refuse the path between its info and its bytes (Physical's RefuseLinks, once a link
+        // is put on it) answers as a refused path does when the token is read.
+        await using var host = await GatewayHost.StartAsync(canPin: canPin);
+        await host.WriteAsync("doc.txt", "x");
+        var url = await host.UrlAsync("doc.txt");
+        host.Files.ReadFailure = new ArgumentException("The path 'doc.txt' goes through 'doc.txt', a link.");
+
+        using var response = await host.Client.GetAsync(url);
+
+        Assert.AreEqual(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.AreEqual(0, (await response.Content.ReadAsByteArrayAsync()).Length);
+        Assert.AreEqual("nosniff", Single(response, "X-Content-Type-Options"));
+    }
+
+    [TestMethod]
     public async Task Get_TokenWithoutAFileName_NamesTheDownloadAfterThePath()
     {
         await _host.WriteAsync("folder/named.txt", "x");

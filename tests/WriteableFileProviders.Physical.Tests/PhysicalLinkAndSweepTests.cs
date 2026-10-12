@@ -121,6 +121,49 @@ public sealed class PhysicalLinkAndSweepTests
     }
 
     [TestMethod]
+    public void RefuseLinks_TheSynchronousMembersRefuseToo()
+    {
+        StageLinks();
+        using var provider = Provider();
+        Assert.ThrowsExactly<ArgumentException>(() => provider.GetFileInfo("out-link/x.txt"));
+        Assert.ThrowsExactly<ArgumentException>(() => provider.GetDirectoryContents("out-link"));
+    }
+
+    [TestMethod]
+    public async Task RefuseLinks_AFolderTheProcessMayNotEnter_ReadsAsMissing()
+    {
+        // As without the option: the system won't look past the folder for the member either, so nothing below it can
+        // be reached through a link. Windows refuses the lookup instead, since a process can be let through a folder it
+        // may not read.
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Inconclusive("Windows lets a process through a folder it may not read; the check refuses there instead.");
+            return;
+        }
+        var locked = Directory.CreateDirectory(Disk("locked")).FullName;
+        File.WriteAllText(Path.Combine(locked, "x.txt"), "hidden");
+        File.SetUnixFileMode(locked, UnixFileMode.None);
+        try
+        {
+            if (Directory.GetFiles(locked).Length > 0)
+                Assert.Inconclusive("The process runs as root, which permissions don't stop.");
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+        try
+        {
+            using var provider = Provider();
+            Assert.IsFalse((await provider.GetFileInfoAsync("locked/x.txt")).Exists);
+            await Assert.ThrowsExactlyAsync<FileNotFoundException>(() => provider.ReadFileAsync("locked/x.txt"));
+        }
+        finally
+        {
+            File.SetUnixFileMode(locked, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+    }
+
+    [TestMethod]
     public async Task RefuseLinks_TheRootMayBeALink()
     {
         // Only entries under the root are checked: the root itself, and the folders above it, may be links.
@@ -223,6 +266,86 @@ public sealed class PhysicalLinkAndSweepTests
         using var provider = Sweeper();
         Assert.AreEqual(0, await provider.DeleteTempFilesAsync(TimeSpan.FromHours(1)));
         Assert.IsTrue(File.Exists(outsideLeftover), "A temp file behind a link is not the provider's");
+    }
+
+    [TestMethod]
+    public async Task Sweep_LeavesFoldersAlone_AndGoesOnPastOneItMayNotList()
+    {
+        // A folder named like a temp file is not one; a folder the process may not list is skipped, and the rest swept.
+        Directory.CreateDirectory(Disk(".wfp-" + Guid.NewGuid().ToString("N") + ".tmp"));
+        var locked = Directory.CreateDirectory(Disk("a-locked")).FullName;
+        var lockedLeftover = Leftover(locked, TimeSpan.FromDays(3));
+        var after = Leftover(Disk("z-after"), TimeSpan.FromDays(3));
+        var permissionsApply = false;
+        int deleted;
+        if (!OperatingSystem.IsWindows())
+            File.SetUnixFileMode(locked, UnixFileMode.None);
+        try
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                try
+                {
+                    Directory.GetFiles(locked);
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    permissionsApply = true;
+                }
+            }
+            using var provider = Sweeper();
+            deleted = await provider.DeleteTempFilesAsync(TimeSpan.FromHours(1));
+        }
+        finally
+        {
+            if (!OperatingSystem.IsWindows())
+                File.SetUnixFileMode(locked, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+        Assert.IsFalse(File.Exists(after), "The folders after it are swept");
+        Assert.HasCount(1, Directory.GetDirectories(_root, ".wfp-*.tmp"), "A folder named like a temp file stays");
+        // Where permissions stop the process, the folder it may not list keeps its leftover; elsewhere it is swept.
+        Assert.AreEqual(permissionsApply, File.Exists(lockedLeftover));
+        Assert.AreEqual(permissionsApply ? 1 : 2, deleted);
+    }
+
+    [TestMethod]
+    public async Task Sweep_StopsWhenCancelled()
+    {
+        Leftover(_root, TimeSpan.FromDays(3));
+        using var provider = Sweeper();
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+        await Assert.ThrowsExactlyAsync<OperationCanceledException>(() => provider.DeleteTempFilesAsync(TimeSpan.Zero, cancelled.Token));
+        Assert.AreEqual(1, Directory.GetFiles(_root, ".wfp-*.tmp").Length);
+    }
+
+    [TestMethod]
+    public async Task Sweep_AnAgeLongerThanTheClockHasRunTakesNothing()
+    {
+        Leftover(_root, TimeSpan.FromDays(3));
+        using var provider = Sweeper();
+        Assert.AreEqual(0, await provider.DeleteTempFilesAsync(TimeSpan.MaxValue));
+    }
+
+    [TestMethod]
+    public async Task NewName_WhoseTempFileIsGoneBeforeTheLink_FailsWithoutTakingTheName()
+    {
+        // The temp file swept between its last write and the link: the write fails as any swept write does, and no
+        // empty file appears at the name meanwhile, as taking the name the old way would make.
+        if (OperatingSystem.IsWindows())
+            Assert.Inconclusive("Windows renames without replacing; it never takes a name with a hard link.");
+        using var provider = new WriteablePhysicalFileProvider(_root)
+        {
+            Link = (existing, created) =>
+            {
+                File.Delete(existing);
+                return NativeMethods.Link(existing, created) == 0 ? 0 : System.Runtime.InteropServices.Marshal.GetLastPInvokeError();
+            },
+            NameTaken = _ => Assert.Fail("No name is taken for a write whose temp file is gone"),
+        };
+        var e = await Assert.ThrowsExactlyAsync<IOException>(() => provider.UpdateFileAsync("f.txt", TestStreams.Text("new"), new UpdateFileOptions { IfNotExists = true }));
+        Assert.DoesNotContain(".wfp-", e.Message);
+        Assert.IsFalse(File.Exists(Disk("f.txt")));
     }
 
     [TestMethod]

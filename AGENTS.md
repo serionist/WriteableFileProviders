@@ -123,7 +123,8 @@ Each package has a test project of its own, `tests/WriteableFileProviders.<Packa
   `TutorialTests` runs step 2 of `docs/guide/getting-started.md` (download URLs for local files) over the Physical provider.
 - **Physical:** the suite on the local disk, under a temp folder of its own that the class deletes when it ends;
   `PhysicalProviderTests` and `PhysicalOptionsTests` cover the temp files, the races, links, the rules that differ by OS
-  and the stored root forms. CI runs it on Linux and Windows.
+  and the stored root forms; `PhysicalLinkAndSweepTests`, `RefuseLinks` and the sweep of leftover temp files. CI runs it
+  on Linux and Windows.
 - **Azure Blob**, on Azurite: `AzuriteConformanceTests` (providers built from options) and
   `AzuriteStrictConformanceTests` (over a container client whose pipeline, `AzureHandler`, refuses what Azure refuses
   and Azurite allows: replacing an append blob, more blocks than the limit, here lowered to 6), and

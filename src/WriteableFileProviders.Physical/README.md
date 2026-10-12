@@ -39,7 +39,7 @@ From configuration, with `WriteableFileProviderSerializer.FromConfiguration(sect
 |---|---|---|
 | `RootDirectoryPath` | required | The folder the provider is confined to: absolute (`/srv/files`, `C:\files`, `\\server\share\files`) or relative to the current directory, resolved once when the provider is built. It need not exist; the first write creates it. |
 | `RootDirectorySegments` | | The same folder as segments, the form 2026 stored: `["root:", "srv", "files"]`, `["C:", "files"]`, `["\\", "server", "share"]`. Set this or `RootDirectoryPath`. |
-| `RefuseLinks` | `false` | Refuse a path that names or goes through a symbolic link, junction or mount point inside the root (`ArgumentException`), and leave links out of listings. The root itself may be a link. New in 2027.1.0: an older version ignores it and follows links. |
+| `RefuseLinks` | `false` | Refuse a path that names or goes through a symbolic link, junction or Windows mount point inside the root (`ArgumentException`), and leave links out of listings. The root itself may be a link. New in 2027.1.0: an older version ignores it and follows links. |
 
 ## Authentication
 
@@ -50,7 +50,8 @@ None. The provider reads and writes with the permissions of the process.
 - **Writes are atomic.** An overwrite, an append, a copy or a local stream's commit writes `.wfp-<guid>.tmp` next to
   the target, then renames it over the target. Listings hide these files; a crash can leave one.
   `DeleteTempFilesAsync(olderThan)` deletes those older than an age you choose, which must be longer than your longest
-  write: a write whose temp file goes fails, and its file keeps its content. It doesn't walk into linked folders.
+  write, plus any lag of a file server's clock: a write whose temp file goes fails, and its file keeps its content. It
+  doesn't walk into linked folders, and skips a folder it may not list.
 - **An append copies the whole file**, so frequent appends to a large file (a log) are expensive.
 - **A write puts a new file at the path.** Other hard links keep the old content, and a symbolic link at the path
   becomes a file. On Windows the file takes the folder's permissions; on Linux and macOS, the old file's mode bits.
@@ -62,10 +63,11 @@ None. The provider reads and writes with the permissions of the process.
   are names Windows can't hold or would read as another name: `report.txt.`, `a?b`, `CON`, `con.txt`. Listings leave
   out such names, and on Linux and macOS, names holding `:` or `\`.
 - **Symbolic links and junctions** inside the root are followed, wherever they point, unless you set `RefuseLinks`.
-  A recursive listing lists a linked folder but doesn't walk into it. `RefuseLinks` checks the path just before each
-  operation, so a process that can create links inside the root can still swap one in between. Hard links and bind
-  mounts aren't visible as links, and other reparse points (cloud placeholders, Windows container layers) aren't links.
-  The polling `Watch` can still report a change behind a linked folder.
+  Without it, a recursive listing lists a linked folder but doesn't walk into it. `RefuseLinks` checks the path just
+  before each operation, so a process that can create links inside the root can still swap one in between; a recursive
+  folder delete can even be steered into a folder elsewhere by a link swapped in while it runs. Hard links and mounts on
+  Linux and macOS aren't visible as links, and other reparse points (cloud placeholders, Windows container layers)
+  aren't links. The polling `Watch` can still report a change behind a linked folder.
 - **No content types.** `UpdateFileOptions.ContentType` is ignored; `ContentType` is null.
 - **`Watch` works** like ASP.NET Core's `PhysicalFileProvider`: a glob relative to the root. Hidden and dot-prefixed
   files aren't watched. Where file system events don't arrive (some network and container mounts), set

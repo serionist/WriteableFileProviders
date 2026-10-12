@@ -38,6 +38,10 @@ internal sealed class DelegatingFileProvider(IWriteableFileProvider inner) : IWr
     /// <summary>Runs after <see cref="GetFileInfoAsync"/> has read the file's info, as a concurrent writer would.</summary>
     public Func<Task>? AfterGetFileInfo { get; set; }
 
+    /// <summary>When set, the reads of a file's bytes throw it, as a store that came to refuse the path
+    /// meanwhile.</summary>
+    public Exception? ReadFailure { get; set; }
+
     public FileProviderOptions Options => inner.Options;
 
     public IFileInfo GetFileInfo(string subpath) => inner.GetFileInfo(subpath);
@@ -68,12 +72,16 @@ internal sealed class DelegatingFileProvider(IWriteableFileProvider inner) : IWr
 
     public async Task<Stream> ReadFileAsync(ProviderPath path, CancellationToken cancellationToken = default)
     {
+        if (ReadFailure is { } failure)
+            throw failure;
         Interlocked.Increment(ref _fileReads);
         return Track(await inner.ReadFileAsync(path, cancellationToken));
     }
 
     public async Task<Stream> ReadRangeAsync(ProviderPath path, long offset, long? length, ReadOptions? options = null, CancellationToken cancellationToken = default)
     {
+        if (ReadFailure is { } failure)
+            throw failure;
         RangeReads.Enqueue((offset, length));
         return Track(await inner.ReadRangeAsync(path, offset, length, options, cancellationToken));
     }

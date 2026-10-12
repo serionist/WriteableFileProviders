@@ -75,9 +75,9 @@ public sealed class GatewayTokenTests
         string[][] purposes =
         [
             ["SomethingElse"],
-            [GatewayTokenCodec.Purpose],
-            [GatewayTokenCodec.Purpose, "files"],
-            [GatewayTokenCodec.Purpose, "files", "Write"],
+            [GatewayTokenCodec.DefaultPurpose],
+            [GatewayTokenCodec.DefaultPurpose, "files"],
+            [GatewayTokenCodec.DefaultPurpose, "files", "Write"],
             ["WriteableFileProviders.Gateway.v2", "files", "Read"],
         ];
         foreach (var purpose in purposes)
@@ -87,8 +87,36 @@ public sealed class GatewayTokenTests
         }
 
         // Not time-limited: the right purpose chain without the time-limited protector's own purpose.
-        var untimed = DataProtection.CreateProtector(GatewayTokenCodec.Purpose, "files", "Read").Protect(json);
+        var untimed = DataProtection.CreateProtector(GatewayTokenCodec.DefaultPurpose, "files", "Read").Protect(json);
         await AssertNotFoundAsync(Token("r", "files", untimed));
+    }
+
+    [TestMethod]
+    public async Task Purpose_SetByTheApp_RedeemsOnlyUnderThatPurpose()
+    {
+        // Two apps on one key ring, one with a root purpose of its own: each app's URLs redeem on it and not on the other,
+        // for a keyed provider and for the default one, so the purpose, not the keys, tells them apart.
+        var keys = new EphemeralDataProtectionProvider();
+        await using var custom = await GatewayHost.StartAsync(
+            options => options.DataProtectionPurpose = "Contoso.Files.Gateway.v1",
+            builder => builder.Services.AddSingleton<IDataProtectionProvider>(keys));
+        await using var standard = await GatewayHost.StartAsync(configureBuilder: builder => builder.Services.AddSingleton<IDataProtectionProvider>(keys));
+        foreach (var provider in new[] { "files", null })
+        {
+            await custom.WriteAsync("doc.txt", "custom", provider);
+            await standard.WriteAsync("doc.txt", "standard", provider);
+            var customUrl = await custom.UrlAsync("doc.txt", provider: provider);
+            var standardUrl = await standard.UrlAsync("doc.txt", provider: provider);
+
+            using (var response = await custom.Client.GetAsync(customUrl))
+                Assert.AreEqual("custom", await response.Content.ReadAsStringAsync(), provider ?? "the default provider");
+            using (var response = await standard.Client.GetAsync(standardUrl))
+                Assert.AreEqual("standard", await response.Content.ReadAsStringAsync(), provider ?? "the default provider");
+            using (var response = await standard.Client.GetAsync(customUrl))
+                Assert.AreEqual(HttpStatusCode.NotFound, response.StatusCode, "A token under the app's purpose is refused under the default");
+            using (var response = await custom.Client.GetAsync(standardUrl))
+                Assert.AreEqual(HttpStatusCode.NotFound, response.StatusCode, "A token under the default purpose is refused under the app's");
+        }
     }
 
     [TestMethod]
@@ -253,7 +281,7 @@ public sealed class GatewayTokenTests
     public async Task PayloadThatDoesNotMatchItsToken_Answers404()
     {
         var expires = DateTimeOffset.UtcNow.AddMinutes(1);
-        var readProtector = DataProtection.CreateProtector(GatewayTokenCodec.Purpose, "files", "Read").ToTimeLimitedDataProtector();
+        var readProtector = DataProtection.CreateProtector(GatewayTokenCodec.DefaultPurpose, "files", "Read").ToTimeLimitedDataProtector();
         byte[][] payloads =
         [
             JsonPayload(Payload(SignedUrlAccess.Write, "doc.txt")),  // another access than the token's

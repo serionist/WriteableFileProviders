@@ -13,6 +13,9 @@ version's section as its GitHub release notes.
   every provider. It derives from `PreconditionFailedException`, so existing catches still catch it; catch it first to
   tell "created meanwhile" from "changed meanwhile". Code that checks for exactly `PreconditionFailedException` (its
   `GetType()`, or a test's `ThrowsExactly`) now sees the subtype there.
+- **`DataProtectionPurpose`** (AspNetCore): the gateway's root Data Protection purpose, for an app that names its
+  purposes its own way. The default stays `WriteableFileProviders.Gateway.v1`, so URLs already issued keep redeeming;
+  changing it ends the URLs issued under the old one.
 
 ### Fixed
 

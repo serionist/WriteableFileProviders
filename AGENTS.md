@@ -235,8 +235,9 @@ feature or a new target framework in a minor; a fix in a patch.
   they stored. Every later reader reads what an earlier version wrote (the goldens pin it), except a root with a dot
   segment, refused since 2027.0.0 because it reached outside the root (the maintainers agreed on
   [#3](https://github.com/serionist/WriteableFileProviders/issues/3#issuecomment-6108746458)); the reverse is not promised.
-- **The gateway's URLs:** the token format `{access}.{provider key}.{payload}`, its Data Protection purpose chain
-  (`WriteableFileProviders.Gateway.v1`, the provider key, the access) and the URL shape `{BasePath}/{token}/{fileName?}`.
+- **The gateway's URLs:** the token format `{access}.{provider key}.{payload}`, its Data Protection purpose chain (the
+  root purpose, `WriteableFileProviders.Gateway.v1` unless the app sets `DataProtectionPurpose`, then the provider key,
+  the access) and the URL shape `{BasePath}/{token}/{fileName?}`.
   A token for the app's default provider leaves the key out: an empty key segment, and no key in the purpose chain. A
   URL issued by one version redeems on the next; a new format gets a new purpose version and the old one keeps
   redeeming.

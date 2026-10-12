@@ -65,8 +65,11 @@ Tokens are encrypted and signed with your app's Data Protection keys, and the pr
 request. Share the key ring and application name across instances, or a URL from one answers 404 on another.
 
 - Keys kept only in memory lose every URL on restart. Revoking a key invalidates its URLs.
-- The token format and purpose chain (`WriteableFileProviders.Gateway.v1`, the provider's key if any, the access) stay
-  stable: a URL issued by one version redeems on the next.
+- The token format and purpose chain (the root purpose, the provider's key if any, the access) stay stable: a URL
+  issued by one version redeems on the next.
+- The root purpose is `WriteableFileProviders.Gateway.v1` unless you set `DataProtectionPurpose`, to keep the
+  gateway's tokens under your app's own purpose names (`Contoso.Files.Gateway.v1`). Set it before the first URL goes
+  out: changing it later ends every URL issued under the old one.
 
 ### Security headers, and a host of its own
 

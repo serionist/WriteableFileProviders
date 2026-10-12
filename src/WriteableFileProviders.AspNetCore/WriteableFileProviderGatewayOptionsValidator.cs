@@ -16,6 +16,8 @@ internal sealed class WriteableFileProviderGatewayOptionsValidator : IValidateOp
         ValidateValidity(nameof(options.MaxUploadValidity), options.MaxUploadValidity, failures);
         if (options.MaxUploadBytes <= 0)
             failures.Add($"MaxUploadBytes must be positive; it is {options.MaxUploadBytes}.");
+        if (string.IsNullOrWhiteSpace(options.DataProtectionPurpose))
+            failures.Add($"DataProtectionPurpose must not be empty: it is the root Data Protection purpose of every gateway token ({GatewayTokenCodec.DefaultPurpose} by default).");
         return failures.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);
     }
 

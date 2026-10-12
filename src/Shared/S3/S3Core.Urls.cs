@@ -48,7 +48,10 @@ internal sealed partial class S3Core
             BucketName = Bucket,
             Key = Key(path),
             Verb = options.Access == SignedUrlAccess.Read ? HttpVerb.GET : HttpVerb.PUT,
-            Expires = expires.UtcDateTime,
+            // The SDK signs X-Amz-Date from its own clock, and X-Amz-Expires as Expires less that: given the system's
+            // now plus the validity, the URL lives the validity whatever the provider's clock says, which gives
+            // ExpiresOn.
+            Expires = TimeProvider.System.GetUtcNow().UtcDateTime + options.Validity,
             // The SDK signs https unless told otherwise, whatever the endpoint's scheme.
             Protocol = connection.UseHttp ? Protocol.HTTP : Protocol.HTTPS,
         };

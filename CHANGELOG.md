@@ -13,6 +13,12 @@ version's section as its GitHub release notes.
   every provider. It derives from `PreconditionFailedException`, so existing catches still catch it; catch it first to
   tell "created meanwhile" from "changed meanwhile". Code that checks for exactly `PreconditionFailedException` (its
   `GetType()`, or a test's `ThrowsExactly`) now sees the subtype there.
+- **`Clock`** (every provider): a public `TimeProvider`, set as the provider is built (`new X(options) { Clock = clock
+  }`), which every time a provider computes comes from: signed URL times and `ExpiresOn`, Azure Blob's user delegation
+  key cache, Box's and SharePoint's waits, Physical's write stamps and its sweep. Azure Blob signs its URL's times on
+  it; Amazon S3, MinIO and Google Cloud Storage sign with their SDK's clock, so there only `ExpiresOn` follows it. A
+  provider built from configuration keeps the system clock. A third-party provider with a member named `Clock` of its
+  own now hides the base class's (CS0108).
 - **`RefuseLinks`** (Physical): an option, off by default, that refuses a path naming or going through a symbolic
   link, junction or Windows mount point inside the root, and leaves links out of listings. It is checked just before
   each operation, not atomically with it, and a recursive folder delete can still be steered elsewhere by a link

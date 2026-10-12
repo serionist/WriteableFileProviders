@@ -104,6 +104,22 @@ public sealed class BaseClassTests
     }
 
     [TestMethod]
+    public void Clock_IsTheSystemClockUnlessSet_AndNeverNull()
+    {
+        using var provider = Stub();
+        Assert.AreSame(TimeProvider.System, provider.Clock);
+        var clock = new StandingClock(DateTimeOffset.UnixEpoch);
+        using (var clocked = new StubProvider(new StubOptions()) { Clock = clock })
+            Assert.AreSame(clock, clocked.Clock);
+        Assert.ThrowsExactly<ArgumentNullException>(() => new StubProvider(new StubOptions()) { Clock = null! });
+    }
+
+    private sealed class StandingClock(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+    }
+
+    [TestMethod]
     public async Task SignedUrl_ContentHeadersNeedTheProvidersSupport()
     {
         using var provider = Stub();

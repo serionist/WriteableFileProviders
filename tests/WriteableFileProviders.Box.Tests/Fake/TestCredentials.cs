@@ -64,6 +64,6 @@ internal sealed class TestCredentials
     }
 
     /// <summary>A provider that signs in to the fake through its options, tuned so the tests do not wait.</summary>
-    public WriteableBoxFileProvider Provider(FakeBox box, string? root = null, string? rootFolderId = null) =>
-        new(Options(root, rootFolderId), Session(box)) { PollDelay = TimeSpan.Zero };
+    public WriteableBoxFileProvider Provider(FakeBox box, string? root = null, string? rootFolderId = null, TimeProvider? clock = null) =>
+        new(Options(root, rootFolderId), Session(box)) { PollDelay = TimeSpan.Zero, Clock = clock ?? TimeProvider.System };
 }

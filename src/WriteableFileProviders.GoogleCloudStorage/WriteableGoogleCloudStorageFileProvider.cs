@@ -404,7 +404,10 @@ public sealed class WriteableGoogleCloudStorageFileProvider : WriteableFileProvi
         {
             Url = url,
             Method = read ? "GET" : "PUT",
-            ExpiresOn = ExpiryOf(url),
+            // The SDK signs with its own clock and offers no way to give it another, so the URL lives the validity on
+            // Cloud Storage's clock whatever the provider's says. ExpiresOn is read from the URL, or, where the caller
+            // gave the provider a clock, is that clock's now plus the validity, as on S3.
+            ExpiresOn = ReferenceEquals(TimeProvider, TimeProvider.System) ? ExpiryOf(url) : TimeProvider.GetUtcNow().AddSeconds(seconds),
             Headers = headers,
             Kind = SignedUrlKind.Presigned,
         };

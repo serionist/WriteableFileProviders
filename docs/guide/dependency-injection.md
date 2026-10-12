@@ -23,6 +23,21 @@ app.MapGet("/reports/{year}", async (int year, IWriteableFileProvider files) =>
 `AddWriteableFileProvider` registers a singleton. It lives in `Microsoft.Extensions.DependencyInjection`, so it needs no
 `using`. Each call adds a registration, as `AddSingleton` does: `IWriteableFileProvider` resolves to the last one.
 
+### Give a provider a clock
+
+Every provider reads the time from its `Clock`, the system clock unless you set it, once, as you build the provider.
+Tests use it to check expiry without waiting:
+
+```csharp
+builder.Services.AddWriteableFileProvider(sp =>
+    new WriteableAzureBlobFileProvider(options) { Clock = sp.GetRequiredService<TimeProvider>() });
+```
+
+- A provider built from configuration or JSON keeps the system clock: build it in code to give it one.
+- Box and SharePoint also wait on it while they poll. A fake clock you move by hand must be moved, or the wait never
+  ends.
+- What each store does with it: [Signed URLs](signed-urls.md#native-urls-by-provider).
+
 ## Register several providers
 
 Tell them apart your own way.

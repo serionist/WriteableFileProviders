@@ -285,6 +285,59 @@ public sealed class BoxReadTests
     }
 
     [TestMethod]
+    public async Task Download_NotReady_WaitsOnTheProvidersClock()
+    {
+        // Waits of 20 seconds, on a clock that moves by each wait: the download is asked for again, and done, at once;
+        // and a timeout of a minute is reached after three waits, without a minute passing.
+        var box = new FakeBox { DownloadsNotReady = 2 };
+        box.AddFile(FakeBox.RootId, "a.txt", "fresh");
+        var clock = new SkippingClock(DateTimeOffset.UnixEpoch);
+        using (var provider = _credentials.Provider(box, clock: clock))
+        {
+            provider.PollDelay = TimeSpan.FromSeconds(20);
+            provider.NotReadyTimeout = TimeSpan.FromMinutes(5);
+            Assert.AreEqual("fresh", await ReadAllAsync(await provider.ReadFileAsync("a.txt")));
+        }
+        Assert.IsTrue(clock.GetUtcNow() >= DateTimeOffset.UnixEpoch.AddSeconds(40), "Each wait passed on the provider's clock");
+
+        var never = new FakeBox { DownloadsNotReady = int.MaxValue };
+        never.AddFile(FakeBox.RootId, "a.txt", "fresh");
+        using var waiting = _credentials.Provider(never, clock: new SkippingClock(DateTimeOffset.UnixEpoch));
+        waiting.PollDelay = TimeSpan.FromSeconds(20);
+        waiting.NotReadyTimeout = TimeSpan.FromMinutes(1);
+        await Assert.ThrowsExactlyAsync<IOException>(() => waiting.ReadFileAsync("a.txt"));
+    }
+
+    [TestMethod]
+    public async Task DownloadUrl_ExpiresOnTheProvidersClock()
+    {
+        var box = new FakeBox();
+        box.AddFile(FakeBox.RootId, "a.txt", "fresh");
+        var clock = new SkippingClock(new DateTimeOffset(2020, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        using var provider = _credentials.Provider(box, clock: clock);
+        var url = await provider.GetSignedUrlAsync("a.txt", new SignedUrlOptions { Validity = TimeSpan.FromHours(1), AllowShorterValidity = true });
+        Assert.AreEqual(clock.GetUtcNow() + WriteableBoxFileProvider.DownloadUrlLifetime, url.ExpiresOn);
+    }
+
+    // A clock whose waits end at once, as if their time had passed: each wait moves it on by its length.
+    private sealed class SkippingClock(DateTimeOffset start) : TimeProvider
+    {
+        private long _ticks = start.UtcTicks;
+
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+        public override DateTimeOffset GetUtcNow() => new(Interlocked.Read(ref _ticks), TimeSpan.Zero);
+
+        public override long GetTimestamp() => Interlocked.Read(ref _ticks);
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            Interlocked.Add(ref _ticks, dueTime.Ticks);
+            return System.CreateTimer(callback, state, TimeSpan.Zero, Timeout.InfiniteTimeSpan);
+        }
+    }
+
+    [TestMethod]
     public async Task Download_NeverReady_ThrowsIOException()
     {
         var box = new FakeBox { DownloadsNotReady = int.MaxValue };

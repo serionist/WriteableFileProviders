@@ -55,7 +55,37 @@ public abstract partial class WriteableFileProvider<TOptions> : IWriteableFilePr
 
     FileProviderOptions IWriteableFileProvider.Options => Options;
 
-    /// <summary>The clock for expiry times; the system clock unless a provider or a test sets another.</summary>
+    /// <summary>
+    /// The clock the provider reads every time it computes: when a signed URL starts and expires, how long it keeps
+    /// what it caches (Azure Blob's user delegation key), how long it waits (Box's and SharePoint's polling) and how a
+    /// write stamps a file (Physical). The system clock unless set; a provider reads it through
+    /// <see cref="TimeProvider"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Set it once, as the provider is built: <c>new WriteableAzureBlobFileProvider(options) { Clock = clock }</c>,
+    /// with dependency injection through the factory overload of <c>AddWriteableFileProvider</c>. A provider built from
+    /// configuration or JSON keeps the system clock.
+    /// </para>
+    /// <para>
+    /// A clock away from the real time changes what the stores see. Azure Blob signs the times it gives into its URLs,
+    /// so a clock set back makes URLs Azure refuses as expired, which is how a test checks expiry without waiting.
+    /// Amazon S3, MinIO and Google Cloud Storage sign with their SDK's own clock, so their URLs live as long as asked
+    /// whatever this clock says, and only <see cref="SignedUrl.ExpiresOn"/> comes from it. Box and SharePoint wait on
+    /// it: a test that gives them a clock it moves by hand must move it, or a wait never ends.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentNullException">The value is null.</exception>
+    public TimeProvider Clock
+    {
+        get => TimeProvider;
+        init => TimeProvider = value ?? throw new ArgumentNullException(nameof(value));
+    }
+
+    /// <summary>
+    /// The clock to read the time from, every time it is needed: <see cref="Clock"/>, the system clock unless set. Read
+    /// it when the time is needed, never once in a constructor, which runs before <see cref="Clock"/> is set.
+    /// </summary>
     protected TimeProvider TimeProvider { get; set; } = TimeProvider.System;
 
     /// <summary>

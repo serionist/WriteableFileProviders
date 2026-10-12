@@ -36,9 +36,12 @@ public sealed class AmazonS3OfflineTests
     }
 
     private static (WriteableAmazonS3FileProvider Provider, InterceptingHttpClientFactory Factory) Offline(
-        AmazonS3FileProviderOptions options, AWSCredentials? credentials = null, Func<HttpRequestMessage, HttpResponseMessage?>? answer = null)
+        AmazonS3FileProviderOptions options, AWSCredentials? credentials = null, Func<HttpRequestMessage, HttpResponseMessage?>? answer = null,
+        TimeProvider? clock = null)
     {
-        var provider = credentials is null ? new WriteableAmazonS3FileProvider(options) : new WriteableAmazonS3FileProvider(options, credentials);
+        var provider = credentials is null
+            ? new WriteableAmazonS3FileProvider(options) { Clock = clock ?? TimeProvider.System }
+            : new WriteableAmazonS3FileProvider(options, credentials) { Clock = clock ?? TimeProvider.System };
         var factory = new InterceptingHttpClientFactory { Intercept = r => Task.FromResult<HttpResponseMessage?>(answer?.Invoke(r) ?? Exists(r)) };
         provider.Core.HttpClientFactory = factory;
         return (provider, factory);
@@ -46,6 +49,25 @@ public sealed class AmazonS3OfflineTests
 
     private static SignedUrlOptions For(TimeSpan validity, bool allowShorter = false, SignedUrlAccess access = SignedUrlAccess.Read) =>
         new() { Validity = validity, AllowShorterValidity = allowShorter, Access = access };
+
+    [TestMethod]
+    public async Task Presign_LivesTheValidityWhateverTheProvidersClock()
+    {
+        // The SDK signs with its own clock: a provider clock years off gives ExpiresOn, and changes nothing S3 checks.
+        var clock = new StandingClock(new DateTimeOffset(2020, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        var (provider, _) = Offline(Aws(), clock: clock);
+        using (provider)
+        {
+            var url = await provider.GetSignedUrlAsync("f.txt", For(TimeSpan.FromHours(1)));
+            Assert.AreEqual("3600", HttpUtility.ParseQueryString(url.Url.Query)["X-Amz-Expires"]);
+            Assert.AreEqual(clock.GetUtcNow().AddHours(1), url.ExpiresOn);
+        }
+    }
+
+    private sealed class StandingClock(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+    }
 
     [TestMethod]
     public async Task Presign_LongTermKeysLiveAsAskedOnAwsOverHttps()

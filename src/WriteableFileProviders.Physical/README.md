@@ -51,7 +51,8 @@ None. The provider reads and writes with the permissions of the process.
   the target, then renames it over the target. Listings hide these files; a crash can leave one.
   `DeleteTempFilesAsync(olderThan)` deletes those older than an age you choose, which must be longer than your longest
   write, plus any lag of a file server's clock: a write whose temp file goes fails, and its file keeps its content. It
-  doesn't walk into linked folders, and skips a folder it may not list.
+  doesn't walk into linked folders, and skips a folder below the root that it may not list; a root it can't read
+  throws.
 - **An append copies the whole file**, so frequent appends to a large file (a log) are expensive.
 - **A write puts a new file at the path.** Other hard links keep the old content, and a symbolic link at the path
   becomes a file. On Windows the file takes the folder's permissions; on Linux and macOS, the old file's mode bits.

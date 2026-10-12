@@ -437,7 +437,8 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
     /// atomically with the walk: a process that can create links inside the root could swap one in and steer the sweep
     /// into a folder elsewhere, where it still deletes only files named exactly like a write's temp file and older than
     /// the age. A folder the process may not list, and a temp file it cannot delete, are skipped, and the sweep goes
-    /// on; a root that is there but cannot be read throws, as any member does there.
+    /// on. A root that is there but is not a folder, or cannot be read, throws; a root that is not there yet, or is a
+    /// link to nothing (an unmounted share), returns 0.
     /// </para>
     /// </remarks>
     /// <param name="olderThan">
@@ -452,9 +453,14 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(olderThan, TimeSpan.Zero);
         Resolve(ProviderPath.Root);
-        // A file where the root should be is a failure, not an empty root; Linux and macOS would list it as missing.
+        // A file where the root should be, or a link to one, is a failure, not an empty root: Linux and macOS would list
+        // it as missing. A link to nothing is a root that is not there yet, as on Windows.
         if (File.Exists(_root))
-            throw new IOException("The provider's root folder is a file.");
+        {
+            var root = new FileInfo(_root);
+            if (root.LinkTarget is null || root.ResolveLinkTarget(returnFinalTarget: true) is { Exists: true })
+                throw new IOException("The provider's root is not a folder.");
+        }
         var now = TimeProvider.GetUtcNow().UtcDateTime;
         // An age longer than the clock has run takes nothing.
         var cutoff = olderThan.Ticks > now.Ticks ? DateTime.MinValue : now - olderThan;

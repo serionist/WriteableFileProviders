@@ -334,6 +334,23 @@ public sealed class PhysicalLinkAndSweepTests
     }
 
     [TestMethod]
+    public async Task Sweep_OfARootThatLinksToNothing_FindsNothing()
+    {
+        // A root that is a link to a folder not there (an unmounted share) is a root that isn't there yet, on every system.
+        Directory.Delete(_root);
+        try
+        {
+            Directory.CreateSymbolicLink(_root, Path.Combine(_base, "unmounted"));
+        }
+        catch (Exception e) when (OperatingSystem.IsWindows() && e is IOException or UnauthorizedAccessException)
+        {
+            Assert.Inconclusive($"Creating a symbolic link on Windows needs Developer Mode or elevation: {e.Message}");
+        }
+        using var provider = Sweeper();
+        Assert.AreEqual(0, await provider.DeleteTempFilesAsync(TimeSpan.Zero));
+    }
+
+    [TestMethod]
     public async Task Sweep_StopsWhenCancelled()
     {
         Leftover(_root, TimeSpan.FromDays(3));

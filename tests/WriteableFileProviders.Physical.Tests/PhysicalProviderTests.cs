@@ -24,8 +24,9 @@ public sealed class PhysicalProviderTests
         _provider = new WriteablePhysicalFileProvider(_root);
     }
 
-    // Runs the test on the way new names are taken on Windows (a rename that does not replace) or on Linux and macOS (an
-    // exclusive create, then a rename), whichever system runs it.
+    // Runs the test on the way new names are taken on Windows (a rename that does not replace) or on Linux and macOS (a
+    // hard link, or where the system has none, as on Windows, an exclusive create, then a rename), whichever system runs
+    // it.
     private void TakeNewNames(bool byRenameWithoutReplacing)
     {
         _provider.Dispose();
@@ -329,6 +330,25 @@ public sealed class PhysicalProviderTests
         Assert.IsFalse(File.Exists(Disk("nowhere.txt")), "Its target is left as it was");
         if (!OperatingSystem.IsWindows())
             Assert.AreEqual(UnixFileMode.None, File.GetUnixFileMode(Disk("link.txt")) & UnixFileMode.OtherWrite, "Not the link's own mode");
+    }
+
+    [TestMethod]
+    public async Task IfNotExists_OverALinkToNothingIsRefused()
+    {
+        // The name is taken, by the link itself: refused before any name is taken, the link left as it was.
+        Directory.CreateDirectory(_root);
+        try
+        {
+            File.CreateSymbolicLink(Disk("link.txt"), Disk("nowhere.txt"));
+        }
+        catch (Exception e) when (OperatingSystem.IsWindows() && e is IOException or UnauthorizedAccessException)
+        {
+            Assert.Inconclusive($"Creating a symbolic link on Windows needs Developer Mode or elevation: {e.Message}");
+        }
+        await Assert.ThrowsExactlyAsync<FileAlreadyExistsException>(() => _provider.UpdateFileAsync("link.txt", TestStreams.Text("new"), new UpdateFileOptions { IfNotExists = true }));
+        Assert.IsNotNull(new FileInfo(Disk("link.txt")).LinkTarget, "The link is left as it was");
+        Assert.IsFalse(File.Exists(Disk("nowhere.txt")));
+        Assert.IsEmpty(TempFiles());
     }
 
     [TestMethod]
@@ -993,6 +1013,86 @@ public sealed class PhysicalProviderTests
             Assert.AreEqual("a", await Read("a.txt"));
         }
         Assert.IsEmpty(TempFiles());
+    }
+
+    // ----- Taking a new name on Linux and macOS -----
+
+    [TestMethod]
+    public async Task NewName_ByLink_IsNeverEmpty_AndAnAppendThereIsKept()
+    {
+        if (OperatingSystem.IsWindows())
+            Assert.Inconclusive("Windows renames without replacing; it never takes a name with a hard link.");
+        // A second writer that finds the name taken appends to what is there: the first writer's content, never an
+        // empty file that the first writer's rename would then replace.
+        string? seen = null;
+        WriteablePhysicalFileProvider? provider = null;
+        provider = new WriteablePhysicalFileProvider(_root)
+        {
+            NameTaken = target =>
+            {
+                seen = File.ReadAllText(target);
+                provider!.UpdateFileAsync("f.txt", TestStreams.Text("+theirs"), UpdateFileOptions.Append).GetAwaiter().GetResult();
+            },
+        };
+        using (provider)
+            await provider.UpdateFileAsync("f.txt", TestStreams.Text("mine"), new UpdateFileOptions { IfNotExists = true });
+        Assert.AreEqual("mine", seen);
+        Assert.AreEqual("mine+theirs", await Read("f.txt"));
+        Assert.IsEmpty(TempFiles());
+    }
+
+    [TestMethod]
+    public async Task NewName_WhereLinksAreRefused_IsTakenAsBefore()
+    {
+        if (OperatingSystem.IsWindows())
+            Assert.Inconclusive("Windows renames without replacing; it never takes a name with a hard link.");
+        // A file system without hard links (EPERM): the name is taken with an empty file, then the rename.
+        var seen = new List<string>();
+        var provider = new WriteablePhysicalFileProvider(_root) { Link = (_, _) => 1, NameTaken = target => seen.Add(File.ReadAllText(target)) };
+        using (provider)
+        {
+            await provider.UpdateFileAsync("f.txt", TestStreams.Text("mine"), new UpdateFileOptions { IfNotExists = true });
+            await Assert.ThrowsExactlyAsync<FileAlreadyExistsException>(() => provider.UpdateFileAsync("f.txt", TestStreams.Text("x"), new UpdateFileOptions { IfNotExists = true }));
+        }
+        CollectionAssert.AreEqual(new[] { "" }, seen);
+        Assert.AreEqual("mine", await Read("f.txt"));
+        Assert.IsEmpty(TempFiles());
+    }
+
+    [TestMethod]
+    public async Task NewName_ByLink_IsDoneEvenWhenTheTempNameIsGoneBeforeItsDelete()
+    {
+        if (OperatingSystem.IsWindows())
+            Assert.Inconclusive("Windows renames without replacing; it never takes a name with a hard link.");
+        // Once the link holds the content, the write is done: a temp name that a sweep removed first changes nothing.
+        var provider = new WriteablePhysicalFileProvider(_root)
+        {
+            Link = (existing, created) =>
+            {
+                var error = NativeMethods.Link(existing, created) == 0 ? 0 : System.Runtime.InteropServices.Marshal.GetLastPInvokeError();
+                File.Delete(existing);
+                return error;
+            },
+        };
+        using (provider)
+            await provider.UpdateFileAsync("f.txt", TestStreams.Text("mine"), new UpdateFileOptions { IfNotExists = true });
+        Assert.AreEqual("mine", await Read("f.txt"));
+        Assert.IsEmpty(TempFiles());
+    }
+
+    [TestMethod]
+    public async Task NewName_OfAMoveStillTakesItWithAnEmptyFile()
+    {
+        if (OperatingSystem.IsWindows())
+            Assert.Inconclusive("Windows renames without replacing; it never takes a name with an exclusive create.");
+        // A move renames the caller's own file, which a hard link would leave under two names after a crash.
+        var seen = new List<string>();
+        await Write("a.txt", "a");
+        var provider = new WriteablePhysicalFileProvider(_root) { NameTaken = target => seen.Add(File.ReadAllText(target)) };
+        using (provider)
+            await provider.MoveAsync("a.txt", "b.txt");
+        CollectionAssert.AreEqual(new[] { "" }, seen);
+        Assert.AreEqual("a", await Read("b.txt"));
     }
 
     [TestMethod]

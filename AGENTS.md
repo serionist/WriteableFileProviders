@@ -99,7 +99,9 @@ reads back. Every fixture builds a provider at a root with a dot segment and exp
 the root is a folder of the disk (`ChecksItsRoot`, false for Physical). The cases of the error contract
 ([docs/guide/errors.md](docs/guide/errors.md)) run on a provider whose store throws whatever it is given
 (`CreateProviderThatFails`): the in-memory fixtures and every emulator or offline provider fixture wire it, through a
-seam of their SDK; a fixture without it (Physical's, the live suites) reports those cases inconclusive.
+seam of their SDK; a fixture without it (Physical's, the live suites) reports those cases inconclusive. Three tests race
+writers: creates of one file with `IfNotExists`, small and large, where exactly one must win, and appends to a missing
+file; a fixture whose emulator can't settle such a race says so (`RefusesConcurrentCreates`).
 `InMemoryFileProvider`, the reference provider, passes it in `WriteableFileProviders.Common.Tests`.
 
 Each package has a test project of its own, `tests/WriteableFileProviders.<Package>.Tests`:

@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Collections.Frozen;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.FileProviders.Physical;
 using Microsoft.Extensions.Primitives;
@@ -48,9 +49,14 @@ namespace WriteableFileProviders.Physical;
 /// <b>New names are taken atomically:</b> <see cref="UpdateFileOptions.IfNotExists"/>, an append to a missing file, and
 /// the destination of a move or a copy never replace a file that is there; a write that finds one throws
 /// <see cref="FileAlreadyExistsException"/>, a move or a copy <see cref="FileExistsException"/>. Windows renames
-/// without replacing. Linux and macOS, where .NET checks the name and then renames, take the name with an exclusive
-/// create and rename onto it, so the file exists empty for that moment: a watcher sees it, and a process that dies
-/// there leaves an empty file.
+/// without replacing. On Linux and macOS a write or a copy gives its temp file the name as a second hard link, which
+/// fails when anything has the name, then drops the temp name: the name never holds a part of the file, and a process
+/// that dies in between leaves the file in place and a hidden temp name. Where the file system refuses hard links (FAT
+/// and exFAT, some network and FUSE file systems), and for the destination of a move, the name is taken with an
+/// exclusive create and the content renamed onto it, so the file exists empty for that moment: a watcher sees it, and a
+/// process that dies there leaves an empty file. On a network file system that may answer a resent request again (NFS),
+/// a write can find its own new name taken and throw <see cref="FileAlreadyExistsException"/> with its content in
+/// place.
 /// </para>
 /// <para>
 /// <b>Reads</b> share the file with writers and deleters, and keep the content they opened. A delete goes ahead while a
@@ -175,6 +181,18 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
     internal bool IgnoresCase { get; init; } = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS();
 
     internal bool RenamesWithoutReplacing { get; init; } = OperatingSystem.IsWindows();
+
+    // Whether a write takes a new name with link(2), atomically and never as an empty file (Linux, macOS); where the
+    // system refuses it, or it is off, the name is taken with an exclusive create, then a rename.
+    internal bool TakesNamesWithLink { get; init; } = OperatingSystem.IsLinux() || OperatingSystem.IsMacOS();
+
+    // link(2): 0, or the error number. Settable so the tests can refuse it.
+    internal Func<string, string, int> Link { get; init; } =
+        (existingPath, newPath) => NativeMethods.Link(existingPath, newPath) == 0 ? 0 : Marshal.GetLastPInvokeError();
+
+    // Called with the target as soon as a new name is taken, before the write or move goes on: the tests stage a second
+    // writer there.
+    internal Action<string>? NameTaken { get; init; }
 
     // Whether names Windows reads as another name, or cannot hold, are refused (IsSegmentAllowed).
     internal bool RefusesWindowsNames { get; init; } = OperatingSystem.IsWindows();
@@ -592,7 +610,7 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
                 return File.GetLastWriteTimeUtc(temp);
             });
             if (taken is not null)
-                RenameToNew(temp, target, taken);
+                TakeNewName(temp, target, taken);
             else
                 File.Move(temp, target, overwrite: true);
         }
@@ -626,6 +644,28 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
         }
     }
 
+    // Gives a write's temp file the name 'target' only if nothing is there. On Linux and macOS a second name, link(2), takes
+    // it atomically with the content already in it, and the temp name then goes; a temp name that stays (a sweep or a
+    // refused delete got there first) is hidden from listings and swept, and the write is done. Where link(2) is refused
+    // for any reason but the name being taken (a file system without hard links, a policy, a vanished temp file), the
+    // name is taken as RenameToNew does.
+    private void TakeNewName(string temp, string target, Func<IOException, IOException> taken)
+    {
+        if (TakesNamesWithLink && !RenamesWithoutReplacing)
+        {
+            var error = Link(temp, target);
+            if (error == 0)
+            {
+                NameTaken?.Invoke(target);
+                DeleteQuietly(temp);
+                return;
+            }
+            if (error == NativeMethods.AlreadyExists && Path.Exists(target))
+                throw taken(new IOException("The name is already taken."));
+        }
+        RenameToNew(temp, target, taken);
+    }
+
     // Puts 'source' at 'target' only if nothing is there. Windows renames without replacing, atomically. On Linux and
     // macOS, .NET checks the name and then renames, so a file created in between would be replaced: an exclusive create
     // takes the name instead, failing when anything has it, and the rename replaces that empty file.
@@ -639,6 +679,7 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
                 return;
             }
             new FileStream(target, FileMode.CreateNew, FileAccess.Write, FileShare.None).Dispose();
+            NameTaken?.Invoke(target);
         }
         catch (IOException e) when (e is not FileNotFoundException && Path.Exists(target))
         {

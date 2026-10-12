@@ -5,6 +5,8 @@
     <Description>Read, write, list and watch files in a folder on the local disk through IWriteableFileProvider: atomic writes and appends, conditional writes, byte-range and seekable reads, change notifications. The same API as the Azure Blob, Amazon S3, MinIO, Google Cloud Storage, Box and SharePoint providers. Native AOT compatible.</Description>
     <PackageTags>$(PackageTags);local;disk;local-storage;physical;aot;native-aot;trimming</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <!-- The code LibraryImport generates for link(2) (NativeMethods) is unsafe. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
@@ -21,7 +23,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- The tests set the choices that differ by OS (IgnoresCase, RenamesWithoutReplacing) and the clock. -->
+    <!-- The tests set the choices that differ by OS (IgnoresCase, RenamesWithoutReplacing, link(2)) and the clock. -->
     <InternalsVisibleTo Include="WriteableFileProviders.Physical.Tests" />
   </ItemGroup>
 

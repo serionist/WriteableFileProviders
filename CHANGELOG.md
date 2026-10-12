@@ -13,6 +13,13 @@ version's section as its GitHub release notes.
   every provider. It derives from `PreconditionFailedException`, so existing catches still catch it; catch it first to
   tell "created meanwhile" from "changed meanwhile". Code that checks for exactly `PreconditionFailedException` (its
   `GetType()`, or a test's `ThrowsExactly`) now sees the subtype there.
+- **`RefuseLinks`** (Physical): an option, off by default, that refuses a path naming or going through a symbolic
+  link, junction or Windows mount point inside the root, and leaves links out of listings. It is checked just before
+  each operation, not atomically with it, and a recursive folder delete can still be steered elsewhere by a link
+  swapped in while it runs. A version before 2027.1.0 ignores the option and follows links.
+- **`DeleteTempFilesAsync(olderThan)`** (Physical): deletes the `.wfp-<guid>.tmp` files a process that died during a
+  write left behind, those older than an age you choose. A write whose temp file it deletes fails with `IOException`
+  and leaves its file as it was.
 - **`DataProtectionPurpose`** (AspNetCore): the gateway's root Data Protection purpose, for an app that names its
   purposes its own way. The default stays `WriteableFileProviders.Gateway.v1`, so URLs already issued keep redeeming;
   changing it ends the URLs issued under the old one.

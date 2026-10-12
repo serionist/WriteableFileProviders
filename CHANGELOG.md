@@ -5,7 +5,7 @@ Every package releases together, at one version
 that changes something consumers notice adds a line under the next version's heading. `release.yml` publishes a
 version's section as its GitHub release notes.
 
-## 2027.1.0 (2026-10-12)
+## 2027.1.0 (2026-10-13)
 
 Additions and fixes, nothing that breaks: a create-only write's own exception, an injectable clock, Physical's link
 refusal and leftover sweep, and a configurable gateway purpose. The conformance suite now races writers creating one

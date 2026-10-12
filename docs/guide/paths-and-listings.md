@@ -16,8 +16,8 @@ bool isRoot = ProviderPath.Root.IsRoot;          // true; "" and null are the ro
 - Paths are relative to the provider's root. No path reaches outside it. On Physical, symbolic links and junctions
   inside the root are followed, wherever they point, unless `RefuseLinks` is set: then a path that names or goes
   through one throws `ArgumentException`, and listings leave links out. It is checked just before each operation, not
-  atomically with it, so it doesn't stop a process that can create links inside the root; the Physical README says
-  what that allows.
+  atomically with it, so it doesn't stop a process that can create links inside the root;
+  [Physical's README](../../src/WriteableFileProviders.Physical/README.md) says what that allows.
 - A path is checked when you use it, not when you build it. These segments throw `ArgumentException` (parameter
   `path`): empty, only dots and spaces (`..`), holding a control character, or any of those once percent-decoded
   (`%2e%2e`).

@@ -437,7 +437,7 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
     /// atomically with the walk: a process that can create links inside the root could swap one in and steer the sweep
     /// into a folder elsewhere, where it still deletes only files named exactly like a write's temp file and older than
     /// the age. A folder the process may not list, and a temp file it cannot delete, are skipped, and the sweep goes
-    /// on.
+    /// on; a root that is there but cannot be read throws, as any member does there.
     /// </para>
     /// </remarks>
     /// <param name="olderThan">
@@ -452,6 +452,9 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(olderThan, TimeSpan.Zero);
         Resolve(ProviderPath.Root);
+        // A file where the root should be is a failure, not an empty root; Linux and macOS would list it as missing.
+        if (File.Exists(_root))
+            throw new IOException("The provider's root folder is a file.");
         var now = TimeProvider.GetUtcNow().UtcDateTime;
         // An age longer than the clock has run takes nothing.
         var cutoff = olderThan.Ticks > now.Ticks ? DateTime.MinValue : now - olderThan;
@@ -473,10 +476,11 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
                 // this pass; the next sweep finds it.
                 entries = new DirectoryInfo(Path.Join([_root, .. relative])).EnumerateFileSystemInfos("*", _listing);
             }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            catch (Exception e) when (relative.Length > 0 ? e is IOException or UnauthorizedAccessException : e is DirectoryNotFoundException)
             {
-                // The root not created yet, a folder deleted since it was found, one the process may not list or look
-                // into: there is nothing there the sweep can reach.
+                // A folder deleted since it was found, or one the process may not list or look into: nothing there for
+                // the sweep to reach. The root itself counts as empty only when it is not there yet; one that cannot be
+                // read is a failure the caller sees, as from any other member.
                 continue;
             }
             foreach (var entry in entries)
@@ -653,7 +657,7 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
             }
             catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException)
             {
-                // Gone between its attributes and its target (Windows reads them apart): nothing is below it.
+                // Gone between its attributes and its target, which are read apart: nothing is below it.
                 return null;
             }
         }

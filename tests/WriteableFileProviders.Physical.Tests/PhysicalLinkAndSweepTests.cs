@@ -324,6 +324,16 @@ public sealed class PhysicalLinkAndSweepTests
     }
 
     [TestMethod]
+    public async Task Sweep_OfARootThatIsAFile_Throws()
+    {
+        // A root that is there but cannot be read is a failure, not an empty root.
+        Directory.Delete(_root);
+        File.WriteAllText(_root, "a file where the root should be");
+        using var provider = Sweeper();
+        await Assert.ThrowsAsync<IOException>(() => provider.DeleteTempFilesAsync(TimeSpan.Zero));
+    }
+
+    [TestMethod]
     public async Task Sweep_StopsWhenCancelled()
     {
         Leftover(_root, TimeSpan.FromDays(3));

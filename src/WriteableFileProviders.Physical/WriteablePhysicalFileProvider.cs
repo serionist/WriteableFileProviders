@@ -289,7 +289,7 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
             {
                 var version = VersionOf(existing);
                 CheckPreconditions(path, options, version);
-                await CommitAsync(path, target, version, mustBeNew: false, like, async (output, token) =>
+                await CommitAsync(path, target, version, taken: null, like, async (output, token) =>
                 {
                     await source.CopyToAsync(output, token).ConfigureAwait(false);
                     // Closed before the rename: Windows does not rename over a file that is open, by this handle or any.
@@ -303,7 +303,9 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
         // An append to a missing file creates it, and fails rather than replace one that appears meanwhile; over a link to
         // nothing, it replaces the link, as an overwrite does.
         var mustBeNew = options.IfNotExists || (options.Mode == UpdateFileMode.Append && !replaced.Exists);
-        await CommitAsync(path, target, options.IfMatch, mustBeNew, like, contents.CopyToAsync, cancellationToken).ConfigureAwait(false);
+        // A folder that takes the name meanwhile is what a write without conditions finds there, not a file.
+        Func<IOException, IOException>? taken = mustBeNew ? e => Directory.Exists(target) ? IsAFolder(path, e) : AlreadyExists(path, e) : null;
+        await CommitAsync(path, target, options.IfMatch, taken, like, contents.CopyToAsync, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -355,14 +357,10 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
         var input = new FileStream(OpenRead(source, from), FileAccess.Read, BufferSize, isAsync: true);
         await using (input.ConfigureAwait(false))
         {
-            try
-            {
-                await CommitAsync(destination, FullPath(destination), expected: null, mustBeNew: true, new FileInfo(from), input.CopyToAsync, cancellationToken).ConfigureAwait(false);
-            }
-            catch (FileAlreadyExistsException e)
-            {
-                throw new FileExistsException($"The destination '{destination}' already exists.", e);
-            }
+            // Whatever took the destination meanwhile, a file or a folder, the copy's answer is that it exists.
+            await CommitAsync(destination, FullPath(destination), expected: null,
+                e => new FileExistsException($"The destination '{destination}' already exists.", e),
+                new FileInfo(from), input.CopyToAsync, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -544,9 +542,10 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
         (info.Attributes & FileAttributes.ReparsePoint) != 0 && info.LinkTarget is not null;
 
     // Writes the content to a temp file next to the target, then renames it over the target. 'expected' is the version the
-    // target must still have just before the rename (checked, not atomic); 'mustBeNew' renames only onto a free name
-    // (atomic); the new file takes the permission bits of 'like', the file it replaces or copies, else the default mode.
-    private async Task CommitAsync(ResolvedPath path, string target, string? expected, bool mustBeNew, FileInfo? like,
+    // target must still have just before the rename (checked, not atomic); 'taken', when set, renames only onto a free
+    // name (atomic), and gives the exception for a name that something took; the new file takes the permission bits of
+    // 'like', the file it replaces or copies, else the default mode.
+    private async Task CommitAsync(ResolvedPath path, string target, string? expected, Func<IOException, IOException>? taken, FileInfo? like,
         Func<Stream, CancellationToken, Task> write, CancellationToken cancellationToken)
     {
         var folder = Path.GetDirectoryName(target)!;
@@ -592,8 +591,8 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
                 File.SetLastWriteTimeUtc(temp, time);
                 return File.GetLastWriteTimeUtc(temp);
             });
-            if (mustBeNew)
-                RenameToNew(temp, target, e => Directory.Exists(target) ? IsAFolder(path, e) : AlreadyExists(path, e));
+            if (taken is not null)
+                RenameToNew(temp, target, taken);
             else
                 File.Move(temp, target, overwrite: true);
         }

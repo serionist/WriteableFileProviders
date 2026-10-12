@@ -54,8 +54,8 @@ append and a local stream's commit keep the file's type.
 Where the store has no native append, the provider rewrites the file on condition that it is still the version it read.
 If another write landed in between, the append throws `PreconditionFailedException`: retry it. An append to a missing
 file that another writer creates at the same moment ends differently by provider: most refuse it with
-`FileAlreadyExistsException`, and Azure Blob appends after the new content. Where the store enforces the condition, the
-other writer's content is kept either way ([providers compared](providers.md#reads-and-writes)).
+`FileAlreadyExistsException`, and Azure Blob appends after the new content. Where the store enforces `IfNotExists`,
+the other writer's content is kept either way ([providers compared](providers.md#reads-and-writes)).
 
 - The condition is atomic on Azure Blob, Google Cloud Storage and S3 on AWS.
 - Elsewhere it is checked, so a write that lands between the check and the rewrite can be lost.

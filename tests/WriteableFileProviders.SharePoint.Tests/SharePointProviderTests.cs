@@ -347,11 +347,16 @@ public sealed class SharePointProviderTests
     [TestMethod]
     public async Task IfNotExists_ConflictAtTheSessionsCommitWithNothingThere_CanBeRetried()
     {
-        var (provider, fake) = Create(configure: f => f.Intercept = r => IsFragment(r) ? NameAlreadyExists() : null);
+        // The last fragment, which commits the file, answers 409; nothing is at the name when the provider looks.
+        var (provider, fake) = Create(configure: f => f.Intercept = r =>
+            IsFragment(r) && r.Header("Content-Range")!.EndsWith("-399999/400000", StringComparison.Ordinal)
+                ? NameAlreadyExists()
+                : null);
         var e = await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() =>
             provider.UpdateFileAsync("big.bin", new MemoryStream(TestStreams.Bytes(400_000)), new UpdateFileOptions { IfNotExists = true }));
         StringAssert.Contains(e.Message, "retried");
         Assert.AreEqual(0, fake.OpenSessions, "The session is cancelled");
+        Assert.IsTrue(fake.Requests.Count(IsFragment) > 1, "The conflict came at the last fragment, not the first");
     }
 
     private static HttpResponseMessage NameAlreadyExists() =>

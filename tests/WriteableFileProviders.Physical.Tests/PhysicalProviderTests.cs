@@ -978,9 +978,20 @@ public sealed class PhysicalProviderTests
         var move = await Assert.ThrowsExactlyAsync<FileExistsException>(() => _provider.MoveCore("a.txt", "b.txt"));
         Assert.IsInstanceOfType<IOException>(move.InnerException);
         var copy = await Assert.ThrowsExactlyAsync<FileExistsException>(() => _provider.CopyCore("a.txt", "b.txt"));
-        Assert.IsInstanceOfType<PreconditionFailedException>(copy.InnerException);
+        Assert.IsInstanceOfType<IOException>(copy.InnerException);
         Assert.AreEqual("a", await Read("a.txt"));
         Assert.AreEqual("b", await Read("b.txt"));
+
+        // A folder that took the destination is a destination that exists, for a copy as for a move. (Windows refuses an
+        // exclusive create over a folder as access denied; only Linux and macOS take names that way in production.)
+        if (byRenameWithoutReplacing || !OperatingSystem.IsWindows())
+        {
+            Directory.CreateDirectory(Disk("d"));
+            await Assert.ThrowsExactlyAsync<FileExistsException>(() => _provider.CopyCore("a.txt", "d"));
+            await Assert.ThrowsExactlyAsync<FileExistsException>(() => _provider.MoveCore("a.txt", "d"));
+            Assert.IsTrue(Directory.Exists(Disk("d")));
+            Assert.AreEqual("a", await Read("a.txt"));
+        }
         Assert.IsEmpty(TempFiles());
     }
 

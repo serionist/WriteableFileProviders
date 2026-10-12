@@ -23,10 +23,11 @@ internal sealed partial class S3Core
     /// <param name="clock">The provider's clock, which <see cref="SignedUrl.ExpiresOn"/> is given on.</param>
     /// <param name="cancellationToken">Cancels the call.</param>
     /// <remarks>
-    /// The SDK signs with its own clock, the system's corrected for the server's skew, so the URL's end, and the
-    /// credential's expiry it is checked against, are on the system clock: read once, before anything is awaited, so the
-    /// URL ends exactly when <see cref="SignedUrl.ExpiresOn"/> says. <see cref="SignedUrl.ExpiresOn"/> is that end on
-    /// <paramref name="clock"/>; the same instant on the system clock.
+    /// <c>Expires</c> is the system's now, read once before anything is awaited, plus the validity, and the credential's
+    /// expiry is checked against it. The SDK signs <c>X-Amz-Expires</c> as <c>Expires</c> less its own now, so the URL
+    /// ends at <c>Expires</c>: to the second, and on the server's clock where the SDK corrects for skew.
+    /// <see cref="SignedUrl.ExpiresOn"/> is that end given on <paramref name="clock"/>; the same instant on the system
+    /// clock.
     /// </remarks>
     public async Task<SignedUrl> PresignAsync(ResolvedPath path, SignedUrlOptions options, TimeProvider clock, CancellationToken cancellationToken)
     {

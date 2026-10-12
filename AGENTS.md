@@ -134,8 +134,8 @@ Each package has a test project of its own, `tests/WriteableFileProviders.<Packa
   against S3Mock 5.2.3 and MinIO (`cgr.dev/chainguard/minio`, pinned by digest, run as root), and offline tests that
   fake S3 behind the AWS SDK's HTTP layer. The S3Mock fixtures declare its three bugs as capabilities: an aborted
   multipart upload deletes the object, a multipart completion with the right `If-Match` answers 404, and creates racing
-  with `If-None-Match` all win, as it checks the condition apart from the write. The MinIO
-  fixtures declare that MinIO lists only the file where a file and a folder share a name.
+  with `If-None-Match` all win, as it checks the condition apart from the write. The MinIO fixtures declare that MinIO
+  lists only the file where a file and a folder share a name.
 - **Google Cloud Storage**, on fake-gcs-server: `GcsConformanceTests` (through the options, with a service account key
   generated for the run and the `Endpoint` option), `GcsClientConformanceTests` (over a `StorageClient` the test built,
   which cannot sign) and `GcsProviderTests` (the missing bucket, bucket creation, signed URLs used for real, races and

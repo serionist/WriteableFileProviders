@@ -99,7 +99,9 @@ reads back. Every fixture builds a provider at a root with a dot segment and exp
 the root is a folder of the disk (`ChecksItsRoot`, false for Physical). The cases of the error contract
 ([docs/guide/errors.md](docs/guide/errors.md)) run on a provider whose store throws whatever it is given
 (`CreateProviderThatFails`): the in-memory fixtures and every emulator or offline provider fixture wire it, through a
-seam of their SDK; a fixture without it (Physical's, the live suites) reports those cases inconclusive.
+seam of their SDK; a fixture without it (Physical's, the live suites) reports those cases inconclusive. Three tests race
+writers: creates of one file with `IfNotExists`, small and large, where exactly one must win, and appends to a missing
+file; a fixture whose emulator can't settle such a race says so (`RefusesConcurrentCreates`).
 `InMemoryFileProvider`, the reference provider, passes it in `WriteableFileProviders.Common.Tests`.
 
 Each package has a test project of its own, `tests/WriteableFileProviders.<Package>.Tests`:
@@ -130,9 +132,10 @@ Each package has a test project of its own, `tests/WriteableFileProviders.<Packa
   `AzureErrorTests` and `AzureRootTests` offline.
 - **Amazon S3 and MinIO:** each runs the suite and the shared S3 behaviour tests (`tests/Shared/S3`, linked into both)
   against S3Mock 5.2.3 and MinIO (`cgr.dev/chainguard/minio`, pinned by digest, run as root), and offline tests that
-  fake S3 behind the AWS SDK's HTTP layer. The S3Mock fixtures declare its two bugs as capabilities: an aborted
-  multipart upload deletes the object, and a multipart completion with the right `If-Match` answers 404. The MinIO
-  fixtures declare that MinIO lists only the file where a file and a folder share a name.
+  fake S3 behind the AWS SDK's HTTP layer. The S3Mock fixtures declare its three bugs as capabilities: an aborted
+  multipart upload deletes the object, a multipart completion with the right `If-Match` answers 404, and creates racing
+  with `If-None-Match` all win, as it checks the condition apart from the write. The MinIO fixtures declare that MinIO
+  lists only the file where a file and a folder share a name.
 - **Google Cloud Storage**, on fake-gcs-server: `GcsConformanceTests` (through the options, with a service account key
   generated for the run and the `Endpoint` option), `GcsClientConformanceTests` (over a `StorageClient` the test built,
   which cannot sign) and `GcsProviderTests` (the missing bucket, bucket creation, signed URLs used for real, races and

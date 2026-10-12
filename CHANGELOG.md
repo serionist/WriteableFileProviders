@@ -33,6 +33,10 @@ version's section as its GitHub release notes.
   `FileAlreadyExistsException` only when a file is then there. When a concurrent delete overtook the write and nothing
   is there, it throws `PreconditionFailedException`, and the write can be retried.
 - **SharePoint:** likewise for a 409 under `IfNotExists` whose name holds nothing when the provider looks.
+- **Physical on Linux and macOS:** a write or a copy that takes a new name (`IfNotExists`, an append to a missing file,
+  a copy) gives it the content with a hard link, so the name never holds an empty file meanwhile. An append that
+  landed in that moment could report success and then be replaced. A move's destination, and a file system that
+  refuses hard links, keep the empty file for that moment.
 
 ## 2027.0.0 (2026-10-11)
 

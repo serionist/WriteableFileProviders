@@ -185,7 +185,7 @@ The shape is unchanged: a `Type` key and the options' property names, both case-
 | Readers blocked writes and deletes | Deletes go ahead; Windows writes still fail while a reader is open | On Windows, retry, or dispose readers sooner. |
 | `FileNotFoundException.FileName`: the disk path | The provider path | – |
 | The system set the last-write time | Every write sets it, past the old one, so the `ETag` changes | On FAT, exFAT, HFS+, times can run ahead of the clock. |
-| – | `IfNotExists`, append to a missing file, move destination: atomic | On Linux and macOS, expect a brief empty file. |
+| – | `IfNotExists`, append to a missing file, move destination: atomic | On Linux and macOS, expect a brief empty file (from 2027.1, only at a move's destination, or where the file system refuses hard links). |
 | A recursive walk followed linked folders | Lists them, doesn't enter them | List a linked folder yourself. |
 | Windows names that aliased another file (below) | `ArgumentException`, and left out of listings | Use the stored name; rename reserved names. |
 | `UnauthorizedAccessException` on writes only | Also on reads and listings | Catch it there too. |

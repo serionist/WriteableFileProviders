@@ -91,6 +91,21 @@ public abstract class ProviderConformanceTests
     /// </summary>
     protected virtual bool SupportsLargeConditionalWrites => true;
 
+    /// <summary>
+    /// The size of each writer's file in the large race; the fixture's <see cref="LargeFileSize"/>, at most 32 MiB, so
+    /// it crosses the store's multipart or block-list threshold as the fixture sets it.
+    /// </summary>
+    protected virtual long LargeRaceFileSize => Math.Min(LargeFileSize, 32L << 20);
+
+    /// <summary>
+    /// Whether, of writers that create one file at once with <see cref="UpdateFileOptions.IfNotExists"/>, the store
+    /// lets exactly one win. False only for an emulator that cannot settle the race; the fixture says which and why.
+    /// </summary>
+    protected virtual bool RefusesConcurrentCreates => true;
+
+    /// <summary>As <see cref="RefusesConcurrentCreates"/>, for files of <see cref="LargeRaceFileSize"/>.</summary>
+    protected virtual bool RefusesConcurrentLargeCreates => RefusesConcurrentCreates;
+
     /// <summary>A local folder where the provider writes its own temp files (<c>.wfp-*.tmp</c>), checked for leftovers.</summary>
     protected virtual string? LocalTempFolder => null;
 
@@ -707,6 +722,90 @@ public abstract class ProviderConformanceTests
         await Write("dir", "file", options);
         Assert.AreEqual("file", await Read("dir"));
         Assert.AreEqual("below", await Read("dir/x.txt"));
+    }
+
+    [TestMethod]
+    public async Task Write_IfNotExistsRaceHasOneWinner()
+    {
+        if (!RefusesConcurrentCreates)
+            Assert.Inconclusive("The store this fixture runs on cannot settle a race of creates.");
+        await AssertOneWinnerAsync(8, writer => Encoding.UTF8.GetBytes($"writer {writer}"));
+    }
+
+    [TestMethod]
+    public async Task Write_IfNotExistsRaceHasOneWinner_Large()
+    {
+        if (!RefusesConcurrentLargeCreates)
+            Assert.Inconclusive("The store this fixture runs on cannot settle a race of large creates.");
+        if (!FailedLargeWriteKeepsOldContent)
+            Assert.Inconclusive("The store deletes the file when a losing large write is aborted.");
+        await AssertOneWinnerAsync(4, writer => TestStreams.Bytes(LargeRaceFileSize, seed: 10 + writer));
+    }
+
+    [TestMethod]
+    public async Task Write_AppendRaceToAMissingFileKeepsBoth()
+    {
+        // Providers end this race differently (one refuses the second create, one appends after it); every way keeps
+        // the writes that succeeded. Two writers, because with more, appenders that each found the file race each
+        // other's version too.
+        if (!RefusesConcurrentCreates)
+            Assert.Inconclusive("The store this fixture runs on cannot settle a race of creates.");
+        string[] parts = ["first;", "second;"];
+        var outcomes = await RaceAsync(parts.Length, writer => Provider.UpdateFileAsync("f.txt", TestStreams.Text(parts[writer]), UpdateFileOptions.Append));
+        Assert.IsTrue(outcomes.Any(o => o is null), "At least one append succeeds");
+        foreach (var failure in outcomes.OfType<Exception>())
+            Assert.AreEqual(typeof(FileAlreadyExistsException), failure.GetType(), failure.ToString());
+        var content = await Read("f.txt");
+        for (var writer = 0; writer < parts.Length; writer++)
+        {
+            if (outcomes[writer] is null)
+                StringAssert.Contains(content, parts[writer], "A successful append is kept");
+        }
+        Assert.AreEqual(parts.Where((_, writer) => outcomes[writer] is null).Sum(part => part.Length), content.Length, "Nothing else is in the file");
+    }
+
+    // Writers race to create "race.bin" with IfNotExists: exactly one wins, every other throws exactly
+    // FileAlreadyExistsException, and the file is exactly the winner's, with no temp file left.
+    private async Task AssertOneWinnerAsync(int writers, Func<int, byte[]> content)
+    {
+        var contents = Enumerable.Range(0, writers).Select(content).ToArray();
+        var outcomes = await RaceAsync(writers, writer =>
+            Provider.UpdateFileAsync("race.bin", new MemoryStream(contents[writer]), new UpdateFileOptions { IfNotExists = true }));
+        var winners = Enumerable.Range(0, writers).Where(w => outcomes[w] is null).ToList();
+        Assert.HasCount(1, winners, "Exactly one create wins: " + string.Join("; ", outcomes.Select(o => o?.GetType().Name ?? "won")));
+        foreach (var failure in outcomes.OfType<Exception>())
+            Assert.AreEqual(typeof(FileAlreadyExistsException), failure.GetType(), failure.ToString());
+        CollectionAssert.AreEqual(SHA256.HashData(contents[winners[0]]), await Hash(await Provider.ReadFileAsync("race.bin")), "The file is exactly the winner's");
+        if (LocalTempFolder is { } folder)
+            Assert.AreEqual(0, Directory.GetFiles(folder, ".wfp-*.tmp", SearchOption.AllDirectories).Length, "Temp files were left behind");
+    }
+
+    // Starts the writers on the thread pool, lets them go at once when all are waiting, and returns each one's failure
+    // (null for a writer that succeeded). The gate runs its continuations asynchronously, so no writer starts on the
+    // thread that opens it, before the others.
+    private static async Task<Exception?[]> RaceAsync(int writers, Func<int, Task> write)
+    {
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var waiting = 0;
+        var tasks = Enumerable.Range(0, writers).Select(writer => Task.Run(async () =>
+        {
+            if (Interlocked.Increment(ref waiting) == writers)
+                ready.SetResult();
+            await gate.Task;
+            try
+            {
+                await write(writer);
+                return null;
+            }
+            catch (Exception e)
+            {
+                return e;
+            }
+        })).ToArray();
+        await ready.Task;
+        gate.SetResult();
+        return await Task.WhenAll(tasks);
     }
 
     [TestMethod]

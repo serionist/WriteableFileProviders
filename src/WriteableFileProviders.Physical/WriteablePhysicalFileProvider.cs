@@ -438,7 +438,7 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
     /// into a folder elsewhere, where it still deletes only files named exactly like a write's temp file and older than
     /// the age. A folder the process may not list, and a temp file it cannot delete, are skipped, and the sweep goes
     /// on. A root that is there but is not a folder, or cannot be read, throws; a root that is not there yet, or is a
-    /// link to nothing (an unmounted share), returns 0.
+    /// link to nothing (on Linux or macOS, a share not mounted), returns 0.
     /// </para>
     /// </remarks>
     /// <param name="olderThan">

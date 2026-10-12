@@ -55,8 +55,8 @@ namespace WriteableFileProviders.Physical;
 /// and exFAT, some network and FUSE file systems), and for the destination of a move, the name is taken with an
 /// exclusive create and the content renamed onto it, so the file exists empty for that moment: a watcher sees it, and a
 /// process that dies there leaves an empty file. On a network file system that may answer a resent request again (NFS),
-/// a write can find its own new name taken and throw <see cref="FileAlreadyExistsException"/> with its content in
-/// place.
+/// a write can find its own new name taken and throw <see cref="FileAlreadyExistsException"/>, a copy
+/// <see cref="FileExistsException"/>, with its content in place.
 /// </para>
 /// <para>
 /// <b>Reads</b> share the file with writers and deleters, and keep the content they opened. A delete goes ahead while a
@@ -183,7 +183,8 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
     internal bool RenamesWithoutReplacing { get; init; } = OperatingSystem.IsWindows();
 
     // Whether a write takes a new name with link(2), atomically and never as an empty file (Linux, macOS); where the
-    // system refuses it, or it is off, the name is taken with an exclusive create, then a rename.
+    // system refuses it, or it is off and names are not taken by a rename that does not replace, the name is taken with
+    // an exclusive create, then a rename.
     internal bool TakesNamesWithLink { get; init; } = OperatingSystem.IsLinux() || OperatingSystem.IsMacOS();
 
     // link(2): 0, or the error number. Settable so the tests can refuse it.
@@ -644,11 +645,11 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
         }
     }
 
-    // Gives a write's temp file the name 'target' only if nothing is there. On Linux and macOS a second name, link(2), takes
-    // it atomically with the content already in it, and the temp name then goes; a temp name that stays (a sweep or a
-    // refused delete got there first) is hidden from listings and swept, and the write is done. Where link(2) is refused
-    // for any reason but the name being taken (a file system without hard links, a policy, a vanished temp file), the
-    // name is taken as RenameToNew does.
+    // Gives a write's temp file the name 'target' only if nothing is there. On Linux and macOS a second name, link(2),
+    // takes it atomically with the content already in it, and the temp name then goes; once the link is made the write
+    // is done, whether the temp name is already gone or its delete is refused (a name that stays is hidden from
+    // listings). Where link(2) is refused for any reason but the name being taken (a file system without hard links, a
+    // policy, a vanished temp file), or the name it found taken is free again, the name is taken as RenameToNew does.
     private void TakeNewName(string temp, string target, Func<IOException, IOException> taken)
     {
         if (TakesNamesWithLink && !RenamesWithoutReplacing)

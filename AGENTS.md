@@ -132,8 +132,9 @@ Each package has a test project of its own, `tests/WriteableFileProviders.<Packa
   `AzureErrorTests` and `AzureRootTests` offline.
 - **Amazon S3 and MinIO:** each runs the suite and the shared S3 behaviour tests (`tests/Shared/S3`, linked into both)
   against S3Mock 5.2.3 and MinIO (`cgr.dev/chainguard/minio`, pinned by digest, run as root), and offline tests that
-  fake S3 behind the AWS SDK's HTTP layer. The S3Mock fixtures declare its two bugs as capabilities: an aborted
-  multipart upload deletes the object, and a multipart completion with the right `If-Match` answers 404. The MinIO
+  fake S3 behind the AWS SDK's HTTP layer. The S3Mock fixtures declare its three bugs as capabilities: an aborted
+  multipart upload deletes the object, a multipart completion with the right `If-Match` answers 404, and creates racing
+  with `If-None-Match` all win, as it checks the condition apart from the write. The MinIO
   fixtures declare that MinIO lists only the file where a file and a folder share a name.
 - **Google Cloud Storage**, on fake-gcs-server: `GcsConformanceTests` (through the options, with a service account key
   generated for the run and the `Endpoint` option), `GcsClientConformanceTests` (over a `StorageClient` the test built,

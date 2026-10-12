@@ -66,8 +66,8 @@ public sealed class MinioOnS3MockConformanceTests : MinioConformanceTests
     // S3Mock 5.2.3 answers 404 to a multipart completion with the right If-Match; MinIO and AWS complete it.
     protected override bool SupportsLargeConditionalWrites => false;
 
-    // S3Mock 5.2.3 ignores If-None-Match, and the provider's own check before the write is not atomic, so racing
-    // creates all win there. MinIO settles the race.
+    // S3Mock 5.2.3 refuses an If-None-Match create of an existing key, but checks it apart from the write, and the
+    // provider's own check before the write is not atomic either: racing creates all win there. MinIO settles the race.
     protected override bool RefusesConcurrentCreates => false;
 }
 

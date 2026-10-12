@@ -25,12 +25,15 @@ public sealed class PhysicalProviderTests
     }
 
     // Runs the test on the way new names are taken on Windows (a rename that does not replace) or on Linux and macOS (a
-    // hard link, or where the system has none, as on Windows, an exclusive create, then a rename), whichever system runs
-    // it.
-    private void TakeNewNames(bool byRenameWithoutReplacing)
+    // hard link, or where the system has none, as on Windows, an exclusive create, then a rename), whichever system
+    // runs it. With linkRefused, the system refuses the hard link (as a file system without them does), so Linux and
+    // macOS take the name the way they fall back to.
+    private void TakeNewNames(bool byRenameWithoutReplacing, bool linkRefused = false)
     {
         _provider.Dispose();
-        _provider = new WriteablePhysicalFileProvider(_root) { RenamesWithoutReplacing = byRenameWithoutReplacing };
+        _provider = linkRefused
+            ? new WriteablePhysicalFileProvider(_root) { RenamesWithoutReplacing = byRenameWithoutReplacing, Link = (_, _) => 1 }
+            : new WriteablePhysicalFileProvider(_root) { RenamesWithoutReplacing = byRenameWithoutReplacing };
     }
 
     // Whether the process can be refused access to its own files: not when it runs as root.
@@ -723,11 +726,12 @@ public sealed class PhysicalProviderTests
         await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => Write("missing.txt", "x", new UpdateFileOptions { IfMatch = "1-1" }));
 
     [TestMethod]
-    [DataRow(true)]
-    [DataRow(false)]
-    public async Task IfNotExists_FailsWhenTheFileAppearsDuringTheWrite(bool byRenameWithoutReplacing)
+    [DataRow(true, false)]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    public async Task IfNotExists_FailsWhenTheFileAppearsDuringTheWrite(bool byRenameWithoutReplacing, bool linkRefused)
     {
-        TakeNewNames(byRenameWithoutReplacing);
+        TakeNewNames(byRenameWithoutReplacing, linkRefused);
         var contents = new InterceptingStream(Encoding.UTF8.GetBytes("mine"), () => File.WriteAllText(Disk("f.txt"), "theirs"));
         var e = await Assert.ThrowsExactlyAsync<FileAlreadyExistsException>(() => _provider.UpdateFileAsync("f.txt", contents, new UpdateFileOptions { IfNotExists = true }));
         Assert.IsInstanceOfType<IOException>(e.InnerException);
@@ -738,14 +742,15 @@ public sealed class PhysicalProviderTests
     }
 
     [TestMethod]
-    [DataRow(true)]
-    [DataRow(false)]
-    public async Task IfNotExists_WhenAFolderTakesTheNameDuringTheWrite_IsAFolder(bool byRenameWithoutReplacing)
+    [DataRow(true, false)]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    public async Task IfNotExists_WhenAFolderTakesTheNameDuringTheWrite_IsAFolder(bool byRenameWithoutReplacing, bool linkRefused)
     {
         // Only a file counts as existing: a folder made meanwhile is what a write without conditions would find there.
         if (!byRenameWithoutReplacing && OperatingSystem.IsWindows())
             Assert.Inconclusive("Windows refuses an exclusive create over a folder as access denied; Linux and macOS, which take names this way, answer that the name exists.");
-        TakeNewNames(byRenameWithoutReplacing);
+        TakeNewNames(byRenameWithoutReplacing, linkRefused);
         var contents = new InterceptingStream(Encoding.UTF8.GetBytes("mine"), () => Directory.CreateDirectory(Disk("f.txt")));
         var e = await Assert.ThrowsExactlyAsync<IOException>(() => _provider.UpdateFileAsync("f.txt", contents, new UpdateFileOptions { IfNotExists = true }));
         StringAssert.Contains(e.Message, "is a folder");
@@ -765,11 +770,12 @@ public sealed class PhysicalProviderTests
     }
 
     [TestMethod]
-    [DataRow(true)]
-    [DataRow(false)]
-    public async Task Append_ToAMissingFileFailsWhenOneAppearsMeanwhile(bool byRenameWithoutReplacing)
+    [DataRow(true, false)]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    public async Task Append_ToAMissingFileFailsWhenOneAppearsMeanwhile(bool byRenameWithoutReplacing, bool linkRefused)
     {
-        TakeNewNames(byRenameWithoutReplacing);
+        TakeNewNames(byRenameWithoutReplacing, linkRefused);
         var contents = new InterceptingStream(Encoding.UTF8.GetBytes("mine"), () => File.WriteAllText(Disk("f.txt"), "theirs"));
         await Assert.ThrowsExactlyAsync<FileAlreadyExistsException>(() => _provider.UpdateFileAsync("f.txt", contents, UpdateFileOptions.Append));
         Assert.AreEqual("theirs", await Read("f.txt"));
@@ -1060,17 +1066,22 @@ public sealed class PhysicalProviderTests
     }
 
     [TestMethod]
-    public async Task NewName_ByLink_IsDoneEvenWhenTheTempNameIsGoneBeforeItsDelete()
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task NewName_ByLink_IsDoneWhateverBecomesOfTheTempName(bool deleteRefused)
     {
         if (OperatingSystem.IsWindows())
             Assert.Inconclusive("Windows renames without replacing; it never takes a name with a hard link.");
-        // Once the link holds the content, the write is done: a temp name that a sweep removed first changes nothing.
+        // Once the link holds the content, the write is done: a temp name that a sweep removed first, or one whose
+        // delete is refused (here a folder took the name, which a file delete cannot remove), changes nothing.
         var provider = new WriteablePhysicalFileProvider(_root)
         {
             Link = (existing, created) =>
             {
                 var error = NativeMethods.Link(existing, created) == 0 ? 0 : System.Runtime.InteropServices.Marshal.GetLastPInvokeError();
                 File.Delete(existing);
+                if (deleteRefused)
+                    File.WriteAllText(Path.Combine(Directory.CreateDirectory(existing).FullName, "x"), "");
                 return error;
             },
         };

@@ -92,14 +92,14 @@ public abstract class ProviderConformanceTests
     protected virtual bool SupportsLargeConditionalWrites => true;
 
     /// <summary>
-    /// The size of each writer's file in the large race; the fixture's <see cref="LargeFileSize"/>, at most 32 MiB, so it
-    /// crosses the store's multipart or block-list threshold as the fixture sets it.
+    /// The size of each writer's file in the large race; the fixture's <see cref="LargeFileSize"/>, at most 32 MiB, so
+    /// it crosses the store's multipart or block-list threshold as the fixture sets it.
     /// </summary>
     protected virtual long LargeRaceFileSize => Math.Min(LargeFileSize, 32L << 20);
 
     /// <summary>
-    /// Whether, of writers that create one file at once with <see cref="UpdateFileOptions.IfNotExists"/>, the store lets
-    /// exactly one win. False only for an emulator that cannot settle the race; the fixture says which and why.
+    /// Whether, of writers that create one file at once with <see cref="UpdateFileOptions.IfNotExists"/>, the store
+    /// lets exactly one win. False only for an emulator that cannot settle the race; the fixture says which and why.
     /// </summary>
     protected virtual bool RefusesConcurrentCreates => true;
 
@@ -745,9 +745,9 @@ public abstract class ProviderConformanceTests
     [TestMethod]
     public async Task Write_AppendRaceToAMissingFileKeepsBoth()
     {
-        // Providers end this race differently (one refuses the second create, one appends after it); every way keeps the
-        // writes that succeeded. Two writers, because with more, appenders that each found the file race each other's
-        // version too.
+        // Providers end this race differently (one refuses the second create, one appends after it); every way keeps
+        // the writes that succeeded. Two writers, because with more, appenders that each found the file race each
+        // other's version too.
         if (!RefusesConcurrentCreates)
             Assert.Inconclusive("The store this fixture runs on cannot settle a race of creates.");
         string[] parts = ["first;", "second;"];

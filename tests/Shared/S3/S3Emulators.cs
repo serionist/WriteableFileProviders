@@ -95,7 +95,7 @@ internal sealed record S3Endpoint(string Name, string HostAndPort, string Access
 /// </summary>
 internal static class S3Emulators
 {
-    /// <summary>S3Mock, which checks no signature; its two bugs are declared by the fixtures that use it.</summary>
+    /// <summary>S3Mock, which checks no signature; its three bugs are declared by the fixtures that use it.</summary>
     public const string S3MockImage = "adobe/s3mock:5.2.3";
 
     /// <summary>

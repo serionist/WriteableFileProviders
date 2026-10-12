@@ -309,6 +309,21 @@ public sealed class PhysicalLinkAndSweepTests
     }
 
     [TestMethod]
+    public async Task Sweep_SkipsAFolderNoPathCanName()
+    {
+        // No write puts a temp file in a folder whose name a path cannot hold (a backslash here), so nothing there is a
+        // leftover.
+        if (OperatingSystem.IsWindows())
+            Assert.Inconclusive("Windows cannot create a folder with a backslash in its name.");
+        var unnamed = Leftover(Disk(@"a\b"), TimeSpan.FromDays(3));
+        var named = Leftover(Disk("c"), TimeSpan.FromDays(3));
+        using var provider = Sweeper();
+        Assert.AreEqual(1, await provider.DeleteTempFilesAsync(TimeSpan.FromHours(1)));
+        Assert.IsTrue(File.Exists(unnamed));
+        Assert.IsFalse(File.Exists(named));
+    }
+
+    [TestMethod]
     public async Task Sweep_StopsWhenCancelled()
     {
         Leftover(_root, TimeSpan.FromDays(3));

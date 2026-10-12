@@ -461,19 +461,22 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
         while (folders.TryDequeue(out var relative))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            List<FileSystemInfo> entries;
+            IEnumerable<FileSystemInfo> entries;
             try
             {
                 // Checked just before the folder is walked, the whole way from the root: a folder that was found plain
                 // and has become a link since, or sits under one, is not walked.
                 if (LinkOnTheWay(relative) is not null)
                     continue;
-                entries = [.. new DirectoryInfo(Path.Join([_root, .. relative])).EnumerateFileSystemInfos("*", _listing)];
+                // Read as it goes, so a folder of any size takes no more memory than one entry; the folder is opened
+                // here, so a folder that cannot be listed fails here. A file deleted meanwhile may hide another from
+                // this pass; the next sweep finds it.
+                entries = new DirectoryInfo(Path.Join([_root, .. relative])).EnumerateFileSystemInfos("*", _listing);
             }
-            catch (Exception e) when (e is DirectoryNotFoundException or UnauthorizedAccessException)
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {
-                // The root not created yet, a folder deleted since it was found, or one the process may not list: there
-                // is nothing there the sweep can reach.
+                // The root not created yet, a folder deleted since it was found, one the process may not list or look
+                // into: there is nothing there the sweep can reach.
                 continue;
             }
             foreach (var entry in entries)
@@ -486,13 +489,14 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
                         folders.Enqueue([.. relative, entry.Name]);
                     continue;
                 }
-                if (!IsTempFile(entry.Name) || entry.LastWriteTimeUtc > cutoff)
+                if (!IsTempFile(entry.Name))
                     continue;
                 try
                 {
-                    // Counted only when it was there to delete: deleting a missing file throws nothing.
+                    // Read afresh: counted only when it was there to delete (deleting a missing file throws nothing), and
+                    // a file the process may not look at is skipped like one it may not delete.
                     entry.Refresh();
-                    if (!entry.Exists)
+                    if (!entry.Exists || entry.LastWriteTimeUtc > cutoff)
                         continue;
                     entry.Delete();
                     deleted++;
@@ -626,8 +630,8 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
     // The first entry on the way to these segments under the root that is a link, as its path under the root, or null.
     // One stat per entry, from the root down, stopping at the first that is not there, since nothing below it can be.
     // On Linux and macOS it also stops at an entry the process may not look up: the system won't go past it for the
-    // member either, which then reads it as missing. On Windows a process can be let through a folder it may not read,
-    // so there that refusal is thrown.
+    // member either: a read there finds nothing, and a write is refused. On Windows a process can be let through a
+    // folder it may not read, so there that refusal is thrown.
     private string? LinkOnTheWay(IReadOnlyList<string> segments)
     {
         var current = _root;
@@ -645,6 +649,11 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
             }
             catch (UnauthorizedAccessException) when (!OperatingSystem.IsWindows())
             {
+                return null;
+            }
+            catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException)
+            {
+                // Gone between its attributes and its target (Windows reads them apart): nothing is below it.
                 return null;
             }
         }

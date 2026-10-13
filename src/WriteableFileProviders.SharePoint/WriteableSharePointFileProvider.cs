@@ -29,9 +29,10 @@ namespace WriteableFileProviders.SharePoint;
 /// Preconditions are checked, not atomic: <see cref="UpdateFileOptions.IfMatch"/> and
 /// <see cref="UpdateFileOptions.IfNotExists"/> are checked just before the write, and also sent to the service
 /// (<c>If-Match</c>, and the conflict behaviour <c>fail</c>), which the service enforces on uploads it documents them for.
-/// An append rewrites the file with <c>If-Match</c> on the version it read, so a concurrent change it sees throws
-/// <see cref="PreconditionFailedException"/>. Reads pinned to a version check the ETag before each fetch, which is not
-/// atomic either.
+/// An append rewrites the file with <c>If-Match</c> on the version it read, so a concurrent change it sees is never
+/// lost: with no condition of the caller's, it reads the file again and appends after it, up to five attempts in all,
+/// then throws <see cref="PreconditionFailedException"/>. Reads pinned to a version check the ETag before each fetch,
+/// which is not atomic either.
 /// </para>
 /// <para>
 /// Signed URLs are read-only: the service's own pre-authenticated download URLs, which live up to an hour. A validity

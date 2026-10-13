@@ -59,8 +59,11 @@ namespace WriteableFileProviders.Physical;
 /// fails when anything has the name, then drops the temp name: the name never holds a part of the file, and a process
 /// that dies in between leaves the file in place and a hidden temp name. Where the file system refuses hard links (FAT
 /// and exFAT, some network and FUSE file systems), and for the destination of a move, the name is taken with an
-/// exclusive create and the content renamed onto it, so the file exists empty for that moment: a watcher sees it, and a
-/// process that dies there leaves an empty file. On a network file system that may answer a resent request again (NFS),
+/// exclusive create and the content renamed onto it, so the file exists empty for that moment: a watcher sees it, a
+/// process that dies there leaves an empty file, and another writer that appends to it then has its append replaced by
+/// that rename. An append that loses a new name reads past the file that took it only once that file has content, so it
+/// never appends to such an empty file: while it is empty (or the other writer wrote nothing) it throws
+/// <see cref="FileAlreadyExistsException"/>. On a network file system that may answer a resent request again (NFS),
 /// a write can find its own new name taken and throw <see cref="FileAlreadyExistsException"/>, a copy
 /// <see cref="FileExistsException"/>, with its content in place; an append then appends its bytes a second time.
 /// </para>
@@ -366,7 +369,11 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
                     if (Directory.Exists(target))
                         return IsAFolder(path, e);
                     var exists = AlreadyExists(path, e);
-                    signal(exists);
+                    // Read past only once the other writer is done: where a name is taken with an exclusive create, it
+                    // holds an empty file until that writer's content is renamed onto it, which would replace an append
+                    // made to it meanwhile.
+                    if (new FileInfo(target) is { Exists: true, Length: > 0 })
+                        signal(exists);
                     return exists;
                 }
                 : null;

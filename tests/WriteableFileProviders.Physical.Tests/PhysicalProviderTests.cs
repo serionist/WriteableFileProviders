@@ -806,6 +806,49 @@ public sealed class PhysicalProviderTests
     }
 
     [TestMethod]
+    public async Task Append_ThatLosesANameTakenByAnExclusiveCreate_NeverAppendsToItsEmptyFile()
+    {
+        // Where links are refused, a name is taken with an empty file, which the winner's content is renamed onto
+        // afterwards: an append made to that empty file would be replaced. The winner (A) takes the name, then waits; the
+        // loser (B) must not read past A's empty file.
+        using var aHoldsTheName = new ManualResetEventSlim();
+        using var bIsDone = new ManualResetEventSlim();
+        using var a = new WriteablePhysicalFileProvider(_root)
+        {
+            RenamesWithoutReplacing = false,
+            Link = (_, _) => 1,
+            NameTaken = _ =>
+            {
+                aHoldsTheName.Set();
+                bIsDone.Wait(TimeSpan.FromSeconds(30));
+            },
+        };
+        Task? aWrites = null;
+        _provider.Dispose();
+        _provider = new WriteablePhysicalFileProvider(_root)
+        {
+            RenamesWithoutReplacing = false,
+            Link = (_, _) => 1,
+            TempCreated = Once(() =>
+            {
+                aWrites = Task.Run(() => a.UpdateFileAsync("f.txt", TestStreams.Text("first;"), UpdateFileOptions.Append));
+                Assert.IsTrue(aHoldsTheName.Wait(TimeSpan.FromSeconds(30)), "The other writer took the name");
+            }),
+        };
+        try
+        {
+            await Assert.ThrowsExactlyAsync<FileAlreadyExistsException>(() => Write("f.txt", "second;", UpdateFileOptions.Append));
+        }
+        finally
+        {
+            bIsDone.Set();
+        }
+        await aWrites!;
+        Assert.AreEqual("first;", await Read("f.txt"));
+        Assert.IsEmpty(TempFiles());
+    }
+
+    [TestMethod]
     public async Task Append_ToAFileThatChangesEveryTime_ThrowsAfterFiveAttempts()
     {
         await Write("f.txt", "start");

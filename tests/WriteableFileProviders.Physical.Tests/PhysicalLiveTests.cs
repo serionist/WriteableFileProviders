@@ -28,7 +28,8 @@ public sealed class PhysicalLiveTests : ProviderConformanceTests
     // The root is a folder of the disk, which the system resolves (dot segments included); paths under it stay inside it.
     protected override bool ChecksItsRoot => false;
 
-    // The version check before the rename is not atomic.
+    // The shared test writes from the appended stream, which Physical copies before it opens the file, so the write lands
+    // before the append reads the file, not between the read and the rename.
     protected override bool DetectsConcurrentAppends => false;
 
     protected override IWriteableFileProvider CreateProvider(string? root)

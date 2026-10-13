@@ -745,8 +745,8 @@ public abstract class ProviderConformanceTests
     [TestMethod]
     public async Task Write_AppendRaceToAMissingFileKeepsBoth()
     {
-        // The append that loses the create reads the file the other made and appends after it. Two writers: the winner
-        // is done before the loser tries again, so this holds where IfMatch is only checked, too.
+        // The append that loses the create reads the file the other made and appends after it. Two writers: the loser
+        // tries again only once the winner is done, so this holds where IfMatch is only checked, too.
         if (!RefusesConcurrentCreates)
             Assert.Inconclusive("The store this fixture runs on cannot settle a race of creates.");
         string[] parts = ["first;", "second;"];

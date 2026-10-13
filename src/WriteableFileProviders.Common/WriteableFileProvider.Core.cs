@@ -346,7 +346,8 @@ public abstract partial class WriteableFileProvider<TOptions>
     /// does; then it throws <see cref="PreconditionFailedException"/> with the last conflict inside. With the caller's
     /// <see cref="UpdateFileOptions.IfMatch"/> or <see cref="UpdateFileOptions.IfNotExists"/>, the first conflict
     /// throws: <see cref="FileAlreadyExistsException"/> for a file created meanwhile under
-    /// <see cref="UpdateFileOptions.IfNotExists"/>, <see cref="PreconditionFailedException"/> otherwise.
+    /// <see cref="UpdateFileOptions.IfNotExists"/>, the store's "not found" (<see cref="FileNotFoundException"/> to the
+    /// caller) for a file deleted before its read, <see cref="PreconditionFailedException"/> otherwise.
     /// <paramref name="contents"/> is read once: a retry copies the caller's bytes from the previous attempt's temp file,
     /// and a failure of the caller's stream ends the append, whatever its type. It keeps the file's content type unless
     /// the caller gives one. It needs the file's <see cref="IWriteableFileInfo.ETag"/>: an existing file without one

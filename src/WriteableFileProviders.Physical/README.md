@@ -71,10 +71,15 @@ None. The provider reads and writes with the permissions of the process.
   out such names, and on Linux and macOS, names holding `:` or `\`.
 - **Symbolic links and junctions** inside the root are followed, wherever they point, unless you set `RefuseLinks`.
   Without it, a recursive listing lists a linked folder but doesn't walk into it. `RefuseLinks` checks the path just
-  before each operation, so a process that can create links inside the root can still swap one in between; a recursive
-  folder delete can even be steered into a folder elsewhere by a link swapped in while it runs. Hard links and mounts on
+  before each operation, so a process that can create links inside the root can still swap one in between, except for
+  a folder delete, which opens every folder from the root without following a link. Hard links and mounts on
   Linux and macOS aren't visible as links, and other reparse points (cloud placeholders, Windows container layers)
   aren't links. The polling `Watch` can still report a change behind a linked folder.
+- **A folder delete never leaves the folder.** It opens each entry in its folder without following a link and removes
+  it there, so a link inside, even one swapped in while it runs, is removed as itself. It goes on past what it can't
+  delete and throws the first failure. On Windows a folder holding a junction is deleted. On macOS the folder above the
+  deleted one must be readable. Where the system's calls aren't known (Linux other than on x64 and Arm), the delete
+  goes by path, as .NET's does.
 - **No content types.** `UpdateFileOptions.ContentType` is ignored; `ContentType` is null.
 - **`Watch` works** like ASP.NET Core's `PhysicalFileProvider`: a glob relative to the root. Hidden and dot-prefixed
   files aren't watched. Where file system events don't arrive (some network and container mounts), set

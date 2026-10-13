@@ -66,7 +66,8 @@ missing file. `ReadFileAsync` and `ReadRangeAsync` of a missing file still throw
 ## What's different
 
 - **ETags are generations.** `IfMatch` and `IfNotExists` are generation preconditions, atomic. Appends rewrite the
-  object on the generation read, so they never lose a concurrent write.
+  object on the generation read, so they never lose a concurrent write; after one they read the object again and append
+  after it, up to five attempts in all.
 - **Writes are resumable uploads.** The object appears only when every byte has arrived.
 - **A `dir/` object** (the console's "create folder") is an empty folder.
 - **Reads** aren't checked against the object's hash.

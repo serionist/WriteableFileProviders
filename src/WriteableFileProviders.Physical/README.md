@@ -53,7 +53,11 @@ None. The provider reads and writes with the permissions of the process.
   write, plus any lag of a file server's clock: a write whose temp file goes fails, and its file keeps its content. It
   doesn't walk into linked folders, and skips a folder below the root that it may not list; a root it can't read
   throws.
-- **An append copies the whole file**, so frequent appends to a large file (a log) are expensive.
+- **An append copies the whole file**, so frequent appends to a large file (a log) are expensive. It first copies your
+  stream to a hidden `.wfp-<guid>.tmp` beside the file (on Linux and macOS readable by the process's user only), so that
+  after a concurrent write it can read the file again and append after it, up to five attempts in all. On Windows, which
+  doesn't rename over a file that is open, one of two appends to one file at once can fail with
+  `UnauthorizedAccessException`.
 - **A write puts a new file at the path.** Other hard links keep the old content, and a symbolic link at the path
   becomes a file. On Windows the file takes the folder's permissions; on Linux and macOS, the old file's mode bits.
   ACLs and extended attributes are not kept.

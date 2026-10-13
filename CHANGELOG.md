@@ -5,6 +5,20 @@ Every package releases together, at one version
 that changes something consumers notice adds a line under the next version's heading. `release.yml` publishes a
 version's section as its GitHub release notes.
 
+## 2027.1.1
+
+### Fixed
+
+- **An append ends the same way on every provider** (Physical, Amazon S3, MinIO, Google Cloud Storage, Box,
+  SharePoint, and a provider of your own built on `AppendByRewriteAsync`): an append with no condition of yours that
+  meets another writer's change or create, or a file deleted since it was read, reads the file again and appends after
+  what is there now, up to five attempts in all, then throws `PreconditionFailedException`, as Azure Blob's append always
+  did. These providers threw at the first conflict: `PreconditionFailedException`, or `FileAlreadyExistsException` for a
+  file created meanwhile. With your own `IfMatch` or `IfNotExists` the first conflict still throws. Where a store's
+  answer to a write is lost and its SDK sends the write again, the append can meet its own write and append its bytes a
+  second time, as a retry by hand would. Physical copies your stream to a hidden `.wfp-<guid>.tmp` beside the file
+  first; on Windows, one of two appends to one file at once can still fail with `UnauthorizedAccessException`.
+
 ## 2027.1.0 (2026-10-13)
 
 Additions and fixes, nothing that breaks: a create-only write's own exception, an injectable clock, Physical's link

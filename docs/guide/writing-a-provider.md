@@ -76,7 +76,8 @@ Declare what the store can do. Until you do, the base refuses or weakens the ope
 
 ## Use the helpers
 
-- `AppendByRewriteAsync`: an append for a store without one, conditional on the version read.
+- `AppendByRewriteAsync`: an append for a store without one, conditional on the version read, which reads the file
+  again after a concurrent change, as every provider's append does when the caller gave no condition.
 - `SpoolToTempFileAsync`: copies a stream to a local temp file, for an SDK that needs a length or a seekable stream.
 - `NotFound(path)`: the `FileNotFoundException` for a missing file, naming the path under the root.
 - `ReadWithContractAsync`: a read by a public member of your own, under the same error rules as `ReadFileAsync`.

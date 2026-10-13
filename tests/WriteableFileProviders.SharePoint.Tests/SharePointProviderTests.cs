@@ -226,7 +226,7 @@ public sealed class SharePointProviderTests
     }
 
     [TestMethod]
-    public async Task Append_RacedAfterItsCheck_IsRefusedByTheIfMatchItSends()
+    public async Task Append_RacedAfterItsCheck_IsRefusedByTheIfMatchItSends_ThenAppendsAfterTheRace()
     {
         var (provider, fake) = Create();
         await Write(provider, "f.txt", "start");
@@ -238,8 +238,9 @@ public sealed class SharePointProviderTests
                 fake.SetFile("r/f.txt", Encoding.UTF8.GetBytes("theirs"));
             }
         };
-        await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => Write(provider, "f.txt", "+mine", UpdateFileOptions.Append));
-        Assert.AreEqual("theirs", Text(fake.GetFile("r/f.txt")), "A service that honours If-Match keeps the concurrent write");
+        await Write(provider, "f.txt", "+mine", UpdateFileOptions.Append);
+        Assert.AreEqual("theirs+mine", Text(fake.GetFile("r/f.txt")), "A service that honours If-Match keeps the concurrent write; the append reads it again");
+        Assert.HasCount(3, Sent(fake, "PUT"), "The first write, the refused append, the append after the race");
     }
 
     [TestMethod]

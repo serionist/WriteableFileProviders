@@ -748,7 +748,7 @@ public sealed class GcsProviderTests
     // ----- Writes through append and local streams keep their guarantees on big files -----
 
     [TestMethod]
-    public async Task Append_ToAFileWrittenMeanwhileThrowsAndKeepsTheWrite()
+    public async Task Append_ToAFileWrittenMeanwhile_KeepsTheWriteAndAppendsAfterIt()
     {
         var http = new FaultInjection();
         var provider = Provider(http);
@@ -762,7 +762,8 @@ public sealed class GcsProviderTests
             }
             return null;
         };
-        await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => provider.UpdateFileAsync("f.txt", TestStreams.Text("+mine"), UpdateFileOptions.Append));
-        Assert.AreEqual("theirs", await ReadAll(await provider.ReadFileAsync("f.txt")));
+        // The upload on the generation read is refused; the append reads the file again and appends after it.
+        await provider.UpdateFileAsync("f.txt", TestStreams.Text("+mine"), UpdateFileOptions.Append);
+        Assert.AreEqual("theirs+mine", await ReadAll(await provider.ReadFileAsync("f.txt")));
     }
 }

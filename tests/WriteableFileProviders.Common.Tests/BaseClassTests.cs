@@ -170,6 +170,133 @@ public sealed class BaseClassTests
     }
 
     [TestMethod]
+    public async Task AppendByRewrite_AfterACreateLostToAnotherWriter_AppendsAfterIt()
+    {
+        using var store = new ScriptedStoreProvider();
+        store.BeforeWrite = (_, write) =>
+        {
+            if (write == 1)
+                store.Put("f.txt", "theirs;");
+        };
+        await store.Append("f.txt", TestStreams.Text("mine;"));
+        Assert.AreEqual("theirs;mine;", store.Text("f.txt"));
+        Assert.IsTrue(store.Writes[0].IfNotExists, "The first attempt creates the file");
+        Assert.IsNotNull(store.Writes[1].IfMatch, "The second appends to the file it read");
+    }
+
+    [TestMethod]
+    public async Task AppendByRewrite_AfterAChangeMeanwhile_AppendsToTheNewVersion()
+    {
+        using var store = new ScriptedStoreProvider();
+        store.Put("f.txt", "a;");
+        store.BeforeWrite = (_, write) =>
+        {
+            if (write == 1)
+                store.Put("f.txt", "a;b;");
+        };
+        // The caller's stream is at its end after the first attempt: the second appends its bytes from the first's temp file.
+        await store.Append("f.txt", TestStreams.Text("c;"));
+        Assert.AreEqual("a;b;c;", store.Text("f.txt"));
+        Assert.HasCount(2, store.Writes);
+    }
+
+    [TestMethod]
+    public async Task AppendByRewrite_ThatKeepsMeetingChanges_ThrowsAfterFiveAttempts()
+    {
+        using var store = new ScriptedStoreProvider();
+        // Every attempt loses: a create to another writer's create, an append to another writer's delete.
+        store.BeforeWrite = (options, _) =>
+        {
+            if (options.IfNotExists)
+                store.Put("f.txt", "theirs;");
+            else
+                store.Remove("f.txt");
+        };
+        var e = await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => store.Append("f.txt", TestStreams.Text("mine;")));
+        Assert.HasCount(5, store.Writes);
+        Assert.IsInstanceOfType<FileAlreadyExistsException>(e.InnerException, "The last conflict, a lost create, is inside; the append itself asked for no create");
+        StringAssert.Contains(e.Message, "5 attempts");
+    }
+
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task AppendByRewrite_ToAFileDeletedBeforeItIsRead_CreatesIt(bool storesOwnNotFound)
+    {
+        using var store = new ScriptedStoreProvider();
+        store.Put("f.txt", "old;");
+        store.BeforeRead = read =>
+        {
+            if (read != 1)
+                return;
+            store.Remove("f.txt");
+            // The store's own "not found" (which IsNotFound recognises), or the contract's.
+            if (!storesOwnNotFound)
+                throw new FileNotFoundException("The file is gone.");
+        };
+        await store.Append("f.txt", TestStreams.Text("mine;"));
+        Assert.AreEqual("mine;", store.Text("f.txt"));
+        Assert.HasCount(1, store.Writes);
+        Assert.IsTrue(store.Writes[0].IfNotExists);
+    }
+
+    [TestMethod]
+    public async Task AppendByRewrite_AfterAChange_ThenAFileDeletedBeforeItIsRead_WritesTheCallersBytesOnce()
+    {
+        using var store = new ScriptedStoreProvider();
+        store.Put("f.txt", "a;");
+        store.BeforeWrite = (_, write) =>
+        {
+            if (write == 1)
+                store.Put("f.txt", "a;b;");
+        };
+        store.BeforeRead = read =>
+        {
+            if (read == 2)
+                store.Remove("f.txt");
+        };
+        await store.Append("f.txt", TestStreams.Text("c;"));
+        Assert.AreEqual("c;", store.Text("f.txt"));
+        Assert.HasCount(2, store.Writes, "The attempt whose read failed wrote nothing");
+    }
+
+    [TestMethod]
+    public async Task AppendByRewrite_WhoseStreamFails_EndsWithItsFailure()
+    {
+        using var store = new ScriptedStoreProvider();
+        store.Put("f.txt", "a;");
+        // A pinned read of a file elsewhere throws the base type when that file changes: it is not this file's change.
+        var contents = new InterceptingStream("b;"u8.ToArray(), () => throw new PreconditionFailedException("The source changed."));
+        var e = await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => store.Append("f.txt", contents));
+        Assert.AreEqual("The source changed.", e.Message);
+        Assert.IsEmpty(store.Writes);
+        Assert.AreEqual("a;", store.Text("f.txt"));
+    }
+
+    [TestMethod]
+    public async Task AppendByRewrite_WithTheCallersCondition_FailsAtTheFirstConflict()
+    {
+        using var store = new ScriptedStoreProvider();
+        store.Put("f.txt", "a;");
+        store.BeforeWrite = (_, _) => store.Put("f.txt", "theirs;");
+        var etag = store.ETagOf("f.txt");
+        var changed = await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => store.Append("f.txt", TestStreams.Text("b;"), UpdateFileOptions.Append with { IfMatch = etag }));
+        Assert.DoesNotContain("attempts", changed.Message);
+        Assert.HasCount(1, store.Writes);
+
+        store.Remove("f.txt");
+        store.Writes.Clear();
+        await Assert.ThrowsExactlyAsync<FileAlreadyExistsException>(() => store.Append("f.txt", TestStreams.Text("b;"), UpdateFileOptions.Append with { IfNotExists = true }));
+        Assert.HasCount(1, store.Writes);
+
+        // A file deleted before its read fails a caller's version as it did.
+        store.BeforeWrite = null;
+        store.Put("f.txt", "a;");
+        store.BeforeRead = _ => store.Remove("f.txt");
+        await Assert.ThrowsExactlyAsync<KeyNotFoundException>(() => store.Append("f.txt", TestStreams.Text("b;"), UpdateFileOptions.Append with { IfMatch = store.ETagOf("f.txt") }));
+    }
+
+    [TestMethod]
     public async Task Disposed_RefusesEveryCall()
     {
         var provider = Stub();

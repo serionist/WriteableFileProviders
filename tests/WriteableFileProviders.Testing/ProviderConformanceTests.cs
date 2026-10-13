@@ -53,8 +53,8 @@ public abstract class ProviderConformanceTests
     protected virtual bool KeepsContentType => false;
 
     /// <summary>
-    /// Whether an append detects the concurrent write this suite stages (while the appended stream is read) and throws
-    /// instead of losing it; false where the staged race cannot be detected.
+    /// Whether an append detects the concurrent write this suite stages (while the appended stream is read), reads the
+    /// file again and appends after it, instead of losing it; false where the staged race cannot be detected.
     /// </summary>
     protected virtual bool DetectsConcurrentAppends => true;
 
@@ -745,23 +745,15 @@ public abstract class ProviderConformanceTests
     [TestMethod]
     public async Task Write_AppendRaceToAMissingFileKeepsBoth()
     {
-        // Providers end this race differently (one refuses the second create, one appends after it); every way keeps
-        // the writes that succeeded. Two writers, because with more, appenders that each found the file race each
-        // other's version too.
+        // The append that loses the create reads the file the other made and appends after it. Two writers: the winner
+        // is done before the loser tries again, so this holds where IfMatch is only checked, too.
         if (!RefusesConcurrentCreates)
             Assert.Inconclusive("The store this fixture runs on cannot settle a race of creates.");
         string[] parts = ["first;", "second;"];
         var outcomes = await RaceAsync(parts.Length, writer => Provider.UpdateFileAsync("f.txt", TestStreams.Text(parts[writer]), UpdateFileOptions.Append));
-        Assert.IsTrue(outcomes.Any(o => o is null), "At least one append succeeds");
         foreach (var failure in outcomes.OfType<Exception>())
-            Assert.AreEqual(typeof(FileAlreadyExistsException), failure.GetType(), failure.ToString());
-        var content = await Read("f.txt");
-        for (var writer = 0; writer < parts.Length; writer++)
-        {
-            if (outcomes[writer] is null)
-                StringAssert.Contains(content, parts[writer], "A successful append is kept");
-        }
-        Assert.AreEqual(parts.Where((_, writer) => outcomes[writer] is null).Sum(part => part.Length), content.Length, "Nothing else is in the file");
+            Assert.Fail("Every append succeeds: " + failure);
+        CollectionAssert.Contains(new[] { "first;second;", "second;first;" }, await Read("f.txt"), "Both appends, one after the other");
     }
 
     // Writers race to create "race.bin" with IfNotExists: exactly one wins, every other throws exactly
@@ -829,16 +821,8 @@ public abstract class ProviderConformanceTests
         await Write("f.txt", "start");
         var racing = new InterceptingStream(Encoding.UTF8.GetBytes("+mine"),
             () => Provider.UpdateFileAsync("f.txt", TestStreams.Text("theirs")).GetAwaiter().GetResult());
-        try
-        {
-            await Provider.UpdateFileAsync("f.txt", racing, UpdateFileOptions.Append);
-        }
-        catch (PreconditionFailedException)
-        {
-            Assert.AreEqual("theirs", await Read("f.txt"), "The concurrent write is kept");
-            return;
-        }
-        StringAssert.Contains(await Read("f.txt"), "theirs", "The concurrent write is kept");
+        await Provider.UpdateFileAsync("f.txt", racing, UpdateFileOptions.Append);
+        Assert.AreEqual("theirs+mine", await Read("f.txt"), "The concurrent write is kept, and the append lands after it");
     }
 
     [TestMethod]

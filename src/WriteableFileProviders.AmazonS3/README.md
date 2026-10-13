@@ -68,8 +68,8 @@ pass your own `IAmazonS3`. Nothing touches the network until the first call.
 - **Writes** up to 8 MiB are one `PUT`, larger ones a multipart upload. A failed write leaves the old content.
 - **Conditions** (`IfMatch`, `IfNotExists`) go to S3 with the write, which checks them atomically. Toward a
   `ServiceUrl`, the provider also checks them first: not atomic, since the server may ignore them.
-- **Appends** rewrite the file with `If-Match` on the version read: a concurrent write makes the append throw
-  `PreconditionFailedException`.
+- **Appends** rewrite the file with `If-Match` on the version read. After a concurrent write the append reads the file
+  again and appends after it, up to five attempts in all, then throws `PreconditionFailedException`.
 - **Copies and moves** run on the server, files over 5 GiB in parts of 512 MiB or more. A move deletes the source
   with `If-Match` and undoes the copy if the source changed meanwhile.
 - **Listings** carry no content type; `GetFileInfoAsync` does. Requester-pays buckets work on AWS.

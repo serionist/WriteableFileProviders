@@ -21,8 +21,9 @@ public sealed class PhysicalConformanceTests : ProviderConformanceTests
     // The root is a folder of the disk, which the system resolves (dot segments included); paths under it stay inside it.
     protected override bool ChecksItsRoot => false;
 
-    // The version check before the rename is not atomic: PhysicalProviderTests pins that it catches a change
-    // made while the append copies, which is what the shared test races.
+    // The shared test writes from the appended stream, which Physical copies before it opens the file, so the write lands
+    // before the append reads the file, not between the read and the rename; PhysicalProviderTests stages that change
+    // from TempCreated, and pins that the check before the rename (not atomic) catches it and the append reads again.
     protected override bool DetectsConcurrentAppends => false;
 
     protected override string? LocalTempFolder => _base;

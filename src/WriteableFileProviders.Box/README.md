@@ -71,7 +71,8 @@ happens on the first call; a sign-in Box refuses throws `UnauthorizedAccessExcep
 - **Real folders, case ignored.** Writing `A.TXT` over `a.txt` keeps the stored name. Listings skip web links.
 - **Every call walks its path** from `RootFolderId`, one listing per folder; nothing is cached. Deep paths cost more.
 - **Writes** go through a local temp file, then up in one request below 20 MiB, or a chunked upload session from
-  20 MiB. A failed write leaves the old content. Appends rewrite the file. Deletes go to the Box trash.
+  20 MiB. A failed write leaves the old content. Appends rewrite the file, and after a concurrent write read it again
+  and append after it, up to five attempts in all. Deletes go to the Box trash.
 - **No content types.** `UpdateFileOptions.ContentType` is ignored; `ContentType` is null.
 - **ETags** are Box file version ids. `IfNotExists` is atomic; `IfMatch` is checked just before the write: not atomic.
 - **Errors** carry no credentials, unless you pass an `IBoxClient` other than a plain `BoxClient`.

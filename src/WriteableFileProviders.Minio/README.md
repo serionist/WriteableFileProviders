@@ -70,7 +70,8 @@ A MinIO key pair, or none for anonymous access, which can't presign URLs. For an
 - **A file and a folder with the same name:** MinIO lists only the file, and hides what's under the folder until the
   file is deleted.
 - **Writes** up to 8 MiB are one request, larger ones a multipart upload (10,000 parts at most). A failed write leaves
-  the old content. Appends rewrite the file with `If-Match` on the version read.
+  the old content. Appends rewrite the file with `If-Match` on the version read, and after a concurrent write read it
+  again and append after it, up to five attempts in all.
 - **Listings** carry no content type; `GetFileInfoAsync` does.
 - **No storage class** is sent: MinIO refuses the ones it doesn't know.
 - **Signed URLs** are presigned read and write URLs, up to 7 days, over the scheme `UseSSL` picks. Create URLs come

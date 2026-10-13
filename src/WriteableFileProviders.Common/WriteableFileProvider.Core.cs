@@ -338,13 +338,19 @@ public abstract partial class WriteableFileProvider<TOptions>
 
     /// <summary>
     /// Appends by rewriting, for a store with no native append: the existing content and <paramref name="contents"/>
-    /// are spooled to a temp file, which then replaces the file with <see cref="UpdateFileOptions.IfMatch"/> on the
-    /// version that was read, so a concurrent change throws <see cref="PreconditionFailedException"/> instead of being
-    /// lost. Where no file was read (a missing path, or a folder), it writes with
-    /// <see cref="UpdateFileOptions.IfNotExists"/>, so a file created meanwhile throws
-    /// <see cref="FileAlreadyExistsException"/>, and a folder gets the store's answer. It keeps the file's content type
-    /// unless the caller gives one. It needs the file's <see cref="IWriteableFileInfo.ETag"/>: an existing file without
-    /// one throws <see cref="NotSupportedException"/>.
+    /// are copied to a temp file, which then replaces the file with <see cref="UpdateFileOptions.IfMatch"/> on the
+    /// version that was read, so a concurrent change is never lost. Where no file was read (a missing path, or a
+    /// folder), it writes with <see cref="UpdateFileOptions.IfNotExists"/>, and a folder gets the store's answer. When
+    /// the caller gave no condition, a concurrent change or create, or a file deleted since it was read, makes it read
+    /// the file again and append after what is there now, up to five attempts in all, as Azure Blob's native append
+    /// does; then it throws <see cref="PreconditionFailedException"/> with the last conflict inside. With the caller's
+    /// <see cref="UpdateFileOptions.IfMatch"/> or <see cref="UpdateFileOptions.IfNotExists"/>, the first conflict
+    /// throws: <see cref="FileAlreadyExistsException"/> for a file created meanwhile under
+    /// <see cref="UpdateFileOptions.IfNotExists"/>, <see cref="PreconditionFailedException"/> otherwise.
+    /// <paramref name="contents"/> is read once: a retry copies the caller's bytes from the previous attempt's temp file,
+    /// and a failure of the caller's stream ends the append, whatever its type. It keeps the file's content type unless
+    /// the caller gives one. It needs the file's <see cref="IWriteableFileInfo.ETag"/>: an existing file without one
+    /// throws <see cref="NotSupportedException"/>.
     /// </summary>
     /// <param name="path">The file.</param>
     /// <param name="contents">The content to add.</param>
@@ -354,6 +360,26 @@ public abstract partial class WriteableFileProvider<TOptions>
     {
         ArgumentNullException.ThrowIfNull(contents);
         ArgumentNullException.ThrowIfNull(options);
+        // A caller's condition names one version, or none: its failure is the caller's answer, never read past.
+        var retries = !options.IfNotExists && options.IfMatch is null;
+        var appended = new AppendedBytes();
+        await using (appended.ConfigureAwait(false))
+        {
+            for (var attempt = 1; ; attempt++)
+            {
+                var conflict = await TryAppendByRewriteAsync(path, contents, options, appended, retries, cancellationToken).ConfigureAwait(false);
+                if (conflict is null)
+                    return;
+                if (attempt == AppendAttempts)
+                    throw new PreconditionFailedException($"The file '{path}' kept changing while it was appended to; nothing was appended after {AppendAttempts} attempts.", conflict);
+            }
+        }
+    }
+
+    // One attempt of an append by rewrite: null once the file is written, or the concurrent change the next attempt reads
+    // past. Only an append that retries returns one; any other failure is thrown.
+    private async Task<Exception?> TryAppendByRewriteAsync(ResolvedPath path, Stream contents, UpdateFileOptions options, AppendedBytes appended, bool retries, CancellationToken cancellationToken)
+    {
         var info = await GetFileInfoCoreAsync(path, cancellationToken).ConfigureAwait(false);
         // Only a file is appended to; a folder at the path gets the store's own answer to the rewrite below.
         var isFile = info.Exists && !info.IsDirectory;
@@ -364,15 +390,36 @@ public abstract partial class WriteableFileProvider<TOptions>
         if (isFile && info.ETag is null)
             throw new NotSupportedException($"{GetType().Name} keeps no version of '{path}', so an append could lose a concurrent write.");
         var temp = StreamUtilities.CreateTempFile();
-        await using (temp.ConfigureAwait(false))
+        var held = false;
+        try
         {
             if (isFile)
             {
-                var existing = await ReadFileCoreAsync(path, cancellationToken).ConfigureAwait(false);
-                await using (existing.ConfigureAwait(false))
-                    await existing.CopyToAsync(temp, cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    var existing = await ReadFileCoreAsync(path, cancellationToken).ConfigureAwait(false);
+                    await using (existing.ConfigureAwait(false))
+                        await existing.CopyToAsync(temp, cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception e) when (retries && (e is FileNotFoundException || Recognises(IsNotFound, e)))
+                {
+                    // Deleted since its info was read: the next attempt creates it.
+                    return e;
+                }
             }
-            await contents.CopyToAsync(temp, cancellationToken).ConfigureAwait(false);
+            // The caller's bytes: from the caller's stream the first time, from the temp file that holds them after.
+            var start = temp.Position;
+            if (appended.File is { } previous)
+            {
+                previous.Position = appended.Offset;
+                await previous.CopyToAsync(temp, cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                await contents.CopyToAsync(temp, cancellationToken).ConfigureAwait(false);
+            }
+            await appended.HoldAsync(temp, start).ConfigureAwait(false);
+            held = true;
             temp.Position = 0;
             // The rewrite replaces exactly the file that was read, or creates one where there was none: a file written
             // meanwhile makes it fail rather than be lost.
@@ -384,7 +431,20 @@ public abstract partial class WriteableFileProvider<TOptions>
                 // An append does not change what the file is.
                 ContentType = options.ContentType ?? info.ContentType,
             };
-            await UpdateWithPreconditionsAsync(path, temp, rewrite, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await UpdateWithPreconditionsAsync(path, temp, rewrite, cancellationToken).ConfigureAwait(false);
+                return null;
+            }
+            catch (PreconditionFailedException e) when (retries)
+            {
+                return e;
+            }
+        }
+        finally
+        {
+            if (!held)
+                await temp.DisposeAsync().ConfigureAwait(false);
         }
     }
 
@@ -445,5 +505,29 @@ public abstract partial class WriteableFileProvider<TOptions>
                 throw new PreconditionFailedException($"The file '{path}' changed: its version is no longer '{options.IfMatch}'.");
         }
         await UpdateFileCoreAsync(path, contents, options, cancellationToken).ConfigureAwait(false);
+    }
+
+    // How many attempts an append by rewrite with no condition of the caller's makes in all: as many as Azure Blob's
+    // native append.
+    private const int AppendAttempts = 5;
+
+    // The caller's bytes of an append by rewrite, held in the latest attempt's temp file from Offset on, so that a retry
+    // never reads the caller's stream again.
+    private sealed class AppendedBytes : IAsyncDisposable
+    {
+        public FileStream? File { get; private set; }
+
+        public long Offset { get; private set; }
+
+        // Takes the temp file that now holds the bytes, from 'offset' on, and lets the previous one go.
+        public async ValueTask HoldAsync(FileStream file, long offset)
+        {
+            if (File is { } previous)
+                await previous.DisposeAsync().ConfigureAwait(false);
+            File = file;
+            Offset = offset;
+        }
+
+        public ValueTask DisposeAsync() => File?.DisposeAsync() ?? default;
     }
 }

@@ -16,7 +16,8 @@ namespace WriteableFileProviders.Physical;
 /// <c>.wfp-&lt;guid&gt;.tmp</c> (32 lowercase hex digits) in the target's folder, then rename it over the target: the
 /// file has its old content or its new content, never a part. A write that fails removes its temp file; listings never
 /// show one, and show every other name, <c>.wfp-notes.tmp</c> included. An append copies the file and the new bytes
-/// into the temp file.
+/// into the temp file; it first copies the caller's stream into a second temp file named the same way beside it, which
+/// only the process's user may read on Linux and macOS, and which goes when the append ends.
 /// </para>
 /// <para>
 /// <b>Replacing by rename</b> makes the new content a new file at the path, so a write is refused, the file keeping its
@@ -42,13 +43,18 @@ namespace WriteableFileProviders.Physical;
 /// than that resolution step it further each time, so the time can run ahead of the clock without bound; bounding it
 /// would let an ETag repeat. A change by another program that keeps the length within the file system's time resolution
 /// may not change the ETag. <see cref="UpdateFileOptions.IfMatch"/> is checked just before the rename, which is not
-/// atomic: another process can change the file between the check and the rename. An append that finds the file changed
-/// since it read it throws <see cref="PreconditionFailedException"/>, with the same window.
+/// atomic: another process can change the file between the check and the rename. An append with no condition of the
+/// caller's that finds the file changed since it read it, created, or deleted, reads it again and appends after what is
+/// there now, up to five attempts in all, then throws <see cref="PreconditionFailedException"/>; its check has the same
+/// window. With the caller's <see cref="UpdateFileOptions.IfMatch"/> or <see cref="UpdateFileOptions.IfNotExists"/>, the
+/// first change throws. On Windows a write cannot replace a file another write is reading, so one of two appends to one
+/// file at once can fail with <see cref="UnauthorizedAccessException"/> (see Reads).
 /// </para>
 /// <para>
 /// <b>New names are taken atomically:</b> <see cref="UpdateFileOptions.IfNotExists"/>, an append to a missing file, and
-/// the destination of a move or a copy never replace a file that is there; a write that finds one throws
-/// <see cref="FileAlreadyExistsException"/>, a move or a copy <see cref="FileExistsException"/>. Windows renames
+/// the destination of a move or a copy never replace a file that is there; a write with
+/// <see cref="UpdateFileOptions.IfNotExists"/> that finds one throws <see cref="FileAlreadyExistsException"/>, an append
+/// appends after it, a move or a copy throws <see cref="FileExistsException"/>. Windows renames
 /// without replacing. On Linux and macOS a write or a copy gives its temp file the name as a second hard link, which
 /// fails when anything has the name, then drops the temp name: the name never holds a part of the file, and a process
 /// that dies in between leaves the file in place and a hidden temp name. Where the file system refuses hard links (FAT
@@ -56,7 +62,7 @@ namespace WriteableFileProviders.Physical;
 /// exclusive create and the content renamed onto it, so the file exists empty for that moment: a watcher sees it, and a
 /// process that dies there leaves an empty file. On a network file system that may answer a resent request again (NFS),
 /// a write can find its own new name taken and throw <see cref="FileAlreadyExistsException"/>, a copy
-/// <see cref="FileExistsException"/>, with its content in place.
+/// <see cref="FileExistsException"/>, with its content in place; an append then appends its bytes a second time.
 /// </para>
 /// <para>
 /// <b>Reads</b> share the file with writers and deleters, and keep the content they opened. A delete goes ahead while a
@@ -100,6 +106,9 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
     private const string TempPrefix = ".wfp-";
     private const string TempSuffix = ".tmp";
     private const int BufferSize = 4096;
+
+    // How many attempts an append with no condition of the caller's makes in all: as many as Azure Blob's.
+    private const int AppendAttempts = 5;
 
     // Readers let writers replace and delete the file they read.
     private const FileShare ReadShare = FileShare.ReadWrite | FileShare.Delete;
@@ -209,6 +218,10 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
     // Called with the temp file's path as soon as it is created, before anything else touches it: the tests read its mode.
     internal Action<string>? TempCreated { get; init; }
 
+    // Called with the target each time a write has looked at it (a folder, a file there), before IsReplaceable opens it:
+    // the tests change the file there.
+    internal Action<string>? Probed { get; init; }
+
     /// <summary>True on Windows and macOS, whose file systems match names without regard to case by default.</summary>
     protected override bool IsCaseInsensitive => IgnoresCase;
 
@@ -289,41 +302,121 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
         ArgumentNullException.ThrowIfNull(options);
         cancellationToken.ThrowIfCancellationRequested();
         var target = FullPath(path);
+        if (options.Mode != UpdateFileMode.Append)
+        {
+            var (replaced, like) = Look(path, target, options);
+            CheckPreconditions(path, options, VersionOf(replaced));
+            // A folder that takes the name meanwhile is what a write without conditions finds there, not a file.
+            Func<IOException, IOException>? taken = options.IfNotExists ? e => Directory.Exists(target) ? IsAFolder(path, e) : AlreadyExists(path, e) : null;
+            await CommitAsync(path, target, options.IfMatch, changed: null, taken, like, contents.CopyToAsync, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+        // An append with no condition of the caller's reads the file again after a concurrent change and appends after
+        // what is there now, as the base class's append by rewrite does. Only this provider's own signals of a change
+        // count, each recorded as it is thrown: a failure of the caller's stream, whatever its type, ends the append.
+        var retries = !options.IfNotExists && options.IfMatch is null;
+        var spool = new AppendSpool();
+        await using (spool.ConfigureAwait(false))
+        {
+            for (var attempt = 1; ; attempt++)
+            {
+                IOException? signal = null;
+                try
+                {
+                    await AppendOnceAsync(path, target, contents, options, spool, e => signal = e, cancellationToken).ConfigureAwait(false);
+                    return;
+                }
+                catch (IOException e) when (retries && ReferenceEquals(e, signal))
+                {
+                    if (attempt == AppendAttempts)
+                        throw new PreconditionFailedException($"The file '{path}' kept changing while it was appended to; nothing was appended after {AppendAttempts} attempts.", e);
+                }
+            }
+        }
+    }
+
+    // One attempt of an append, which looks at the path afresh; 'signal' receives the exception that says the file changed
+    // since it was looked at, just before it is thrown.
+    private async Task AppendOnceAsync(ResolvedPath path, string target, Stream contents, UpdateFileOptions options, AppendSpool spool,
+        Action<IOException> signal, CancellationToken cancellationToken)
+    {
+        FileInfo replaced;
+        FileInfo? like;
+        try
+        {
+            (replaced, like) = Look(path, target, options);
+        }
+        catch (IOException e) when (e is FileNotFoundException or DirectoryNotFoundException)
+        {
+            // Deleted between the look and IsReplaceable's open.
+            signal(e);
+            throw;
+        }
+        CheckPreconditions(path, options, VersionOf(replaced));
+        // The caller's bytes are read here once, before the file is opened, and only after the refusals that need none.
+        await spool.FillAsync(path, target, contents, cancellationToken).ConfigureAwait(false);
+        if (like is null)
+        {
+            // An append to a missing file creates it, and fails rather than replace one that appears meanwhile; over a link
+            // to nothing, it replaces the link, as an overwrite does.
+            Func<IOException, IOException>? taken = options.IfNotExists || !replaced.Exists
+                ? e =>
+                {
+                    // A folder that takes the name meanwhile is what a write without conditions finds there, not a file.
+                    if (Directory.Exists(target))
+                        return IsAFolder(path, e);
+                    var exists = AlreadyExists(path, e);
+                    signal(exists);
+                    return exists;
+                }
+                : null;
+            await CommitAsync(path, target, options.IfMatch, signal, taken, like, spool.CopyFromStartAsync, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+        SafeFileHandle existing;
+        try
+        {
+            existing = OpenRead(path, target);
+        }
+        catch (FileNotFoundException e)
+        {
+            // Deleted since the look.
+            signal(e);
+            throw;
+        }
+        // The file as this handle opened it, then the new bytes; the rename happens only if the file is still that version.
+        var source = new FileStream(existing, FileAccess.Read, BufferSize, isAsync: true);
+        await using (source.ConfigureAwait(false))
+        {
+            var version = VersionOf(existing);
+            CheckPreconditions(path, options, version);
+            await CommitAsync(path, target, version, signal, taken: null, like, async (output, token) =>
+            {
+                await source.CopyToAsync(output, token).ConfigureAwait(false);
+                // Closed before the rename: Windows does not rename over a file that is open, by this handle or any.
+                await source.DisposeAsync().ConfigureAwait(false);
+                await spool.CopyFromStartAsync(output, token).ConfigureAwait(false);
+            }, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    // The path as a write finds it: refuses a folder there, and a file under IfNotExists; gives the file the write
+    // replaces (which may not exist) and the file whose permission bits the new one takes (null for none, or for a link
+    // to nothing).
+    private (FileInfo Replaced, FileInfo? Like) Look(ResolvedPath path, string target, UpdateFileOptions options)
+    {
         if (Directory.Exists(target))
             throw new IOException($"The path '{path}' is a folder.");
         var replaced = new FileInfo(target);
-        if (options.IfNotExists && replaced.Exists)
+        // Read once: what the write found there, even if it goes before IsReplaceable opens it.
+        var exists = replaced.Exists;
+        if (options.IfNotExists && exists)
             throw AlreadyExists(path);
+        Probed?.Invoke(target);
         // Before anything else opens it: a file the write must not replace is refused, and the new file takes the mode of
         // the one it replaces.
-        var like = replaced.Exists && IsReplaceable(path, target, replaced) ? replaced : null;
-        if (options.Mode == UpdateFileMode.Append && like is not null)
-        {
-            // A file deleted since the probe is reported as missing.
-            var existing = OpenRead(path, target);
-            // The file as this handle opened it, then the new bytes; the rename happens only if the file is still that version.
-            var source = new FileStream(existing, FileAccess.Read, BufferSize, isAsync: true);
-            await using (source.ConfigureAwait(false))
-            {
-                var version = VersionOf(existing);
-                CheckPreconditions(path, options, version);
-                await CommitAsync(path, target, version, taken: null, like, async (output, token) =>
-                {
-                    await source.CopyToAsync(output, token).ConfigureAwait(false);
-                    // Closed before the rename: Windows does not rename over a file that is open, by this handle or any.
-                    await source.DisposeAsync().ConfigureAwait(false);
-                    await contents.CopyToAsync(output, token).ConfigureAwait(false);
-                }, cancellationToken).ConfigureAwait(false);
-            }
-            return;
-        }
-        CheckPreconditions(path, options, VersionOf(replaced));
-        // An append to a missing file creates it, and fails rather than replace one that appears meanwhile; over a link to
-        // nothing, it replaces the link, as an overwrite does.
-        var mustBeNew = options.IfNotExists || (options.Mode == UpdateFileMode.Append && !replaced.Exists);
-        // A folder that takes the name meanwhile is what a write without conditions finds there, not a file.
-        Func<IOException, IOException>? taken = mustBeNew ? e => Directory.Exists(target) ? IsAFolder(path, e) : AlreadyExists(path, e) : null;
-        await CommitAsync(path, target, options.IfMatch, taken, like, contents.CopyToAsync, cancellationToken).ConfigureAwait(false);
+        var like = exists && IsReplaceable(path, target, replaced) ? replaced : null;
+        return (replaced, like);
     }
 
     /// <inheritdoc />
@@ -376,7 +469,7 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
         await using (input.ConfigureAwait(false))
         {
             // Whatever took the destination meanwhile, a file or a folder, the copy's answer is that it exists.
-            await CommitAsync(destination, FullPath(destination), expected: null,
+            await CommitAsync(destination, FullPath(destination), expected: null, changed: null,
                 e => new FileExistsException($"The destination '{destination}' already exists.", e),
                 new FileInfo(from), input.CopyToAsync, cancellationToken).ConfigureAwait(false);
         }
@@ -714,11 +807,12 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
         (info.Attributes & FileAttributes.ReparsePoint) != 0 && info.LinkTarget is not null;
 
     // Writes the content to a temp file next to the target, then renames it over the target. 'expected' is the version the
-    // target must still have just before the rename (checked, not atomic); 'taken', when set, renames only onto a free
-    // name (atomic), and gives the exception for a name that something took; the new file takes the permission bits of
-    // 'like', the file it replaces or copies, else the default mode.
-    private async Task CommitAsync(ResolvedPath path, string target, string? expected, Func<IOException, IOException>? taken, FileInfo? like,
-        Func<Stream, CancellationToken, Task> write, CancellationToken cancellationToken)
+    // target must still have just before the rename (checked, not atomic), and 'changed' receives the exception thrown
+    // when it doesn't; 'taken', when set, renames only onto a free name (atomic), and gives the exception for a name that
+    // something took; the new file takes the permission bits of 'like', the file it replaces or copies, else the default
+    // mode.
+    private async Task CommitAsync(ResolvedPath path, string target, string? expected, Action<IOException>? changed, Func<IOException, IOException>? taken,
+        FileInfo? like, Func<Stream, CancellationToken, Task> write, CancellationToken cancellationToken)
     {
         var folder = Path.GetDirectoryName(target)!;
         Directory.CreateDirectory(folder);
@@ -759,7 +853,11 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
             written = true;
             var current = new FileInfo(target);
             if (expected is not null && VersionOf(current) != expected)
-                throw Changed(path, expected);
+            {
+                var exception = Changed(path, expected);
+                changed?.Invoke(exception);
+                throw exception;
+            }
             Stamp(Described(current).LastWriteTimeUtc, TimeProvider.GetUtcNow().UtcDateTime, time =>
             {
                 File.SetLastWriteTimeUtc(temp, time);
@@ -1005,6 +1103,60 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
     // A folder that took the name during the write is what a write without conditions finds there, not a file.
     private static IOException IsAFolder(ResolvedPath path, Exception innerException) =>
         new($"The path '{path}' is a folder.", innerException);
+
+    // The caller's bytes of an append, copied once into a hidden temp file next to the target, before the file is opened:
+    // a retry appends them again without reading the caller's stream, they never leave the root, and a crash leaves a
+    // temp file DeleteTempFilesAsync finds. On Linux and macOS only the process's user may read it, from its creation.
+    private sealed class AppendSpool : IAsyncDisposable
+    {
+        private FileStream? _file;
+
+        public async Task FillAsync(ResolvedPath path, string target, Stream contents, CancellationToken cancellationToken)
+        {
+            if (_file is not null)
+                return;
+            var folder = Path.GetDirectoryName(target)!;
+            Directory.CreateDirectory(folder);
+            var create = new FileStreamOptions
+            {
+                Mode = FileMode.CreateNew,
+                Access = FileAccess.ReadWrite,
+                Share = FileShare.None,
+                BufferSize = BufferSize,
+                Options = FileOptions.Asynchronous | FileOptions.DeleteOnClose,
+            };
+            if (!OperatingSystem.IsWindows())
+                create.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+            FileStream file;
+            try
+            {
+                file = new FileStream(Path.Join(folder, TempPrefix + Guid.NewGuid().ToString("N") + TempSuffix), create);
+            }
+            catch (UnauthorizedAccessException e)
+            {
+                // The message would name the temp file.
+                throw new UnauthorizedAccessException($"The file '{path}' cannot be written: the process may not create files in its folder.", e);
+            }
+            try
+            {
+                await contents.CopyToAsync(file, cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                await file.DisposeAsync().ConfigureAwait(false);
+                throw;
+            }
+            _file = file;
+        }
+
+        public async Task CopyFromStartAsync(Stream output, CancellationToken cancellationToken)
+        {
+            _file!.Position = 0;
+            await _file.CopyToAsync(output, cancellationToken).ConfigureAwait(false);
+        }
+
+        public ValueTask DisposeAsync() => _file?.DisposeAsync() ?? default;
+    }
 
     private static FileAlreadyExistsException AlreadyExists(ResolvedPath path, Exception? innerException = null) =>
         new($"The file '{path}' already exists.", innerException);

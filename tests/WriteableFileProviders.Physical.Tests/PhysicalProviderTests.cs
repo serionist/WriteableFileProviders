@@ -620,7 +620,8 @@ public sealed class PhysicalProviderTests
         void Chain(string prefix, int count)
         {
             for (var i = 0; i < count; i++)
-                File.CreateSymbolicLink(Path.Combine(physicalFolder, $"{prefix}{i}"), i == count - 1 ? "file.txt" : $"{prefix}{i + 1}");
+                File.CreateSymbolicLink(Path.Combine(physicalFolder, $"{prefix}{i}"),
+                    i == count - 1 ? "file.txt" : $"{prefix}{i + 1}");
         }
     }
 

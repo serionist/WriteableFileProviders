@@ -1,7 +1,8 @@
 # Build, test with coverage, and pack, on every pull request and every push to main. The emulator suites start their
 # containers through Testcontainers, which needs Docker: present on the Linux runner, where WFP_REQUIRE_DOCKER makes a
 # missing emulator fail the run instead of leaving its tests inconclusive. Live suites (TestCategory=Live) never run here.
-# The Native AOT job publishes tests/WriteableFileProviders.Aot with native AOT and runs it (its README says why).
+# The Native AOT job publishes tests/WriteableFileProviders.Aot with native AOT and runs it (its README says why). The
+# Physical jobs run the local disk provider's tests on macOS and on Linux on Arm, which the others don't reach.
 name: CI
 
 on:
@@ -166,3 +167,32 @@ jobs:
       # No Linux containers on Windows runners: the emulator suites are inconclusive here and run on Linux.
       - name: Test
         run: dotnet test --solution WriteableFileProviders.slnx --no-build -c Release --filter "TestCategory!=Live"
+
+  physical:
+    # Physical calls the C library itself, and its rules differ by system (case, names, links, permissions): its tests
+    # run where the jobs above don't, on macOS and on Linux on Arm.
+    name: Physical (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS
+            runner: macos-latest
+          - name: Linux, Arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+      - name: Restore (locked)
+        run: dotnet restore tests/WriteableFileProviders.Physical.Tests --locked-mode
+      - name: Build
+        run: dotnet build tests/WriteableFileProviders.Physical.Tests --no-restore -c Release
+      - name: Test
+        run: dotnet test --project tests/WriteableFileProviders.Physical.Tests --no-build -c Release --filter "TestCategory!=Live"

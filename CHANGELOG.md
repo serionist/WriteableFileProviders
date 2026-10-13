@@ -5,7 +5,11 @@ Every package releases together, at one version
 that changes something consumers notice adds a line under the next version's heading. `release.yml` publishes a
 version's section as its GitHub release notes.
 
-## 2027.1.1
+## 2027.1.1 (2026-10-13)
+
+Fixes for the two things 2027.1.0 left open: an append ends the same way on every provider when another writer gets
+there first, and a Physical folder delete can no longer be steered outside the root by a link swapped in while it runs.
+Nothing breaks; Physical's tests now also run on macOS and on Linux on Arm64.
 
 ### Fixed
 

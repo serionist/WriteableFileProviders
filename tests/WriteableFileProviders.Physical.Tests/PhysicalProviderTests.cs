@@ -591,8 +591,11 @@ public sealed class PhysicalProviderTests
         Assert.AreEqual(WriteablePhysicalFileProvider.PhysicalPathOf(folder), WriteablePhysicalFileProvider.PhysicalPathOf(folder + Path.DirectorySeparatorChar));
         Assert.AreEqual(Path.Combine(Path.GetDirectoryName(physicalFile)!, "missing.txt"), WriteablePhysicalFileProvider.PhysicalPathOf(Path.Combine(folder, "missing.txt")));
 
-        // Chains of links: one through exactly the limit resolves, one link more does not (32 on macOS, 40 elsewhere).
+        // Chains of links: one through exactly the limit resolves, one link more does not (32 on macOS, 40 elsewhere). They
+        // are made in the folder as the kernel finds it, so that no link of its own path counts: on macOS the temp folder
+        // is under /var, a link to /private/var.
         Assert.AreEqual(OperatingSystem.IsMacOS() ? 32 : 40, WriteablePhysicalFileProvider.MaxLinks);
+        var physicalFolder = Path.GetDirectoryName(physicalFile)!;
         try
         {
             Chain("a", WriteablePhysicalFileProvider.MaxLinks);
@@ -602,14 +605,14 @@ public sealed class PhysicalProviderTests
             Assert.Inconclusive($"Creating a symbolic link on Windows needs Developer Mode or elevation: {e.Message}");
         }
         Chain("b", WriteablePhysicalFileProvider.MaxLinks + 1);
-        Assert.AreEqual(physicalFile, WriteablePhysicalFileProvider.PhysicalPathOf(Path.Combine(folder, "a0")));
-        Assert.IsNull(WriteablePhysicalFileProvider.PhysicalPathOf(Path.Combine(folder, "b0")));
+        Assert.AreEqual(physicalFile, WriteablePhysicalFileProvider.PhysicalPathOf(Path.Combine(physicalFolder, "a0")));
+        Assert.IsNull(WriteablePhysicalFileProvider.PhysicalPathOf(Path.Combine(physicalFolder, "b0")));
 
         // prefix0 -> prefix1 -> ... -> prefix(count - 1) -> file.txt: a path through count links.
         void Chain(string prefix, int count)
         {
             for (var i = 0; i < count; i++)
-                File.CreateSymbolicLink(Path.Combine(folder, $"{prefix}{i}"), i == count - 1 ? "file.txt" : $"{prefix}{i + 1}");
+                File.CreateSymbolicLink(Path.Combine(physicalFolder, $"{prefix}{i}"), i == count - 1 ? "file.txt" : $"{prefix}{i + 1}");
         }
     }
 

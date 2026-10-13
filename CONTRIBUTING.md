@@ -50,7 +50,8 @@ dotnet test --solution WriteableFileProviders.slnx --filter "TestCategory!=Live"
    "Generated with" lines.
 4. Open the PR with the template filled in, ending `Closes #<issue>`. Its title becomes the commit on `main`.
 
-CI builds and tests every PR on Linux and Windows, with the emulator suites and the coverage gate, and CodeQL scans it.
+CI builds and tests every PR on Linux and Windows, with the emulator suites and the coverage gate, runs Physical's tests
+on macOS and on Linux on Arm64 too, and CodeQL scans it.
 The maintainers review a PR from outside by reading it: they never check it out, build or run it on their machines,
 where it would run next to their credentials. Your PR is ready for review when CI is green. A maintainer squash-merges
 it.

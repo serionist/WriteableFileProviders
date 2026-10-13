@@ -27,9 +27,9 @@ version's section as its GitHub release notes.
   opened the same way and a link swapped in there is refused. On Windows a folder holding a junction is now deleted
   (before, `UnauthorizedAccessException`). A folder that still has entries after the delete (a file another process
   holds open on a file system without POSIX deletes) throws `IOException`, where it returned true. On macOS the folder
-  that holds the deleted one, and with `RefuseLinks` every folder on the way, must be readable. The delete can now be
-  cancelled: it stops between entries, the folder partly deleted. Elsewhere (Linux on other architectures, other
-  systems) a folder is deleted by its path, as before.
+  that holds the deleted one, and with `RefuseLinks` every folder on the way, must be readable. On those systems the
+  delete can now be cancelled: it stops between entries, the folder partly deleted. Elsewhere (Linux on other
+  architectures, other systems) a folder is deleted by its path, as before.
 
 ## 2027.1.0 (2026-10-13)
 

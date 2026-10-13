@@ -105,11 +105,10 @@ namespace WriteableFileProviders.Physical;
 /// .NET's recursive delete, it goes on past an entry it cannot delete, skips one gone meanwhile and throws the first
 /// failure at the end; a folder that still has entries after it (a file another process holds open, on a file system
 /// without POSIX deletes) throws <see cref="IOException"/>. Cancelled, it stops between entries, the folder partly
-/// deleted. On Windows a folder holding a junction is deleted, the junction as
-/// itself. On macOS the folder that holds the deleted one, and with RefuseLinks every folder on the way, must be
-/// readable. This is how a folder is deleted on Linux on x64, Arm and Arm64, macOS and Windows; elsewhere it is deleted
-/// by its path, as .NET does, and a link swapped in while that runs can steer it elsewhere. A file is deleted by its
-/// path.
+/// deleted. On Windows a folder holding a junction is deleted, the junction as itself. On macOS the folder that holds
+/// the deleted one, and with RefuseLinks every folder on the way, must be readable. This is how a folder is deleted on
+/// Linux on x64, Arm and Arm64, macOS and Windows; elsewhere it is deleted by its path, as .NET does, and a link swapped
+/// in while that runs can steer it elsewhere. A file is deleted by its path.
 /// </para>
 /// <para>
 /// <b>Access.</b> Where the operating system refuses the process access to a file or a folder that a member opens,
@@ -475,8 +474,9 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
         }
         // Through handles, so a link swapped in while the delete runs can never take it elsewhere.
         var walk = new FolderDelete(folders, Opening, ClassicDeletes);
-        return Task.FromResult(walk.Delete(path, _root, path.RelativeSegments, _refuseLinks, link => RefusedLink(path, link),
-            cancellationToken));
+        var deleted = walk.Delete(path, _root, path.RelativeSegments, _refuseLinks, link => RefusedLink(path, link),
+            cancellationToken);
+        return Task.FromResult(deleted);
     }
 
     /// <summary>Renames the file; the destination is taken atomically, so an existing one is never replaced.</summary>

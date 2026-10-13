@@ -537,7 +537,7 @@ public sealed partial class PhysicalFolderDeleteTests
         Write("sibling", "sibling.txt");
         var folders = new ScriptedFolders(FolderSystem.Current!)
         {
-            Listing = path => path == Disk("dir") ? [".", "..", "x.txt"] : [],
+            Listing = path => path == Disk("dir") ? [".", "..", "x.txt"] : null,
         };
         using var provider = new WriteablePhysicalFileProvider(_root) { Folders = folders };
         Assert.IsTrue(await provider.DeleteAsync("dir"));
@@ -546,17 +546,43 @@ public sealed partial class PhysicalFolderDeleteTests
     }
 
     [TestMethod]
-    public async Task AListedNameHoldingASeparator_IsRefused()
+    [DataRow("sub/x.txt")]
+    [DataRow("")]
+    public async Task AListedNameThatIsNoEntrysName_IsRefused(string name)
     {
+        // A separator would reach an entry further down; an empty name would open the folder again (Windows).
         Write("x", "dir", "sub", "x.txt");
         var folders = new ScriptedFolders(FolderSystem.Current!)
         {
-            Listing = path => path == Disk("dir") ? ["sub/x.txt"] : [],
+            Listing = path => path == Disk("dir") ? [name] : null,
         };
         using var provider = new WriteablePhysicalFileProvider(_root) { Folders = folders };
         var e = await Assert.ThrowsExactlyAsync<IOException>(() => provider.DeleteAsync("dir"));
-        StringAssert.Contains(e.Message, "'sub/x.txt'");
+        StringAssert.Contains(e.Message, $"named '{name}'");
         Assert.IsTrue(File.Exists(Disk("dir", "sub", "x.txt")));
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public async Task OnWindows_ARefusalForANameWithATrailingDot_IsNotTakenForAnotherName()
+    {
+        // 'x.' and 'x' are two names in the extended form, the form the walk lists and removes by; a plain path would
+        // read 'x.' as 'x', which is not there, and take the refusal for a name gone.
+        Directory.CreateDirectory(Disk("dir"));
+        var trailing = WindowsRules.ExtendedPath(Disk("dir", "x."));
+        File.WriteAllText(trailing, "kept");
+        File.SetAttributes(trailing, FileAttributes.ReadOnly);
+        try
+        {
+            using var provider = Provider();
+            var e = await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(() => provider.DeleteAsync("dir"));
+            StringAssert.Contains(e.Message, "'dir/x.'");
+        }
+        finally
+        {
+            File.SetAttributes(trailing, FileAttributes.Normal);
+            File.Delete(trailing);
+        }
     }
 
     [TestMethod]
@@ -676,7 +702,8 @@ public sealed partial class PhysicalFolderDeleteTests
 
         public int? OpenPathError { get; init; }
 
-        public Func<string, IEnumerable<string>>? Listing { get; init; }
+        // The names to list in a folder, by its path; null for the folder's real listing.
+        public Func<string, IEnumerable<string>?>? Listing { get; init; }
 
         public Action<string>? AfterOpen { get; init; }
 
@@ -711,8 +738,7 @@ public sealed partial class PhysicalFolderDeleteTests
 
         public override bool FallsBack(int error) => WindowsRules.FallsBack(error);
 
-        public override string ListingPath(string path) => system.ListingPath(path);
-
-        public override IEnumerator<string> List(string path) => Listing is { } listing ? listing(path).GetEnumerator() : system.List(path);
+        public override IEnumerator<string> List(string path) =>
+            Listing?.Invoke(path) is { } names ? names.GetEnumerator() : system.List(path);
     }
 }

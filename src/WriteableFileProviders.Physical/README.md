@@ -73,9 +73,9 @@ None. The provider reads and writes with the permissions of the process.
   Without it, a recursive listing lists a linked folder but doesn't walk into it. `RefuseLinks` checks the path just
   before each operation, so a process that can create links inside the root can still swap one in between, except for
   a folder delete on Linux (x64, Arm, Arm64), macOS and Windows, which opens every folder from the root without
-  following a link. Hard links and mounts on
-  Linux and macOS aren't visible as links, and other reparse points (cloud placeholders, Windows container layers)
-  aren't links. The polling `Watch` can still report a change behind a linked folder.
+  following a link. Hard links and mounts on Linux and macOS aren't visible as links, and other reparse points (cloud
+  placeholders, Windows container layers) aren't links. The polling `Watch` can still report a change behind a linked
+  folder.
 - **A folder delete never leaves the folder** on Linux (x64, Arm, Arm64), macOS and Windows. It opens each entry in its
   folder without following a link and removes it there, so a link inside, even one swapped in while it runs, is
   removed as itself. It goes on past what it can't delete and throws the first failure; cancelled, it stops between

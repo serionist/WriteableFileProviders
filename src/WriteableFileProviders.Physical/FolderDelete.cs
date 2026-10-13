@@ -278,10 +278,11 @@ internal sealed class FolderDelete(FolderSystem system, Action<string>? opening,
                 // would be its parent and '.' itself.
                 if (name is "." or "..")
                     continue;
-                if (name.AsSpan().IndexOfAny(_separators) >= 0)
+                // Empty, a name would open the folder again (Windows); with a separator, an entry further down.
+                if (name.Length == 0 || name.AsSpan().IndexOfAny(_separators) >= 0)
                 {
                     first ??= new IOException(
-                        $"'{relative}' could not be emptied: its listing named '{name}', which is not the name of an entry.");
+                        $"'{relative}' could not be emptied: its listing named '{name}', which is no entry's name.");
                     continue;
                 }
                 var childPath = Path.Join(fullPath, name);
@@ -342,12 +343,13 @@ internal sealed class FolderDelete(FolderSystem system, Action<string>? opening,
 
     // Whether a removal failed because the entry is gone: as the system says, or, where it answers that the access is
     // refused (Windows, for a folder another process deleted while this one held it), because nothing has the name any
-    // more. Only the answer depends on it, never what is deleted.
+    // more, looked up in the form that keeps a name as listed (on Windows, the extended form, which keeps a trailing dot
+    // or space). Only the answer depends on it, never what is deleted.
     private bool IsGone(int error, string fullPath) =>
         system.Classify(error) switch
         {
             Failure.Gone => true,
-            Failure.Refused => (int)new FileInfo(fullPath).Attributes == -1,
+            Failure.Refused => (int)new FileInfo(system.ListingPath(fullPath)).Attributes == -1,
             _ => false,
         };
 

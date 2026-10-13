@@ -22,8 +22,6 @@ internal sealed partial class UnixFolders(UnixTable table) : FolderSystem
         if (fd >= 0)
             return new Entry(EntryKind.Folder, new SafeFileHandle(fd, ownsHandle: true), 0);
         var error = Marshal.GetLastPInvokeError();
-        if (error == UnixTable.NoEntry)
-            return new Entry(EntryKind.Missing, null, 0);
         if (error != UnixTable.NotADirectory && error != table.Loop)
             return Entry.Failed(error);
         // Not a folder of its own (a link gives ENOTDIR on Linux, ELOOP or ENOTDIR on macOS): a link has a target to read.
@@ -31,9 +29,7 @@ internal sealed partial class UnixFolders(UnixTable table) : FolderSystem
         if (With(folder, dirfd => ReadLinkAt(dirfd, name, ref target, 1)) >= 0)
             return new Entry(EntryKind.Link, null, 0);
         error = Marshal.GetLastPInvokeError();
-        return error == UnixTable.Invalid ? new Entry(EntryKind.Other, null, 0)
-            : error == UnixTable.NoEntry ? new Entry(EntryKind.Missing, null, 0)
-            : Entry.Failed(error);
+        return error == UnixTable.Invalid ? new Entry(EntryKind.Other, null, 0) : Entry.Failed(error);
     }
 
     public override int Remove(SafeHandle folder, string name, Entry entry, bool classic) =>
@@ -41,7 +37,7 @@ internal sealed partial class UnixFolders(UnixTable table) : FolderSystem
             ? 0
             : Marshal.GetLastPInvokeError();
 
-    public override Failure Classify(int error) => table.Classify(error);
+    public override Failure Classify(int error) => UnixTable.Classify(error);
 
     // Runs a call with the file descriptor a handle holds, which stays open until the call returns.
     private static T With<T>(SafeHandle handle, Func<int, T> call)

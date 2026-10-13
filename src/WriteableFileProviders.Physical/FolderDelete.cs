@@ -7,8 +7,8 @@ namespace WriteableFileProviders.Physical;
 // What an entry of a folder is, opened without following a link.
 internal enum EntryKind
 {
-    // Nothing has the name (any more).
-    Missing,
+    // None: the entry could not be opened (Entry.Failed).
+    Unknown,
 
     // A folder of its own, not a link to one.
     Folder,
@@ -29,10 +29,7 @@ internal enum Failure
     // The system refused the access.
     Refused,
 
-    // A folder still has entries.
-    NotEmpty,
-
-    // Anything else.
+    // Anything else, a folder that still has entries included.
     Other,
 }
 
@@ -40,7 +37,7 @@ internal enum Failure
 // the system's error number when it could not be opened.
 internal readonly record struct Entry(EntryKind Kind, SafeHandle? Handle, int Error)
 {
-    public static Entry Failed(int error) => new(EntryKind.Missing, null, error);
+    public static Entry Failed(int error) => new(EntryKind.Unknown, null, error);
 }
 
 // The calls a folder delete makes to the system, through handles: an entry is always opened relative to its folder's
@@ -75,13 +72,22 @@ internal abstract class FolderSystem
     // The path to list a folder by.
     public virtual string ListingPath(string path) => path;
 
+    // The names in a folder, read from its path as the walk goes; opening it is where a folder that can't be listed
+    // fails.
+    public virtual IEnumerator<string> List(string path) =>
+        new FileSystemEnumerable<string>(ListingPath(path), (ref FileSystemEntry entry) => entry.FileName.ToString(),
+            _listing).GetEnumerator();
+
+    private static readonly EnumerationOptions _listing = new() { AttributesToSkip = 0, IgnoreInaccessible = false };
+
     // The system's words for an error number.
     public virtual string Describe(int error) => Marshal.GetPInvokeErrorMessage(error);
 }
 
 // The flags and error numbers of the C library calls, which differ by system and, on Linux, by architecture. From the
 // kernel's and Darwin's headers.
-internal sealed record UnixTable(int Directory, int NoFollow, int PathOnly, int CloseOnExec, int RemoveDirectory, int Loop, int NotEmpty)
+internal sealed record UnixTable(
+    int Directory, int NoFollow, int PathOnly, int CloseOnExec, int RemoveDirectory, int Loop)
 {
     // The same on Linux and macOS.
     public const int NoEntry = 2;
@@ -91,13 +97,13 @@ internal sealed record UnixTable(int Directory, int NoFollow, int PathOnly, int 
     public const int Invalid = 22;
 
     // Linux on x64 (and the architectures that use the generic values); O_PATH opens a folder without reading it.
-    public static UnixTable Linux { get; } = new(0x10000, 0x20000, 0x200000, 0x80000, 0x200, 40, 39);
+    public static UnixTable Linux { get; } = new(0x10000, 0x20000, 0x200000, 0x80000, 0x200, 40);
 
     // Linux on Arm and Arm64, whose O_DIRECTORY and O_NOFOLLOW differ.
-    public static UnixTable LinuxArm { get; } = new(0x4000, 0x8000, 0x200000, 0x80000, 0x200, 40, 39);
+    public static UnixTable LinuxArm { get; } = new(0x4000, 0x8000, 0x200000, 0x80000, 0x200, 40);
 
     // macOS, on Intel and Apple silicon; it has no O_PATH, so a folder is opened to read (O_RDONLY, 0).
-    public static UnixTable MacOS { get; } = new(0x100000, 0x100, 0, 0x1000000, 0x80, 62, 66);
+    public static UnixTable MacOS { get; } = new(0x100000, 0x100, 0, 0x1000000, 0x80, 62);
 
     // The table of a system, by its architecture as this process runs (an x64 process emulated on Arm is x64); null
     // where the values are not known.
@@ -116,11 +122,10 @@ internal sealed record UnixTable(int Directory, int NoFollow, int PathOnly, int 
     // Opens an entry only if it is a folder of its own: a link fails (ENOTDIR or ELOOP), a file fails (ENOTDIR).
     public int OpenEntry => OpenFolder | NoFollow;
 
-    // Not a folder on the way (ENOTDIR) is as gone as nothing there.
-    public Failure Classify(int error) =>
+    // Not a folder on the way (ENOTDIR) is as gone as nothing there; the same numbers on Linux and macOS.
+    public static Failure Classify(int error) =>
         error is NoEntry or NotADirectory ? Failure.Gone
         : error is AccessDenied or NotPermitted ? Failure.Refused
-        : error == NotEmpty ? Failure.NotEmpty
         : Failure.Other;
 }
 
@@ -153,7 +158,6 @@ internal static class WindowsRules
         {
             FileNotFound or PathNotFound => Failure.Gone,
             AccessDenied => Failure.Refused,
-            DirectoryNotEmpty => Failure.NotEmpty,
             _ => Failure.Other,
         };
 
@@ -169,22 +173,27 @@ internal static class WindowsRules
 
 // Deletes a folder and everything in it through the handles of FolderSystem. The names come from listing each folder
 // by its path; every entry is opened relative to its folder's handle without following a link and removed through
-// that handle or its own, so a listing that a rename or a swapped link made read another folder can only leave names
-// out, which then fails the delete (the folder is not empty), never reach outside the folder. Like .NET's recursive
-// delete, it goes on past an entry it cannot delete, skips one gone meanwhile, and throws the first failure at the end.
+// that handle or its own. A name is only ever one entry of the folder: '.' and '..', which some file systems list as
+// files, are skipped, and a name holding a separator is refused, so a listing that a rename or a swapped link made
+// read another folder can only leave names out, which then fails the delete (the folder is not empty), never reach
+// outside the folder. Like .NET's recursive delete, it goes on past an entry it cannot delete, skips one gone
+// meanwhile, and throws the first failure at the end. Cancelled, it stops between entries, the folder partly deleted.
 internal sealed class FolderDelete(FolderSystem system, Action<string>? opening, bool classicDeletes)
 {
-    private static readonly EnumerationOptions _listing = new() { AttributesToSkip = 0, IgnoreInaccessible = false };
+    private static readonly char[] _separators = [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar];
 
     // Deletes the folder at root/segments, whose provider path is 'path': true when something was deleted, false when
     // nothing was there by the time it was opened. With 'refuseLinks', the walk starts at the root and opens each
     // folder on the way without following a link, and a link there or at the target throws 'refused' for its path
     // under the root; without, the folder that holds the target is opened by its path, following links as every
     // member does.
-    public bool Delete(ResolvedPath path, string root, IReadOnlyList<string> segments, bool refuseLinks, Func<string, Exception> refused)
+    public bool Delete(ResolvedPath path, string root, IReadOnlyList<string> segments, bool refuseLinks,
+        Func<string, Exception> refused, CancellationToken cancellationToken)
     {
         var fullPath = Path.Join([root, .. segments]);
-        var parent = refuseLinks ? WalkDown(path, root, segments, refused) : OpenPath(path, Path.GetDirectoryName(fullPath)!);
+        var parent = refuseLinks
+            ? WalkDown(path, root, segments, refused, cancellationToken)
+            : OpenPath(path, Path.GetDirectoryName(fullPath)!);
         if (parent is null)
             return false;
         using (parent)
@@ -198,17 +207,15 @@ internal sealed class FolderDelete(FolderSystem system, Action<string>? opening,
                     return system.Classify(target.Error) == Failure.Gone ? false : throw Failed(path.ToString(), target.Error);
                 switch (target.Kind)
                 {
-                    case EntryKind.Missing:
-                        return false;
                     case EntryKind.Link when refuseLinks:
                         throw refused(string.Join('/', segments));
                     case EntryKind.Folder:
-                        DeleteContents(target.Handle!, fullPath, path.ToString());
+                        DeleteContents(target.Handle!, fullPath, path.ToString(), cancellationToken);
                         break;
                 }
                 // A link is removed as itself; a file put where the folder was is what the path names now.
                 var error = Remove(parent, name, target);
-                if (error != 0 && system.Classify(error) != Failure.Gone)
+                if (error != 0 && !IsGone(error, fullPath))
                     throw Failed(path.ToString(), error);
                 return true;
             }
@@ -217,12 +224,18 @@ internal sealed class FolderDelete(FolderSystem system, Action<string>? opening,
 
     // The folder that holds the target, reached from the root one folder at a time without following a link: null when
     // a folder on the way is gone or is not a folder.
-    private SafeHandle? WalkDown(ResolvedPath path, string root, IReadOnlyList<string> segments, Func<string, Exception> refused)
+    private SafeHandle? WalkDown(ResolvedPath path, string root, IReadOnlyList<string> segments,
+        Func<string, Exception> refused, CancellationToken cancellationToken)
     {
         // The root may itself be a link: it is opened by its path.
         var folder = OpenPath(path, root);
         for (var i = 0; folder is not null && i < segments.Count - 1; i++)
         {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                folder.Dispose();
+                cancellationToken.ThrowIfCancellationRequested();
+            }
             opening?.Invoke(Path.Join([root, .. segments.Take(i + 1)]));
             Entry entry;
             using (folder)
@@ -250,7 +263,8 @@ internal sealed class FolderDelete(FolderSystem system, Action<string>? opening,
     }
 
     // Empties the folder whose handle is 'folder' and whose path is 'fullPath' ('relative' under the root, for messages).
-    private void DeleteContents(SafeHandle folder, string fullPath, string relative)
+    private void DeleteContents(SafeHandle folder, string fullPath, string relative,
+        CancellationToken cancellationToken)
     {
         Exception? first = null;
         IEnumerator<string>? names = null;
@@ -258,7 +272,18 @@ internal sealed class FolderDelete(FolderSystem system, Action<string>? opening,
         {
             while (Next(fullPath, ref names, ref first))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var name = names.Current;
+                // A folder's own entries, which some file systems list as files (FUSE, NFS): opened in the folder, '..'
+                // would be its parent and '.' itself.
+                if (name is "." or "..")
+                    continue;
+                if (name.AsSpan().IndexOfAny(_separators) >= 0)
+                {
+                    first ??= new IOException(
+                        $"'{relative}' could not be emptied: its listing named '{name}', which is not the name of an entry.");
+                    continue;
+                }
                 var childPath = Path.Join(fullPath, name);
                 var childRelative = relative + "/" + name;
                 opening?.Invoke(childPath);
@@ -271,13 +296,11 @@ internal sealed class FolderDelete(FolderSystem system, Action<string>? opening,
                             first ??= Failed(childRelative, entry.Error);
                         continue;
                     }
-                    if (entry.Kind == EntryKind.Missing)
-                        continue;
                     if (entry.Kind == EntryKind.Folder)
                     {
                         try
                         {
-                            DeleteContents(entry.Handle!, childPath, childRelative);
+                            DeleteContents(entry.Handle!, childPath, childRelative, cancellationToken);
                         }
                         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
                         {
@@ -287,7 +310,7 @@ internal sealed class FolderDelete(FolderSystem system, Action<string>? opening,
                         }
                     }
                     var error = Remove(folder, name, entry);
-                    if (error != 0 && system.Classify(error) != Failure.Gone)
+                    if (error != 0 && !IsGone(error, childPath))
                         first ??= Failed(childRelative, error);
                 }
             }
@@ -301,21 +324,32 @@ internal sealed class FolderDelete(FolderSystem system, Action<string>? opening,
     }
 
     // The next name of the folder, listed by its path as the walk goes: false at the end, or when the listing fails,
-    // which is recorded.
+    // which is recorded, but for a folder gone since it was opened, whose removal then finds nothing to do.
     private bool Next(string fullPath, [NotNullWhen(true)] ref IEnumerator<string>? names, ref Exception? first)
     {
         try
         {
-            names ??= new FileSystemEnumerable<string>(system.ListingPath(fullPath), (ref FileSystemEntry entry) => entry.FileName.ToString(), _listing).GetEnumerator();
+            names ??= system.List(fullPath);
             return names.MoveNext();
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            // The folder could not be listed, or no longer can: what is left of it fails its own removal.
-            first ??= e;
+            if (e is not DirectoryNotFoundException || names is not null)
+                first ??= e;
             return false;
         }
     }
+
+    // Whether a removal failed because the entry is gone: as the system says, or, where it answers that the access is
+    // refused (Windows, for a folder another process deleted while this one held it), because nothing has the name any
+    // more. Only the answer depends on it, never what is deleted.
+    private bool IsGone(int error, string fullPath) =>
+        system.Classify(error) switch
+        {
+            Failure.Gone => true,
+            Failure.Refused => (int)new FileInfo(fullPath).Attributes == -1,
+            _ => false,
+        };
 
     private int Remove(SafeHandle folder, string name, Entry entry)
     {

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Microsoft.Win32.SafeHandles;
 
 namespace WriteableFileProviders.Physical.Tests;
 
@@ -11,7 +12,7 @@ namespace WriteableFileProviders.Physical.Tests;
 /// rules each system's answers are read by, and the delete by path where the system is not known.
 /// </summary>
 [TestClass]
-public sealed class PhysicalFolderDeleteTests
+public sealed partial class PhysicalFolderDeleteTests
 {
     private string _base = "";
     private string _root = "";
@@ -209,6 +210,24 @@ public sealed class PhysicalFolderDeleteTests
     }
 
     [TestMethod]
+    public async Task ASubfolderGoneBetweenItsOpenAndItsListing_IsSkipped()
+    {
+        Write("x", "dir", "sub", "x.txt");
+        Write("y", "dir", "y.txt");
+        var folders = new ScriptedFolders(FolderSystem.Current!)
+        {
+            AfterOpen = name =>
+            {
+                if (name == "sub")
+                    Directory.Delete(Disk("dir", "sub"), recursive: true);
+            },
+        };
+        using var provider = new WriteablePhysicalFileProvider(_root) { Folders = folders };
+        Assert.IsTrue(await provider.DeleteAsync("dir"));
+        Assert.IsFalse(Path.Exists(Disk("dir")));
+    }
+
+    [TestMethod]
     public async Task ATargetGoneBeforeItIsOpened_DeletesNothing()
     {
         Write("x", "dir", "x.txt");
@@ -218,6 +237,36 @@ public sealed class PhysicalFolderDeleteTests
                 Directory.Delete(path, recursive: true);
         });
         Assert.IsFalse(await provider.DeleteAsync("dir"));
+    }
+
+    [TestMethod]
+    public async Task ACancelledDelete_StopsBetweenEntries()
+    {
+        Write("x", "dir", "a.txt");
+        Write("y", "dir", "b.txt");
+        using var cancel = new CancellationTokenSource();
+        using var provider = Provider(opening: path =>
+        {
+            if (path.StartsWith(Disk("dir") + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+                cancel.Cancel();
+        });
+        await Assert.ThrowsAsync<OperationCanceledException>(() => provider.DeleteAsync("dir", cancel.Token));
+        Assert.IsTrue(Directory.Exists(Disk("dir")), "Stopped before the folder itself");
+        Assert.AreEqual(1, Directory.GetFiles(Disk("dir")).Length, "One entry deleted, then the delete stopped");
+    }
+
+    [TestMethod]
+    public async Task WithRefuseLinks_ACancelledDelete_StopsOnTheWay()
+    {
+        Write("x", "a", "b", "c", "x.txt");
+        using var cancel = new CancellationTokenSource();
+        using var provider = Provider(refuseLinks: true, opening: path =>
+        {
+            if (path == Disk("a"))
+                cancel.Cancel();
+        });
+        await Assert.ThrowsAsync<OperationCanceledException>(() => provider.DeleteAsync("a/b/c", cancel.Token));
+        Assert.IsTrue(File.Exists(Disk("a", "b", "c", "x.txt")));
     }
 
     // ----- Links that were there -----
@@ -342,6 +391,36 @@ public sealed class PhysicalFolderDeleteTests
         }
     }
 
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    [SupportedOSPlatform("windows")]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task OnWindows_FoldersOnTheWayHeldOpenWithoutDeleteSharing_DoNotStopTheDelete(bool refuseLinks)
+    {
+        // As a shell holds its current folder: the folder that holds the target, and the root on the way, are opened
+        // elsewhere with read and write shared, delete not. Only what the delete removes is opened to be deleted.
+        Write("x", "a", "b", "x.txt");
+        using var parent = HoldFolder(Disk("a"));
+        using var root = HoldFolder(_root);
+        using var provider = Provider(refuseLinks);
+        Assert.IsTrue(await provider.DeleteAsync("a/b"));
+        Assert.IsFalse(Path.Exists(Disk("a", "b")));
+    }
+
+    // A folder held open with read and write shared, delete not.
+    [SupportedOSPlatform("windows")]
+    private static SafeFileHandle HoldFolder(string path)
+    {
+        const uint listDirectory = 0x1, synchronize = 0x100000, shareReadWrite = 0x3, openExisting = 3, backupSemantics = 0x02000000;
+        var handle = CreateFile(path, listDirectory | synchronize, shareReadWrite, 0, openExisting, backupSemantics, 0);
+        Assert.IsFalse(handle.IsInvalid, $"The folder is held ({Marshal.GetLastPInvokeError()})");
+        return handle;
+    }
+
+    [LibraryImport("kernel32.dll", EntryPoint = "CreateFileW", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
+    private static partial SafeFileHandle CreateFile(string name, uint access, uint share, nint security, uint disposition, uint flags, nint template);
+
     // ----- The other ways a folder is deleted -----
 
     [TestMethod]
@@ -442,10 +521,42 @@ public sealed class PhysicalFolderDeleteTests
     public async Task AFolderThatCannotBeListed_FailsTheDelete()
     {
         Write("x", "dir", "x.txt");
-        var folders = new ScriptedFolders(FolderSystem.Current!) { ListsNothing = true };
+        var folders = new ScriptedFolders(FolderSystem.Current!) { Listing = _ => throw new UnauthorizedAccessException("The folder may not be listed.") };
         using var provider = new WriteablePhysicalFileProvider(_root) { Folders = folders };
-        await Assert.ThrowsExactlyAsync<DirectoryNotFoundException>(() => provider.DeleteAsync("dir"));
+        var e = await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(() => provider.DeleteAsync("dir"));
+        Assert.AreEqual("The folder may not be listed.", e.Message);
         Assert.IsTrue(File.Exists(Disk("dir", "x.txt")));
+    }
+
+    [TestMethod]
+    public async Task AListingThatNamesTheFolderItselfOrItsParent_NeverLeavesTheFolder()
+    {
+        // Some file systems (FUSE, NFS) list '.' and '..' as files, which .NET then reports: opened in the folder, '..'
+        // would be its parent and '.' the folder again.
+        Write("x", "dir", "x.txt");
+        Write("sibling", "sibling.txt");
+        var folders = new ScriptedFolders(FolderSystem.Current!)
+        {
+            Listing = path => path == Disk("dir") ? [".", "..", "x.txt"] : [],
+        };
+        using var provider = new WriteablePhysicalFileProvider(_root) { Folders = folders };
+        Assert.IsTrue(await provider.DeleteAsync("dir"));
+        Assert.IsFalse(Path.Exists(Disk("dir")));
+        Assert.AreEqual("sibling", File.ReadAllText(Disk("sibling.txt")), "The parent was not emptied");
+    }
+
+    [TestMethod]
+    public async Task AListedNameHoldingASeparator_IsRefused()
+    {
+        Write("x", "dir", "sub", "x.txt");
+        var folders = new ScriptedFolders(FolderSystem.Current!)
+        {
+            Listing = path => path == Disk("dir") ? ["sub/x.txt"] : [],
+        };
+        using var provider = new WriteablePhysicalFileProvider(_root) { Folders = folders };
+        var e = await Assert.ThrowsExactlyAsync<IOException>(() => provider.DeleteAsync("dir"));
+        StringAssert.Contains(e.Message, "'sub/x.txt'");
+        Assert.IsTrue(File.Exists(Disk("dir", "sub", "x.txt")));
     }
 
     [TestMethod]
@@ -519,13 +630,11 @@ public sealed class PhysicalFolderDeleteTests
         Assert.AreEqual(0x200000 | 0x10000 | 0x80000 | 0x20000, UnixTable.Linux.OpenEntry);
         Assert.AreEqual(0x200000 | 0x4000 | 0x80000 | 0x8000, UnixTable.LinuxArm.OpenEntry);
         Assert.AreEqual(0x100000 | 0x1000000 | 0x100, UnixTable.MacOS.OpenEntry);
-        Assert.AreEqual(Failure.Gone, UnixTable.Linux.Classify(UnixTable.NoEntry));
-        Assert.AreEqual(Failure.Gone, UnixTable.Linux.Classify(UnixTable.NotADirectory));
-        Assert.AreEqual(Failure.Refused, UnixTable.Linux.Classify(UnixTable.AccessDenied));
-        Assert.AreEqual(Failure.Refused, UnixTable.MacOS.Classify(UnixTable.NotPermitted));
-        Assert.AreEqual(Failure.NotEmpty, UnixTable.Linux.Classify(39));
-        Assert.AreEqual(Failure.NotEmpty, UnixTable.MacOS.Classify(66));
-        Assert.AreEqual(Failure.Other, UnixTable.MacOS.Classify(39), "39 is another error on macOS");
+        Assert.AreEqual(Failure.Gone, UnixTable.Classify(UnixTable.NoEntry));
+        Assert.AreEqual(Failure.Gone, UnixTable.Classify(UnixTable.NotADirectory));
+        Assert.AreEqual(Failure.Refused, UnixTable.Classify(UnixTable.AccessDenied));
+        Assert.AreEqual(Failure.Refused, UnixTable.Classify(UnixTable.NotPermitted));
+        Assert.AreEqual(Failure.Other, UnixTable.Classify(39), "A folder not empty, on Linux");
     }
 
     [TestMethod]
@@ -542,7 +651,7 @@ public sealed class PhysicalFolderDeleteTests
         Assert.AreEqual(Failure.Gone, WindowsRules.Classify(WindowsRules.FileNotFound));
         Assert.AreEqual(Failure.Gone, WindowsRules.Classify(WindowsRules.PathNotFound));
         Assert.AreEqual(Failure.Refused, WindowsRules.Classify(WindowsRules.AccessDenied));
-        Assert.AreEqual(Failure.NotEmpty, WindowsRules.Classify(WindowsRules.DirectoryNotEmpty));
+        Assert.AreEqual(Failure.Other, WindowsRules.Classify(WindowsRules.DirectoryNotEmpty));
         Assert.AreEqual(Failure.Other, WindowsRules.Classify(32));
         Assert.IsTrue(WindowsRules.FallsBack(WindowsRules.InvalidParameter));
         Assert.IsFalse(WindowsRules.FallsBack(WindowsRules.AccessDenied));
@@ -567,7 +676,9 @@ public sealed class PhysicalFolderDeleteTests
 
         public int? OpenPathError { get; init; }
 
-        public bool ListsNothing { get; init; }
+        public Func<string, IEnumerable<string>>? Listing { get; init; }
+
+        public Action<string>? AfterOpen { get; init; }
 
         public List<(string Name, bool Classic)> Removed { get; } = [];
 
@@ -581,8 +692,14 @@ public sealed class PhysicalFolderDeleteTests
             return system.OpenPath(path, out error);
         }
 
-        public override Entry Open(SafeHandle folder, string name, bool forRemoval) =>
-            OpenErrors.TryGetValue(name, out var error) ? Entry.Failed(error) : system.Open(folder, name, forRemoval);
+        public override Entry Open(SafeHandle folder, string name, bool forRemoval)
+        {
+            if (OpenErrors.TryGetValue(name, out var error))
+                return Entry.Failed(error);
+            var entry = system.Open(folder, name, forRemoval);
+            AfterOpen?.Invoke(name);
+            return entry;
+        }
 
         public override int Remove(SafeHandle folder, string name, Entry entry, bool classic)
         {
@@ -594,6 +711,8 @@ public sealed class PhysicalFolderDeleteTests
 
         public override bool FallsBack(int error) => WindowsRules.FallsBack(error);
 
-        public override string ListingPath(string path) => ListsNothing ? Path.Combine(path, "nowhere") : system.ListingPath(path);
+        public override string ListingPath(string path) => system.ListingPath(path);
+
+        public override IEnumerator<string> List(string path) => Listing is { } listing ? listing(path).GetEnumerator() : system.List(path);
     }
 }

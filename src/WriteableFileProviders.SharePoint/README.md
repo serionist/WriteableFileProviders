@@ -71,6 +71,8 @@ write access to the site. Building the provider sends nothing; the site and libr
 - **Writes** go through a local temp file, then up in one request up to 4 MiB, or an upload session in 5 MiB
   fragments. A fragment that hits a server or network error is sent once more. A failed write leaves the old content.
 - **Conditions aren't atomic.** `IfMatch` and `IfNotExists` are checked before the write and also sent to Graph.
+  Appends rewrite the file with `If-Match` on the version read, and after a concurrent write read it again and append
+  after it, up to five attempts in all.
 - **Content type** comes from the file name. `UpdateFileOptions.ContentType` is ignored.
 - **Lengths are real.** A file whose size Graph doesn't report costs one extra ranged request to measure.
 - **Copies** run on the server and are polled for about 10 minutes, then throw `IOException`; the copy may still

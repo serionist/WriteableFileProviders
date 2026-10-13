@@ -27,13 +27,27 @@ public sealed class PhysicalProviderTests
     // Runs the test on the way new names are taken on Windows (a rename that does not replace) or on Linux and macOS (a
     // hard link, or where the system has none, as on Windows, an exclusive create, then a rename), whichever system
     // runs it. With linkRefused, the system refuses the hard link (as a file system without them does), so Linux and
-    // macOS take the name the way they fall back to.
-    private void TakeNewNames(bool byRenameWithoutReplacing, bool linkRefused = false)
+    // macOS take the name the way they fall back to. 'tempCreated' is the provider's TempCreated hook.
+    private void TakeNewNames(bool byRenameWithoutReplacing, bool linkRefused = false, Action<string>? tempCreated = null)
     {
         _provider.Dispose();
         _provider = linkRefused
-            ? new WriteablePhysicalFileProvider(_root) { RenamesWithoutReplacing = byRenameWithoutReplacing, Link = (_, _) => 1 }
-            : new WriteablePhysicalFileProvider(_root) { RenamesWithoutReplacing = byRenameWithoutReplacing };
+            ? new WriteablePhysicalFileProvider(_root) { RenamesWithoutReplacing = byRenameWithoutReplacing, Link = (_, _) => 1, TempCreated = tempCreated }
+            : new WriteablePhysicalFileProvider(_root) { RenamesWithoutReplacing = byRenameWithoutReplacing, TempCreated = tempCreated };
+    }
+
+    // A hook that runs 'change' the first time only: another writer, once.
+    private static Action<string> Once(Action change)
+    {
+        var done = false;
+        return _ =>
+        {
+            if (!done)
+            {
+                done = true;
+                change();
+            }
+        };
     }
 
     // Whether the process can be refused access to its own files: not when it runs as root.
@@ -259,6 +273,10 @@ public sealed class PhysicalProviderTests
             var e = await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(() => Write("f.txt", "new"));
             StringAssert.Contains(e.Message, "'f.txt'");
             Assert.DoesNotContain(".wfp-", e.Message, "The message names the file, not the provider's temp file");
+            // An append's first file there is the copy of the caller's bytes.
+            var appended = await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(() => Write("f.txt", "+more", UpdateFileOptions.Append));
+            StringAssert.Contains(appended.Message, "'f.txt'");
+            Assert.DoesNotContain(".wfp-", appended.Message, "The message names the file, not the append's spool");
         }
         finally
         {
@@ -284,6 +302,10 @@ public sealed class PhysicalProviderTests
             var e = await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(() => Write("f.txt", "new"));
             StringAssert.Contains(e.Message, "'f.txt'");
             Assert.DoesNotContain(".wfp-", e.Message, "The message names the file, not the provider's temp file");
+            // An append's first file there is the copy of the caller's bytes.
+            var appended = await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(() => Write("f.txt", "+more", UpdateFileOptions.Append));
+            StringAssert.Contains(appended.Message, "'f.txt'");
+            Assert.DoesNotContain(".wfp-", appended.Message, "The message names the file, not the append's spool");
         }
         finally
         {
@@ -759,13 +781,15 @@ public sealed class PhysicalProviderTests
     }
 
     [TestMethod]
-    public async Task Append_FailsWhenTheFileChangesWhileItCopies()
+    public async Task Append_WhenTheFileChangesWhileItCopies_AppendsToTheNewVersion()
     {
-        // On Physical, the check before the rename catches a change made while the append reads, but is not atomic.
+        // On Physical, the check before the rename catches a change made while the append copies, but is not atomic; the
+        // append then reads the file again.
         await Write("f.txt", "start");
-        var contents = new InterceptingStream(Encoding.UTF8.GetBytes("+mine"), () => File.WriteAllText(Disk("f.txt"), "theirs"));
-        await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => _provider.UpdateFileAsync("f.txt", contents, UpdateFileOptions.Append));
-        Assert.AreEqual("theirs", await Read("f.txt"));
+        _provider.Dispose();
+        _provider = new WriteablePhysicalFileProvider(_root) { TempCreated = Once(() => File.WriteAllText(Disk("f.txt"), "theirs")) };
+        await Write("f.txt", "+mine", UpdateFileOptions.Append);
+        Assert.AreEqual("theirs+mine", await Read("f.txt"));
         Assert.IsEmpty(TempFiles());
     }
 
@@ -773,13 +797,245 @@ public sealed class PhysicalProviderTests
     [DataRow(true, false)]
     [DataRow(false, false)]
     [DataRow(false, true)]
-    public async Task Append_ToAMissingFileFailsWhenOneAppearsMeanwhile(bool byRenameWithoutReplacing, bool linkRefused)
+    public async Task Append_ToAMissingFile_AppendsToOneThatAppearsMeanwhile(bool byRenameWithoutReplacing, bool linkRefused)
     {
-        TakeNewNames(byRenameWithoutReplacing, linkRefused);
-        var contents = new InterceptingStream(Encoding.UTF8.GetBytes("mine"), () => File.WriteAllText(Disk("f.txt"), "theirs"));
-        await Assert.ThrowsExactlyAsync<FileAlreadyExistsException>(() => _provider.UpdateFileAsync("f.txt", contents, UpdateFileOptions.Append));
+        TakeNewNames(byRenameWithoutReplacing, linkRefused, Once(() => File.WriteAllText(Disk("f.txt"), "theirs")));
+        await Write("f.txt", "mine", UpdateFileOptions.Append);
+        Assert.AreEqual("theirsmine", await Read("f.txt"));
+        Assert.IsEmpty(TempFiles());
+    }
+
+    [TestMethod]
+    public async Task Append_ThatLosesANameTakenByAnExclusiveCreate_NeverAppendsToItsEmptyFile()
+    {
+        // Where links are refused, a name is taken with an empty file, which the winner's content is renamed onto
+        // afterwards: an append made to that empty file would be replaced. The winner (A) takes the name, then waits; the
+        // loser (B) must not read past A's empty file.
+        using var aHoldsTheName = new ManualResetEventSlim();
+        using var bIsDone = new ManualResetEventSlim();
+        using var a = new WriteablePhysicalFileProvider(_root)
+        {
+            RenamesWithoutReplacing = false,
+            Link = (_, _) => 1,
+            NameTaken = _ =>
+            {
+                aHoldsTheName.Set();
+                bIsDone.Wait(TimeSpan.FromSeconds(30));
+            },
+        };
+        Task? aWrites = null;
+        _provider.Dispose();
+        _provider = new WriteablePhysicalFileProvider(_root)
+        {
+            RenamesWithoutReplacing = false,
+            Link = (_, _) => 1,
+            TempCreated = Once(() =>
+            {
+                aWrites = Task.Run(() => a.UpdateFileAsync("f.txt", TestStreams.Text("first;"), UpdateFileOptions.Append));
+                Assert.IsTrue(aHoldsTheName.Wait(TimeSpan.FromSeconds(30)), "The other writer took the name");
+            }),
+        };
+        try
+        {
+            await Assert.ThrowsExactlyAsync<FileAlreadyExistsException>(() => Write("f.txt", "second;", UpdateFileOptions.Append));
+        }
+        finally
+        {
+            bIsDone.Set();
+        }
+        await aWrites!;
+        Assert.AreEqual("first;", await Read("f.txt"));
+        Assert.IsEmpty(TempFiles());
+    }
+
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task Append_ThatLosesANameToAnEmptyFile_ReadsPastIt_OnlyWhereNamesNeverHoldAnEmptyFile(bool byRenameWithoutReplacing)
+    {
+        // Windows takes a name with its content in it, so an empty file there is the other writer's own. Linux and macOS
+        // can't tell an empty file from one a rename is about to fill (a move's destination; the fallback without links).
+        TakeNewNames(byRenameWithoutReplacing, tempCreated: Once(() => File.WriteAllText(Disk("f.txt"), "")));
+        if (byRenameWithoutReplacing)
+        {
+            await Write("f.txt", "mine", UpdateFileOptions.Append);
+            Assert.AreEqual("mine", await Read("f.txt"));
+        }
+        else
+        {
+            await Assert.ThrowsExactlyAsync<FileAlreadyExistsException>(() => Write("f.txt", "mine", UpdateFileOptions.Append));
+            Assert.AreEqual("", await Read("f.txt"));
+        }
+        Assert.IsEmpty(TempFiles());
+    }
+
+    [TestMethod]
+    public async Task Append_ToAFileThatChangesEveryTime_ThrowsAfterFiveAttempts()
+    {
+        await Write("f.txt", "start");
+        var attempts = 0;
+        _provider.Dispose();
+        _provider = new WriteablePhysicalFileProvider(_root) { TempCreated = _ => File.WriteAllText(Disk("f.txt"), new string('x', ++attempts)) };
+        var e = await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => Write("f.txt", "+mine", UpdateFileOptions.Append));
+        Assert.AreEqual(5, attempts);
+        StringAssert.Contains(e.Message, "5 attempts");
+        Assert.IsInstanceOfType<PreconditionFailedException>(e.InnerException);
+        Assert.AreEqual("xxxxx", await Read("f.txt"), "Every other write is kept, and nothing of the append");
+        Assert.IsEmpty(TempFiles());
+    }
+
+    [TestMethod]
+    public async Task Append_WithTheCallersVersion_FailsAtTheFirstChange()
+    {
+        await Write("f.txt", "start");
+        var etag = (await _provider.GetFileInfoAsync("f.txt")).ETag;
+        var attempts = 0;
+        _provider.Dispose();
+        _provider = new WriteablePhysicalFileProvider(_root)
+        {
+            TempCreated = _ =>
+            {
+                attempts++;
+                File.WriteAllText(Disk("f.txt"), "theirs");
+            },
+        };
+        var e = await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => Write("f.txt", "+mine", UpdateFileOptions.Append with { IfMatch = etag }));
+        Assert.AreEqual(1, attempts);
+        Assert.DoesNotContain("attempts", e.Message);
         Assert.AreEqual("theirs", await Read("f.txt"));
         Assert.IsEmpty(TempFiles());
+    }
+
+    [TestMethod]
+    public async Task Append_WithTheCallersVersion_RefusesAChangeBetweenTheLookAndTheOpen()
+    {
+        await Write("f.txt", "start");
+        var etag = (await _provider.GetFileInfoAsync("f.txt")).ETag;
+        _provider.Dispose();
+        _provider = new WriteablePhysicalFileProvider(_root) { Probed = target => File.WriteAllText(target, "theirs") };
+        await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => Write("f.txt", "+mine", UpdateFileOptions.Append with { IfMatch = etag }));
+        Assert.AreEqual("theirs", await Read("f.txt"));
+        Assert.IsEmpty(TempFiles());
+    }
+
+    [TestMethod]
+    public async Task Append_WhoseStreamFails_EndsWithItsFailure()
+    {
+        // A pinned read of a file elsewhere throws the base type when that file changes: it is not this file's change.
+        await Write("f.txt", "start");
+        var contents = new InterceptingStream("+mine"u8.ToArray(), () => throw new PreconditionFailedException("The source changed."));
+        var e = await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => _provider.UpdateFileAsync("f.txt", contents, UpdateFileOptions.Append));
+        Assert.AreEqual("The source changed.", e.Message);
+        Assert.AreEqual("start", await Read("f.txt"));
+        Assert.IsEmpty(TempFiles());
+    }
+
+    [TestMethod]
+    public async Task Append_ToAFileDeletedBeforeItIsOpened_CreatesIt()
+    {
+        // The caller's stream is copied between the look at the path and the file's open: the file goes there.
+        await Write("f.txt", "old");
+        var contents = new InterceptingStream("mine"u8.ToArray(), () => File.Delete(Disk("f.txt")));
+        await _provider.UpdateFileAsync("f.txt", contents, UpdateFileOptions.Append);
+        Assert.AreEqual("mine", await Read("f.txt"));
+        Assert.IsEmpty(TempFiles());
+    }
+
+    [TestMethod]
+    [DataRow(true, false)]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    public async Task Append_ToAMissingFile_WhenAFolderTakesTheName_IsAFolder(bool byRenameWithoutReplacing, bool linkRefused)
+    {
+        // A folder is what a write without conditions finds there: the append ends, unretried.
+        if (!byRenameWithoutReplacing && OperatingSystem.IsWindows())
+            Assert.Inconclusive("Windows refuses an exclusive create over a folder as access denied; Linux and macOS, which take names this way, answer that the name exists.");
+        var attempts = 0;
+        TakeNewNames(byRenameWithoutReplacing, linkRefused, _ =>
+        {
+            attempts++;
+            Directory.CreateDirectory(Disk("f.txt"));
+        });
+        var e = await Assert.ThrowsExactlyAsync<IOException>(() => Write("f.txt", "mine", UpdateFileOptions.Append));
+        StringAssert.Contains(e.Message, "is a folder");
+        Assert.AreEqual(1, attempts);
+        Assert.IsTrue(Directory.Exists(Disk("f.txt")), "The folder is left as it was");
+        Assert.IsEmpty(TempFiles());
+    }
+
+    [TestMethod]
+    public async Task Append_RefusedBeforeItReadsTheStream_LeavesNoFolder()
+    {
+        await Assert.ThrowsExactlyAsync<PreconditionFailedException>(() => Write("new/f.txt", "x", UpdateFileOptions.Append with { IfMatch = "1-1" }));
+        Assert.IsFalse(Directory.Exists(Disk("new")), "The caller's stream is copied only once the append's refusals have passed");
+    }
+
+    [TestMethod]
+    public async Task Append_ToAFileDeletedAsItIsLookedAt_CreatesIt()
+    {
+        await Write("f.txt", "old");
+        _provider.Dispose();
+        _provider = new WriteablePhysicalFileProvider(_root) { Probed = Once(() => File.Delete(Disk("f.txt"))) };
+        await Write("f.txt", "mine", UpdateFileOptions.Append);
+        Assert.AreEqual("mine", await Read("f.txt"), "Created with the caller's bytes");
+        Assert.IsEmpty(TempFiles());
+    }
+
+    [TestMethod]
+    public async Task Append_AfterALostCreate_ChecksTheFileItFindsAndTakesItsMode()
+    {
+        // The second attempt looks at the path again: the file another writer made is the one it replaces.
+        TakeNewNames(byRenameWithoutReplacing: OperatingSystem.IsWindows(), tempCreated: Once(() =>
+        {
+            File.WriteAllText(Disk("f.txt"), "theirs");
+            if (!OperatingSystem.IsWindows())
+                File.SetUnixFileMode(Disk("f.txt"), UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }));
+        await Write("f.txt", "+mine", UpdateFileOptions.Append);
+        Assert.AreEqual("theirs+mine", await Read("f.txt"));
+        if (!OperatingSystem.IsWindows())
+            Assert.AreEqual(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(Disk("f.txt")), "The new file takes the bits of the one it replaces");
+    }
+
+    [TestMethod]
+    public async Task Append_SpoolsTheCallersBytesBesideTheFile_HiddenAndGoneAfterwards()
+    {
+        await Write("dir/f.txt", "old");
+        var spools = new List<string>();
+        var names = new List<string>();
+        _provider.Dispose();
+        _provider = new WriteablePhysicalFileProvider(_root)
+        {
+            TempCreated = temp =>
+            {
+                spools.AddRange(Directory.GetFiles(Path.GetDirectoryName(temp)!, ".wfp-*.tmp").Where(file => file != temp).Select(file => Path.GetFileName(file)));
+                names.AddRange(_provider.EnumerateAsync("dir").ToBlockingEnumerable().Select(entry => entry.Name));
+            },
+        };
+        await Write("dir/f.txt", "+more", UpdateFileOptions.Append);
+        Assert.HasCount(1, spools, "One spool, in the file's folder");
+        Assert.IsTrue(WriteablePhysicalFileProvider.IsTempFile(spools[0]), "Named as a write's temp file, which the sweep takes when a crash leaves it");
+        CollectionAssert.AreEqual(new[] { "f.txt" }, names, "Listings hide it");
+        Assert.IsEmpty(TempFiles(), "Gone once the append ends");
+        Assert.AreEqual("old+more", await Read("dir/f.txt"));
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Linux | OperatingSystems.OSX)]
+    [UnsupportedOSPlatform("windows")]
+    public async Task Append_CreatesItsSpoolReadableOnlyByItsUser()
+    {
+        await Write("f.txt", "old");
+        File.SetUnixFileMode(Disk("f.txt"), File.GetUnixFileMode(Disk("f.txt")) | UnixFileMode.GroupRead | UnixFileMode.OtherRead);
+        var modes = new List<UnixFileMode>();
+        _provider.Dispose();
+        _provider = new WriteablePhysicalFileProvider(_root)
+        {
+            TempCreated = temp => modes.AddRange(Directory.GetFiles(Path.GetDirectoryName(temp)!, ".wfp-*.tmp").Where(file => file != temp).Select(File.GetUnixFileMode)),
+        };
+        await Write("f.txt", "+more", UpdateFileOptions.Append);
+        Assert.HasCount(1, modes);
+        Assert.AreEqual(UnixFileMode.UserRead | UnixFileMode.UserWrite, modes[0], "Only the process's user may read the caller's bytes, whatever the file's mode");
     }
 
     [TestMethod]

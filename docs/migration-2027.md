@@ -239,7 +239,8 @@ Azure.Storage.Blobs moves from 12.23 to 12.30.
 | A URL lived as asked | Short-lived credentials need `AllowShorterValidity` | Use long-term keys, or set it. |
 | Any endpoint scheme | Plain `http` to a non-loopback host: `ArgumentException` | Use `https`, or set `AllowInsecureHttp`. |
 | Writes disposed your stream | Left open | Dispose it yourself. |
-| A racing append or move went through | `PreconditionFailedException` | Retry. |
+| A racing append lost a write | The append reads the file again and lands after the other write; `PreconditionFailedException` after five attempts (2027.1.1) | Nothing; retry the rare failure. |
+| A racing move went through | `PreconditionFailedException` | Retry. |
 
 - **`ReadFileAsync(versionId, "a", "b.txt")` still compiles**: it reads the path `<versionId>/a/b.txt`.
 - `AllowShorterValidity` is needed for a credential that expires first, a session token, or a client you pass in.
@@ -271,7 +272,7 @@ Azure.Storage.Blobs moves from 12.23 to 12.30.
 | `GetFileInfo` read one object | It also lists | Grant `storage.objects.list` (`roles/storage.objectViewer`). |
 | `ReadFile` returned a seekable temp file | A forward-only stream | Use `OpenReadSeekableAsync` or `ReadRangeAsync`. |
 | The SDK retried a failed copy | Not retried | Check the destination before you retry. |
-| A racing append lost a write | `PreconditionFailedException` | Retry. |
+| A racing append lost a write | The append reads the file again and lands after the other write; `PreconditionFailedException` after five attempts (2027.1.1) | Nothing; retry the rare failure. |
 | Writes disposed your stream | Left open | Dispose it yourself. |
 | Over 7 days: `ArgumentOutOfRangeException`; can't sign: `PlatformNotSupportedException` | `NotSupportedException` | Catch it, or use the gateway. |
 
@@ -325,7 +326,7 @@ now place files elsewhere:
 | Any Graph error read as "missing" | Only 404; 401, 403: `UnauthorizedAccessException`; else `IOException` | Catch those too. |
 | `ReadFile` returned a seekable temp file | A forward-only download | Use `OpenReadSeekableAsync` to seek. |
 | Writes rewound your stream, some disposed it | Read from its position, leave it open | Rewind and dispose it yourself. |
-| A racing append lost a write | `PreconditionFailedException` | Retry. |
+| A racing append lost a write | The append reads the file again and lands after the other write; `PreconditionFailedException` after five attempts (2027.1.1) | Nothing; retry the rare failure. |
 | `a%41` in a path reached the service as `aA` | Names `a%41` | Read 2026's files by the decoded name. |
 | Download URLs ignored the validity | 1 hour to 7 days, with `AllowShorterValidity` | Set it, or use the gateway. |
 

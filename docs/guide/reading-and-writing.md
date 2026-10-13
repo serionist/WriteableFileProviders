@@ -52,14 +52,22 @@ append and a local stream's commit keep the file's type.
 ## Append
 
 Where the store has no native append, the provider rewrites the file on condition that it is still the version it read.
-If another write landed in between, the append throws `PreconditionFailedException`: retry it. An append to a missing
-file that another writer creates at the same moment ends differently by provider: most refuse it with
-`FileAlreadyExistsException`, and Azure Blob appends after the new content. Where the store enforces `IfNotExists`,
-the other writer's content is kept either way ([providers compared](providers.md#reads-and-writes)).
+If another writer changed or created the file in between, or deleted it, the append reads it again and appends after
+what is there now, on every provider, as Azure Blob's native append does: up to five attempts in all, then
+`PreconditionFailedException`. With your own `IfMatch` or `IfNotExists`, the first conflict throws instead, since you
+asked for that version, or for no file at all.
 
 - The condition is atomic on Azure Blob, Google Cloud Storage and S3 on AWS.
-- Elsewhere it is checked, so a write that lands between the check and the rewrite can be lost.
+- Elsewhere it is checked, so a write that lands between the check and the rewrite can be lost
+  ([providers compared](providers.md#reads-and-writes)).
 - An append by rewrite needs the file's `ETag`; a file without one throws `NotSupportedException`.
+- A write whose answer was lost, and which the store's SDK sent again, can meet itself: the append then reads its own
+  write as another writer's and appends its bytes a second time, as a caller who retried by hand would.
+- On Windows, which doesn't rename over a file that is open, Physical can't replace a file another append is reading: of
+  two appends to one file at once, one can fail with `UnauthorizedAccessException`.
+- On Linux and macOS, Physical's append that loses a new name throws `FileAlreadyExistsException` while the file there is
+  still empty (a move's destination, a file system without hard links, or a file another writer left empty): it can't
+  tell such a file from one a rename is about to fill, which would undo an append made to it.
 
 ## Write only if unchanged, or only if absent
 

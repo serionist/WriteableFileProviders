@@ -43,10 +43,10 @@ whose condition fails. **Checked** means the provider compares just before writi
 `IfNotExists` that finds a file throws `FileAlreadyExistsException` on every provider. Only a file counts: where a
 folder has the name, the write gets the answer it gets without conditions.
 
-An append to a missing file that another writer creates at the same moment ends differently: Azure Blob appends after
-the new content, and every other provider refuses with `FileAlreadyExistsException`. Where the store enforces the
-condition (**Atomic** in the `IfNotExists` column), the other writer's content is kept either way; where it is only
-checked, a file created in between can be replaced.
+An append with no condition of yours that meets another writer's change or create reads the file again and appends
+after it, on every provider, up to five attempts in all. Where the store enforces the condition (**Atomic** in the
+`IfMatch` and `IfNotExists` columns), the other writer's content is kept; where it is only checked, a write that lands
+between the check and the rewrite can be replaced.
 
 Every provider reads byte ranges natively; Box and SharePoint read them from the file's download URL.
 

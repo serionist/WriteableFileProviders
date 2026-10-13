@@ -91,7 +91,8 @@ public interface IWriteableFileProvider : IFileProvider, IDisposable, IAsyncDisp
 
     /// <summary>
     /// Writes a file: overwrites or appends, atomically, so a write that fails leaves the old content. Missing parent
-    /// folders are created.
+    /// folders are created. An append with no condition that meets another writer's change, create or delete reads the
+    /// file again and appends after what is there now, up to five attempts in all.
     /// </summary>
     /// <param name="path">The file.</param>
     /// <param name="contents">
@@ -100,12 +101,12 @@ public interface IWriteableFileProvider : IFileProvider, IDisposable, IAsyncDisp
     /// <param name="options">How to write; overwrite with no conditions by default.</param>
     /// <param name="cancellationToken">Cancels the call.</param>
     /// <exception cref="FileAlreadyExistsException">
-    /// <see cref="UpdateFileOptions.IfNotExists"/> is set and a file is at the path; or, on a provider that refuses it,
-    /// an append to a missing file that another writer created meanwhile.
+    /// <see cref="UpdateFileOptions.IfNotExists"/> is set and a file is at the path; or, on Physical on Linux and macOS,
+    /// an append lost a new name to a file still empty.
     /// </exception>
     /// <exception cref="PreconditionFailedException">
-    /// <see cref="UpdateFileOptions.IfMatch"/> did not hold, an append found the file changed since it read it, or the
-    /// store reported a conflict with a concurrent operation and the write can be retried.
+    /// <see cref="UpdateFileOptions.IfMatch"/> did not hold, an append with no condition found the file changed on each
+    /// of its five attempts, or the store reported a conflict with a concurrent operation and the write can be retried.
     /// </exception>
     /// <exception cref="ArgumentException">Both <see cref="UpdateFileOptions.IfMatch"/> and <see cref="UpdateFileOptions.IfNotExists"/> are set.</exception>
     /// <exception cref="InvalidOperationException">The path is the provider root.</exception>

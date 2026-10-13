@@ -1,11 +1,11 @@
 namespace WriteableFileProviders;
 
 /// <summary>
-/// A write with <see cref="UpdateFileOptions.IfNotExists"/> found a file at its path; nothing was written. Most
-/// providers throw it too for an append to a missing file that another writer created meanwhile; Azure Blob appends
-/// after the new content instead. It is a <see cref="PreconditionFailedException"/>, so a <c>catch</c> of that type
-/// catches it. Not to be confused with <see cref="FileExistsException"/>, which a copy or a move throws when its
-/// destination exists.
+/// A write with <see cref="UpdateFileOptions.IfNotExists"/> found a file at its path; nothing was written. Physical on
+/// Linux and macOS also throws it for an append that lost a new name to a file still empty: Physical can't tell such a
+/// file from one a rename is about to fill, which would undo the append. It is a
+/// <see cref="PreconditionFailedException"/>, so a <c>catch</c> of that type catches it. Not to be confused with
+/// <see cref="FileExistsException"/>, which a copy or a move throws when its destination exists.
 /// </summary>
 public class FileAlreadyExistsException : PreconditionFailedException
 {

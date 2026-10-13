@@ -21,6 +21,15 @@ version's section as its GitHub release notes.
   while the file there is empty (a move's destination, a file system without hard links, or a file another writer left
   empty), since it can't tell such a file from one a rename is about to fill, which would undo the append; on Windows,
   one of two appends to one file at once can still fail with `UnauthorizedAccessException`.
+- **A Physical folder delete can no longer be steered outside the root** by a link swapped in while it runs: on Linux
+  (x64, Arm, Arm64), macOS and Windows it opens each entry in its folder without following a link and removes it there,
+  so a link inside the folder is removed as itself, and with `RefuseLinks` every folder on the way from the root is
+  opened the same way and a link swapped in there is refused. On Windows a folder holding a junction is now deleted
+  (before, `UnauthorizedAccessException`). A folder that still has entries after the delete (a file another process
+  holds open on a file system without POSIX deletes) throws `IOException`, where it returned true. On macOS the folder
+  that holds the deleted one, and with `RefuseLinks` every folder on the way, must be readable. On those systems the
+  delete can now be cancelled: it stops between entries, the folder partly deleted. Elsewhere (Linux on other
+  architectures, other systems) a folder is deleted by its path, as before.
 
 ## 2027.1.0 (2026-10-13)
 

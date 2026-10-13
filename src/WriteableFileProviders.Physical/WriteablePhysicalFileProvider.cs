@@ -95,6 +95,22 @@ namespace WriteableFileProviders.Physical;
 /// that died during a write left behind.
 /// </para>
 /// <para>
+/// <b>Deleting a folder</b> goes through handles: each entry is opened in its folder without following a link and
+/// removed there, so a link inside the folder, even one swapped in while the delete runs, is removed as itself and never
+/// gone into, and the delete never reaches outside the folder it opened. The folder that holds it is opened by its path,
+/// links followed, unless <see cref="PhysicalFileProviderOptions.RefuseLinks"/> is set: then every folder from the root
+/// down is opened the same way, and a link swapped in on the way is refused. The names come from listing each folder by
+/// its path, and each is only ever an entry of that folder (<c>.</c> and <c>..</c>, which some file systems list as
+/// files, are skipped), so a rename or a link swapped in meanwhile can only make the delete miss names, and fail. Like
+/// .NET's recursive delete, it goes on past an entry it cannot delete, skips one gone meanwhile and throws the first
+/// failure at the end; a folder that still has entries after it (a file another process holds open, on a file system
+/// without POSIX deletes) throws <see cref="IOException"/>. Cancelled, it stops between entries, the folder partly
+/// deleted. On Windows a folder holding a junction is deleted, the junction as itself. On macOS the folder that holds
+/// the deleted one, and with RefuseLinks every folder on the way, must be readable. This is how a folder is deleted on
+/// Linux on x64, Arm and Arm64, macOS and Windows; elsewhere it is deleted by its path, as .NET does, and a link swapped
+/// in while that runs can steer it elsewhere. A file is deleted by its path.
+/// </para>
+/// <para>
 /// <b>Access.</b> Where the operating system refuses the process access to a file or a folder that a member opens,
 /// lists, writes, moves or deletes, the member throws <see cref="UnauthorizedAccessException"/>, a read or a listing as
 /// well as a write. A path the system will not look up at all, such as one inside a folder the process may not enter,
@@ -225,6 +241,18 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
     // Called with the target each time a write has looked at it (a folder, a file there), before IsReplaceable opens it:
     // the tests change the file there.
     internal Action<string>? Probed { get; init; }
+
+    // How a folder is deleted: through handles, where the system and its flags are known (Linux on x64, Arm and Arm64,
+    // macOS, Windows), else by its path, as .NET does (null). Settable so the tests run the path delete and a fake system.
+    internal FolderSystem? Folders { get; init; } = FolderSystem.Current;
+
+    // Called with the full path of each entry a folder delete is about to open, the folders on the way included: the
+    // tests swap an entry for a link there.
+    internal Action<string>? Opening { get; init; }
+
+    // Whether a folder delete deletes each entry the classic way from the start, as it does where the file system
+    // refuses POSIX deletes (Windows): the tests run that way on NTFS, which never refuses them.
+    internal bool ClassicDeletes { get; init; }
 
     /// <summary>True on Windows and macOS, whose file systems match names without regard to case by default.</summary>
     protected override bool IsCaseInsensitive => IgnoresCase;
@@ -433,12 +461,22 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
         cancellationToken.ThrowIfCancellationRequested();
         var fullPath = FullPath(path);
         if (File.Exists(fullPath))
+        {
             File.Delete(fullPath);
-        else if (Directory.Exists(fullPath))
-            Directory.Delete(fullPath, recursive: true);
-        else
+            return Task.FromResult(true);
+        }
+        if (!Directory.Exists(fullPath))
             return Task.FromResult(false);
-        return Task.FromResult(true);
+        if (Folders is not { } folders)
+        {
+            Directory.Delete(fullPath, recursive: true);
+            return Task.FromResult(true);
+        }
+        // Through handles, so a link swapped in while the delete runs can never take it elsewhere.
+        var walk = new FolderDelete(folders, Opening, ClassicDeletes);
+        var deleted = walk.Delete(path, _root, path.RelativeSegments, _refuseLinks, link => RefusedLink(path, link),
+            cancellationToken);
+        return Task.FromResult(deleted);
     }
 
     /// <summary>Renames the file; the destination is taken atomically, so an existing one is never replaced.</summary>
@@ -730,7 +768,7 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
     private void RefuseLinksOn(ResolvedPath path)
     {
         if (LinkOnTheWay(path.RelativeSegments) is { } link)
-            throw new ArgumentException($"The path '{path}' goes through '{link}', a link, which this provider refuses (RefuseLinks).", nameof(path));
+            throw RefusedLink(path, link);
     }
 
     // The first entry on the way to these segments under the root that is a link, as its path under the root, or null.
@@ -1165,6 +1203,10 @@ public sealed class WriteablePhysicalFileProvider : WriteableFileProvider<Physic
 
         public ValueTask DisposeAsync() => _file?.DisposeAsync() ?? default;
     }
+
+    // A path that names or goes through 'link', its path under the root, with RefuseLinks.
+    private static ArgumentException RefusedLink(ResolvedPath path, string link) =>
+        new($"The path '{path}' goes through '{link}', a link, which this provider refuses (RefuseLinks).", nameof(path));
 
     private static FileAlreadyExistsException AlreadyExists(ResolvedPath path, Exception? innerException = null) =>
         new($"The file '{path}' already exists.", innerException);

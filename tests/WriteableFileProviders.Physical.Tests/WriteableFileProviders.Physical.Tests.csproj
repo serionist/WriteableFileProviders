@@ -1,5 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <PropertyGroup>
+    <!-- The code LibraryImport generates for the Windows call a test holds a folder open with is unsafe. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
   <ItemGroup>
     <None Remove="testsettings.json" />
     <!-- Optional, for the live suite only: PhysicalFileProvider_RootPath names the folder it runs in (testsettings.sample.json). It is git-ignored. -->

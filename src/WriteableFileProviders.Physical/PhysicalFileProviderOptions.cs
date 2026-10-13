@@ -46,9 +46,10 @@ public class PhysicalFileProviderOptions : FileProviderOptions
     /// </para>
     /// <para>
     /// The check looks at the path, one entry at a time from the root, just before each member acts, not atomically
-    /// with it: a process that can create links inside the root can still swap one in between. A recursive delete of a
-    /// folder checks the folder's own path, then goes into each subfolder by its path, so a link swapped in while it
-    /// runs can steer it into a folder elsewhere and delete what is there. On Linux and macOS, an entry on the way that
+    /// with it: a process that can create links inside the root can still swap one in between. A folder delete is the
+    /// exception where the system is known (Linux on x64, Arm and Arm64, macOS, Windows): it opens each folder on the way
+    /// from the root without following a link, so a link swapped in there is refused, and removes a link inside the
+    /// folder as itself, never going into it. On Linux and macOS, an entry on the way that
     /// the process may not look up ends the check, as the system then stops the member there too (a read finds nothing,
     /// a write is refused); on Windows, which can let a process through a folder it may not read, it throws
     /// <see cref="UnauthorizedAccessException"/>. <c>Watch</c> is unchanged: with the polling watcher, a change behind

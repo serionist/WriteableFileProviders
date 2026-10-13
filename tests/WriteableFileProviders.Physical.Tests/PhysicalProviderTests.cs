@@ -610,8 +610,10 @@ public sealed class PhysicalProviderTests
         Assert.IsNull(WriteablePhysicalFileProvider.PhysicalPathOf(Path.Combine(physicalFolder, "b0")));
         if (!OperatingSystem.IsWindows())
         {
-            Assert.AreEqual("x", File.ReadAllText(Path.Combine(physicalFolder, "a0")), "The kernel follows the limit's links,");
-            Assert.ThrowsExactly<IOException>(() => File.ReadAllText(Path.Combine(physicalFolder, "b0")), "and refuses one more");
+            var limit = Path.Combine(physicalFolder, "a0");
+            var past = Path.Combine(physicalFolder, "b0");
+            Assert.AreEqual("x", File.ReadAllText(limit), "The kernel follows the limit's links,");
+            Assert.ThrowsExactly<IOException>(() => File.ReadAllText(past), "and refuses one more");
         }
 
         // prefix0 -> prefix1 -> ... -> prefix(count - 1) -> file.txt: a path through count links.

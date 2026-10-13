@@ -1,9 +1,9 @@
 # The release: pushing a tag v<version> on main builds, tests with coverage and the coverage gate, and packs every
 # package at <version> (MinVer reads the tag), checks them, pushes them to nuget.org and creates the GitHub release with
 # the packages attached and the version's section of CHANGELOG.md as its notes. Nothing is pushed unless ci.yml
-# concluded success on the tagged commit, which covers what this workflow does not run (the Windows build and tests, and
-# Physical's tests on macOS and on Linux on Arm). A tag with a prerelease suffix (v2027.1.0-rc.1) makes a prerelease on
-# both. docs/releasing.md is the runbook.
+# concluded success on the tagged commit, which covers what this workflow does not run (the Windows build and tests, the
+# Native AOT app, and Physical's tests on macOS and on Linux on Arm64). A tag with a prerelease suffix (v2027.1.0-rc.1)
+# makes a prerelease on both. docs/releasing.md is the runbook.
 #
 # Setup: docs/releasing.md. No long-lived API key exists anywhere: NuGet/login trades the job's OIDC token for a key that
 # lives one hour.
@@ -109,8 +109,9 @@ jobs:
       actions: read
     steps:
       # ci.yml runs on every push to main, so the tagged commit has a run of its own: it must have concluded success,
-      # its Windows and Physical jobs included, before anything is pushed. A run still going (a tag pushed right after the merge) is
-      # waited for; a run that failed, or none at all, stops the release. Re-run this workflow once CI is green.
+      # its Windows, Native AOT and Physical jobs included, before anything is pushed. A run still going (a tag pushed
+      # right after the merge) is waited for; a run that failed, or none at all, stops the release. Re-run this workflow
+      # once CI is green.
       - name: Require a successful ci.yml run
         env:
           GH_TOKEN: ${{ github.token }}

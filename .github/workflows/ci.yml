@@ -2,7 +2,7 @@
 # containers through Testcontainers, which needs Docker: present on the Linux runner, where WFP_REQUIRE_DOCKER makes a
 # missing emulator fail the run instead of leaving its tests inconclusive. Live suites (TestCategory=Live) never run here.
 # The Native AOT job publishes tests/WriteableFileProviders.Aot with native AOT and runs it (its README says why). The
-# Physical jobs run the local disk provider's tests on macOS and on Linux on Arm, which the others don't reach.
+# Physical jobs run the local disk provider's tests on macOS and on Linux on Arm64, which the others don't reach.
 name: CI
 
 on:
@@ -170,7 +170,7 @@ jobs:
 
   physical:
     # Physical calls the C library itself, and its rules differ by system (case, names, links, permissions): its tests
-    # run where the jobs above don't, on macOS and on Linux on Arm.
+    # run where the jobs above don't, on macOS and on Linux on Arm64.
     name: Physical (${{ matrix.name }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20

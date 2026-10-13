@@ -589,13 +589,13 @@ public sealed class PhysicalProviderTests
         Assert.IsNull(WriteablePhysicalFileProvider.PhysicalPathOf(file + Path.DirectorySeparatorChar));
         Assert.IsNull(WriteablePhysicalFileProvider.PhysicalPathOf(Path.Combine(file, ".")));
         Assert.AreEqual(WriteablePhysicalFileProvider.PhysicalPathOf(folder), WriteablePhysicalFileProvider.PhysicalPathOf(folder + Path.DirectorySeparatorChar));
-        Assert.AreEqual(Path.Combine(Path.GetDirectoryName(physicalFile)!, "missing.txt"), WriteablePhysicalFileProvider.PhysicalPathOf(Path.Combine(folder, "missing.txt")));
-
-        // Chains of links: one through exactly the limit resolves, one link more does not (32 on macOS, 40 elsewhere). They
-        // are made in the folder as the kernel finds it, so that no link of its own path counts: on macOS the temp folder
-        // is under /var, a link to /private/var.
-        Assert.AreEqual(OperatingSystem.IsMacOS() ? 32 : 40, WriteablePhysicalFileProvider.MaxLinks);
+        // The folder as the kernel finds it: on macOS the temp folder is under /var, a link to /private/var.
         var physicalFolder = Path.GetDirectoryName(physicalFile)!;
+        Assert.AreEqual(Path.Combine(physicalFolder, "missing.txt"), WriteablePhysicalFileProvider.PhysicalPathOf(Path.Combine(folder, "missing.txt")));
+
+        // Chains of links: one through exactly the limit resolves, one link more does not (32 on macOS, 40 elsewhere),
+        // for the provider and for the kernel. They are made in that folder, so that no link of its own path counts.
+        Assert.AreEqual(OperatingSystem.IsMacOS() ? 32 : 40, WriteablePhysicalFileProvider.MaxLinks);
         try
         {
             Chain("a", WriteablePhysicalFileProvider.MaxLinks);
@@ -607,6 +607,11 @@ public sealed class PhysicalProviderTests
         Chain("b", WriteablePhysicalFileProvider.MaxLinks + 1);
         Assert.AreEqual(physicalFile, WriteablePhysicalFileProvider.PhysicalPathOf(Path.Combine(physicalFolder, "a0")));
         Assert.IsNull(WriteablePhysicalFileProvider.PhysicalPathOf(Path.Combine(physicalFolder, "b0")));
+        if (!OperatingSystem.IsWindows())
+        {
+            Assert.AreEqual("x", File.ReadAllText(Path.Combine(physicalFolder, "a0")), "The kernel follows the limit's links");
+            Assert.ThrowsExactly<IOException>(() => File.ReadAllText(Path.Combine(physicalFolder, "b0")), "and refuses one more (ELOOP)");
+        }
 
         // prefix0 -> prefix1 -> ... -> prefix(count - 1) -> file.txt: a path through count links.
         void Chain(string prefix, int count)

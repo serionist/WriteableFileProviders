@@ -80,14 +80,14 @@ Run everything from the repo root, with a .NET 10 SDK (`global.json`).
   Docker is available and a missing emulator fails the run (`WFP_REQUIRE_DOCKER=1`), and the build and tests on Windows.
   Its Native AOT job publishes `tests/WriteableFileProviders.Aot` with native AOT, which fails on any trim or AOT
   warning in the packages or the SDKs they call (but one, its README says which), and runs it on the local disk,
-  the gateway, Azurite, MinIO and the Graph fake. Its Physical jobs build and run Physical's tests on macOS and on Linux
-  on Arm64.
+  the gateway, Azurite, MinIO and the Graph fake. Its Physical jobs build and run Physical's tests on macOS and on
+  Linux on Arm64.
 - **Release:** a maintainer tags `v<version>` on `main`. `release.yml` builds, runs the tests with coverage and the
   coverage gate, packs, checks that every package has that version and depends on our other packages within its major
-  (`eng/package-check.cs`), and requires that `ci.yml` concluded success on the tagged commit (its Windows and Physical
-  jobs included);
-  then, once a maintainer approves the `nuget` environment, it pushes the packages to nuget.org through trusted
-  publishing and creates the GitHub release, with the version's section of `CHANGELOG.md` as its notes.
+  (`eng/package-check.cs`), and requires that `ci.yml` concluded success on the tagged commit (its Windows, Native AOT
+  and Physical jobs included); then, once a maintainer approves the `nuget` environment, it pushes the packages to
+  nuget.org through trusted publishing and creates the GitHub release, with the version's section of `CHANGELOG.md` as
+  its notes.
   [docs/releasing.md](docs/releasing.md) has the steps.
 
 ### Tests

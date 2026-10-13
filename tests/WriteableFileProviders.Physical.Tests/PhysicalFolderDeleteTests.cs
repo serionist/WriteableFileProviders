@@ -738,6 +738,8 @@ public sealed partial class PhysicalFolderDeleteTests
 
         public override bool FallsBack(int error) => WindowsRules.FallsBack(error);
 
+        public override string ListingPath(string path) => system.ListingPath(path);
+
         public override IEnumerator<string> List(string path) =>
             Listing?.Invoke(path) is { } names ? names.GetEnumerator() : system.List(path);
     }

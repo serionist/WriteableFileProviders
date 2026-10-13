@@ -849,6 +849,27 @@ public sealed class PhysicalProviderTests
     }
 
     [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task Append_ThatLosesANameToAnEmptyFile_ReadsPastIt_OnlyWhereNamesNeverHoldAnEmptyFile(bool byRenameWithoutReplacing)
+    {
+        // Windows takes a name with its content in it, so an empty file there is the other writer's own. Linux and macOS
+        // can't tell an empty file from one a rename is about to fill (a move's destination; the fallback without links).
+        TakeNewNames(byRenameWithoutReplacing, tempCreated: Once(() => File.WriteAllText(Disk("f.txt"), "")));
+        if (byRenameWithoutReplacing)
+        {
+            await Write("f.txt", "mine", UpdateFileOptions.Append);
+            Assert.AreEqual("mine", await Read("f.txt"));
+        }
+        else
+        {
+            await Assert.ThrowsExactlyAsync<FileAlreadyExistsException>(() => Write("f.txt", "mine", UpdateFileOptions.Append));
+            Assert.AreEqual("", await Read("f.txt"));
+        }
+        Assert.IsEmpty(TempFiles());
+    }
+
+    [TestMethod]
     public async Task Append_ToAFileThatChangesEveryTime_ThrowsAfterFiveAttempts()
     {
         await Write("f.txt", "start");

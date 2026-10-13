@@ -55,16 +55,16 @@ namespace WriteableFileProviders.Physical;
 /// the destination of a move or a copy never replace a file that is there; a write with
 /// <see cref="UpdateFileOptions.IfNotExists"/> that finds one throws <see cref="FileAlreadyExistsException"/>, an append
 /// appends after it, a move or a copy throws <see cref="FileExistsException"/>. Windows renames without replacing. On
-/// Linux and macOS a write or a copy gives its temp file the name as a second hard link, which
-/// fails when anything has the name, then drops the temp name: the name never holds a part of the file, and a process
-/// that dies in between leaves the file in place and a hidden temp name. Where the file system refuses hard links (FAT
-/// and exFAT, some network and FUSE file systems), and for the destination of a move, the name is taken with an
-/// exclusive create and the content renamed onto it, so the file exists empty for that moment: a watcher sees it, a
-/// process that dies there leaves an empty file, and another writer that appends to it then has its append replaced by
-/// that rename. On Linux and macOS, an append that loses a new name reads past the file that took it only once that file
-/// has content, so it never appends to such an empty file: while it is empty (a move's destination, a file system
-/// without hard links, or a file another writer left empty) it throws <see cref="FileAlreadyExistsException"/>. On a
-/// network file system that may answer a resent request again (NFS), a write can find its own new name taken and throw
+/// Linux and macOS a write or a copy gives its temp file the name as a second hard link, which fails when anything has
+/// the name, then drops the temp name: the name never holds a part of the file, and a process that dies in between
+/// leaves the file in place and a hidden temp name. Where the file system refuses hard links (FAT and exFAT, some
+/// network and FUSE file systems), and for the destination of a move, the name is taken with an exclusive create and the
+/// content renamed onto it, so the file exists empty for that moment: a watcher sees it, a process that dies there
+/// leaves an empty file, and another writer that appends to it then has its append replaced by that rename. On Linux
+/// and macOS, an append that loses a new name reads past the file that took it only once that file has content, so it
+/// never appends to such an empty file: while it is empty (a move's destination, a file system without hard links, or a
+/// file another writer left empty) it throws <see cref="FileAlreadyExistsException"/>. On a network file system that
+/// may answer a resent request again (NFS), a write can find its own new name taken and throw
 /// <see cref="FileAlreadyExistsException"/>, a copy <see cref="FileExistsException"/>, with its content in place; an
 /// append then appends its bytes a second time.
 /// </para>

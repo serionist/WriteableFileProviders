@@ -66,8 +66,8 @@ asked for that version, or for no file at all.
 - On Windows, which doesn't rename over a file that is open, Physical can't replace a file another append is reading: of
   two appends to one file at once, one can fail with `UnauthorizedAccessException`.
 - On Linux and macOS, Physical's append that loses a new name throws `FileAlreadyExistsException` while the file there is
-  still empty (a move's destination, a file system without hard links, or a file another writer left empty): the rename
-  that fills such a file would undo an append made to it.
+  still empty (a move's destination, a file system without hard links, or a file another writer left empty): it can't
+  tell such a file from one a rename is about to fill, which would undo an append made to it.
 
 ## Write only if unchanged, or only if absent
 

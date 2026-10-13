@@ -19,8 +19,8 @@ version's section as its GitHub release notes.
   second time, as a retry by hand would. Physical copies your stream to a hidden `.wfp-<guid>.tmp` beside the file
   first. On Linux and macOS, Physical still throws `FileAlreadyExistsException` for an append that loses a new name
   while the file there is empty (a move's destination, a file system without hard links, or a file another writer left
-  empty), since the rename that fills such a file would undo the append; on Windows, one of two appends to one file at
-  once can still fail with `UnauthorizedAccessException`.
+  empty), since it can't tell such a file from one a rename is about to fill, which would undo the append; on Windows,
+  one of two appends to one file at once can still fail with `UnauthorizedAccessException`.
 
 ## 2027.1.0 (2026-10-13)
 

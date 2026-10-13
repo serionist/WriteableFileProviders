@@ -8,12 +8,12 @@ acceptable.
 
 1. **Build and tests.** Is CI green on the PR's head commit (`AGENTS.md`, Build and test)? `ci.yml` builds the
    solution, runs every test outside the `Live` category on Linux, where Docker runs the emulator suites and a missing
-   emulator fails the run, and on Windows, then runs the coverage gate and packs, and its Native AOT job publishes
-   `tests/WriteableFileProviders.Aot` with native AOT and runs it; `codeql.yml` scans the code and the workflows. CI
-   never runs the live suites against real accounts: for a change to a provider, does the PR say whether its live
-   suite ran, and if it did not, why? For a PR from outside the maintainers, the answer comes from CI, never
-   from running its code on a maintainer's machine, so a live suite it needs runs only once the change is on `main`,
-   through `live.yml`, and the PR says so.
+   emulator fails the run, and on Windows, then runs the coverage gate and packs, its Native AOT job publishes
+   `tests/WriteableFileProviders.Aot` with native AOT and runs it, and its Physical jobs run Physical's tests on macOS
+   and on Linux on Arm64; `codeql.yml` scans the code and the workflows. CI never runs the live suites against real
+   accounts: for a change to a provider, does the PR say whether its live suite ran, and if it did not, why? For a PR
+   from outside the maintainers, the answer comes from CI, never from running its code on a maintainer's machine, so a
+   live suite it needs runs only once the change is on `main`, through `live.yml`, and the PR says so.
 2. **One-way doors.** Does the change leave the one-way doors in `AGENTS.md` alone, or does its PR name the one it
    changes and link the issue where the maintainers agreed?
 3. **Every provider.** Is a change to Common's contract or to shared behaviour made in all seven providers, tested on

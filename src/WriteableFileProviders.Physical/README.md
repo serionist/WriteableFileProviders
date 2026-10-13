@@ -55,11 +55,11 @@ None. The provider reads and writes with the permissions of the process.
   throws.
 - **An append copies the whole file**, so frequent appends to a large file (a log) are expensive. It first copies your
   stream to a hidden `.wfp-<guid>.tmp` beside the file (on Linux and macOS readable by the process's user only), so that
-  after a concurrent write it can read the file again and append after it, up to five attempts in all. Where the file
-  system has no hard links, an append that loses a new name to another writer still throws `FileAlreadyExistsException`
-  while that writer's file is empty. On Windows, which
-  doesn't rename over a file that is open, one of two appends to one file at once can fail with
-  `UnauthorizedAccessException`.
+  after a concurrent write it can read the file again and append after it, up to five attempts in all. On Linux and
+  macOS, an append that loses a new name to another writer still throws `FileAlreadyExistsException` while the file
+  there is empty (a move's destination, a file system without hard links, or a file another writer left empty): the
+  rename that fills it would undo the append. On Windows, which doesn't rename over a file that is open, one of two
+  appends to one file at once can fail with `UnauthorizedAccessException`.
 - **A write puts a new file at the path.** Other hard links keep the old content, and a symbolic link at the path
   becomes a file. On Windows the file takes the folder's permissions; on Linux and macOS, the old file's mode bits.
   ACLs and extended attributes are not kept.

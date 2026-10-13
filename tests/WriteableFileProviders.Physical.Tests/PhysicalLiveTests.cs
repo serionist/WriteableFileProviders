@@ -9,7 +9,9 @@ namespace WriteableFileProviders.Physical.Tests;
 /// <c>WFP_LIVE=1</c> it is inconclusive; with it, the folder comes from the <c>WFP_PHYSICAL_ROOT</c> environment
 /// variable, or <c>PhysicalFileProvider_RootPath</c> in an optional testsettings.json next to this project (see
 /// testsettings.sample.json), and without either every test fails. Each test works in a folder of its own under it and
-/// deletes it; the folder itself is left as it was.
+/// deletes it; the folder itself is left as it was. On Linux and macOS over a file system without hard links,
+/// <c>Write_AppendRaceToAMissingFileKeepsBoth</c> can fail by design: the append that loses the name meets the winner's
+/// file while it is still empty, and throws <see cref="FileAlreadyExistsException"/>.
 /// </summary>
 [TestClass]
 [TestCategory("Live")]

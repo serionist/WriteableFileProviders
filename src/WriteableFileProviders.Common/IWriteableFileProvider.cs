@@ -101,7 +101,8 @@ public interface IWriteableFileProvider : IFileProvider, IDisposable, IAsyncDisp
     /// <param name="options">How to write; overwrite with no conditions by default.</param>
     /// <param name="cancellationToken">Cancels the call.</param>
     /// <exception cref="FileAlreadyExistsException">
-    /// <see cref="UpdateFileOptions.IfNotExists"/> is set and a file is at the path.
+    /// <see cref="UpdateFileOptions.IfNotExists"/> is set and a file is at the path; or, on a provider whose new files
+    /// are empty for a moment (Physical on Linux and macOS), an append lost a new name to such a file.
     /// </exception>
     /// <exception cref="PreconditionFailedException">
     /// <see cref="UpdateFileOptions.IfMatch"/> did not hold, an append with no condition found the file changed on each

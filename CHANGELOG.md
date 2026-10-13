@@ -17,7 +17,10 @@ version's section as its GitHub release notes.
   file created meanwhile. With your own `IfMatch` or `IfNotExists` the first conflict still throws. Where a store's
   answer to a write is lost and its SDK sends the write again, the append can meet its own write and append its bytes a
   second time, as a retry by hand would. Physical copies your stream to a hidden `.wfp-<guid>.tmp` beside the file
-  first; on Windows, one of two appends to one file at once can still fail with `UnauthorizedAccessException`.
+  first. On Linux and macOS, Physical still throws `FileAlreadyExistsException` for an append that loses a new name
+  while the file there is empty (a move's destination, a file system without hard links, or a file another writer left
+  empty), since the rename that fills such a file would undo the append; on Windows, one of two appends to one file at
+  once can still fail with `UnauthorizedAccessException`.
 
 ## 2027.1.0 (2026-10-13)
 

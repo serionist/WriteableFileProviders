@@ -19,6 +19,7 @@
 
   <ItemGroup>
     <PackageReference Include="Box.V2.Core" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" VersionOverride="10.0.13" />
   </ItemGroup>
 
   <ItemGroup>

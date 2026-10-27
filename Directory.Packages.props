@@ -17,7 +17,7 @@
   </ItemGroup>
 
   <ItemGroup Label="Provider SDKs">
-    <PackageVersion Include="AWSSDK.S3" Version="4.0.104.2" />
+    <PackageVersion Include="AWSSDK.S3" Version="4.0.104.5" />
     <!-- Shared by AzureBlob and SharePoint. Since 1.21.0 its types live in Azure.Core and the package forwards them; a
          reference keeps a consumer's own Azure.Identity at 1.21.0 or later, so the types are never defined twice. -->
     <PackageVersion Include="Azure.Identity" Version="1.21.0" />

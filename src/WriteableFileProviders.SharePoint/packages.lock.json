@@ -13,9 +13,9 @@
       },
       "Microsoft.Graph": {
         "type": "Direct",
-        "requested": "[6.8.0, )",
-        "resolved": "6.8.0",
-        "contentHash": "CBU0bRVkiYy8TLiGmGbIUTENCfPnXF+59FCZKCOATS+uN4RmoH350/2chiZheaWUWk22v7rOoWZaJWW4Qtbn7Q==",
+        "requested": "[6.10.0, )",
+        "resolved": "6.10.0",
+        "contentHash": "hmSO3zNrzc3poitbCDnWOC4vP3z6f2nianaZEscX+/ItVlmxEzIbZ9dDLJ79MTfc5+4hoQT5rbX7FpZW9GNN0g==",
         "dependencies": {
           "Microsoft.Graph.Core": "4.0.1"
         }

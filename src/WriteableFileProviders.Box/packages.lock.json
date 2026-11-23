@@ -4,9 +4,9 @@
     "net10.0": {
       "Box.V2.Core": {
         "type": "Direct",
-        "requested": "[10.19.0, )",
-        "resolved": "10.19.0",
-        "contentHash": "1nHdvUsYG3uAHdgQp3t6GJeV85ruujRvTF162NzvgPZcbxy8VxliX704fCZeF114ZX+P5WX5Xx4pzgSSOXDNbw==",
+        "requested": "[10.20.0, )",
+        "resolved": "10.20.0",
+        "contentHash": "uzXcUMeePm6kcTTNotl1hPCf5Vr8j31Hhjh2kUqJ7JXfn2aeNTAZToBrYkb2PY8/SJHhnxA5+DvkCL6L1PvoEQ==",
         "dependencies": {
           "BouncyCastle.Cryptography": "2.6.1",
           "Microsoft.Extensions.DependencyInjection": "8.0.1",
